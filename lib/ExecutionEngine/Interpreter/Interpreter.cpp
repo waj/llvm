@@ -20,7 +20,7 @@
 
 /// create - Create a new interpreter object.  This can never fail.
 ///
-ExecutionEngine *Interpreter::create(Module *M){
+ExecutionEngine *Interpreter::create(Module *M, bool TraceMode){
   bool isLittleEndian = false;
   switch (M->getEndianness()) {
   case Module::LittleEndian: isLittleEndian = true; break;
@@ -41,21 +41,23 @@ ExecutionEngine *Interpreter::create(Module *M){
     break;
   }
 
-  return new Interpreter(M, isLittleEndian, isLongPointer);
+  return new Interpreter(M, isLittleEndian, isLongPointer, TraceMode);
 }
 
 //===----------------------------------------------------------------------===//
 // Interpreter ctor - Initialize stuff
 //
-Interpreter::Interpreter(Module *M, bool isLittleEndian, bool isLongPointer)
-  : ExecutionEngine(M), ExitCode(0),
-    TD("lli", isLittleEndian, isLongPointer ? 8 : 4, isLongPointer ? 8 : 4,
-       isLongPointer ? 8 : 4) {
+Interpreter::Interpreter(Module *M, bool isLittleEndian, bool isLongPointer,
+                         bool TraceMode)
+  : ExecutionEngine(M), ExitCode(0), Trace(TraceMode),
+    CurFrame(-1), TD("lli", isLittleEndian, isLongPointer ? 8 : 4,
+                     isLongPointer ? 8 : 4, isLongPointer ? 8 : 4) {
 
   setTargetData(TD);
   // Initialize the "backend"
   initializeExecutionEngine();
   initializeExternalFunctions();
+  CW.setModule(M);  // Update Writer
   emitGlobals();
 }
 
@@ -82,11 +84,15 @@ GenericValue Interpreter::run(Function *F,
   // though.
   std::vector<GenericValue> ActualArgs;
   const unsigned ArgCount = F->getFunctionType()->getParamTypes().size();
-  for (unsigned i = 0; i < ArgCount; ++i)
+  for (unsigned i = 0; i < ArgCount; ++i) {
     ActualArgs.push_back (ArgValues[i]);
+  }
   
   // Set up the function call.
   callFunction(F, ActualArgs);
+
+  // Reset the current frame location to the top of stack
+  CurFrame = ECStack.size()-1;
 
   // Start executing the function.
   run();

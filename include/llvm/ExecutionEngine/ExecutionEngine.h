@@ -56,7 +56,8 @@ public:
   virtual GenericValue run(Function *F,
                            const std::vector<GenericValue> &ArgValues) = 0;
 
-  static ExecutionEngine *create(ModuleProvider *MP, bool ForceInterpreter);
+  static ExecutionEngine *create(ModuleProvider *MP, bool ForceInterpreter,
+                                 bool TraceMode);
 
   void addGlobalMapping(const Function *F, void *Addr) {
     void *&CurVal = GlobalAddress[(const GlobalValue*)F];

@@ -39,6 +39,8 @@ namespace {
   MainFunction("f", cl::desc("Function to execute"), cl::init("main"),
                cl::value_desc("function name"));
 
+  cl::opt<bool> TraceMode("trace", cl::desc("Enable Tracing"));
+
   cl::opt<bool> ForceInterpreter("force-interpreter",
                                  cl::desc("Force interpretation: disable JIT"),
                                  cl::init(false));
@@ -135,7 +137,7 @@ int main(int argc, char **argv, char * const *envp) {
   }
 
   ExecutionEngine *EE =
-    ExecutionEngine::create(MP, ForceInterpreter);
+    ExecutionEngine::create(MP, ForceInterpreter, TraceMode);
   assert(EE && "Couldn't create an ExecutionEngine, not even an interpreter?");
 
   // Add the module's name to the start of the vector of arguments to main().
