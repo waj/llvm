@@ -424,7 +424,7 @@ void IPModRef::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 
-void IPModRef::print(std::ostream &O, const Module*) const
+void IPModRef::print(std::ostream &O) const
 {
   O << "\nRESULTS OF INTERPROCEDURAL MOD/REF ANALYSIS:\n\n";
   

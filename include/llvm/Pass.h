@@ -87,8 +87,7 @@ public:
   /// runPass - Run this pass, returning true if a modification was made to the
   /// module argument.  This should be implemented by all concrete subclasses.
   ///
-  virtual bool runPass(Module &M) { return false; }
-  virtual bool runPass(BasicBlock&) { return false; }
+  virtual bool runPass(Module &M) = 0;
 
   /// print - Print out the internal state of the pass.  This is called by
   /// Analyze to print out the contents of an analysis.  Otherwise it is not
@@ -97,7 +96,8 @@ public:
   /// provide the Module* in case the analysis doesn't need it it can just be
   /// ignored.
   ///
-  virtual void print(std::ostream &O, const Module *M) const;
+  virtual void print(std::ostream &O, const Module *M) const { print(O); }
+  virtual void print(std::ostream &O) const;
   void dump() const; // dump - call print(std::cerr, 0);
 
 
@@ -217,8 +217,7 @@ public:
   /// being operated on.
   virtual bool runOnModule(Module &M) = 0;
 
-  virtual bool runPass(Module &M) { return runOnModule(M); }
-  virtual bool runPass(BasicBlock&) { return false; }
+  bool runPass(Module &M) { return runOnModule(M); }
 
   virtual void addToPassManager(PassManagerT<Module> *PM, AnalysisUsage &AU);
 };
@@ -340,8 +339,7 @@ struct BasicBlockPass : public FunctionPass {
   /// To run directly on the basic block, we initialize, runOnBasicBlock, then
   /// finalize.
   ///
-  virtual bool runPass(Module &M) { return false; }
-  virtual bool runPass(BasicBlock &BB);
+  bool runPass(BasicBlock &BB);
 
 private:
   friend class PassManagerT<Function>;

@@ -656,8 +656,7 @@ static bool setTypeName(const Type *T, char *NameStr) {
 // TypeContains - Returns true if Ty directly contains E in it.
 //
 static bool TypeContains(const Type *Ty, const Type *E) {
-  return std::find(Ty->subtype_begin(), Ty->subtype_end(), 
-                   E) != Ty->subtype_end();
+  return find(Ty->subtype_begin(), Ty->subtype_end(), E) != Ty->subtype_end();
 }
 
 namespace {
@@ -1319,8 +1318,6 @@ ConstVal : SIntType EINT64VAL {      // integral constants
     $$ = ConstantBool::False;
   }
   | FPType FPVAL {                   // Float & Double constants
-    if (!ConstantFP::isValueValidForType($1, $2))
-      ThrowException("Floating point constant invalid for type!!");
     $$ = ConstantFP::get($1, $2);
   };
 

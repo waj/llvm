@@ -222,7 +222,7 @@ void PgmDependenceGraph::printOutgoingSSADeps(Instruction& I,
 }
 
 
-void PgmDependenceGraph::print(std::ostream &O, const Module*) const
+void PgmDependenceGraph::print(std::ostream &O) const
 {
   MemoryDepAnalysis& graphSet = getAnalysis<MemoryDepAnalysis>();
 
