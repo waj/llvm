@@ -82,9 +82,6 @@ namespace {
                       const Value *V2, unsigned V2Size);
 
     ModRefResult getModRefInfo(CallSite CS, Value *P, unsigned Size);
-    ModRefResult getModRefInfo(CallSite CS1, CallSite CS2) {
-      return NoAA::getModRefInfo(CS1,CS2);
-    }
 
     /// hasNoModRefInfoForCalls - We can provide mod/ref information against
     /// non-escaping allocations.
@@ -410,18 +407,13 @@ BasicAliasAnalysis::alias(const Value *V1, unsigned V1Size,
           // the size of the argument... build an index vector that is equal to
           // the arguments provided, except substitute 0's for any variable
           // indexes we find...
-          if (cast<PointerType>(
-                BasePtr->getType())->getElementType()->isSized()) {
-            for (unsigned i = 0; i != GEPOperands.size(); ++i)
-              if (!isa<ConstantInt>(GEPOperands[i]))
-                GEPOperands[i] =
-                  Constant::getNullValue(GEPOperands[i]->getType());
-            int64_t Offset =
-              getTargetData().getIndexedOffset(BasePtr->getType(), GEPOperands);
-
-            if (Offset >= (int64_t)V2Size || Offset <= -(int64_t)V1Size)
-              return NoAlias;
-          }
+          for (unsigned i = 0; i != GEPOperands.size(); ++i)
+            if (!isa<ConstantInt>(GEPOperands[i]))
+              GEPOperands[i] =Constant::getNullValue(GEPOperands[i]->getType());
+          int64_t Offset = getTargetData().getIndexedOffset(BasePtr->getType(),
+                                                            GEPOperands);
+          if (Offset >= (int64_t)V2Size || Offset <= -(int64_t)V1Size)
+            return NoAlias;
         }
       }
     }
@@ -456,7 +448,7 @@ CheckGEPInstructions(const Type* BasePtr1Ty, std::vector<Value*> &GEP1Ops,
   if (BasePtr1Ty != BasePtr2Ty)
     return MayAlias;
 
-  const PointerType *GEPPointerTy = cast<PointerType>(BasePtr1Ty);
+  const Type *GEPPointerTy = BasePtr1Ty;
 
   // Find the (possibly empty) initial sequence of equal values... which are not
   // necessarily constants.
@@ -657,16 +649,14 @@ CheckGEPInstructions(const Type* BasePtr1Ty, std::vector<Value*> &GEP1Ops,
     }
   }
   
-  if (GEPPointerTy->getElementType()->isSized()) {
-    int64_t Offset1 = getTargetData().getIndexedOffset(GEPPointerTy, GEP1Ops);
-    int64_t Offset2 = getTargetData().getIndexedOffset(GEPPointerTy, GEP2Ops);
-    assert(Offset1<Offset2 && "There is at least one different constant here!");
+  int64_t Offset1 = getTargetData().getIndexedOffset(GEPPointerTy, GEP1Ops);
+  int64_t Offset2 = getTargetData().getIndexedOffset(GEPPointerTy, GEP2Ops);
+  assert(Offset1 < Offset2 &&"There is at least one different constant here!");
 
-    if ((uint64_t)(Offset2-Offset1) >= SizeMax) {
-      //std::cerr << "Determined that these two GEP's don't alias [" 
-      //          << SizeMax << " bytes]: \n" << *GEP1 << *GEP2;
-      return NoAlias;
-    }
+  if ((uint64_t)(Offset2-Offset1) >= SizeMax) {
+    //std::cerr << "Determined that these two GEP's don't alias [" 
+    //          << SizeMax << " bytes]: \n" << *GEP1 << *GEP2;
+    return NoAlias;
   }
   return MayAlias;
 }

@@ -85,6 +85,7 @@ GROFF      := @GROFF@
 GZIP       := @GZIP@
 POD2HTML   := @POD2HTML@
 POD2MAN    := @POD2MAN@
+PYTHON     := @PYTHON@
 RUNTEST    := @RUNTEST@
 TCLSH      := @TCLSH@
 ZIP        := @ZIP@

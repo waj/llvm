@@ -188,7 +188,5 @@ bool AliasAnalysis::canInstructionRangeModify(const Instruction &I1,
 // the risk of AliasAnalysis being used, but the default implementation not
 // being linked into the tool that uses it.
 //
-namespace llvm {
-  extern void BasicAAStub();
-}
+extern void llvm::BasicAAStub();
 static IncludeFile INCLUDE_BASICAA_CPP((void*)&BasicAAStub);

@@ -35,11 +35,14 @@ namespace {
 /// @brief A class for maintaining the slot number definition
 /// as a placeholder for the actual definition for forward constants defs.
 class ConstantPlaceHolder : public ConstantExpr {
+  unsigned ID;
   ConstantPlaceHolder();                       // DO NOT IMPLEMENT
   void operator=(const ConstantPlaceHolder &); // DO NOT IMPLEMENT
 public:
-  ConstantPlaceHolder(const Type *Ty) 
-    : ConstantExpr(Instruction::UserOp1, Constant::getNullValue(Ty), Ty) {}
+  ConstantPlaceHolder(const Type *Ty, unsigned id) 
+    : ConstantExpr(Instruction::UserOp1, Constant::getNullValue(Ty), Ty),
+    ID(id) {}
+  unsigned getID() { return ID; }
 };
 
 }
@@ -491,7 +494,8 @@ Constant* BytecodeReader::getConstantValue(unsigned TypeSlot, unsigned Slot) {
       error("Value for slot " + utostr(Slot) + 
             " is expected to be a constant!");
 
-  std::pair<unsigned, unsigned> Key(TypeSlot, Slot);
+  const Type *Ty = getType(TypeSlot);
+  std::pair<const Type*, unsigned> Key(Ty, Slot);
   ConstantRefsType::iterator I = ConstantFwdRefs.lower_bound(Key);
 
   if (I != ConstantFwdRefs.end() && I->first == Key) {
@@ -499,7 +503,7 @@ Constant* BytecodeReader::getConstantValue(unsigned TypeSlot, unsigned Slot) {
   } else {
     // Create a placeholder for the constant reference and
     // keep track of the fact that we have a forward ref to recycle it
-    Constant *C = new ConstantPlaceHolder(getType(TypeSlot));
+    Constant *C = new ConstantPlaceHolder(Ty, Slot);
     
     // Keep track of the fact that we have a forward ref to recycle it
     ConstantFwdRefs.insert(I, std::make_pair(Key, C));
@@ -1473,10 +1477,9 @@ Constant *BytecodeReader::ParseConstantValue(unsigned TypeID) {
 /// referenced constants in the ConstantFwdRefs map. It uses the 
 /// replaceAllUsesWith method of Value class to substitute the placeholder
 /// instance with the actual instance.
-void BytecodeReader::ResolveReferencesToConstant(Constant *NewV, unsigned Typ,
-                                                 unsigned Slot) {
+void BytecodeReader::ResolveReferencesToConstant(Constant *NewV, unsigned Slot){
   ConstantRefsType::iterator I =
-    ConstantFwdRefs.find(std::make_pair(Typ, Slot));
+    ConstantFwdRefs.find(std::make_pair(NewV->getType(), Slot));
   if (I == ConstantFwdRefs.end()) return;   // Never forward referenced?
 
   Value *PH = I->second;   // Get the placeholder...
@@ -1515,7 +1518,7 @@ void BytecodeReader::ParseStringConstants(unsigned NumEntries, ValueTable &Tab){
     // Create the constant, inserting it as needed.
     Constant *C = ConstantArray::get(ATy, Elements);
     unsigned Slot = insertValue(C, Typ, Tab);
-    ResolveReferencesToConstant(C, Typ, Slot);
+    ResolveReferencesToConstant(C, Slot);
     if (Handler) Handler->handleConstantString(cast<ConstantArray>(C));
   }
 }
@@ -1561,7 +1564,7 @@ void BytecodeReader::ParseConstantPool(ValueTable &Tab,
         if (&Tab != &ModuleValues && Typ < ModuleValues.size() &&
             ModuleValues[Typ])
           Slot += ModuleValues[Typ]->size();
-        ResolveReferencesToConstant(C, Typ, Slot);
+        ResolveReferencesToConstant(C, Slot);
       }
     }
   }
@@ -1569,12 +1572,14 @@ void BytecodeReader::ParseConstantPool(ValueTable &Tab,
   // After we have finished parsing the constant pool, we had better not have
   // any dangling references left.
   if (!ConstantFwdRefs.empty()) {
+  typedef std::map<std::pair<const Type*,unsigned>, Constant*> ConstantRefsType;
     ConstantRefsType::const_iterator I = ConstantFwdRefs.begin();
+    const Type* missingType = I->first.first;
     Constant* missingConst = I->second;
     error(utostr(ConstantFwdRefs.size()) + 
           " unresolved constant reference exist. First one is '" + 
           missingConst->getName() + "' of type '" + 
-          missingConst->getType()->getDescription() + "'.");
+          missingType->getDescription() + "'.");
   }
 
   checkPastBlockEnd("Constant Pool");
@@ -1685,13 +1690,39 @@ void BytecodeReader::ParseFunctionBody(Function* F) {
 
   // Resolve forward references.  Replace any uses of a forward reference value
   // with the real value.
+
+  // replaceAllUsesWith is very inefficient for instructions which have a LARGE
+  // number of operands.  PHI nodes often have forward references, and can also
+  // often have a very large number of operands.
+  //
+  // FIXME: REEVALUATE.  replaceAllUsesWith is _much_ faster now, and this code
+  // should be simplified back to using it!
+  //
+  std::map<Value*, Value*> ForwardRefMapping;
+  for (std::map<std::pair<unsigned,unsigned>, Value*>::iterator 
+         I = ForwardReferences.begin(), E = ForwardReferences.end();
+       I != E; ++I)
+    ForwardRefMapping[I->second] = getValue(I->first.first, I->first.second,
+                                            false);
+
+  for (Function::iterator BB = F->begin(), E = F->end(); BB != E; ++BB)
+    for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I)
+      for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
+        if (Value* V = I->getOperand(i))
+          if (Argument *A = dyn_cast<Argument>(V)) {
+            std::map<Value*, Value*>::iterator It = ForwardRefMapping.find(A);
+            if (It != ForwardRefMapping.end()) I->setOperand(i, It->second);
+          }
+
   while (!ForwardReferences.empty()) {
-    std::map<std::pair<unsigned,unsigned>, Value*>::iterator
-      I = ForwardReferences.begin();
-    Value *V = getValue(I->first.first, I->first.second, false);
+    std::map<std::pair<unsigned,unsigned>, Value*>::iterator I =
+      ForwardReferences.begin();
     Value *PlaceHolder = I->second;
-    PlaceHolder->replaceAllUsesWith(V);
     ForwardReferences.erase(I);
+
+    // Now that all the uses are gone, delete the placeholder...
+    // If we couldn't find a def (error case), then leak a little
+    // memory, because otherwise we can't remove all uses!
     delete PlaceHolder;
   }
 
