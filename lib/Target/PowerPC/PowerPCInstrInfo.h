@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef POWERPC_INSTRUCTIONINFO_H
-#define POWERPC_INSTRUCTIONINFO_H
+#ifndef POWERPCINSTRUCTIONINFO_H
+#define POWERPCINSTRUCTIONINFO_H
 
 #include "PowerPC.h"
 #include "PowerPCRegisterInfo.h"
@@ -20,7 +20,7 @@
 
 namespace llvm {
 
-namespace PPCII {
+namespace PPC32II {
 	enum {
 		ArgCountShift = 0,
 		ArgCountMask = 7,
@@ -64,9 +64,8 @@ namespace PPCII {
 
 class PowerPCInstrInfo : public TargetInstrInfo {
   const PowerPCRegisterInfo RI;
-  bool is64bit;
 public:
-  PowerPCInstrInfo(bool is64b);
+  PowerPCInstrInfo();
 
   /// getRegisterInfo - TargetInstrInfo is a superset of MRegister info.  As
   /// such, whenever a client has an instance of instruction info, it should
@@ -84,13 +83,13 @@ public:
 
   static unsigned invertPPCBranchOpcode(unsigned Opcode) {
     switch (Opcode) {
-    default: assert(0 && "Unknown PPC branch opcode!");
-    case PPC::BEQ: return PPC::BNE;
-    case PPC::BNE: return PPC::BEQ;
-    case PPC::BLT: return PPC::BGE;
-    case PPC::BGE: return PPC::BLT;
-    case PPC::BGT: return PPC::BLE;
-    case PPC::BLE: return PPC::BGT;
+    default: assert(0 && "Unknown PPC32 branch opcode!");
+    case PPC32::BEQ: return PPC32::BNE;
+    case PPC32::BNE: return PPC32::BEQ;
+    case PPC32::BLT: return PPC32::BGE;
+    case PPC32::BGE: return PPC32::BLT;
+    case PPC32::BGT: return PPC32::BLE;
+    case PPC32::BLE: return PPC32::BGT;
     } 
   }
 };

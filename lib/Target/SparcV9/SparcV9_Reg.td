@@ -1,4 +1,4 @@
-//===- SparcV9RegisterInfo.td - SparcV9 Register defs ------*- tablegen -*-===//
+//===- SparcV9_Reg.td - SparcV9 Register definitions ----------------------===//
 // 
 //                     The LLVM Compiler Infrastructure
 //

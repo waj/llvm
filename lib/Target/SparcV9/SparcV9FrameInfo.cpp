@@ -7,7 +7,9 @@
 // 
 //===----------------------------------------------------------------------===//
 // 
-// Interface to stack frame layout info for the UltraSPARC.
+// Interface to stack frame layout info for the UltraSPARC.  Starting offsets
+// for each area of the stack frame are aligned at a multiple of
+// getStackFrameSizeAlignment().
 // 
 //===----------------------------------------------------------------------===//
 
@@ -17,6 +19,12 @@
 #include "SparcV9FrameInfo.h"
 
 using namespace llvm;
+
+int
+SparcV9FrameInfo::getFirstAutomaticVarOffset(MachineFunction&, bool& pos) const {
+  pos = false;                          // static stack area grows downwards
+  return StaticAreaOffsetFromFP;
+}
 
 int
 SparcV9FrameInfo::getRegSpillAreaOffset(MachineFunction& mcInfo, bool& pos) const 
@@ -49,9 +57,9 @@ SparcV9FrameInfo::getDynamicAreaOffset(MachineFunction& mcInfo, bool& pos) const
   // dynamic-size alloca.
   pos = false;
   unsigned optArgsSize = mcInfo.getInfo()->getMaxOptionalArgsSize();
-  if (int extra = optArgsSize % 16)
-    optArgsSize += (16 - extra);
+  if (int extra = optArgsSize % getStackFrameSizeAlignment())
+    optArgsSize += (getStackFrameSizeAlignment() - extra);
   int offset = optArgsSize + FirstOptionalOutgoingArgOffsetFromSP;
-  assert((offset - OFFSET) % 16 == 0);
+  assert((offset - OFFSET) % getStackFrameSizeAlignment() == 0);
   return offset;
 }

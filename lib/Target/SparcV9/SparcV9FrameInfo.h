@@ -8,6 +8,8 @@
 //===----------------------------------------------------------------------===//
 //
 // Interface to stack frame layout info for the UltraSPARC.
+// Starting offsets for each area of the stack frame are aligned at
+// a multiple of getStackFrameSizeAlignment().
 //
 //----------------------------------------------------------------------------
 
@@ -26,6 +28,15 @@ public:
   SparcV9FrameInfo(const TargetMachine &TM)
     : TargetFrameInfo(StackGrowsDown, StackFrameSizeAlignment, 0), target(TM) {}
   
+public:
+  // These methods provide constant parameters of the frame layout.
+  // 
+  int  getStackFrameSizeAlignment() const { return StackFrameSizeAlignment;}
+  int  getMinStackFrameSize()       const { return MinStackFrameSize; }
+  int  getNumFixedOutgoingArgs()    const { return NumFixedOutgoingArgs; }
+  int  getSizeOfEachArgOnStack()    const { return SizeOfEachArgOnStack; }
+  bool argsOnStackHaveFixedSize()   const { return true; }
+
   // This method adjusts a stack offset to meet alignment rules of target.
   // The fixed OFFSET (0x7ff) must be subtracted and the result aligned.
   virtual int  adjustAlignment(int unalignedOffset, bool growUp,
@@ -37,26 +48,71 @@ public:
   // particular function.  The frame contents are obtained from the
   // MachineCodeInfoForMethod object for the given function.
   // 
-  int getFirstAutomaticVarOffset(MachineFunction& mcInfo, bool& growUp) const {
-    growUp = false;
-    return StaticAreaOffsetFromFP;
+  int getFirstIncomingArgOffset(MachineFunction& mcInfo, bool& growUp) const {
+    growUp = true;                         // arguments area grows upwards
+    return FirstIncomingArgOffsetFromFP;
   }
+  int getFirstOutgoingArgOffset(MachineFunction& mcInfo, bool& growUp) const {
+    growUp = true;                         // arguments area grows upwards
+    return FirstOutgoingArgOffsetFromSP;
+  }
+  int getFirstOptionalOutgoingArgOffset(MachineFunction& mcInfo,
+                                        bool& growUp) const {
+    growUp = true;                         // arguments area grows upwards
+    return FirstOptionalOutgoingArgOffsetFromSP;
+  }
+  
+  int getFirstAutomaticVarOffset(MachineFunction& mcInfo, bool& growUp) const;
   int getRegSpillAreaOffset(MachineFunction& mcInfo, bool& growUp) const;
   int getTmpAreaOffset(MachineFunction& mcInfo, bool& growUp) const;
   int getDynamicAreaOffset(MachineFunction& mcInfo, bool& growUp) const;
 
+  //
+  // These methods specify the base register used for each stack area
+  // (generally FP or SP)
+  // 
+  virtual int getIncomingArgBaseRegNum() const {
+    return (int) target.getRegInfo()->getFramePointer();
+  }
+  virtual int getOutgoingArgBaseRegNum() const {
+    return (int) target.getRegInfo()->getStackPointer();
+  }
+  virtual int getOptionalOutgoingArgBaseRegNum() const {
+    return (int) target.getRegInfo()->getStackPointer();
+  }
+  virtual int getAutomaticVarBaseRegNum() const {
+    return (int) target.getRegInfo()->getFramePointer();
+  }
+  virtual int getRegSpillAreaBaseRegNum() const {
+    return (int) target.getRegInfo()->getFramePointer();
+  }
+  virtual int getDynamicAreaBaseRegNum() const {
+    return (int) target.getRegInfo()->getStackPointer();
+  }
+
   virtual int getIncomingArgOffset(MachineFunction& mcInfo, 
                                    unsigned argNum) const {
-    unsigned relativeOffset = argNum * SizeOfEachArgOnStack;
-    int firstArg = FirstIncomingArgOffsetFromFP;
-    return firstArg + relativeOffset;
+    assert(argsOnStackHaveFixedSize()); 
+  
+    unsigned relativeOffset = argNum * getSizeOfEachArgOnStack();
+    bool growUp;                          // do args grow up or down
+    int firstArg = getFirstIncomingArgOffset(mcInfo, growUp);
+    return growUp ? firstArg + relativeOffset : firstArg - relativeOffset; 
   }
 
   virtual int getOutgoingArgOffset(MachineFunction& mcInfo,
 				   unsigned argNum) const {
-    return FirstOutgoingArgOffsetFromSP + argNum * SizeOfEachArgOnStack;
+    assert(argsOnStackHaveFixedSize()); 
+    //assert(((int) argNum - this->getNumFixedOutgoingArgs())
+    //     <= (int) mcInfo.getInfo()->getMaxOptionalNumArgs());
+    
+    unsigned relativeOffset = argNum * getSizeOfEachArgOnStack();
+    bool growUp;                          // do args grow up or down
+    int firstArg = getFirstOutgoingArgOffset(mcInfo, growUp);
+    return growUp ? firstArg + relativeOffset : firstArg - relativeOffset; 
   }
   
+private:
   /*----------------------------------------------------------------------
     This diagram shows the stack frame layout used by llc on SparcV9 V9.
     Note that only the location of automatic variables, spill area,
@@ -104,6 +160,7 @@ public:
   static const int OFFSET                                  = (int) 0x7ff;
   static const int StackFrameSizeAlignment                 =  16;
   static const int MinStackFrameSize                       = 176;
+  static const int NumFixedOutgoingArgs                    =   6;
   static const int SizeOfEachArgOnStack                    =   8;
   static const int FirstIncomingArgOffsetFromFP            = 128 + OFFSET;
   static const int FirstOptionalIncomingArgOffsetFromFP    = 176 + OFFSET;

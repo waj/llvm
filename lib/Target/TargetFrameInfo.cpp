@@ -21,6 +21,12 @@ using namespace llvm;
 // are Sparc specific.
 //===--------------------------------------------------------------------===//
 
+int TargetFrameInfo::getStackFrameSizeAlignment() const { abort(); }
+int TargetFrameInfo::getMinStackFrameSize() const { abort(); }
+int TargetFrameInfo::getNumFixedOutgoingArgs() const { abort(); }
+int TargetFrameInfo::getSizeOfEachArgOnStack() const { abort(); }
+bool TargetFrameInfo::argsOnStackHaveFixedSize() const { abort(); }
+
 // This method adjusts a stack offset to meet alignment rules of target.
 int 
 TargetFrameInfo::adjustAlignment(int unalignedOffset, bool growUp,
@@ -40,6 +46,18 @@ TargetFrameInfo::getOutgoingArgOffset(MachineFunction& mcInfo,
                                       unsigned argNum) const { abort(); }
 
 int
+TargetFrameInfo::getFirstIncomingArgOffset(MachineFunction& mcInfo,
+                                           bool& growUp) const { abort(); }
+
+int
+TargetFrameInfo::getFirstOutgoingArgOffset(MachineFunction& mcInfo,
+                                           bool& growUp) const { abort(); }
+
+int
+TargetFrameInfo::getFirstOptionalOutgoingArgOffset(MachineFunction&,
+                                                bool& growUp) const { abort(); }
+
+int
 TargetFrameInfo::getFirstAutomaticVarOffset(MachineFunction& mcInfo,
                                             bool& growUp) const { abort(); }
 
@@ -54,4 +72,15 @@ TargetFrameInfo::getTmpAreaOffset(MachineFunction& mcInfo, bool& growUp) const
 int 
 TargetFrameInfo::getDynamicAreaOffset(MachineFunction& mcInfo, bool& growUp)
   const { abort(); }
+
+//
+// These methods specify the base register used for each stack area
+// (generally FP or SP)
+// 
+int TargetFrameInfo::getIncomingArgBaseRegNum() const { abort(); }
+int TargetFrameInfo::getOutgoingArgBaseRegNum() const { abort(); }
+int TargetFrameInfo::getOptionalOutgoingArgBaseRegNum() const {abort();}
+int TargetFrameInfo::getAutomaticVarBaseRegNum() const { abort(); }
+int TargetFrameInfo::getRegSpillAreaBaseRegNum() const { abort(); }
+int TargetFrameInfo::getDynamicAreaBaseRegNum()  const { abort(); }
 

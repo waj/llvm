@@ -132,26 +132,25 @@ CodeGenInstruction::CodeGenInstruction(Record *R) : TheDef(R) {
   try {
     DagInit *DI = R->getValueAsDag("OperandList");
 
-    unsigned MIOperandNo = 0;
     for (unsigned i = 0, e = DI->getNumArgs(); i != e; ++i)
       if (DefInit *Arg = dynamic_cast<DefInit*>(DI->getArg(i))) {
         Record *Rec = Arg->getDef();
         MVT::ValueType Ty;
-        std::string PrintMethod = "printOperand";
-        unsigned NumOps = 1;
         if (Rec->isSubClassOf("RegisterClass"))
           Ty = getValueType(Rec->getValueAsDef("RegType"));
-        else if (Rec->isSubClassOf("Operand")) {
-          Ty = getValueType(Rec->getValueAsDef("Type"));
-          PrintMethod = Rec->getValueAsString("PrintMethod");
-          NumOps = Rec->getValueAsInt("NumMIOperands");
-        } else
+        else if (Rec->getName() == "i8imm")
+          Ty = MVT::i8;
+        else if (Rec->getName() == "i16imm")
+          Ty = MVT::i16;
+        else if (Rec->getName() == "i32imm")
+          Ty = MVT::i32;
+        else if (Rec->getName() == "i64imm")
+          Ty = MVT::i64;
+        else
           throw "Unknown operand class '" + Rec->getName() +
                 "' in instruction '" + R->getName() + "' instruction!";
         
-        OperandList.push_back(OperandInfo(Rec, Ty, DI->getArgName(i),
-                                          PrintMethod, MIOperandNo));
-        MIOperandNo += NumOps;
+        OperandList.push_back(OperandInfo(Rec, Ty, DI->getArgName(i)));
       } else {
         throw "Illegal operand for the '" + R->getName() + "' instruction!";
       }

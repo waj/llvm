@@ -14,26 +14,24 @@
 //===----------------------------------------------------------------------===//
 
 #include "CodeEmitterGen.h"
-#include "CodeGenTarget.h"
 #include "Record.h"
 #include "Support/Debug.h"
 using namespace llvm;
 
 void CodeEmitterGen::run(std::ostream &o) {
-  CodeGenTarget Target;
   std::vector<Record*> Insts = Records.getAllDerivedDefinitions("Instruction");
 
   EmitSourceFileHeader("Machine Code Emitter", o);
-  std::string Namespace = Insts[0]->getValueAsString("Namespace") + "::";
 
-  // Emit function declaration
-  o << "unsigned " << Target.getName() << "CodeEmitter::"
+  std::string Namespace = "V9::";
+  std::string ClassName = "SparcV9CodeEmitter::";
+
+  //const std::string &Namespace = Inst->getValue("Namespace")->getName();
+  o << "unsigned " << ClassName
     << "getBinaryCodeForInstr(MachineInstr &MI) {\n"
     << "  unsigned Value = 0;\n"
     << "  DEBUG(std::cerr << MI);\n"
     << "  switch (MI.getOpcode()) {\n";
-
-  // Emit a case statement for each opcode
   for (std::vector<Record*>::iterator I = Insts.begin(), E = Insts.end();
        I != E; ++I) {
     Record *R = *I;
@@ -179,12 +177,14 @@ void CodeEmitterGen::run(std::ostream &o) {
         // Scan through the field looking for bit initializers of the current
         // variable...
         for (int i = FieldInitializer->getNumBits()-1; i >= 0; --i) {
-          Init *I = FieldInitializer->getBit(i);
-          if (BitInit *BI = dynamic_cast<BitInit*>(I)) {
+          if (BitInit *BI = dynamic_cast<BitInit*>(FieldInitializer->getBit(i)))
+          {
             DEBUG(o << "      // bit init: f: " << f << ", i: " << i << "\n");
-          } else if (UnsetInit *UI = dynamic_cast<UnsetInit*>(I)) {
+          } else if (UnsetInit *UI =
+                     dynamic_cast<UnsetInit*>(FieldInitializer->getBit(i))) {
             DEBUG(o << "      // unset init: f: " << f << ", i: " << i << "\n");
-          } else if (VarBitInit *VBI = dynamic_cast<VarBitInit*>(I)) {
+          } else if (VarBitInit *VBI =
+                     dynamic_cast<VarBitInit*>(FieldInitializer->getBit(i))) {
             TypedInit *TI = VBI->getVariable();
             if (VarInit *VI = dynamic_cast<VarInit*>(TI)) {
               // If the bits of the field are laid out consecutively in the

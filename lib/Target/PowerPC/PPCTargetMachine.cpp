@@ -10,12 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PowerPC.h"
 #include "PowerPCTargetMachine.h"
-#include "PPC32TargetMachine.h"
-#include "PPC64TargetMachine.h"
-#include "PPC32JITInfo.h"
-#include "PPC64JITInfo.h"
+#include "PowerPC.h"
 #include "llvm/Module.h"
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
@@ -24,35 +20,13 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetMachineRegistry.h"
 #include "llvm/Transforms/Scalar.h"
-#include "Support/CommandLine.h"
 #include <iostream>
 using namespace llvm;
 
-namespace llvm {
-  cl::opt<bool> AIX("aix", 
-                    cl::desc("Generate AIX/xcoff instead of Darwin/MachO"), 
-                    cl::Hidden);
-}
-
 namespace {
-  const std::string PPC32 = "PowerPC/32bit";
-  const std::string PPC64 = "PowerPC/64bit";
-  
-  // Register the targets
-  RegisterTarget<PPC32TargetMachine> 
-  X("ppc32", "  PowerPC 32-bit (experimental)");
-  //RegisterTarget<PPC64TargetMachine> 
-  //Y("ppc64", "  PowerPC 64-bit (unimplemented)");
+  // Register the target.
+  RegisterTarget<PowerPCTargetMachine> X("powerpc", "  PowerPC (experimental)");
 }
-
-PowerPCTargetMachine::PowerPCTargetMachine(const std::string &name,
-                                           IntrinsicLowering *IL,
-                                           const TargetData &TD,
-                                           const TargetFrameInfo &TFI,
-                                           const PowerPCJITInfo &TJI,
-                                           bool is64b) 
-  : TargetMachine(name, IL, TD), InstrInfo(is64b), FrameInfo(TFI), JITInfo(TJI) 
-{}
 
 unsigned PowerPCTargetMachine::getJITMatchQuality() {
 #if defined(__POWERPC__) || defined (__ppc__) || defined(_POWER)
@@ -61,14 +35,32 @@ unsigned PowerPCTargetMachine::getJITMatchQuality() {
   return 0;
 #endif
 }
+  
+unsigned PowerPCTargetMachine::getModuleMatchQuality(const Module &M) {
+  if (M.getEndianness()  == Module::BigEndian &&
+      M.getPointerSize() == Module::Pointer32)
+    return 10;                                   // Direct match
+  else if (M.getEndianness() != Module::AnyEndianness ||
+           M.getPointerSize() != Module::AnyPointerSize)
+    return 0;                                    // Match for some other target
+
+  return getJITMatchQuality()/2;
+}
+
+
+/// PowerPCTargetMachine ctor - Create an ILP32 architecture model
+///
+PowerPCTargetMachine::PowerPCTargetMachine(const Module &M,
+                                           IntrinsicLowering *IL)
+  : TargetMachine("PowerPC", IL, false, 4, 4, 4, 4, 4, 4, 2, 1, 4),
+    FrameInfo(TargetFrameInfo::StackGrowsDown, 16, -4), JITInfo(*this) {
+}
 
 /// addPassesToEmitAssembly - Add passes to the specified pass manager
 /// to implement a static compiler for this target.
 ///
 bool PowerPCTargetMachine::addPassesToEmitAssembly(PassManager &PM,
                                                    std::ostream &Out) {
-  bool LP64 = (0 != dynamic_cast<PPC64TargetMachine *>(this));
-  
   // FIXME: Implement efficient support for garbage collection intrinsics.
   PM.add(createLowerGCPass());
 
@@ -83,10 +75,7 @@ bool PowerPCTargetMachine::addPassesToEmitAssembly(PassManager &PM,
   // Make sure that no unreachable blocks are instruction selected.
   PM.add(createUnreachableBlockEliminationPass());
 
-  if (LP64)
-    PM.add(createPPC64ISelSimple(*this));
-  else
-    PM.add(createPPC32ISelSimple(*this));
+  PM.add(createPPCSimpleInstructionSelector(*this));
 
   if (PrintMachineCode)
     PM.add(createMachineFunctionPrinterPass(&std::cerr));
@@ -96,22 +85,20 @@ bool PowerPCTargetMachine::addPassesToEmitAssembly(PassManager &PM,
   if (PrintMachineCode)
     PM.add(createMachineFunctionPrinterPass(&std::cerr));
 
-  // PowerPC-specific prolog/epilog code inserter to put the fills/spills in the
-  // right spots.
+  // I want a PowerPC specific prolog/epilog code inserter so I can put the 
+  // fills/spills in the right spots.
   PM.add(createPowerPCPEI());
   
   // Must run branch selection immediately preceding the printer
   PM.add(createPPCBranchSelectionPass());
-  
-  if (AIX)
-    PM.add(createPPC64AsmPrinter(Out, *this));
-  else
-    PM.add(createPPC32AsmPrinter(Out, *this));
-    
+  PM.add(createPPCCodePrinterPass(Out, *this));
   PM.add(createMachineCodeDeleter());
   return false;
 }
 
+/// addPassesToJITCompile - Add passes to the specified pass manager to
+/// implement a fast dynamic compiler for this target.
+///
 void PowerPCJITInfo::addPassesToJITCompile(FunctionPassManager &PM) {
   // FIXME: Implement efficient support for garbage collection intrinsics.
   PM.add(createLowerGCPass());
@@ -127,56 +114,7 @@ void PowerPCJITInfo::addPassesToJITCompile(FunctionPassManager &PM) {
   // Make sure that no unreachable blocks are instruction selected.
   PM.add(createUnreachableBlockEliminationPass());
 
-  PM.add(createPPC32ISelSimple(TM));
+  PM.add(createPPCSimpleInstructionSelector(TM));
   PM.add(createRegisterAllocator());
   PM.add(createPrologEpilogCodeInserter());
-}
-
-void PowerPCJITInfo::replaceMachineCodeForFunction(void *Old, void *New) {
-  assert(0 && "Cannot execute PowerPCJITInfo::replaceMachineCodeForFunction()");
-}
-
-void *PowerPCJITInfo::getJITStubForFunction(Function *F, 
-                                            MachineCodeEmitter &MCE) {
-  assert(0 && "Cannot execute PowerPCJITInfo::getJITStubForFunction()");
-  return 0;
-}
-
-/// PowerPCTargetMachine ctor - Create an ILP32 architecture model
-///
-PPC32TargetMachine::PPC32TargetMachine(const Module &M,
-                                               IntrinsicLowering *IL)
-  : PowerPCTargetMachine(PPC32, IL, 
-                         TargetData(PPC32,false,4,4,4,4,4,4,2,1,4),
-                         TargetFrameInfo(TargetFrameInfo::StackGrowsDown,16,0),
-                         PPC32JITInfo(*this), false) {}
-
-/// PPC64TargetMachine ctor - Create a LP64 architecture model
-///
-PPC64TargetMachine::PPC64TargetMachine(const Module &M, IntrinsicLowering *IL)
-  : PowerPCTargetMachine(PPC64, IL,
-                         TargetData(PPC64,false,8,4,4,4,4,4,2,1,4),
-                         TargetFrameInfo(TargetFrameInfo::StackGrowsDown,16,0),
-                         PPC64JITInfo(*this), true) {}
-
-unsigned PPC32TargetMachine::getModuleMatchQuality(const Module &M) {
-  if (M.getEndianness()  == Module::BigEndian &&
-      M.getPointerSize() == Module::Pointer32)
-    return 10;                                   // Direct match
-  else if (M.getEndianness() != Module::AnyEndianness ||
-           M.getPointerSize() != Module::AnyPointerSize)
-    return 0;                                    // Match for some other target
-
-  return getJITMatchQuality()/2;
-}
-
-unsigned PPC64TargetMachine::getModuleMatchQuality(const Module &M) {
-  if (M.getEndianness()  == Module::BigEndian &&
-      M.getPointerSize() == Module::Pointer64)
-    return 10;                                   // Direct match
-  else if (M.getEndianness() != Module::AnyEndianness ||
-           M.getPointerSize() != Module::AnyPointerSize)
-    return 0;                                    // Match for some other target
-
-  return getJITMatchQuality()/2;
 }

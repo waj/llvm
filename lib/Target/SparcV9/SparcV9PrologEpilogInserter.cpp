@@ -18,8 +18,6 @@
 
 #include "SparcV9Internals.h"
 #include "SparcV9RegClassInfo.h"
-#include "SparcV9RegisterInfo.h"
-#include "SparcV9FrameInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunctionInfo.h"
 #include "llvm/CodeGen/MachineCodeForInstruction.h"
@@ -58,11 +56,11 @@ static unsigned getStaticStackSize (MachineFunction &MF) {
 
   unsigned staticStackSize = MF.getInfo()->getStaticStackSize();
 
-  if (staticStackSize < (unsigned)SparcV9FrameInfo::MinStackFrameSize)
-    staticStackSize = SparcV9FrameInfo::MinStackFrameSize;
-  if (unsigned padsz = staticStackSize % 
-                       SparcV9FrameInfo::StackFrameSizeAlignment)
-    staticStackSize += SparcV9FrameInfo::StackFrameSizeAlignment - padsz;
+  if (staticStackSize < (unsigned) frameInfo.getMinStackFrameSize())
+    staticStackSize = (unsigned) frameInfo.getMinStackFrameSize();
+  if (unsigned padsz = (staticStackSize %
+                        (unsigned) frameInfo.getStackFrameSizeAlignment()))
+    staticStackSize += frameInfo.getStackFrameSizeAlignment() - padsz;
 
   return staticStackSize;
 }
@@ -125,12 +123,13 @@ void InsertPrologEpilogCode::InsertPrologCode(MachineFunction &MF)
     int numArgRegs      = TM.getRegInfo()->getNumOfIntArgRegs();
     if (numFixedArgs < numArgRegs) {
       const TargetFrameInfo &FI = *TM.getFrameInfo();
+      bool ignore;
       int firstArgReg   = TM.getRegInfo()->getUnifiedRegNum(
                              TM.getRegInfo()->getRegClassIDOfType(Type::IntTy),
                              SparcV9IntRegClass::i0);
-      int fpReg         = SparcV9::i6;
-      int argSize       = 8;
-      int firstArgOffset= SparcV9FrameInfo::FirstIncomingArgOffsetFromFP;
+      int fpReg         = FI.getIncomingArgBaseRegNum();
+      int argSize       = FI.getSizeOfEachArgOnStack();
+      int firstArgOffset= FI.getFirstIncomingArgOffset(MF,ignore);
       int nextArgOffset = firstArgOffset + numFixedArgs * argSize;
 
       for (int i=numFixedArgs; i < numArgRegs; ++i) {

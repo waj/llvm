@@ -133,7 +133,7 @@ bool MSSchedule::resourcesFree(MSchedGraphNode *node, int cycle) {
 }
 
 bool MSSchedule::constructKernel(int II) {
-  MSchedGraphNode *branchNode = 0;
+  MSchedGraphNode *branchNode;
 
   int stageNum = (schedule.rbegin()->first)/ II;
   DEBUG(std::cerr << "Number of Stages: " << stageNum << "\n");

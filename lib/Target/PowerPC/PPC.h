@@ -22,13 +22,12 @@ namespace llvm {
 class FunctionPass;
 class TargetMachine;
 
+// Here is where you would define factory methods for powerpc-specific
+// passes. For example:
+FunctionPass *createPPCSimpleInstructionSelector(TargetMachine &TM);
+FunctionPass *createPPCCodePrinterPass(std::ostream &OS, TargetMachine &TM);
 FunctionPass *createPowerPCPEI();
 FunctionPass *createPPCBranchSelectionPass();
-FunctionPass *createPPC32ISelSimple(TargetMachine &TM);
-FunctionPass *createPPC32AsmPrinter(std::ostream &OS,TargetMachine &TM);
-FunctionPass *createPPC64ISelSimple(TargetMachine &TM);
-FunctionPass *createPPC64AsmPrinter(std::ostream &OS,TargetMachine &TM);
-
 } // end namespace llvm;
 
 // Defines symbolic names for PowerPC registers.  This defines a mapping from

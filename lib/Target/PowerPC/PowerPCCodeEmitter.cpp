@@ -1,4 +1,4 @@
-//===-- SparcV8CodeEmitter.cpp - JIT Code Emitter for SparcV8 -----*- C++ -*-=//
+//===-- PowerPCCodeEmitter.cpp - JIT Code Emitter for PowerPC -----*- C++ -*-=//
 // 
 //                     The LLVM Compiler Infrastructure
 //
@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "SparcV8TargetMachine.h"
+#include "PowerPCTargetMachine.h"
 
 namespace llvm {
 
@@ -20,23 +20,23 @@ namespace llvm {
 /// of functions.  This method should returns true if machine code emission is
 /// not supported.
 ///
-bool SparcV8TargetMachine::addPassesToEmitMachineCode(FunctionPassManager &PM,
+bool PowerPCTargetMachine::addPassesToEmitMachineCode(FunctionPassManager &PM,
                                                       MachineCodeEmitter &MCE) {
   return true;
   // It should go something like this:
-  // PM.add(new Emitter(MCE));  // Machine code emitter pass for SparcV8
+  // PM.add(new Emitter(MCE));  // Machine code emitter pass for PowerPC
   // Delete machine code for this function after emitting it:
   // PM.add(createMachineCodeDeleter());
 }
 
-void *SparcV8JITInfo::getJITStubForFunction(Function *F,
+void *PowerPCJITInfo::getJITStubForFunction(Function *F,
                                             MachineCodeEmitter &MCE) {
-  assert (0 && "SparcV8JITInfo::getJITStubForFunction not implemented");
+  assert (0 && "PowerPCJITInfo::getJITStubForFunction not implemented");
   return 0;
 }
 
-void SparcV8JITInfo::replaceMachineCodeForFunction (void *Old, void *New) {
-  assert (0 && "SparcV8JITInfo::replaceMachineCodeForFunction not implemented");
+void PowerPCJITInfo::replaceMachineCodeForFunction (void *Old, void *New) {
+  assert (0 && "PowerPCJITInfo::replaceMachineCodeForFunction not implemented");
 }
 
 } // end llvm namespace

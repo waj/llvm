@@ -1,4 +1,4 @@
-##===- runtime/Makefile ------------------------------------*- Makefile -*-===##
+##===- runtime/Makefile ------------------------------*- Makefile -*-===##
 # 
 #                     The LLVM Compiler Infrastructure
 #
@@ -6,6 +6,7 @@
 # the University of Illinois Open Source License. See LICENSE.TXT for details.
 # 
 ##===----------------------------------------------------------------------===##
+# llvm/runtime Makefile:  Build all subdirectories automatically
 
 LEVEL = ..
 include $(LEVEL)/Makefile.config
@@ -23,7 +24,8 @@ endif
 
 include $(LEVEL)/Makefile.common
 
-# Install target for libraries: Copy into $LLVMGCCDIR/bytecode-libs
+# Install target for libraries: Copy into the 'bytecode-libs' subdirectory
+# of LLVMGCCDIR.  (On the UIUC machines, this is in Chris's home directory.)
 #
 install::
 

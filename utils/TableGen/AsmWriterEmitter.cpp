@@ -75,16 +75,14 @@ void AsmWriterEmitter::run(std::ostream &O) {
 
           // If this is a two-address instruction and we are not accessing the
           // 0th operand, remove an operand.
-          unsigned MIOp = I->second.OperandList[OpNo].MIOperandNo;
-          if (I->second.isTwoAddress && MIOp != 0) {
-            if (MIOp == 1)
+          if (I->second.isTwoAddress && OpNo != 0) {
+            if (OpNo == 1)
               throw "Should refer to operand #0 instead of #1 for two-address"
                     " instruction '" + I->first + "'!";
-            --MIOp;
+            --OpNo;
           }
 
-          O << ";  " << I->second.OperandList[OpNo].PrinterMethodName 
-            << "(MI, " << MIOp << ", MVT::"
+          O << ";  printOperand(MI->getOperand(" << OpNo << "), MVT::"
             << getName(I->second.OperandList[OpNo].Ty) << "); O ";
           LastEmitted = VarEnd;
         }

@@ -319,6 +319,8 @@ static unsigned
 ComputeMaxOptionalArgsSize(const TargetMachine& target, const Function *F,
                            unsigned &maxOptionalNumArgs)
 {
+  const TargetFrameInfo &frameInfo = *target.getFrameInfo();
+  
   unsigned maxSize = 0;
   
   for (Function::const_iterator BB = F->begin(), BBE = F->end(); BB !=BBE; ++BB)
@@ -326,11 +328,26 @@ ComputeMaxOptionalArgsSize(const TargetMachine& target, const Function *F,
       if (const CallInst *callInst = dyn_cast<CallInst>(I))
         {
           unsigned numOperands = callInst->getNumOperands() - 1;
-          int numExtra = numOperands-6;
+          int numExtra = (int)numOperands-frameInfo.getNumFixedOutgoingArgs();
           if (numExtra <= 0)
             continue;
           
-          unsigned sizeForThisCall = numExtra * 8;
+          unsigned sizeForThisCall;
+          if (frameInfo.argsOnStackHaveFixedSize())
+            {
+              int argSize = frameInfo.getSizeOfEachArgOnStack(); 
+              sizeForThisCall = numExtra * (unsigned) argSize;
+            }
+          else
+            {
+              assert(0 && "UNTESTED CODE: Size per stack argument is not "
+                     "fixed on this architecture: use actual arg sizes to "
+                     "compute MaxOptionalArgsSize");
+              sizeForThisCall = 0;
+              for (unsigned i = 0; i < numOperands; ++i)
+                sizeForThisCall += target.getTargetData().getTypeSize(callInst->
+                                              getOperand(i)->getType());
+            }
           
           if (maxSize < sizeForThisCall)
             maxSize = sizeForThisCall;
@@ -368,7 +385,8 @@ void MachineFunctionInfo::CalculateArgSize() {
   maxOptionalArgsSize = ComputeMaxOptionalArgsSize(MF.getTarget(),
 						   MF.getFunction(),
                                                    maxOptionalNumArgs);
-  staticStackSize = maxOptionalArgsSize + 176;
+  staticStackSize = maxOptionalArgsSize
+    + MF.getTarget().getFrameInfo()->getMinStackFrameSize();
 }
 
 int

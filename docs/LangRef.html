@@ -26,7 +26,7 @@
           <li><a href="#t_function">Function Type</a></li>
           <li><a href="#t_pointer">Pointer Type</a></li>
           <li><a href="#t_struct">Structure Type</a></li>
-          <li><a href="#t_packed">Packed Type</a></li>
+<!-- <li><a href="#t_packed" >Packed Type</a> -->
         </ol>
       </li>
     </ol>
@@ -389,8 +389,7 @@ classifications:</p>
     </tr>
     <tr>
       <td><a name="t_integral">integral</a></td>
-      <td><tt>bool, ubyte, sbyte, ushort, short, uint, int, ulong, long</tt>
-      </td>
+      <td><tt>bool, ubyte, sbyte, ushort, short, uint, int, ulong, long</tt></td>
     </tr>
     <tr>
       <td><a name="t_floating">floating point</a></td>
@@ -398,9 +397,8 @@ classifications:</p>
     </tr>
     <tr>
       <td><a name="t_firstclass">first class</a></td>
-      <td><tt>bool, ubyte, sbyte, ushort, short, uint, int, ulong, long,<br> 
-      float, double, <a href="#t_pointer">pointer</a>, 
-      <a href="#t_packed">packed</a></tt></td>
+      <td><tt>bool, ubyte, sbyte, ushort, short,<br>
+uint, int, ulong, long, float, double, <a href="#t_pointer">pointer</a></tt></td>
     </tr>
   </tbody>
 </table>
@@ -469,8 +467,8 @@ The return type of a function type cannot be an aggregate type.
 </p>
 <h5>Syntax:</h5>
 <pre>  &lt;returntype&gt; (&lt;parameter list&gt;)<br></pre>
-<p>Where '<tt>&lt;parameter list&gt;</tt>' is a comma-separated list of type
-specifiers.  Optionally, the parameter list may include a type <tt>...</tt>,
+<p>Where '<tt>&lt;parameter list&gt;</tt>' is a comma-separated list of
+type specifiers.  Optionally, the parameter list may include a type <tt>...</tt>,
 which indicates that the function takes a variable number of arguments.
 Variable argument functions can access their arguments with the <a
  href="#int_varargs">variable argument handling intrinsic</a> functions.</p>
@@ -484,16 +482,16 @@ Variable argument functions can access their arguments with the <a
     </tr>
     <tr>
       <td><tt>float (int, int *) *</tt></td>
-      <td>: <a href="#t_pointer">Pointer</a> to a function that takes an
-      <tt>int</tt> and a <a href="#t_pointer">pointer</a> to <tt>int</tt>,
-      returning <tt>float</tt>.</td>
+      <td>: <a href="#t_pointer">Pointer</a> to a function that takes
+an <tt>int</tt> and a <a href="#t_pointer">pointer</a> to <tt>int</tt>,
+returning <tt>float</tt>.</td>
     </tr>
     <tr>
       <td><tt>int (sbyte *, ...)</tt></td>
       <td>: A vararg function that takes at least one <a
-      href="#t_pointer">pointer</a> to <tt>sbyte</tt> (signed char in C), which
-      returns an integer.  This is the signature for <tt>printf</tt> in
-      LLVM.</td>
+ href="#t_pointer">pointer</a> to <tt>sbyte</tt> (signed char in C),
+which       returns an integer.  This is the signature for <tt>printf</tt>
+in LLVM.</td>
     </tr>
   </tbody>
 </table>
@@ -523,10 +521,10 @@ instruction.</p>
     </tr>
     <tr>
       <td><tt>{ float, int (int) * }</tt></td>
-      <td>: A pair, where the first element is a <tt>float</tt> and the second
-      element is a <a href="#t_pointer">pointer</a> to a <a
-      href="#t_function">function</a> that takes an <tt>int</tt>, returning an
-      <tt>int</tt>.</td>
+      <td>: A pair, where the first element is a <tt>float</tt> and the
+second       element is a <a href="#t_pointer">pointer</a> to a <a
+ href="#t_function">function</a> that takes an <tt>int</tt>, returning
+an <tt>int</tt>.</td>
     </tr>
   </tbody>
 </table>
@@ -546,45 +544,36 @@ reference to another object, which must live in memory.</p>
   <tbody>
     <tr>
       <td><tt>[4x int]*</tt></td>
-      <td>: <a href="#t_pointer">pointer</a> to <a href="#t_array">array</a> of
-      four <tt>int</tt> values</td>
+      <td>: <a href="#t_pointer">pointer</a> to <a href="#t_array">array</a>
+of four <tt>int</tt> values</td>
     </tr>
     <tr>
       <td><tt>int (int *) *</tt></td>
       <td>: A <a href="#t_pointer">pointer</a> to a <a
-      href="#t_function">function</a> that takes an <tt>int</tt>, returning an
-      <tt>int</tt>.</td>
+ href="#t_function">function</a> that takes an <tt>int</tt>, returning
+an <tt>int</tt>.</td>
     </tr>
   </tbody>
 </table>
+
 </div>
-<!-- _______________________________________________________________________ -->
-<div class="doc_subsubsection"> <a name="t_packed">Packed Type</a> </div>
-<div class="doc_text">
-<h5>Overview:</h5>
-<p>A packed type is a simple derived type that represents a vector
-of elements.  Packed types are used when multiple primitive data 
-are operated in parallel using a single instruction (SIMD). 
-A packed type requires a size (number of
-elements) and an underlying primitive data type.  Packed types are
-considered <a href="#t_firstclass">first class</a>.</p>
-<h5>Syntax:</h5>
-<pre>  &lt; &lt;# elements&gt; x &lt;elementtype&gt; &gt;<br></pre>
-<p>The number of elements is a constant integer value, elementtype may
-be any integral or floating point type.</p>
-<h5>Examples:</h5>
-<p> <tt>&lt;4 x int&gt;</tt>: Packed vector of 4 integer values.<br>
-<tt>&lt;8 x float&gt;</tt>: Packed vector of 8 floating-point values.<br>
-<tt>&lt;2 x uint&gt;</tt>: Packed vector of 2 unsigned integer values.</p>
-<p> </p>
+<!-- _______________________________________________________________________ --><!--
+<div class="doc_subsubsection">
+  <a name="t_packed">Packed Type</a>
 </div>
 
-<!-- *********************************************************************** -->
-<div class="doc_section"> <a name="highlevel">High Level Structure</a> </div>
-<!-- *********************************************************************** -->
-<!-- ======================================================================= -->
-<div class="doc_subsection"> <a name="modulestructure">Module Structure</a>
+<div class="doc_text">
+
+Mention/decide that packed types work with saturation or not. Maybe have a packed+saturated type in addition to just a packed type.<p>
+
+Packed types should be 'nonsaturated' because standard data types are not saturated.  Maybe have a saturated packed type?<p>
+
 </div>
+
+--><!-- *********************************************************************** -->
+<div class="doc_section"> <a name="highlevel">High Level Structure</a> </div>
+<!-- *********************************************************************** --><!-- ======================================================================= -->
+<div class="doc_subsection"> <a name="modulestructure">Module Structure</a> </div>
 <div class="doc_text">
 <p>LLVM programs are composed of "Module"s, each of which is a
 translation unit of the input programs.  Each module consists of
@@ -941,9 +930,7 @@ undefined behavior results.</p>
 <div class="doc_text">
 <p>Binary operators are used to do most of the computation in a
 program.  They require two operands, execute an operation on them, and
-produce a single value.  Although, that single value might represent 
-multiple data, as is the case with the <a href="#t_packed">packed</a> data type. 
-The result value of a binary operator is not
+produce a single value. The result value of a binary operator is not
 necessarily the same type as its operands.</p>
 <p>There are several different binary operators:</p>
 </div>
@@ -958,9 +945,8 @@ Instruction</a> </div>
 <p>The '<tt>add</tt>' instruction returns the sum of its two operands.</p>
 <h5>Arguments:</h5>
 <p>The two arguments to the '<tt>add</tt>' instruction must be either <a
- href="#t_integer">integer</a> or <a href="#t_floating">floating point</a> values.
- This instruction can also take <a href="#t_packed">packed</a> versions of the values.
-Both arguments must have identical types.</p>
+ href="#t_integer">integer</a> or <a href="#t_floating">floating point</a>
+values. Both arguments must have identical types.</p>
 <h5>Semantics:</h5>
 <p>The value produced is the integer or floating point sum of the two
 operands.</p>
@@ -983,9 +969,7 @@ instruction present in most other intermediate representations.</p>
 <h5>Arguments:</h5>
 <p>The two arguments to the '<tt>sub</tt>' instruction must be either <a
  href="#t_integer">integer</a> or <a href="#t_floating">floating point</a>
-values. 
-This instruction can also take <a href="#t_packed">packed</a> versions of the values.
-Both arguments must have identical types.</p>
+values. Both arguments must have identical types.</p>
 <h5>Semantics:</h5>
 <p>The value produced is the integer or floating point difference of
 the two operands.</p>
@@ -1007,9 +991,7 @@ operands.</p>
 <h5>Arguments:</h5>
 <p>The two arguments to the '<tt>mul</tt>' instruction must be either <a
  href="#t_integer">integer</a> or <a href="#t_floating">floating point</a>
-values. 
-This instruction can also take <a href="#t_packed">packed</a> versions of the values.
-Both arguments must have identical types.</p>
+values. Both arguments must have identical types.</p>
 <h5>Semantics:</h5>
 <p>The value produced is the integer or floating point product of the
 two operands.</p>
@@ -1032,9 +1014,7 @@ operands.</p>
 <h5>Arguments:</h5>
 <p>The two arguments to the '<tt>div</tt>' instruction must be either <a
  href="#t_integer">integer</a> or <a href="#t_floating">floating point</a>
-values. 
-This instruction can also take <a href="#t_packed">packed</a> versions of the values.
-Both arguments must have identical types.</p>
+values. Both arguments must have identical types.</p>
 <h5>Semantics:</h5>
 <p>The value produced is the integer or floating point quotient of the
 two operands.</p>
@@ -1055,9 +1035,7 @@ division of its two operands.</p>
 <h5>Arguments:</h5>
 <p>The two arguments to the '<tt>rem</tt>' instruction must be either <a
  href="#t_integer">integer</a> or <a href="#t_floating">floating point</a>
-values. 
-This instruction can also take <a href="#t_packed">packed</a> versions of the values.
-Both arguments must have identical types.</p>
+values. Both arguments must have identical types.</p>
 <h5>Semantics:</h5>
 <p>This returns the <i>remainder</i> of a division (where the result
 has the same sign as the divisor), not the <i>modulus</i> (where the

@@ -19,8 +19,6 @@
 #include "SparcV9InstrForest.h"
 #include "SparcV9Internals.h"
 #include "SparcV9TmpInstr.h"
-#include "SparcV9FrameInfo.h"
-#include "SparcV9RegisterInfo.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -2494,8 +2492,8 @@ static void CreateCodeForVariableSizeAlloca(const TargetMachine& target,
                                numElementsVal->getType(), isValid);
     assert(isValid && "Unexpectedly large array dimension in alloca!");
     int64_t total = numElem * tsize;
-    if (int extra= total % SparcV9FrameInfo::StackFrameSizeAlignment)
-      total += SparcV9FrameInfo::StackFrameSizeAlignment - extra;
+    if (int extra= total % target.getFrameInfo()->getStackFrameSizeAlignment())
+      total += target.getFrameInfo()->getStackFrameSizeAlignment() - extra;
     totalSizeVal = ConstantSInt::get(Type::IntTy, total);
   } else {
     // The size is not a constant.  Generate code to compute it and
@@ -2575,7 +2573,7 @@ CreateCodeForFixedSizeAlloca(const TargetMachine& target,
                                                                 paddedSize,
                                                          tsize * numElements);
 
-  if (((int)paddedSize) > 8 * SparcV9FrameInfo::SizeOfEachArgOnStack ||
+  if (((int)paddedSize) > 8 * target.getFrameInfo()->getSizeOfEachArgOnStack()||
       !target.getInstrInfo()->constantFitsInImmedField(V9::LDXi,offsetFromFP)) {
     CreateCodeForVariableSizeAlloca(target, result, tsize, 
 				    ConstantSInt::get(Type::IntTy,numElements),
@@ -2781,11 +2779,13 @@ static bool CodeGenIntrinsic(Intrinsic::ID iid, CallInst &callInstr,
     assert(0 && "Unknown intrinsic function call should have been lowered!");
   case Intrinsic::vastart: {
     // Get the address of the first incoming vararg argument on the stack
+    bool ignore;
     Function* func = cast<Function>(callInstr.getParent()->getParent());
     int numFixedArgs   = func->getFunctionType()->getNumParams();
-    int fpReg          = SparcV9::i6;
-    int firstVarArgOff = numFixedArgs * 8 + 
-                         SparcV9FrameInfo::FirstIncomingArgOffsetFromFP;
+    int fpReg          = target.getFrameInfo()->getIncomingArgBaseRegNum();
+    int argSize        = target.getFrameInfo()->getSizeOfEachArgOnStack();
+    int firstVarArgOff = numFixedArgs * argSize + target.getFrameInfo()->
+      getFirstIncomingArgOffset(MachineFunction::get(func), ignore);
     mvec.push_back(BuildMI(V9::ADDi, 3).addMReg(fpReg).addSImm(firstVarArgOff).
                    addRegDef(&callInstr));
     return true;
@@ -3992,7 +3992,7 @@ void GetInstructionsByRule(InstructionNode* subtreeRoot, int ruleForNode,
               // not need to be adjusted.
               int argOffset = frameInfo.getOutgoingArgOffset(MF, argNo);
               if (argType->isFloatingPoint()) {
-                unsigned slotSize = SparcV9FrameInfo::SizeOfEachArgOnStack;
+                unsigned slotSize = frameInfo.getSizeOfEachArgOnStack();
                 assert(argSize <= slotSize && "Insufficient slot size!");
                 argOffset += slotSize - argSize;
               }
@@ -4132,7 +4132,7 @@ void GetInstructionsByRule(InstructionNode* subtreeRoot, int ruleForNode,
         Instruction* vaNextI = subtreeRoot->getInstruction();
         assert(target.getTargetData().getTypeSize(vaNextI->getType()) <= 8 &&
                "We assumed that all LLVM parameter types <= 8 bytes!");
-        unsigned argSize = SparcV9FrameInfo::SizeOfEachArgOnStack;
+        int argSize = target.getFrameInfo()->getSizeOfEachArgOnStack();
         mvec.push_back(BuildMI(V9::ADDi, 3).addReg(vaNextI->getOperand(0)).
                        addSImm(argSize).addRegDef(vaNextI));
         break;

@@ -36,15 +36,19 @@ def X86InstrInfo : InstrInfo {
   let TSFlagsFields = ["FormBits",
                        "hasOpSizePrefix",
                        "Prefix",
+                       "MemTypeBits",
                        "ImmTypeBits",
                        "FPFormBits",
+                       "printImplicitUsesAfter", 
                        "Opcode"];
   let TSFlagsShifts = [0,
                        5,
                        6,
                        10,
-                       12,
-                       16];
+                       13,
+                       15,
+                       18,
+                       19];
 }
 
 def X86 : Target {

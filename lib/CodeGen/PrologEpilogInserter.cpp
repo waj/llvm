@@ -40,9 +40,6 @@ namespace {
       // code for any caller saved registers that are modified.  Also calculate
       // the MaxCallFrameSize and HasCalls variables for the function's frame
       // information and eliminates call frame pseudo instructions.
-      calculateCallerSavedRegisters(Fn);
-
-      // Add the code to save and restore the caller saved registers
       saveCallerSavedRegisters(Fn);
 
       // Allow the target machine to make final modifications to the function
@@ -52,28 +49,17 @@ namespace {
       // Calculate actual frame offsets for all of the abstract stack objects...
       calculateFrameObjectOffsets(Fn);
 
-      // Add prolog and epilog code to the function.  This function is required
-      // to align the stack frame as necessary for any stack variables or
-      // called functions.  Because of this, calculateCallerSavedRegisters
-      // must be called before this function in order to set the HasCalls
-      // and MaxCallFrameSize variables.
+      // Add prolog and epilog code to the function.
       insertPrologEpilogCode(Fn);
 
       // Replace all MO_FrameIndex operands with physical register references
       // and actual offsets.
       //
       replaceFrameIndices(Fn);
-
-      RegsToSave.clear();
-      StackSlots.clear();
       return true;
     }
 
   private:
-    std::vector<unsigned> RegsToSave;
-    std::vector<int> StackSlots;
-
-    void calculateCallerSavedRegisters(MachineFunction &Fn);
     void saveCallerSavedRegisters(MachineFunction &Fn);
     void calculateFrameObjectOffsets(MachineFunction &Fn);
     void replaceFrameIndices(MachineFunction &Fn);
@@ -88,14 +74,15 @@ namespace {
 FunctionPass *llvm::createPrologEpilogCodeInserter() { return new PEI(); }
 
 
-/// calculateCallerSavedRegisters - Scan the function for modified caller saved
-/// registers.  Also calculate the MaxCallFrameSize and HasCalls variables for
+/// saveCallerSavedRegisters - Scan the function for modified caller saved
+/// registers and insert spill code for any caller saved registers that are
+/// modified.  Also calculate the MaxCallFrameSize and HasCalls variables for
 /// the function's frame information and eliminates call frame pseudo
 /// instructions.
 ///
-void PEI::calculateCallerSavedRegisters(MachineFunction &Fn) {
+void PEI::saveCallerSavedRegisters(MachineFunction &Fn) {
   const MRegisterInfo *RegInfo = Fn.getTarget().getRegisterInfo();
-  const TargetFrameInfo *TFI = Fn.getTarget().getFrameInfo();
+  const TargetFrameInfo &FrameInfo = *Fn.getTarget().getFrameInfo();
 
   // Get the callee saved register list...
   const unsigned *CSRegs = RegInfo->getCalleeSaveRegs();
@@ -118,23 +105,23 @@ void PEI::calculateCallerSavedRegisters(MachineFunction &Fn) {
   for (MachineFunction::iterator BB = Fn.begin(), E = Fn.end(); BB != E; ++BB)
     for (MachineBasicBlock::iterator I = BB->begin(); I != BB->end(); )
       if (I->getOpcode() == FrameSetupOpcode ||
-          I->getOpcode() == FrameDestroyOpcode) {
-        assert(I->getNumOperands() == 1 && "Call Frame Setup/Destroy Pseudo"
-               " instructions should have a single immediate argument!");
-        unsigned Size = I->getOperand(0).getImmedValue();
-        if (Size > MaxCallFrameSize) MaxCallFrameSize = Size;
-        HasCalls = true;
-        RegInfo->eliminateCallFramePseudoInstr(Fn, *BB, I++);
+	  I->getOpcode() == FrameDestroyOpcode) {
+	assert(I->getNumOperands() == 1 && "Call Frame Setup/Destroy Pseudo"
+	       " instructions should have a single immediate argument!");
+	unsigned Size = I->getOperand(0).getImmedValue();
+	if (Size > MaxCallFrameSize) MaxCallFrameSize = Size;
+	HasCalls = true;
+	RegInfo->eliminateCallFramePseudoInstr(Fn, *BB, I++);
       } else {
-        for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i) {
-          MachineOperand &MO = I->getOperand(i);
-          if (MO.isRegister() && MO.isDef()) {
+	for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i) {
+	  MachineOperand &MO = I->getOperand(i);
+	  if (MO.isRegister() && MO.isDef()) {
             assert(MRegisterInfo::isPhysicalRegister(MO.getReg()) &&
                    "Register allocation must be performed!");
-            ModifiedRegs[MO.getReg()] = true;         // Register is modified
+	    ModifiedRegs[MO.getReg()] = true;         // Register is modified
           }
         }
-        ++I;
+	++I;
       }
 
   MachineFrameInfo *FFI = Fn.getFrameInfo();
@@ -144,6 +131,7 @@ void PEI::calculateCallerSavedRegisters(MachineFunction &Fn) {
   // Now figure out which *callee saved* registers are modified by the current
   // function, thus needing to be saved and restored in the prolog/epilog.
   //
+  std::vector<unsigned> RegsToSave;
   for (unsigned i = 0; CSRegs[i]; ++i) {
     unsigned Reg = CSRegs[i];
     if (ModifiedRegs[Reg]) {
@@ -151,10 +139,10 @@ void PEI::calculateCallerSavedRegisters(MachineFunction &Fn) {
     } else {
       for (const unsigned *AliasSet = RegInfo->getAliasSet(Reg);
            *AliasSet; ++AliasSet) {  // Check alias registers too...
-        if (ModifiedRegs[*AliasSet]) {
-          RegsToSave.push_back(Reg);
-          break;
-        }
+	if (ModifiedRegs[*AliasSet]) {
+	  RegsToSave.push_back(Reg);
+	  break;
+	}
       }
     }
   }
@@ -162,44 +150,13 @@ void PEI::calculateCallerSavedRegisters(MachineFunction &Fn) {
   if (RegsToSave.empty())
     return;   // Early exit if no caller saved registers are modified!
 
-  unsigned NumFixedSpillSlots;
-  std::pair<unsigned,int> *FixedSpillSlots =
-    TFI->getCalleeSaveSpillSlots(NumFixedSpillSlots);
-
   // Now that we know which registers need to be saved and restored, allocate
   // stack slots for them.
+  std::vector<int> StackSlots;
   for (unsigned i = 0, e = RegsToSave.size(); i != e; ++i) {
-    unsigned Reg = RegsToSave[i];
-    int FrameIdx;
-    const TargetRegisterClass *RC = RegInfo->getRegClass(Reg);
-
-    // Check to see if this physreg must be spilled to a particular stack slot
-    // on this target.
-    std::pair<unsigned,int> *FixedSlot = FixedSpillSlots;
-    while (FixedSlot != FixedSpillSlots+NumFixedSpillSlots &&
-           FixedSlot->first != Reg)
-      ++FixedSlot;
-
-    if (FixedSlot == FixedSpillSlots+NumFixedSpillSlots) {
-      // Nope, just spill it anywhere convenient.
-      FrameIdx = FFI->CreateStackObject(RC);
-    } else {
-      // Spill it to the stack where we must.
-      FrameIdx = FFI->CreateFixedObject(RC->getSize(), FixedSlot->second);
-    }
+    int FrameIdx = FFI->CreateStackObject(RegInfo->getRegClass(RegsToSave[i]));
     StackSlots.push_back(FrameIdx);
   }
-}
-
-/// saveCallerSavedRegisters -  Insert spill code for any caller saved registers
-/// that are modified in the function.
-///
-void PEI::saveCallerSavedRegisters(MachineFunction &Fn) {
-  // Early exit if no caller saved registers are modified!
-  if (RegsToSave.empty())
-    return;   
-
-  const MRegisterInfo *RegInfo = Fn.getTarget().getRegisterInfo();
 
   // Now that we have a stack slot for each register to be saved, insert spill
   // code into the entry block...
@@ -221,9 +178,9 @@ void PEI::saveCallerSavedRegisters(MachineFunction &Fn) {
       I = MBB->end(); --I;
 
       for (unsigned i = 0, e = RegsToSave.size(); i != e; ++i) {
-        const TargetRegisterClass *RC = RegInfo->getRegClass(RegsToSave[i]);
-        RegInfo->loadRegFromStackSlot(*MBB, I, RegsToSave[i],StackSlots[i], RC);
-        --I;  // Insert in reverse order
+	const TargetRegisterClass *RC = RegInfo->getRegClass(RegsToSave[i]);
+	RegInfo->loadRegFromStackSlot(*MBB, I, RegsToSave[i],StackSlots[i], RC);
+	--I;  // Insert in reverse order
       }
     }
   }
@@ -334,10 +291,10 @@ void PEI::replaceFrameIndices(MachineFunction &Fn) {
   for (MachineFunction::iterator BB = Fn.begin(), E = Fn.end(); BB != E; ++BB)
     for (MachineBasicBlock::iterator I = BB->begin(); I != BB->end(); ++I)
       for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
-        if (I->getOperand(i).isFrameIndex()) {
-          // If this instruction has a FrameIndex operand, we need to use that
-          // target machine register info object to eliminate it.
-          MRI.eliminateFrameIndex(Fn, I);
-          break;
-        }
+	if (I->getOperand(i).isFrameIndex()) {
+	  // If this instruction has a FrameIndex operand, we need to use that
+	  // target machine register info object to eliminate it.
+	  MRI.eliminateFrameIndex(Fn, I);
+	  break;
+	}
 }

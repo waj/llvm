@@ -9,9 +9,11 @@
 
 LEVEL = ../..
 PARALLEL_DIRS := SemiSpace
+
 include $(LEVEL)/Makefile.common
 
-# Install target for libraries: Copy into $LLVMGCCDIR/bytecode-libs
+# Install target for libraries: Copy into the gcc install directory in chris's
+# tree...
 #
 install::
 

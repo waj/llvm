@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 class PPCReg : Register {
-  let Namespace = "PPC";
+  let Namespace = "PPC32";
 }
 
 // We identify all our registers with a 5-bit ID, for consistency's sake.
@@ -82,11 +82,8 @@ def GPRC :
      R16, R15, R14, R13, R0, R1, LR]>
 {
   let Methods = [{
-    iterator allocation_order_begin(MachineFunction &MF) const {
-      return begin() + (AIX ? 1 : 0);
-    }
     iterator allocation_order_end(MachineFunction &MF) const {
-      return end() - 3;
+      return end()-3;
     }
   }];
 }

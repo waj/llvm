@@ -14,8 +14,6 @@
 #ifndef LLVM_TARGET_TARGETFRAMEINFO_H
 #define LLVM_TARGET_TARGETFRAMEINFO_H
 
-#include <utility>
-
 namespace llvm {
 
 class MachineFunction;
@@ -58,25 +56,16 @@ public:
   ///
   int getOffsetOfLocalArea() const { return LocalAreaOffset; }
 
-  /// getCalleeSaveSpillSlots - This method returns a pointer to an array of
-  /// pairs, that contains an entry for each callee save register that must be
-  /// spilled to a particular stack location if it is spilled.
-  ///
-  /// Each entry in this array contains a <register,offset> pair, indicating the
-  /// fixed offset from the incoming stack pointer that each register should be
-  /// spilled at.  If a register is not listed here, the code generator is
-  /// allowed to spill it anywhere it chooses.
-  /// 
-  virtual std::pair<unsigned, int> *
-  getCalleeSaveSpillSlots(unsigned &NumEntries) const {
-    NumEntries = 0;
-    return 0;
-  }
-  
   //===--------------------------------------------------------------------===//
   // These methods provide details of the stack frame used by Sparc, thus they
   // are Sparc specific.
   //===--------------------------------------------------------------------===//
+
+  virtual int  getStackFrameSizeAlignment       () const;
+  virtual int  getMinStackFrameSize             () const;
+  virtual int  getNumFixedOutgoingArgs          () const;
+  virtual int  getSizeOfEachArgOnStack          () const;
+  virtual bool argsOnStackHaveFixedSize         () const;
 
   // This method adjusts a stack offset to meet alignment rules of target.
   virtual int adjustAlignment(int unalignedOffset, bool growUp,
@@ -92,6 +81,12 @@ public:
   virtual int getOutgoingArgOffset              (MachineFunction& mcInfo,
 						 unsigned argNum) const;
   
+  virtual int getFirstIncomingArgOffset         (MachineFunction& mcInfo,
+						 bool& growUp) const;
+  virtual int getFirstOutgoingArgOffset         (MachineFunction& mcInfo,
+						 bool& growUp) const;
+  virtual int getFirstOptionalOutgoingArgOffset (MachineFunction&,
+                                                 bool& growUp) const;
   virtual int getFirstAutomaticVarOffset        (MachineFunction& mcInfo,
                                                  bool& growUp) const;
   virtual int getRegSpillAreaOffset             (MachineFunction& mcInfo,
@@ -100,6 +95,17 @@ public:
                                                  bool& growUp) const;
   virtual int getDynamicAreaOffset              (MachineFunction& mcInfo,
                                                  bool& growUp) const;
+
+  //
+  // These methods specify the base register used for each stack area
+  // (generally FP or SP)
+  // 
+  virtual int getIncomingArgBaseRegNum()               const;
+  virtual int getOutgoingArgBaseRegNum()               const;
+  virtual int getOptionalOutgoingArgBaseRegNum()       const;
+  virtual int getAutomaticVarBaseRegNum()              const;
+  virtual int getRegSpillAreaBaseRegNum()              const;
+  virtual int getDynamicAreaBaseRegNum()               const;
 };
 
 } // End llvm namespace

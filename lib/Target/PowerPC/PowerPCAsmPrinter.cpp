@@ -1,4 +1,4 @@
-//===-- PPC32AsmPrinter.cpp - Print machine instrs to PowerPC assembly ----===//
+//===-- PowerPCAsmPrinter.cpp - Print machine instrs to PowerPC assembly --===//
 // 
 //                     The LLVM Compiler Infrastructure
 //
@@ -19,7 +19,7 @@
 #define DEBUG_TYPE "asmprinter"
 #include "PowerPC.h"
 #include "PowerPCInstrInfo.h"
-#include "PPC32TargetMachine.h"
+#include "PowerPCTargetMachine.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Module.h"
@@ -48,7 +48,7 @@ namespace {
     /// Target machine description which we query for reg. names, data
     /// layout, etc.
     ///
-    PPC32TargetMachine &TM;
+    PowerPCTargetMachine &TM;
 
     /// Name-mangler for global names.
     ///
@@ -57,7 +57,7 @@ namespace {
     std::set<std::string> Strings;
 
     Printer(std::ostream &o, TargetMachine &tm) : O(o),
-      TM(reinterpret_cast<PPC32TargetMachine&>(tm)), LabelNumber(0) {}
+      TM(reinterpret_cast<PowerPCTargetMachine&>(tm)), LabelNumber(0) {}
 
     /// Cache of mangled name for current function. This is
     /// recalculated at the beginning of each call to
@@ -70,11 +70,11 @@ namespace {
     unsigned LabelNumber;
   
     virtual const char *getPassName() const {
-      return "PPC32 Assembly Printer";
+      return "PowerPC Assembly Printer";
     }
 
     void printMachineInstruction(const MachineInstr *MI);
-    void printOp(const MachineOperand &MO, bool LoadAddrOp = false);
+    void printOp(const MachineOperand &MO, bool elideOffsetKeyword = false);
     void printImmOp(const MachineOperand &MO, unsigned ArgType);
     void printConstantPool(MachineConstantPool *MCP);
     bool runOnMachineFunction(MachineFunction &F);    
@@ -85,12 +85,12 @@ namespace {
   };
 } // end of anonymous namespace
 
-/// createPPC32AsmPrinterPass - Returns a pass that prints the PPC
+/// createPPCCodePrinterPass - Returns a pass that prints the PPC
 /// assembly code for a MachineFunction to the given output stream,
 /// using the given target machine description.  This should work
-/// regardless of whether the function is in SSA form or not.
+/// regardless of whether the function is in SSA form.
 ///
-FunctionPass *createPPC32AsmPrinter(std::ostream &o,TargetMachine &tm) {
+FunctionPass *createPPCCodePrinterPass(std::ostream &o,TargetMachine &tm) {
   return new Printer(o, tm);
 }
 
@@ -401,7 +401,7 @@ bool Printer::runOnMachineFunction(MachineFunction &MF) {
 }
 
 void Printer::printOp(const MachineOperand &MO,
-                      bool LoadAddrOp /* = false */) {
+                      bool elideOffsetKeyword /* = false */) {
   const MRegisterInfo &RI = *TM.getRegisterInfo();
   int new_symbol;
   
@@ -444,32 +444,31 @@ void Printer::printOp(const MachineOperand &MO,
     O << MO.getSymbolName();
     return;
 
-  case MachineOperand::MO_GlobalAddress: {
-    GlobalValue *GV = MO.getGlobal();
-    std::string Name = Mang->getValueName(GV);
+  case MachineOperand::MO_GlobalAddress:
+    if (!elideOffsetKeyword) {
+      GlobalValue *GV = MO.getGlobal();
+      std::string Name = Mang->getValueName(GV);
 
-    // Dynamically-resolved functions need a stub for the function.  Be
-    // wary however not to output $stub for external functions whose addresses
-    // are taken.  Those should be emitted as $non_lazy_ptr below.
-    Function *F = dyn_cast<Function>(GV);
-    if (F && F->isExternal() && !LoadAddrOp &&
-        TM.CalledFunctions.find(F) != TM.CalledFunctions.end()) {
-      FnStubs.insert(Name);
-      O << "L" << Name << "$stub";
-      return;
-    }
+      // Dynamically-resolved functions need a stub for the function
+      Function *F = dyn_cast<Function>(GV);
+      if (F && F->isExternal() &&
+          TM.CalledFunctions.find(F) != TM.CalledFunctions.end()) {
+        FnStubs.insert(Name);
+        O << "L" << Name << "$stub";
+        return;
+      }
             
-    // External global variables need a non-lazily-resolved stub
-    if (!GV->hasInternalLinkage() &&
-        TM.AddressTaken.find(GV) != TM.AddressTaken.end()) {
-      GVStubs.insert(Name);
-      O << "L" << Name << "$non_lazy_ptr";
-      return;
-    }
+      // External global variables need a non-lazily-resolved stub
+      if (!GV->hasInternalLinkage() &&
+          TM.AddressTaken.find(GV) != TM.AddressTaken.end()) {
+        GVStubs.insert(Name);
+        O << "L" << Name << "$non_lazy_ptr";
+        return;
+      }
             
-    O << Mang->getValueName(GV);
+      O << Mang->getValueName(GV);
+    }
     return;
-  }
     
   default:
     O << "<unknown operand type: " << MO.getType() << ">";
@@ -479,16 +478,16 @@ void Printer::printOp(const MachineOperand &MO,
 
 void Printer::printImmOp(const MachineOperand &MO, unsigned ArgType) {
   int Imm = MO.getImmedValue();
-  if (ArgType == PPCII::Simm16 || ArgType == PPCII::Disimm16) {
+  if (ArgType == PPC32II::Simm16 || ArgType == PPC32II::Disimm16) {
     O << (short)Imm;
-  } else if (ArgType == PPCII::Zimm16) {
+  } else if (ArgType == PPC32II::Zimm16) {
     O << (unsigned short)Imm;
   } else {
     O << Imm;
   }
 }
 
-/// printMachineInstruction -- Print out a single PPC LLVM instruction
+/// printMachineInstruction -- Print out a single PPC32 LLVM instruction
 /// MI in Darwin syntax to the current output stream.
 ///
 void Printer::printMachineInstruction(const MachineInstr *MI) {
@@ -499,15 +498,15 @@ void Printer::printMachineInstruction(const MachineInstr *MI) {
 
   unsigned ArgCount = MI->getNumOperands();
   unsigned ArgType[] = {
-    (Desc.TSFlags >> PPCII::Arg0TypeShift) & PPCII::ArgTypeMask,
-    (Desc.TSFlags >> PPCII::Arg1TypeShift) & PPCII::ArgTypeMask,
-    (Desc.TSFlags >> PPCII::Arg2TypeShift) & PPCII::ArgTypeMask,
-    (Desc.TSFlags >> PPCII::Arg3TypeShift) & PPCII::ArgTypeMask,
-    (Desc.TSFlags >> PPCII::Arg4TypeShift) & PPCII::ArgTypeMask
+    (Desc.TSFlags >> PPC32II::Arg0TypeShift) & PPC32II::ArgTypeMask,
+    (Desc.TSFlags >> PPC32II::Arg1TypeShift) & PPC32II::ArgTypeMask,
+    (Desc.TSFlags >> PPC32II::Arg2TypeShift) & PPC32II::ArgTypeMask,
+    (Desc.TSFlags >> PPC32II::Arg3TypeShift) & PPC32II::ArgTypeMask,
+    (Desc.TSFlags >> PPC32II::Arg4TypeShift) & PPC32II::ArgTypeMask
   };
-  assert(((Desc.TSFlags & PPCII::VMX) == 0) &&
+  assert(((Desc.TSFlags & PPC32II::VMX) == 0) &&
          "Instruction requires VMX support");
-  assert(((Desc.TSFlags & PPCII::PPC64) == 0) &&
+  assert(((Desc.TSFlags & PPC32II::PPC64) == 0) &&
          "Instruction requires 64 bit support");
   ++EmittedInsts;
 
@@ -515,27 +514,27 @@ void Printer::printMachineInstruction(const MachineInstr *MI) {
   // appropriate number of args that the assembler expects.  This is because
   // may have many arguments appended to record the uses of registers that are
   // holding arguments to the called function.
-  if (Opcode == PPC::COND_BRANCH) {
+  if (Opcode == PPC32::COND_BRANCH) {
     std::cerr << "Error: untranslated conditional branch psuedo instruction!\n";
     abort();
-  } else if (Opcode == PPC::IMPLICIT_DEF) {
+  } else if (Opcode == PPC32::IMPLICIT_DEF) {
     O << "; IMPLICIT DEF ";
     printOp(MI->getOperand(0));
     O << "\n";
     return;
-  } else if (Opcode == PPC::CALLpcrel) {
+  } else if (Opcode == PPC32::CALLpcrel) {
     O << TII.getName(Opcode) << " ";
     printOp(MI->getOperand(0));
     O << "\n";
     return;
-  } else if (Opcode == PPC::CALLindirect) {
+  } else if (Opcode == PPC32::CALLindirect) {
     O << TII.getName(Opcode) << " ";
     printImmOp(MI->getOperand(0), ArgType[0]);
     O << ", ";
     printImmOp(MI->getOperand(1), ArgType[0]);
     O << "\n";
     return;
-  } else if (Opcode == PPC::MovePCtoLR) {
+  } else if (Opcode == PPC32::MovePCtoLR) {
     // FIXME: should probably be converted to cout.width and cout.fill
     O << "bl \"L0000" << LabelNumber << "$pb\"\n";
     O << "\"L0000" << LabelNumber << "$pb\":\n";
@@ -546,34 +545,34 @@ void Printer::printMachineInstruction(const MachineInstr *MI) {
   }
 
   O << TII.getName(Opcode) << " ";
-  if (Opcode == PPC::LOADLoDirect || Opcode == PPC::LOADLoIndirect) {
+  if (Opcode == PPC32::LOADLoDirect || Opcode == PPC32::LOADLoIndirect) {
     printOp(MI->getOperand(0));
     O << ", lo16(";
-    printOp(MI->getOperand(2), true /* LoadAddrOp */);
+    printOp(MI->getOperand(2));
     O << "-\"L0000" << LabelNumber << "$pb\")";
     O << "(";
-    if (MI->getOperand(1).getReg() == PPC::R0)
+    if (MI->getOperand(1).getReg() == PPC32::R0)
       O << "0";
     else
       printOp(MI->getOperand(1));
     O << ")\n";
-  } else if (Opcode == PPC::LOADHiAddr) {
+  } else if (Opcode == PPC32::LOADHiAddr) {
     printOp(MI->getOperand(0));
     O << ", ";
-    if (MI->getOperand(1).getReg() == PPC::R0)
+    if (MI->getOperand(1).getReg() == PPC32::R0)
       O << "0";
     else
       printOp(MI->getOperand(1));
     O << ", ha16(" ;
-    printOp(MI->getOperand(2), true /* LoadAddrOp */);
+    printOp(MI->getOperand(2));
      O << "-\"L0000" << LabelNumber << "$pb\")\n";
-  } else if (ArgCount == 3 && ArgType[1] == PPCII::Disimm16) {
+  } else if (ArgCount == 3 && ArgType[1] == PPC32II::Disimm16) {
     printOp(MI->getOperand(0));
     O << ", ";
     printImmOp(MI->getOperand(1), ArgType[1]);
     O << "(";
     if (MI->getOperand(2).hasAllocatedReg() &&
-        MI->getOperand(2).getReg() == PPC::R0)
+        MI->getOperand(2).getReg() == PPC32::R0)
       O << "0";
     else
       printOp(MI->getOperand(2));
@@ -581,9 +580,9 @@ void Printer::printMachineInstruction(const MachineInstr *MI) {
   } else {
     for (i = 0; i < ArgCount; ++i) {
       // addi and friends
-      if (i == 1 && ArgCount == 3 && ArgType[2] == PPCII::Simm16 &&
+      if (i == 1 && ArgCount == 3 && ArgType[2] == PPC32II::Simm16 &&
           MI->getOperand(1).hasAllocatedReg() && 
-          MI->getOperand(1).getReg() == PPC::R0) {
+          MI->getOperand(1).getReg() == PPC32::R0) {
         O << "0";
       // for long branch support, bc $+8
       } else if (i == 1 && ArgCount == 2 && MI->getOperand(1).isImmediate() &&
