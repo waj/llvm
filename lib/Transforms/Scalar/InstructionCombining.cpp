@@ -2367,13 +2367,11 @@ Instruction *InstCombiner::visitAllocationInst(AllocationInst &AI) {
 
       // Create and insert the replacement instruction...
       if (isa<MallocInst>(AI))
-        New = new MallocInst(NewTy, 0, AI.getName());
+        New = new MallocInst(NewTy, 0, AI.getName(), &AI);
       else {
         assert(isa<AllocaInst>(AI) && "Unknown type of allocation inst!");
-        New = new AllocaInst(NewTy, 0, AI.getName());
+        New = new AllocaInst(NewTy, 0, AI.getName(), &AI);
       }
-
-      InsertNewInstBefore(New, AI);
       
       // Scan to the end of the allocation instructions, to skip over a block of
       // allocas if possible...
@@ -2389,15 +2387,9 @@ Instruction *InstCombiner::visitAllocationInst(AllocationInst &AI) {
 
       // Now make everything use the getelementptr instead of the original
       // allocation.
-      return ReplaceInstUsesWith(AI, V);
+      ReplaceInstUsesWith(AI, V);
+      return &AI;
     }
-
-  // If alloca'ing a zero byte object, replace the alloca with a null pointer.
-  // Note that we only do this for alloca's, because malloc should allocate and
-  // return a unique pointer, even for a zero byte allocation.
-  if (isa<AllocaInst>(AI) && TD->getTypeSize(AI.getAllocatedType()) == 0)
-    return ReplaceInstUsesWith(AI, Constant::getNullValue(AI.getType()));
-
   return 0;
 }
 
