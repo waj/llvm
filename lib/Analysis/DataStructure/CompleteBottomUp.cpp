@@ -141,7 +141,7 @@ unsigned CompleteBUDataStructures::calculateSCCGraphs(DSGraph &FG,
     ValMap[NG] = ~0U;
 
     DSGraph::NodeMapTy NodeMap;
-    FG.cloneInto(*NG, FG.getScalarMap(), FG.getReturnNodes(), NodeMap);
+    FG.cloneInto(*NG, FG.getScalarMap(), FG.getReturnNodes(), NodeMap, 0);
 
     // Update the DSInfo map and delete the old graph...
     for (DSGraph::ReturnNodesTy::iterator I = NG->getReturnNodes().begin();
@@ -193,7 +193,7 @@ void CompleteBUDataStructures::processGraph(DSGraph &G) {
 
   // Re-materialize nodes from the globals graph.
   // Do not ignore globals inlined from callees -- they are not up-to-date!
-  assert(G.getInlinedGlobals().empty());
+  G.getInlinedGlobals().clear();
   G.updateFromGlobalGraph();
 
   // Recompute the Incomplete markers

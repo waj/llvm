@@ -1201,8 +1201,12 @@ void PhyRegAlloc::verifySavedState () {
     std::cerr << "FnAllocState:\n";
     for (unsigned i = 0; i < state.size (); ++i) {
       AllocInfo &S = state[i];
-      if (Insn == S.Instruction)
-        std::cerr << "  " << S << "\n";
+      if (Insn == S.Instruction) {
+        std::cerr << "  (Instruction " << S.Instruction
+                  << ", Operand " << S.Operand
+                  << ", AllocState " << S.allocStateToString ()
+                  << ", Placement " << S.Placement << ")\n";
+      }
     }
     std::cerr << "----------\n";
     ++Insn;

@@ -48,7 +48,6 @@ MV      = mv
 INSTALL = @INSTALL@
 DOT     = @DOT@
 ETAGS   = @ETAGS@
-ETAGSFLAGS = @ETAGSFLAGS@
 
 # Determine the target for which LLVM should generate code.
 LLVMGCCARCH := @target@/3.4-llvm
@@ -115,9 +114,6 @@ PAPIDIR := @PAPIDIR@
 
 # Disable LLC diffs for testing.
 @DISABLE_LLC_DIFFS@
-
-# Shared library extension for this platform.
-SHLIBEXT = @SHLIBEXT@
 
 ###########################################################################
 # Directory Configuration
@@ -187,7 +183,6 @@ sysconfdir = @sysconfdir@
 sharedstatedir = @sharedstatedir@ 
 localstatedir = @localstatedir@
 libdir = @libdir@
-bytecode_libdir = $(LLVMGCCDIR)/bytecode-libs
 includedir = @includedir@
 infodir = @infodir@
 mandir = @mandir@

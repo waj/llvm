@@ -97,16 +97,9 @@ public:
 private:
   unsigned short NodeType;
 public:
-  
-  /// DSNode ctor - Create a node of the specified type, inserting it into the
-  /// specified graph.
-  DSNode(const Type *T, DSGraph *G);
 
-  /// DSNode "copy ctor" - Copy the specified node, inserting it into the
-  /// specified graph.  If NullLinks is true, then null out all of the links,
-  /// but keep the same number of them.  This can be used for efficiency if the
-  /// links are just going to be clobbered anyway.
-  DSNode(const DSNode &, DSGraph *G, bool NullLinks = false);
+  DSNode(const Type *T, DSGraph *G);
+  DSNode(const DSNode &, DSGraph *G);
 
   ~DSNode() {
     dropAllReferences();
@@ -248,22 +241,12 @@ public:
   /// also marks the node with the 'G' flag if it does not already have it.
   ///
   void addGlobal(GlobalValue *GV);
-  void mergeGlobals(const std::vector<GlobalValue*> &RHS);
   const std::vector<GlobalValue*> &getGlobals() const { return Globals; }
-
-  typedef std::vector<GlobalValue*>::const_iterator global_iterator;
-  global_iterator global_begin() const { return Globals.begin(); }
-  global_iterator global_end() const { return Globals.end(); }
-
 
   /// maskNodeTypes - Apply a mask to the node types bitfield.
   ///
   void maskNodeTypes(unsigned Mask) {
     NodeType &= Mask;
-  }
-
-  void mergeNodeFlags(unsigned RHS) {
-    NodeType |= RHS;
   }
 
   /// getNodeFlags - Return all of the flags set on the node.  If the DEAD flag
@@ -337,13 +320,13 @@ private:
 inline DSNode *DSNodeHandle::getNode() const {
   assert((!N || Offset < N->Size || (N->Size == 0 && Offset == 0) ||
           !N->ForwardNH.isNull()) && "Node handle offset out of range!");
-  if (N == 0 || N->ForwardNH.isNull())
+  if (!N || N->ForwardNH.isNull())
     return N;
 
   return HandleForwarding();
 }
 
-inline void DSNodeHandle::setNode(DSNode *n) const {
+inline void DSNodeHandle::setNode(DSNode *n) {
   assert(!n || !n->getForwardNode() && "Cannot set node to a forwarded node!");
   if (N) N->NumReferrers--;
   N = n;
@@ -394,14 +377,11 @@ inline void DSNodeHandle::addEdgeTo(unsigned Off, const DSNodeHandle &Node) {
 /// mergeWith - Merge the logical node pointed to by 'this' with the node
 /// pointed to by 'N'.
 ///
-inline void DSNodeHandle::mergeWith(const DSNodeHandle &Node) const {
-  if (!isNull())
+inline void DSNodeHandle::mergeWith(const DSNodeHandle &Node) {
+  if (N != 0)
     getNode()->mergeWith(Node, Offset);
-  else {   // No node to merge with, so just point to Node
-    Offset = 0;
-    setNode(Node.getNode());
-    Offset = Node.getOffset();
-  }
+  else     // No node to merge with, so just point to Node
+    *this = Node;
 }
 
 } // End llvm namespace

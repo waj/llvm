@@ -31,22 +31,13 @@ configure: autoconf/configure.ac autoconf/aclocal.m4
 include/Config/config.h.in: autoconf/configure.ac autoconf/aclocal.m4
 	autoheader -I autoconf autoconf/configure.ac
 
-# Install support for llvm include files:
+# Install support for llvm include files.
+
 .PHONY: install-includes
 
 install-includes:
 	$(MKDIR) $(includedir)/llvm
-	cd include && find * '!' '(' -name '*~' -o -name .cvsignore ')' -print | grep -v CVS | pax -rwdvpe $(DESTDIR)$(includedir)/llvm
+	cd include && find * '!' '(' -name '*~' -o -name .cvsignore ')' -print | grep -v CVS | pax -rwdvpe $(includedir)/llvm
 
 install:: install-includes
-
-# Build tags database for Emacs/Xemacs:
-.PHONY: tags
-
-TAGS: tags
-
-all:: tags
-
-tags:
-	$(ETAGS) $(ETAGSFLAGS) `find $(wildcard $(SourceDir)/include $(SourceDir)/lib $(SourceDir)/tools) -name '*.cpp' -o -name '*.h'`
 

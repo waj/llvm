@@ -187,7 +187,7 @@ unsigned BUDataStructures::calculateGraphs(Function *F,
       if (&G != SCCGraph) {
         DSGraph::NodeMapTy NodeMap;
         SCCGraph->cloneInto(G, SCCGraph->getScalarMap(),
-                            SCCGraph->getReturnNodes(), NodeMap);
+                            SCCGraph->getReturnNodes(), NodeMap, 0);
         // Update the DSInfo map and delete the old graph...
         DSInfo[*I] = SCCGraph;
         delete &G;
@@ -195,7 +195,7 @@ unsigned BUDataStructures::calculateGraphs(Function *F,
     }
 
     // Clean up the graph before we start inlining a bunch again...
-    SCCGraph->removeDeadNodes(DSGraph::RemoveUnreachableGlobals);
+    SCCGraph->removeTriviallyDeadNodes();
 
     // Now that we have one big happy family, resolve all of the call sites in
     // the graph...
@@ -282,6 +282,7 @@ void BUDataStructures::calculateGraph(DSGraph &Graph) {
             << Graph.getFunctionNames() << "' [" << Graph.getGraphSize() << "+"
             << Graph.getAuxFunctionCalls().size() << "]\n");
       
+      // Handle self recursion by resolving the arguments and return value
       Graph.mergeInGraph(CS, *Callee, GI,
                          DSGraph::KeepModRefBits | 
                          DSGraph::StripAllocaBit | DSGraph::DontCloneCallNodes);
@@ -302,7 +303,7 @@ void BUDataStructures::calculateGraph(DSGraph &Graph) {
 
   // Re-materialize nodes from the globals graph.
   // Do not ignore globals inlined from callees -- they are not up-to-date!
-  assert(Graph.getInlinedGlobals().empty());
+  Graph.getInlinedGlobals().clear();
   Graph.updateFromGlobalGraph();
 
   // Recompute the Incomplete markers

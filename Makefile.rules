@@ -109,7 +109,7 @@ prdirs::
 ###########################################################################
 .SUFFIXES:
 .SUFFIXES: .c .cpp .h .hpp .y .l
-.SUFFIXES: .lo .o .a $(SHLIBEXT) .bc .td
+.SUFFIXES: .lo .o .a .so .bc .td
 .SUFFIXES: .ps .dot .d
 
 #
@@ -454,20 +454,15 @@ endif
 #  of it.  For this reason, sometimes it's useful to use libraries as .a files.
 ###########################################################################
 
-# Install rule for making bytecode library directory if it does not exist.
-# Trigger this by making libraries that need to be installed here depend on it.
-$(DESTDIR)$(bytecode_libdir):
-	$(MKDIR) $@
-
 ifdef LIBRARYNAME
 
 # Make sure there isn't any extranous whitespace on the LIBRARYNAME option
 LIBRARYNAME := $(strip $(LIBRARYNAME))
 
-LIBNAME_O    := $(DESTLIBRELEASE)/lib$(LIBRARYNAME)$(SHLIBEXT)
-LIBNAME_P    := $(DESTLIBPROFILE)/lib$(LIBRARYNAME)$(SHLIBEXT)
-LIBNAME_G    := $(DESTLIBDEBUG)/lib$(LIBRARYNAME)$(SHLIBEXT)
-LIBNAME_CUR  := $(DESTLIBCURRENT)/lib$(LIBRARYNAME)$(SHLIBEXT)
+LIBNAME_O    := $(DESTLIBRELEASE)/lib$(LIBRARYNAME).so
+LIBNAME_P    := $(DESTLIBPROFILE)/lib$(LIBRARYNAME).so
+LIBNAME_G    := $(DESTLIBDEBUG)/lib$(LIBRARYNAME).so
+LIBNAME_CUR  := $(DESTLIBCURRENT)/lib$(LIBRARYNAME).so
 LIBNAME_AO   := $(DESTLIBRELEASE)/lib$(LIBRARYNAME).a
 LIBNAME_AP   := $(DESTLIBPROFILE)/lib$(LIBRARYNAME).a
 LIBNAME_AG   := $(DESTLIBDEBUG)/lib$(LIBRARYNAME).a
@@ -487,9 +482,9 @@ LIBNAME_BC   := $(DESTLIBBYTECODE)/lib$(LIBRARYNAME).bc
 # dynamic target builds a shared object version of the library...
 dynamic:: $(LIBNAME_CUR)
 bytecodelib:: $(LIBNAME_BC)
-install-bytecode-library:: $(DESTDIR)$(bytecode_libdir)/lib$(LIBRARYNAME).bc
+install-bytecode-library:: $(LLVMGCCDIR)/bytecode-libs/lib$(LIBRARYNAME).bc
 
-$(DESTDIR)$(bytecode_libdir)/lib$(LIBRARYNAME).bc: $(LIBNAME_BC) $(DESTDIR)$(bytecode_libdir)
+$(LLVMGCCDIR)/bytecode-libs/lib$(LIBRARYNAME).bc: $(LIBNAME_BC)
 	@${ECHO} ======= Installing $(LIBRARYNAME) bytecode library =======
 	cp $< $@
 
@@ -549,7 +544,7 @@ $(LIBNAME_G): $(ObjectsG) $(LibSubDirs) $(DESTLIBDEBUG)/.dir
 
 install-dynamic-library: $(LIBNAME_CUR)
 	$(MKDIR) $(libdir)
-	$(VERB) $(LIBTOOL) --mode=install $(INSTALL) $(LIBNAME_CUR) $(DESTDIR)$(libdir)/lib$(LIBRARYNAME)$(SHLIBEXT)
+	$(VERB) $(LIBTOOL) --mode=install $(INSTALL) $(LIBNAME_CUR) $(libdir)/lib$(LIBRARYNAME).so
 
 #
 # Rules for building static archive libraries.
@@ -574,7 +569,7 @@ $(LIBNAME_AG): $(ObjectsG) $(LibSubDirs) $(DESTLIBDEBUG)/.dir
 
 install-archive-library: $(LIBNAME_ACUR)
 	$(MKDIR) $(libdir)
-	$(VERB) $(LIBTOOL) --mode=install $(INSTALL) $(LIBNAME_ACUR) $(DESTDIR)$(libdir)/lib$(LIBRARYNAME).a
+	$(VERB) $(LIBTOOL) --mode=install $(INSTALL) $(LIBNAME_ACUR) $(libdir)/lib$(LIBRARYNAME).a
 
 #
 # Rules for building .o libraries.
@@ -604,8 +599,25 @@ $(LIBNAME_OBJG): $(ObjectsG) $(LibSubDirs) $(DESTLIBDEBUG)/.dir
 
 install-single-object-library: $(LIBNAME_OBJCUR)
 	$(MKDIR) $(libdir)
-	$(VERB) $(LIBTOOL) --mode=install $(INSTALL) $(LIBNAME_OBJCUR) $(DESTDIR)$(libdir)/$(LIBRARYNAME).o
+	$(VERB) $(LIBTOOL) --mode=install $(INSTALL) $(LIBNAME_OBJCUR) $(libdir)/$(LIBRARYNAME).o
 
+endif
+
+#------------------------------------------------------------------------
+# Create a TAGS database for emacs
+#------------------------------------------------------------------------
+
+ifneq ($(ETAGS),false)
+ifeq ($(LEVEL), .)
+SRCDIRS := $(wildcard $(SourceDir)/include $(SourceDir)/lib $(SourceDir)/tools)
+
+tags:
+	$(ETAGS) -l c++ `find $(SRCDIRS) -name '*.cpp' -o -name '*.h'`
+all:: tags
+endif
+else
+tags:
+	${ECHO} "Cannot build $@: The program etags is not installed"
 endif
 
 #------------------------------------------------------------------------
@@ -687,7 +699,7 @@ $(TOOLEXENAME_P): $(ObjectsP) $(USED_LIB_PATHS_P) $(DESTTOOLPROFILE)/.dir
 
 install:: $(TOOLEXENAMES)
 	$(MKDIR) $(bindir)
-	$(LIBTOOL) --mode=install $(INSTALL_PROGRAM) -c -m 0755 $(TOOLEXENAMES) $(DESTDIR)$(bindir)/$(TOOLNAME)
+	$(LIBTOOL) --mode=install $(INSTALL_PROGRAM) -c -m 0755 $(TOOLEXENAMES) $(bindir)/$(TOOLNAME)
 
 endif
 
@@ -801,10 +813,7 @@ clean::
 	$(VERB) $(RM) -rf $(BUILD_OBJ_DIR)/Debug $(BUILD_OBJ_DIR)/Release
 	$(VERB) $(RM) -rf $(BUILD_OBJ_DIR)/Profile $(BUILD_OBJ_DIR)/Depend
 	$(VERB) $(RM) -rf $(BUILD_OBJ_DIR)/BytecodeObj
-	$(VERB) $(RM) -f core core.[0-9][0-9]* *.o *.d *~ *.flc
-ifneq ($(strip $(SHLIBEXT)),) # Extra paranoia - make real sure SHLIBEXT is set
-	$(VERB)	$(RM) -f *$(SHLIBEXT)
-endif
+	$(VERB) $(RM) -f core core.[0-9][0-9]* *.o *.d *.so *~ *.flc
 	$(VERB) $(RM) -f $(LEX_OUTPUT) $(YACC_OUTPUT)
 
 ###########################################################################

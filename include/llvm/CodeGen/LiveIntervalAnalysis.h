@@ -26,7 +26,6 @@
 #include <iostream>
 #include <list>
 #include <map>
-#include <vector>
 
 namespace llvm {
 
@@ -40,9 +39,10 @@ namespace llvm {
             typedef std::pair<unsigned, unsigned> Range;
             typedef std::vector<Range> Ranges;
             unsigned reg;   // the register of this interval
+            unsigned hint;
             float weight;   // weight of this interval (number of uses
                             // * 10^loopDepth)
-            Ranges ranges;  // the ranges in which this register is live
+            Ranges ranges;  // the ranges this register is valid
 
             Interval(unsigned r);
 
@@ -66,12 +66,10 @@ namespace llvm {
 
             void addRange(unsigned start, unsigned end);
 
-            void join(const Interval& other);
-
         private:
-            Ranges::iterator mergeRangesForward(Ranges::iterator it);
+            void mergeRangesForward(Ranges::iterator it);
 
-            Ranges::iterator mergeRangesBackward(Ranges::iterator it);
+            void mergeRangesBackward(Ranges::iterator it);
         };
 
         struct StartPointComp {
@@ -87,7 +85,6 @@ namespace llvm {
         };
 
         typedef std::list<Interval> Intervals;
-        typedef std::map<unsigned, unsigned> Reg2RegMap;
         typedef std::vector<MachineBasicBlock*> MachineBasicBlockPtrs;
 
     private:
@@ -107,15 +104,11 @@ namespace llvm {
         typedef std::map<unsigned, Intervals::iterator> Reg2IntervalMap;
         Reg2IntervalMap r2iMap_;
 
-        Reg2RegMap r2rMap_;
-
         Intervals intervals_;
 
     public:
         virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-
         Intervals& getIntervals() { return intervals_; }
-
         MachineBasicBlockPtrs getOrderedMachineBasicBlockPtrs() const {
             MachineBasicBlockPtrs result;
             for (MbbIndex2MbbMap::const_iterator
@@ -126,13 +119,6 @@ namespace llvm {
             return result;
         }
 
-        const Reg2RegMap& getJoinedRegMap() const {
-            return r2rMap_;
-        }
-
-        /// rep - returns the representative of this register
-        unsigned rep(unsigned reg);
-
     private:
         /// runOnMachineFunction - pass entry point
         bool runOnMachineFunction(MachineFunction&);
@@ -140,8 +126,6 @@ namespace llvm {
         /// computeIntervals - compute live intervals
         void computeIntervals();
 
-        /// joinIntervals - join compatible live intervals
-        void joinIntervals();
 
         /// handleRegisterDef - update intervals for a register def
         /// (calls handlePhysicalRegisterDef and
@@ -161,8 +145,6 @@ namespace llvm {
         void handlePhysicalRegisterDef(MachineBasicBlock* mbb,
                                        MachineBasicBlock::iterator mi,
                                        unsigned reg);
-
-        bool overlapsAliases(const Interval& lhs, const Interval& rhs) const;
 
         unsigned getInstructionIndex(MachineInstr* instr) const;
 

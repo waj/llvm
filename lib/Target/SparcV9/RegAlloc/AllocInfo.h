@@ -79,13 +79,6 @@ struct AllocInfo {
   }
 };
 
-static inline std::ostream &operator << (std::ostream &OS, AllocInfo &S) {
-  OS << "(Instruction " << S.Instruction << " Operand " << S.Operand
-     << " AllocState " << S.allocStateToString () << " Placement "
-     << S.Placement << ")";
-  return OS;
-}
-
 } // End llvm namespace
 
 #endif // ALLOCINFO_H

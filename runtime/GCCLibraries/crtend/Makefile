@@ -31,10 +31,10 @@ CRTEND_A   = $(DESTLIBBYTECODE)/libcrtend.a
 all:: $(CRTEND_A)
 
 # Installation simply requires copying the archive to it's new home.
-$(DESTDIR)$(bytecode_libdir)/libcrtend.a: $(CRTEND_A) $(DESTDIR)$(bytecode_libdir)
+$(LLVMGCCDIR)/bytecode-libs/libcrtend.a: $(CRTEND_A)
 	cp $< $@
 
-install:: $(DESTDIR)$(bytecode_libdir)/libcrtend.a
+install:: $(LLVMGCCDIR)/bytecode-libs/libcrtend.a
 
 
 # The four components described in the README
