@@ -45,9 +45,8 @@ namespace {
 
 void LiveIntervals::getAnalysisUsage(AnalysisUsage &AU) const
 {
-    AU.addPreserved<LiveVariables>();
+    AU.setPreservesAll();
     AU.addRequired<LiveVariables>();
-    AU.addPreservedID(PHIEliminationID);
     AU.addRequiredID(PHIEliminationID);
     MachineFunctionPass::getAnalysisUsage(AU);
 }
@@ -184,10 +183,6 @@ void LiveIntervals::handlePhysicalRegisterDef(MachineBasicBlock* mbb,
                                               unsigned reg)
 {
     DEBUG(std::cerr << "\t\t\tregister: ";printRegName(reg); std::cerr << '\n');
-    if (!lv_->getAllocatablePhysicalRegisters()[reg]) {
-        DEBUG(std::cerr << "\t\t\t\tnon allocatable register: ignoring\n");
-        return;
-    }
 
     unsigned start = getInstructionIndex(*mi);
     unsigned end = start;
@@ -291,15 +286,12 @@ void LiveIntervals::computeIntervals()
             for (int i = instr->getNumOperands() - 1; i >= 0; --i) {
                 MachineOperand& mop = instr->getOperand(i);
 
-                if (!mop.isRegister())
+                if (!mop.isVirtualRegister())
                     continue;
 
-                if (mop.isDef()) {
+                if (mop.opIsDefOnly() || mop.opIsDefAndUse()) {
                     unsigned reg = mop.getAllocatedRegNum();
-                    if (reg < MRegisterInfo::FirstVirtualRegister)
-                        handlePhysicalRegisterDef(mbb, mi, reg);
-                    else
-                        handleVirtualRegisterDef(mbb, mi, reg);
+                    handleVirtualRegisterDef(mbb, mi, reg);
                 }
             }
         }

@@ -20,7 +20,8 @@
 #include "llvm/Target/TargetData.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/InstIterator.h"
-using namespace llvm;
+
+namespace llvm {
 
 /// mergeSetIn - Merge the specified alias set into this alias set...
 ///
@@ -189,20 +190,15 @@ AliasSet &AliasSetTracker::getAliasSetForPointer(Value *Pointer, unsigned Size){
 }
 
 void AliasSetTracker::add(LoadInst *LI) {
-  AliasSet &AS = 
-    addPointer(LI->getOperand(0),
-               AA.getTargetData().getTypeSize(LI->getType()), AliasSet::Refs);
-  if (LI->isVolatile()) AS.setVolatile();
+  addPointer(LI->getOperand(0),
+             AA.getTargetData().getTypeSize(LI->getType()), AliasSet::Refs);
 }
 
 void AliasSetTracker::add(StoreInst *SI) {
-  AliasSet &AS = 
-    addPointer(SI->getOperand(1),
-               AA.getTargetData().getTypeSize(SI->getOperand(0)->getType()),
-               AliasSet::Mods);
-  if (SI->isVolatile()) AS.setVolatile();
+  addPointer(SI->getOperand(1),
+             AA.getTargetData().getTypeSize(SI->getOperand(0)->getType()),
+             AliasSet::Mods);
 }
-
 
 void AliasSetTracker::add(CallSite CS) {
   AliasSet *AS = findAliasSetForCallSite(CS);
@@ -267,7 +263,6 @@ void AliasSet::print(std::ostream &OS) const {
   case ModRef  : OS << "Mod/Ref   "; break;
   default: assert(0 && "Bad value for AccessTy!");
   }
-  if (isVolatile()) OS << "[volatile] ";
   if (Forward)
     OS << " forwarding to " << (void*)Forward;
 
@@ -334,3 +329,5 @@ namespace {
   RegisterPass<AliasSetPrinter> X("print-alias-sets", "Alias Set Printer",
                                   PassInfo::Analysis | PassInfo::Optimization);
 }
+
+} // End llvm namespace

@@ -507,9 +507,7 @@ void RA::AllocateBasicBlock(MachineBasicBlock &MBB) {
     // to be live-in, or the input is badly hosed.
     //
     for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i)
-      if (MI->getOperand(i).isUse() &&
-          !MI->getOperand(i).isDef() &&
-          MI->getOperand(i).isVirtualRegister()){
+      if (MI->getOperand(i).opIsUse() && MI->getOperand(i).isVirtualRegister()){
         unsigned VirtSrcReg = MI->getOperand(i).getAllocatedRegNum();
         unsigned PhysSrcReg = reloadVirtReg(MBB, I, VirtSrcReg);
         MI->SetMachineOperandReg(i, PhysSrcReg);  // Assign the input register
@@ -543,7 +541,8 @@ void RA::AllocateBasicBlock(MachineBasicBlock &MBB) {
     // Loop over all of the operands of the instruction, spilling registers that
     // are defined, and marking explicit destinations in the PhysRegsUsed map.
     for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i)
-      if (MI->getOperand(i).isDef() &&
+      if ((MI->getOperand(i).opIsDefOnly() ||
+           MI->getOperand(i).opIsDefAndUse()) &&
           MI->getOperand(i).isPhysicalRegister()) {
         unsigned Reg = MI->getOperand(i).getAllocatedRegNum();
         spillPhysReg(MBB, I, Reg, true);  // Spill any existing value in the reg
@@ -552,13 +551,13 @@ void RA::AllocateBasicBlock(MachineBasicBlock &MBB) {
       }
 
     // Loop over the implicit defs, spilling them as well.
-    for (const unsigned *ImplicitDefs = TID.ImplicitDefs;
-         *ImplicitDefs; ++ImplicitDefs) {
-      unsigned Reg = *ImplicitDefs;
-      spillPhysReg(MBB, I, Reg);
-      PhysRegsUseOrder.push_back(Reg);
-      PhysRegsUsed[Reg] = 0;            // It is free and reserved now
-    }
+    if (const unsigned *ImplicitDefs = TID.ImplicitDefs)
+      for (unsigned i = 0; ImplicitDefs[i]; ++i) {
+        unsigned Reg = ImplicitDefs[i];
+        spillPhysReg(MBB, I, Reg);
+        PhysRegsUseOrder.push_back(Reg);
+        PhysRegsUsed[Reg] = 0;            // It is free and reserved now
+      }
 
     // Okay, we have allocated all of the source operands and spilled any values
     // that would be destroyed by defs of this instruction.  Loop over the
@@ -566,8 +565,8 @@ void RA::AllocateBasicBlock(MachineBasicBlock &MBB) {
     // we need to scavenge a register.
     //
     for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i)
-      if (MI->getOperand(i).isDef() &&
-          MI->getOperand(i).isVirtualRegister()) {
+      if ((MI->getOperand(i).opIsDefOnly() || MI->getOperand(i).opIsDefAndUse())
+          && MI->getOperand(i).isVirtualRegister()) {
         unsigned DestVirtReg = MI->getOperand(i).getAllocatedRegNum();
         unsigned DestPhysReg;
 
@@ -586,7 +585,7 @@ void RA::AllocateBasicBlock(MachineBasicBlock &MBB) {
           // This maps a = b + c into b += c, and saves b into a's spot
           assert(MI->getOperand(1).isPhysicalRegister()  &&
                  MI->getOperand(1).getAllocatedRegNum() &&
-                 MI->getOperand(1).isUse() &&
+                 MI->getOperand(1).opIsUse() &&
                  "Two address instruction invalid!");
           DestPhysReg = MI->getOperand(1).getAllocatedRegNum();
 

@@ -82,7 +82,7 @@ class AliasSet {
 
   // RefCount - Number of nodes pointing to this AliasSet plus the number of
   // AliasSets forwarding to it.
-  unsigned RefCount : 28;
+  unsigned RefCount : 29;
 
   /// AccessType - Keep track of whether this alias set merely refers to the
   /// locations of memory, whether it modifies the memory, or whether it does
@@ -103,9 +103,6 @@ class AliasSet {
   };
   unsigned AliasTy : 1;
 
-  // Volatile - True if this alias set contains volatile loads or stores.
-  bool Volatile : 1;
-
   friend class ilist_traits<AliasSet>;
   AliasSet *getPrev() const { return Prev; }
   AliasSet *getNext() const { return Next; }
@@ -118,11 +115,6 @@ public:
   bool isMod() const { return AccessTy & Mods; }
   bool isMustAlias() const { return AliasTy == MustAlias; }
   bool isMayAlias()  const { return AliasTy == MayAlias; }
-
-  // isVolatile - Return true if this alias set contains volatile loads or
-  // stores.
-  bool isVolatile() const { return Volatile; }
-
 
   /// isForwardingAliasSet - Return true if this alias set should be ignored as
   /// part of the AliasSetTracker object.
@@ -176,7 +168,7 @@ public:
 private:
   // Can only be created by AliasSetTracker
   AliasSet() : PtrListHead(0), PtrListTail(0), Forward(0), RefCount(0),
-               AccessTy(NoModRef), AliasTy(MustAlias), Volatile(false) {
+               AccessTy(NoModRef), AliasTy(MustAlias) {
   }
   HashNodePair *getSomePointer() const {
     return PtrListHead ? PtrListHead : 0;
@@ -202,7 +194,6 @@ private:
 
   void addPointer(AliasSetTracker &AST, HashNodePair &Entry, unsigned Size);
   void addCallSite(CallSite CS);
-  void setVolatile() { Volatile = true; }
 
   /// aliasesPointer - Return true if the specified pointer "may" (or must)
   /// alias one of the members in the set.
@@ -281,10 +272,9 @@ private:
                                             AliasSet::PointerRec())).first;
   }
 
-  AliasSet &addPointer(Value *P, unsigned Size, AliasSet::AccessType E) {
+  void addPointer(Value *P, unsigned Size, AliasSet::AccessType E) {
     AliasSet &AS = getAliasSetForPointer(P, Size);
     AS.AccessTy |= E;
-    return AS;
   }
   AliasSet *findAliasSetForPointer(const Value *Ptr, unsigned Size);
 

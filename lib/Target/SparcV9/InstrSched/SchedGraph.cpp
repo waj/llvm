@@ -342,8 +342,8 @@ void SchedGraph::addMachineRegEdges(RegToRefVecMap& regToRefVecMap,
       unsigned int opNum   = regRefVec[i].second;
       const MachineOperand& mop =
         node->getMachineInstr()->getExplOrImplOperand(opNum);
-      bool isDef = mop.isDef() && !mop.isUse();
-      bool isDefAndUse = mop.isDef() && mop.isUse();
+      bool isDef = mop.opIsDefOnly();
+      bool isDefAndUse = mop.opIsDefAndUse();
           
       for (unsigned p=0; p < i; ++p) {
         SchedGraphNode* prevNode = regRefVec[p].first;
@@ -351,8 +351,8 @@ void SchedGraph::addMachineRegEdges(RegToRefVecMap& regToRefVecMap,
           unsigned int prevOpNum = regRefVec[p].second;
           const MachineOperand& prevMop =
             prevNode->getMachineInstr()->getExplOrImplOperand(prevOpNum);
-          bool prevIsDef = prevMop.isDef() && !prevMop.isUse();
-          bool prevIsDefAndUse = prevMop.isDef() && prevMop.isUse();
+          bool prevIsDef = prevMop.opIsDefOnly();
+          bool prevIsDefAndUse = prevMop.opIsDefAndUse();
           if (isDef) {
             if (prevIsDef)
               new SchedGraphEdge(prevNode, node, regNum,
@@ -381,8 +381,10 @@ void SchedGraph::addEdgesForValue(SchedGraphNode* refNode,
 				  const RefVec& defVec,
 				  const Value* defValue,
 				  bool  refNodeIsDef,
-				  bool  refNodeIsUse,
+				  bool  refNodeIsDefAndUse,
 				  const TargetMachine& target) {
+  bool refNodeIsUse = !refNodeIsDef || refNodeIsDefAndUse;
+  
   // Add true or output dep edges from all def nodes before refNode in BB.
   // Add anti or output dep edges to all def nodes after refNode.
   for (RefVec::const_iterator I=defVec.begin(), E=defVec.end(); I != E; ++I) {
@@ -391,7 +393,7 @@ void SchedGraph::addEdgesForValue(SchedGraphNode* refNode,
     
     if ((*I).first->getOrigIndexInBB() < refNode->getOrigIndexInBB()) {
       // (*).first is before refNode
-      if (refNodeIsDef && !refNodeIsUse)
+      if (refNodeIsDef)
         (void) new SchedGraphEdge((*I).first, refNode, defValue,
                                   SchedGraphEdge::OutputDep);
       if (refNodeIsUse)
@@ -399,7 +401,7 @@ void SchedGraph::addEdgesForValue(SchedGraphNode* refNode,
                                   SchedGraphEdge::TrueDep);
     } else {
       // (*).first is after refNode
-      if (refNodeIsDef && !refNodeIsUse)
+      if (refNodeIsDef)
         (void) new SchedGraphEdge(refNode, (*I).first, defValue,
                                   SchedGraphEdge::OutputDep);
       if (refNodeIsUse)
@@ -427,8 +429,8 @@ void SchedGraph::addEdgesForInstruction(const MachineInstr& MI,
         ValueToDefVecMap::const_iterator I = valueToDefVecMap.find(srcI);
         if (I != valueToDefVecMap.end())
           addEdgesForValue(node, I->second, srcI,
-                           MI.getOperand(i).isDef(), MI.getOperand(i).isUse(),
-                           target);
+                           MI.getOperand(i).opIsDefOnly(),
+                           MI.getOperand(i).opIsDefAndUse(), target);
       }
       break;
       
@@ -452,13 +454,13 @@ void SchedGraph::addEdgesForInstruction(const MachineInstr& MI,
   // value of a Ret instruction.
   // 
   for (unsigned i=0, N=MI.getNumImplicitRefs(); i < N; ++i)
-    if (MI.getImplicitOp(i).isUse())
+    if (MI.getImplicitOp(i).opIsUse() || MI.getImplicitOp(i).opIsDefAndUse())
       if (const Value* srcI = MI.getImplicitRef(i)) {
         ValueToDefVecMap::const_iterator I = valueToDefVecMap.find(srcI);
         if (I != valueToDefVecMap.end())
           addEdgesForValue(node, I->second, srcI,
-                           MI.getImplicitOp(i).isDef(),
-                           MI.getImplicitOp(i).isUse(), target);
+                           MI.getImplicitOp(i).opIsDefOnly(),
+                           MI.getImplicitOp(i).opIsDefAndUse(), target);
       }
 }
 
@@ -510,7 +512,8 @@ void SchedGraph::findDefUseInfoAtInstr(const TargetMachine& target,
     }
     
     // ignore all other non-def operands
-    if (!MI.getOperand(i).isDef())
+    if (!MI.getOperand(i).opIsDefOnly() &&
+        !MI.getOperand(i).opIsDefAndUse())
       continue;
       
     // We must be defining a value.
@@ -536,10 +539,10 @@ void SchedGraph::findDefUseInfoAtInstr(const TargetMachine& target,
       continue;                     // nothing more to do
     }
 
-    if (mop.isDef()) {
+    if (mop.opIsDefOnly() || mop.opIsDefAndUse()) {
       assert(MI.getImplicitRef(i) != NULL && "Null value being defined?");
-      valueToDefVecMap[MI.getImplicitRef(i)].push_back(
-        std::make_pair(node, -i)); 
+      valueToDefVecMap[MI.getImplicitRef(i)].push_back(std::make_pair(node,
+                                                                          -i)); 
     }
   }
 }

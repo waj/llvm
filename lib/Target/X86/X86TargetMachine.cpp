@@ -76,11 +76,6 @@ bool X86TargetMachine::addPassesToEmitAssembly(PassManager &PM,
   if (PrintCode)
     PM.add(createMachineFunctionPrinterPass());
 
-  // kill floating point registers at the end of basic blocks. this is
-  // done because the floating point register stackifier cannot handle
-  // floating point regs that are live across basic blocks.
-  PM.add(createX86FloatingPointKillerPass());
-
   // Perform register allocation to convert to a concrete x86 representation
   PM.add(createRegisterAllocator());
 
@@ -133,11 +128,6 @@ bool X86TargetMachine::addPassesToJITCompile(FunctionPassManager &PM) {
   // Print the instruction selected machine code...
   if (PrintCode)
     PM.add(createMachineFunctionPrinterPass());
-
-  // kill floating point registers at the end of basic blocks. this is
-  // done because the floating point register stackifier cannot handle
-  // floating point regs that are live across basic blocks.
-  PM.add(createX86FloatingPointKillerPass());
 
   // Perform register allocation to convert to a concrete x86 representation
   PM.add(createRegisterAllocator());

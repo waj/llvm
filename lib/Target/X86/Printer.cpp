@@ -551,7 +551,8 @@ void Printer::printMachineInstruction(const MachineInstr *MI) {
       }
     } else {
       unsigned i = 0;
-      if (MI->getNumOperands() && MI->getOperand(0).isDef()) {
+      if (MI->getNumOperands() && (MI->getOperand(0).opIsDefOnly() || 
+                                   MI->getOperand(0).opIsDefAndUse())) {
 	printOp(MI->getOperand(0));
 	O << " = ";
 	++i;
@@ -560,9 +561,11 @@ void Printer::printMachineInstruction(const MachineInstr *MI) {
 
       for (unsigned e = MI->getNumOperands(); i != e; ++i) {
 	O << " ";
-	if (MI->getOperand(i).isDef()) O << "*";
+	if (MI->getOperand(i).opIsDefOnly() || 
+            MI->getOperand(i).opIsDefAndUse()) O << "*";
 	printOp(MI->getOperand(i));
-	if (MI->getOperand(i).isDef()) O << "*";
+	if (MI->getOperand(i).opIsDefOnly() || 
+            MI->getOperand(i).opIsDefAndUse()) O << "*";
       }
     }
     O << "\n";

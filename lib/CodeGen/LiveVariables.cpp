@@ -226,7 +226,7 @@ bool LiveVariables::runOnMachineFunction(MachineFunction &MF) {
       // Process all explicit uses...
       for (unsigned i = 0; i != NumOperandsToProcess; ++i) {
 	MachineOperand &MO = MI->getOperand(i);
-	if (MO.isUse()) {
+	if (MO.opIsUse() || MO.opIsDefAndUse()) {
 	  if (MO.isVirtualRegister() && !MO.getVRegValueOrNull()) {
 	    HandleVirtRegUse(getVarInfo(MO.getReg()), MBB, MI);
 	  } else if (MO.isPhysicalRegister() && 
@@ -237,14 +237,14 @@ bool LiveVariables::runOnMachineFunction(MachineFunction &MF) {
       }
 
       // Loop over implicit defs, defining them.
-      for (const unsigned *ImplicitDefs = MID.ImplicitDefs;
-           *ImplicitDefs; ++ImplicitDefs)
-        HandlePhysRegDef(*ImplicitDefs, MI);
+      if (const unsigned *ImplicitDefs = MID.ImplicitDefs)
+	for (unsigned i = 0; ImplicitDefs[i]; ++i)
+	  HandlePhysRegDef(ImplicitDefs[i], MI);
 
       // Process all explicit defs...
       for (unsigned i = 0; i != NumOperandsToProcess; ++i) {
 	MachineOperand &MO = MI->getOperand(i);
-	if (MO.isDef()) {
+	if (MO.opIsDefOnly() || MO.opIsDefAndUse()) {
 	  if (MO.isVirtualRegister()) {
 	    VarInfo &VRInfo = getVarInfo(MO.getReg());
 

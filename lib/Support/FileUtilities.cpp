@@ -19,12 +19,14 @@
 #include <fstream>
 #include <iostream>
 #include <cstdio>
-using namespace llvm;
+
+namespace llvm
+{
 
 /// CheckMagic - Returns true IFF the file named FN begins with Magic. FN must
 /// name a readable file.
 ///
-bool llvm::CheckMagic(const std::string &FN, const std::string &Magic) {
+bool CheckMagic (const std::string &FN, const std::string &Magic) {
   char buf[1 + Magic.size ()];
   std::ifstream f (FN.c_str ());
   f.read (buf, Magic.size ());
@@ -35,7 +37,7 @@ bool llvm::CheckMagic(const std::string &FN, const std::string &Magic) {
 /// IsArchive - Returns true IFF the file named FN appears to be a "ar" library
 /// archive. The file named FN must exist.
 ///
-bool llvm::IsArchive(const std::string &FN) {
+bool IsArchive(const std::string &FN) {
   // Inspect the beginning of the file to see if it contains the "ar"
   // library archive format magic string.
   return CheckMagic (FN, "!<arch>\012");
@@ -44,7 +46,7 @@ bool llvm::IsArchive(const std::string &FN) {
 /// IsBytecode - Returns true IFF the file named FN appears to be an LLVM
 /// bytecode file. The file named FN must exist.
 ///
-bool llvm::IsBytecode(const std::string &FN) {
+bool IsBytecode(const std::string &FN) {
   // Inspect the beginning of the file to see if it contains the LLVM
   // bytecode format magic string.
   return CheckMagic (FN, "llvm");
@@ -53,7 +55,7 @@ bool llvm::IsBytecode(const std::string &FN) {
 /// IsSharedObject - Returns trus IFF the file named FN appears to be a shared
 /// object with an ELF header. The file named FN must exist.
 ///
-bool llvm::IsSharedObject(const std::string &FN) {
+bool IsSharedObject(const std::string &FN) {
   // Inspect the beginning of the file to see if it contains the ELF shared
   // object magic string.
   static const char elfMagic[] = { 0x7f, 'E', 'L', 'F', '\0' };
@@ -63,7 +65,7 @@ bool llvm::IsSharedObject(const std::string &FN) {
 /// FileOpenable - Returns true IFF Filename names an existing regular
 /// file which we can successfully open.
 ///
-bool llvm::FileOpenable(const std::string &Filename) {
+bool FileOpenable (const std::string &Filename) {
   struct stat s;
   if (stat (Filename.c_str (), &s) == -1)
     return false; // Cannot stat file
@@ -81,8 +83,8 @@ bool llvm::FileOpenable(const std::string &Filename) {
 /// occurs, allowing the caller to distinguish between a failed diff and a file
 /// system error.
 ///
-bool llvm::DiffFiles(const std::string &FileA, const std::string &FileB,
-                     std::string *Error) {
+bool DiffFiles(const std::string &FileA, const std::string &FileB,
+               std::string *Error) {
   std::ifstream FileAStream(FileA.c_str());
   if (!FileAStream) {
     if (Error) *Error = "Couldn't open file '" + FileA + "'";
@@ -111,8 +113,7 @@ bool llvm::DiffFiles(const std::string &FileA, const std::string &FileB,
 /// or if Old does not exist, move the New file over the Old file.  Otherwise,
 /// remove the New file.
 ///
-void llvm::MoveFileOverIfUpdated(const std::string &New,
-                                 const std::string &Old) {
+void MoveFileOverIfUpdated(const std::string &New, const std::string &Old) {
   if (DiffFiles(New, Old)) {
     if (std::rename(New.c_str(), Old.c_str()))
       std::cerr << "Error renaming '" << New << "' to '" << Old << "'!\n";
@@ -123,7 +124,7 @@ void llvm::MoveFileOverIfUpdated(const std::string &New,
 
 /// removeFile - Delete the specified file
 ///
-void llvm::removeFile(const std::string &Filename) {
+void removeFile(const std::string &Filename) {
   std::remove(Filename.c_str());
 }
 
@@ -131,7 +132,7 @@ void llvm::removeFile(const std::string &Filename) {
 /// file does not exist yet, return it, otherwise add a suffix to make it
 /// unique.
 ///
-std::string llvm::getUniqueFilename(const std::string &FilenameBase) {
+std::string getUniqueFilename(const std::string &FilenameBase) {
   if (!std::ifstream(FilenameBase.c_str()))
     return FilenameBase;    // Couldn't open the file? Use it!
 
@@ -182,8 +183,8 @@ static bool AddPermissionsBits (const std::string &Filename, mode_t bits) {
 /// umask would allow. Filename must name an existing file or
 /// directory.  Returns true on success, false on error.
 ///
-bool llvm::MakeFileExecutable(const std::string &Filename) {
-  return AddPermissionsBits(Filename, 0111);
+bool MakeFileExecutable (const std::string &Filename) {
+  return AddPermissionsBits (Filename, 0111);
 }
 
 /// MakeFileReadable - Make the file named Filename readable by
@@ -191,6 +192,8 @@ bool llvm::MakeFileExecutable(const std::string &Filename) {
 /// umask would allow. Filename must name an existing file or
 /// directory.  Returns true on success, false on error.
 ///
-bool llvm::MakeFileReadable(const std::string &Filename) {
-  return AddPermissionsBits(Filename, 0444);
+bool MakeFileReadable (const std::string &Filename) {
+  return AddPermissionsBits (Filename, 0444);
 }
+
+} // End llvm namespace

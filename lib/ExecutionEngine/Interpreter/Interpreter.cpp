@@ -16,7 +16,8 @@
 #include "Interpreter.h"
 #include "llvm/Module.h"
 #include "llvm/DerivedTypes.h"
-using namespace llvm;
+
+namespace llvm {
 
 /// create - Create a new interpreter object.  This can never fail.
 ///
@@ -99,3 +100,4 @@ GenericValue Interpreter::run(Function *F,
   return rv;
 }
 
+} // End llvm namespace

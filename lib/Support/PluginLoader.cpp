@@ -22,7 +22,8 @@
 #include "Config/dlfcn.h"
 #include "Config/link.h"
 #include <iostream>
-using namespace llvm;
+
+namespace llvm {
 
 namespace {
   struct PluginLoader {
@@ -39,3 +40,5 @@ namespace {
 static cl::opt<PluginLoader, false, cl::parser<std::string> >
 LoadOpt("load", cl::ZeroOrMore, cl::value_desc("plugin.so"),
         cl::desc("Load the specified plugin"));
+
+} // End llvm namespace

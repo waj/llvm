@@ -18,8 +18,10 @@
 #include "llvm/Support/ValueHolder.h"
 #include "llvm/Type.h"
 
-using namespace llvm;
+namespace llvm {
 
 ValueHolder::ValueHolder(Value *V) : User(Type::TypeTy, Value::TypeVal) {
   Operands.push_back(Use(V, this));
 }
+
+} // End llvm namespace

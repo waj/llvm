@@ -14,7 +14,8 @@
 #include "Support/LeakDetector.h"
 #include "llvm/Value.h"
 #include <set>
-using namespace llvm;
+
+namespace llvm {
 
 // Lazily allocate set so that release build doesn't have to do anything.
 static std::set<const void*> *Objects = 0;
@@ -88,3 +89,5 @@ void LeakDetector::checkForGarbageImpl(const std::string &Message) {
     Objects = 0; LLVMObjects = 0;
   }
 }
+
+} // End llvm namespace

@@ -53,8 +53,6 @@ static enum ObjectType getObjectType(ar_hdr *H, unsigned char *MemberData,
   // Check for sections with special names...
   if (!memcmp(H->name, "__.SYMDEF       ", 16))
     return ArchiveSymbolTable;
-  if (!memcmp(H->name, "__.SYMDEF SORTED", 16))
-    return ArchiveSymbolTable;
   if (!memcmp(H->name, "//              ", 16))
     return SVR4LongFilename;
 

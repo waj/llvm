@@ -118,7 +118,8 @@ void PEI::saveCallerSavedRegisters(MachineFunction &Fn) {
 	  MachineOperand &MO = (*I)->getOperand(i);
 	  assert(!MO.isVirtualRegister() &&
 		 "Register allocation must be performed!");
-	  if (MO.isPhysicalRegister() && MO.isDef())
+	  if (MO.isPhysicalRegister() &&
+	      (MO.opIsDefOnly() || MO.opIsDefAndUse()))
 	    ModifiedRegs[MO.getReg()] = true;         // Register is modified
 	}
 	++I;

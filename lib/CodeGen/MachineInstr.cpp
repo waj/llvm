@@ -153,8 +153,8 @@ MachineInstr::substituteValue(const Value* oldVal, Value* newVal,
   for (MachineInstr::val_op_iterator O = begin(), E = end(); O != E; ++O)
     if (*O == oldVal)
       if (!defsOnly ||
-          notDefsAndUses && (O.isDef() && !O.isUse()) ||
-          !notDefsAndUses && O.isDef())
+          notDefsAndUses && O.isDefOnly() ||
+          !notDefsAndUses && !O.isUseOnly())
         {
           O.getMachineOperand().value = newVal;
           ++numSubst;
@@ -166,8 +166,8 @@ MachineInstr::substituteValue(const Value* oldVal, Value* newVal,
   for (unsigned i=0, N=getNumImplicitRefs(); i < N; ++i)
     if (getImplicitRef(i) == oldVal)
       if (!defsOnly ||
-          notDefsAndUses && (getImplicitOp(i).isDef() && !getImplicitOp(i).isUse()) ||
-          !notDefsAndUses && getImplicitOp(i).isDef())
+          notDefsAndUses && getImplicitOp(i).opIsDefOnly() ||
+          !notDefsAndUses && !getImplicitOp(i).opIsUse())
         {
           getImplicitOp(i).value = newVal;
           ++numSubst;
@@ -210,13 +210,13 @@ static void print(const MachineOperand &MO, std::ostream &OS,
                   const TargetMachine &TM) {
   const MRegisterInfo *MRI = TM.getRegisterInfo();
   bool CloseParen = true;
-  if (MO.isHiBits32())
+  if (MO.opHiBits32())
     OS << "%lm(";
-  else if (MO.isLoBits32())
+  else if (MO.opLoBits32())
     OS << "%lo(";
-  else if (MO.isHiBits64())
+  else if (MO.opHiBits64())
     OS << "%hh(";
-  else if (MO.isLoBits64())
+  else if (MO.opLoBits64())
     OS << "%hm(";
   else
     CloseParen = false;
@@ -289,7 +289,8 @@ void MachineInstr::print(std::ostream &OS, const TargetMachine &TM) const {
   unsigned StartOp = 0;
 
    // Specialize printing if op#0 is definition
-  if (getNumOperands() && getOperand(0).isDef() && !getOperand(0).isUse()) {
+  if (getNumOperands() &&
+      (getOperand(0).opIsDefOnly() || getOperand(0).opIsDefAndUse())) {
       llvm::print(getOperand(0), OS, TM);
     OS << " = ";
     ++StartOp;   // Don't print this operand again!
@@ -303,11 +304,10 @@ void MachineInstr::print(std::ostream &OS, const TargetMachine &TM) const {
     OS << " ";
     llvm::print(mop, OS, TM);
     
-    if (mop.isDef())
-      if (mop.isUse())
-        OS << "<def&use>";
-      else
-        OS << "<def>";
+    if (mop.opIsDefAndUse())
+      OS << "<def&use>";
+    else if (mop.opIsDefOnly())
+      OS << "<def>";
   }
     
   // code for printing implicit references
@@ -316,11 +316,10 @@ void MachineInstr::print(std::ostream &OS, const TargetMachine &TM) const {
     for(unsigned i = 0, e = getNumImplicitRefs(); i != e; ++i) {
       OS << "\t";
       OutputValue(OS, getImplicitRef(i));
-      if (getImplicitOp(i).isDef())
-          if (getImplicitOp(i).isUse())
-            OS << "<def&use>";
-          else
-            OS << "<def>";
+      if (getImplicitOp(i).opIsDefAndUse())
+        OS << "<def&use>";
+      else if (getImplicitOp(i).opIsDefOnly())
+        OS << "<def>";
     }
   }
   
@@ -334,11 +333,10 @@ std::ostream &operator<<(std::ostream& os, const MachineInstr& MI)
   
   for (unsigned i=0, N=MI.getNumOperands(); i < N; i++) {
     os << "\t" << MI.getOperand(i);
-    if (MI.getOperand(i).isDef())
-      if (MI.getOperand(i).isUse())
-        os << "<d&u>";
-      else
-        os << "<d>";
+    if (MI.getOperand(i).opIsDefOnly())
+      os << "<d>";
+    if (MI.getOperand(i).opIsDefAndUse())
+      os << "<d&u>";
   }
   
   // code for printing implicit references
@@ -347,11 +345,8 @@ std::ostream &operator<<(std::ostream& os, const MachineInstr& MI)
     os << "\tImplicit: ";
     for (unsigned z=0; z < NumOfImpRefs; z++) {
       OutputValue(os, MI.getImplicitRef(z)); 
-      if (MI.getImplicitOp(z).isDef())
-          if (MI.getImplicitOp(z).isUse())
-            os << "<d&u>";
-          else
-            os << "<d>";
+      if (MI.getImplicitOp(z).opIsDefOnly()) os << "<d>";
+      if (MI.getImplicitOp(z).opIsDefAndUse()) os << "<d&u>";
       os << "\t";
     }
   }
@@ -361,13 +356,13 @@ std::ostream &operator<<(std::ostream& os, const MachineInstr& MI)
 
 std::ostream &operator<<(std::ostream &OS, const MachineOperand &MO)
 {
-  if (MO.isHiBits32())
+  if (MO.opHiBits32())
     OS << "%lm(";
-  else if (MO.isLoBits32())
+  else if (MO.opLoBits32())
     OS << "%lo(";
-  else if (MO.isHiBits64())
+  else if (MO.opHiBits64())
     OS << "%hh(";
-  else if (MO.isLoBits64())
+  else if (MO.opLoBits64())
     OS << "%hm(";
   
   switch (MO.getType())

@@ -23,11 +23,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Support/Debug.h"
+#include "Support/Statistic.h"
 #include "Support/CommandLine.h"
-using namespace llvm;
 
-bool llvm::DebugFlag;  // DebugFlag - Exported boolean set by the -debug option
+namespace llvm {
+
+bool DebugFlag;  // DebugFlag - Exported boolean set by the -debug option
 
 namespace {
 #ifndef NDEBUG
@@ -56,10 +57,12 @@ namespace {
 // specified on the command line, or if none was specified on the command line
 // with the -debug-only=X option.
 //
-bool llvm::isCurrentDebugType(const char *DebugType) {
+bool isCurrentDebugType(const char *DebugType) {
 #ifndef NDEBUG
   return CurrentDebugType.empty() || DebugType == CurrentDebugType;
 #else
   return false;
 #endif
 }
+
+} // End llvm namespace

@@ -203,7 +203,6 @@ bool RA::runOnMachineFunction(MachineFunction &fn) {
     v2ssMap_.clear();
 
     DEBUG(
-        unsigned i = 0;
         for (MachineBasicBlockPtrs::iterator
                  mbbi = mbbs_.begin(), mbbe = mbbs_.end();
              mbbi != mbbe; ++mbbi) {
@@ -213,8 +212,8 @@ bool RA::runOnMachineFunction(MachineFunction &fn) {
                      ii = mbb->begin(), ie = mbb->end();
                  ii != ie; ++ii) {
                 MachineInstr* instr = *ii;
-
-                std::cerr << i++ << "\t";
+                     
+                std::cerr << "\t";
                 instr->print(std::cerr, *tm_);
             }
         }
@@ -245,6 +244,7 @@ bool RA::runOnMachineFunction(MachineFunction &fn) {
 
         DEBUG(printIntervals("\tactive", active_.begin(), active_.end()));
         DEBUG(printIntervals("\tinactive", inactive_.begin(), inactive_.end()));
+
         processActiveIntervals(i);
         // processInactiveIntervals(i);
 
@@ -268,19 +268,6 @@ bool RA::runOnMachineFunction(MachineFunction &fn) {
             }
         }
     }
-    // expire any remaining active intervals
-    for (IntervalPtrs::iterator i = active_.begin(); i != active_.end(); ++i) {
-        unsigned reg = (*i)->reg;
-        DEBUG(std::cerr << "\t\tinterval " << **i << " expired\n");
-        if (reg < MRegisterInfo::FirstVirtualRegister) {
-            clearReservedPhysReg(reg);
-        }
-        else {
-            p2vMap_[v2pMap_[reg]] = 0;
-        }
-        // remove interval from active
-    }
-
     DEBUG(std::cerr << "finished register allocation\n");
     DEBUG(printVirt2PhysMap());
 
@@ -321,7 +308,7 @@ bool RA::runOnMachineFunction(MachineFunction &fn) {
             for (unsigned i = 0, e = (*currentInstr_)->getNumOperands();
                  i != e; ++i) {
                 MachineOperand& op = (*currentInstr_)->getOperand(i);
-                if (op.isVirtualRegister() && op.isUse()) {
+                if (op.isVirtualRegister() && op.opIsUse()) {
                     unsigned virtReg = op.getAllocatedRegNum();
                     unsigned physReg = v2pMap_[virtReg];
                     if (!physReg) {
@@ -344,13 +331,13 @@ bool RA::runOnMachineFunction(MachineFunction &fn) {
             for (unsigned i = 0, e = (*currentInstr_)->getNumOperands();
                  i != e; ++i) {
                 MachineOperand& op = (*currentInstr_)->getOperand(i);
-                if (op.isVirtualRegister() && op.isDef()) {
+                if (op.isVirtualRegister() && !op.opIsUse()) {
                     unsigned virtReg = op.getAllocatedRegNum();
                     unsigned physReg = v2pMap_[virtReg];
                     if (!physReg) {
                         physReg = getFreeTempPhysReg(virtReg);
                     }
-                    if (op.isUse()) { // def and use
+                    if (op.opIsDefAndUse()) {
                         loadVirt2PhysReg(virtReg, physReg);
                     }
                     else {
@@ -372,7 +359,7 @@ bool RA::runOnMachineFunction(MachineFunction &fn) {
                 (*currentInstr_)->getOperand(1).getAllocatedRegNum()) {
                 assert((*currentInstr_)->getOperand(1).isRegister() &&
                        (*currentInstr_)->getOperand(1).getAllocatedRegNum() &&
-                       (*currentInstr_)->getOperand(1).isUse() &&
+                       (*currentInstr_)->getOperand(1).opIsUse() &&
                        "Two address instruction invalid");
 
                 unsigned regA =
@@ -627,22 +614,6 @@ void RA::reservePhysReg(unsigned physReg)
         assignVirt2StackSlot(virtReg);
     }
     p2vMap_[physReg] = physReg; // this denotes a reserved physical register
-
-    // if it also aliases any other registers with values spill them too
-    for (const unsigned* as = mri_->getAliasSet(physReg); *as; ++as) {
-        unsigned virtReg = p2vMap_[*as];
-        if (virtReg != 0 && virtReg != *as) {
-            // remove interval from active
-            for (IntervalPtrs::iterator i = active_.begin(), e = active_.end();
-                 i != e; ++i) {
-                if ((*i)->reg == virtReg) {
-                    active_.erase(i);
-                    break;
-                }
-            }
-            assignVirt2StackSlot(virtReg);
-        }
-    }
 }
 
 void RA::clearReservedPhysReg(unsigned physReg)

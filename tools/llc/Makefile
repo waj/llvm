@@ -24,7 +24,7 @@ USEDLIBS = sparc \
            bcreader \
            bcwriter \
            vmcore \
-           support.a
+           support
 TOOLLINKOPTS = $(PLATFORMLIBDL)
 
 include $(LEVEL)/Makefile.common
