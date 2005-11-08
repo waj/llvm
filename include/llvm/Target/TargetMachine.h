@@ -15,7 +15,6 @@
 #define LLVM_TARGET_TARGETMACHINE_H
 
 #include "llvm/Target/TargetData.h"
-#include "llvm/Target/TargetInstrItineraries.h"
 #include <cassert>
 
 namespace llvm {
@@ -123,13 +122,6 @@ public:
   /// otherwise return null.
   ///
   virtual TargetJITInfo *getJITInfo() { return 0; }
-  
-  /// getInstrItineraryData - Returns instruction itinerary data for the target
-  /// or specific subtarget.
-  ///
-  virtual const InstrItineraryData getInstrItineraryData() const {  
-    return InstrItineraryData();
-  }
 
   // These are deprecated interfaces.
   virtual const TargetSchedInfo        *getSchedInfo() const { return 0; }
@@ -143,12 +135,11 @@ public:
 
   /// addPassesToEmitFile - Add passes to the specified pass manager to get
   /// the specified file emitted.  Typically this will involve several steps of
-  /// code generation.  If Fast is set to true, the code generator should emit
-  /// code as fast as possible, without regard for compile time.  This method
-  /// should return true if emission of this file type is not supported.
+  /// code generation.  This method should return true if emission of this file
+  /// type is not supported.
   ///
   virtual bool addPassesToEmitFile(PassManager &PM, std::ostream &Out,
-                                   CodeGenFileType FileType, bool Fast) {
+                                   CodeGenFileType FileType) {
     return true;
   }
 

@@ -147,9 +147,7 @@ FunctionLoweringInfo::FunctionLoweringInfo(TargetLowering &tli,
       if (ConstantUInt *CUI = dyn_cast<ConstantUInt>(AI->getArraySize())) {
         const Type *Ty = AI->getAllocatedType();
         uint64_t TySize = TLI.getTargetData().getTypeSize(Ty);
-        unsigned Align = 
-          std::max((unsigned)TLI.getTargetData().getTypeAlignment(Ty),
-                   AI->getAlignment());
+        unsigned Align = TLI.getTargetData().getTypeAlignment(Ty);
 
         // If the alignment of the value is smaller than the size of the value,
         // and if the size of the value is particularly small (<= 8 bytes),
@@ -638,8 +636,7 @@ void SelectionDAGLowering::visitAlloca(AllocaInst &I) {
 
   const Type *Ty = I.getAllocatedType();
   uint64_t TySize = TLI.getTargetData().getTypeSize(Ty);
-  unsigned Align = std::max((unsigned)TLI.getTargetData().getTypeAlignment(Ty),
-                            I.getAlignment());
+  unsigned Align = TLI.getTargetData().getTypeAlignment(Ty);
 
   SDOperand AllocSize = getValue(I.getArraySize());
   MVT::ValueType IntPtr = TLI.getPointerTy();

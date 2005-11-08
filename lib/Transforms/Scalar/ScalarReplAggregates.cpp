@@ -159,8 +159,7 @@ bool SROA::performScalarRepl(Function &F) {
     if (const StructType *ST = dyn_cast<StructType>(AI->getAllocatedType())) {
       ElementAllocas.reserve(ST->getNumContainedTypes());
       for (unsigned i = 0, e = ST->getNumContainedTypes(); i != e; ++i) {
-        AllocaInst *NA = new AllocaInst(ST->getContainedType(i), 0, 
-                                        AI->getAlignment(),
+        AllocaInst *NA = new AllocaInst(ST->getContainedType(i), 0,
                                         AI->getName() + "." + utostr(i), AI);
         ElementAllocas.push_back(NA);
         WorkList.push_back(NA);  // Add to worklist for recursive processing
@@ -170,7 +169,7 @@ bool SROA::performScalarRepl(Function &F) {
       ElementAllocas.reserve(AT->getNumElements());
       const Type *ElTy = AT->getElementType();
       for (unsigned i = 0, e = AT->getNumElements(); i != e; ++i) {
-        AllocaInst *NA = new AllocaInst(ElTy, 0, AI->getAlignment(),
+        AllocaInst *NA = new AllocaInst(ElTy, 0,
                                         AI->getName() + "." + utostr(i), AI);
         ElementAllocas.push_back(NA);
         WorkList.push_back(NA);  // Add to worklist for recursive processing

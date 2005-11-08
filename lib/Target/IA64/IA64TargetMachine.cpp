@@ -85,16 +85,14 @@ IA64TargetMachine::IA64TargetMachine(const Module &M, IntrinsicLowering *IL,
 // does to emit statically compiled machine code.
 bool IA64TargetMachine::addPassesToEmitFile(PassManager &PM,
                                             std::ostream &Out,
-                                            CodeGenFileType FileType,
-                                            bool Fast) {
+                                                CodeGenFileType FileType) {
   if (FileType != TargetMachine::AssemblyFile) return true;
 
   // FIXME: Implement efficient support for garbage collection intrinsics.
   PM.add(createLowerGCPass());
 
   // FIXME: Implement the invoke/unwind instructions!
-  PM.add(createLowerInvokePass(704, 16)); // on ia64 linux, jmpbufs are 704
-                                          // bytes and must be 16byte aligned
+  PM.add(createLowerInvokePass());
 
   // FIXME: Implement the switch instruction in the instruction selector!
   PM.add(createLowerSwitchPass());

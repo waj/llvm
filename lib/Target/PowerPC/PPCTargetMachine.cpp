@@ -64,8 +64,7 @@ unsigned PPCTargetMachine::getModuleMatchQuality(const Module &M) {
 PPCTargetMachine::PPCTargetMachine(const Module &M, IntrinsicLowering *IL,
                                    const std::string &FS)
 : TargetMachine("PowerPC", IL, false, 4, 4, 4, 4, 4, 4, 2, 1, 1),
-  Subtarget(M, FS), FrameInfo(*this, false), JITInfo(*this),
-  InstrItins(Subtarget.getInstrItineraryData()) {
+  Subtarget(M, FS), FrameInfo(*this, false), JITInfo(*this) {
   if (TargetDefault == PPCTarget) {
     if (Subtarget.isAIX()) PPCTarget = TargetAIX;
     if (Subtarget.isDarwin()) PPCTarget = TargetDarwin;
@@ -77,12 +76,11 @@ PPCTargetMachine::PPCTargetMachine(const Module &M, IntrinsicLowering *IL,
 ///
 bool PPCTargetMachine::addPassesToEmitFile(PassManager &PM,
                                            std::ostream &Out,
-                                           CodeGenFileType FileType,
-                                           bool Fast) {
+                                           CodeGenFileType FileType) {
   if (FileType != TargetMachine::AssemblyFile) return true;
 
   // Run loop strength reduction before anything else.
-  if (!Fast) PM.add(createLoopStrengthReducePass());
+  PM.add(createLoopStrengthReducePass());
 
   // FIXME: Implement efficient support for garbage collection intrinsics.
   PM.add(createLowerGCPass());
@@ -91,7 +89,7 @@ bool PPCTargetMachine::addPassesToEmitFile(PassManager &PM,
   PM.add(createLowerInvokePass());
   
   // Clean up after other passes, e.g. merging critical edges.
-  if (!Fast) PM.add(createCFGSimplificationPass());
+  PM.add(createCFGSimplificationPass());
 
   // FIXME: Implement the switch instruction in the instruction selector!
   PM.add(createLowerSwitchPass());

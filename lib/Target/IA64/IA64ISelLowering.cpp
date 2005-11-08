@@ -80,6 +80,9 @@ IA64TargetLowering::IA64TargetLowering(TargetMachine &TM)
 
       addLegalFPImmediate(+0.0);
       addLegalFPImmediate(+1.0);
+      addLegalFPImmediate(-0.0);
+      addLegalFPImmediate(-1.0);
+    
 }
 
 /// isFloatingPointZero - Return true if this is 0.0 or -0.0.
@@ -192,21 +195,20 @@ IA64TargetLowering::LowerArguments(Function &F, SelectionDAG &DAG) {
   VirtGPR = MF.getSSARegMap()->createVirtualRegister(getRegClassFor(MVT::i64));
   BuildMI(&BB, IA64::PSEUDO_ALLOC, 0, VirtGPR);
   // we create a PSEUDO_ALLOC (pseudo)instruction for now
-/*
+
   BuildMI(&BB, IA64::IDEF, 0, IA64::r1);
 
   // hmm:
   BuildMI(&BB, IA64::IDEF, 0, IA64::r12);
   BuildMI(&BB, IA64::IDEF, 0, IA64::rp);
   // ..hmm.
-  
+
   BuildMI(&BB, IA64::MOV, 1, GP).addReg(IA64::r1);
 
   // hmm:
   BuildMI(&BB, IA64::MOV, 1, SP).addReg(IA64::r12);
   BuildMI(&BB, IA64::MOV, 1, RP).addReg(IA64::rp);
   // ..hmm.
-*/
 
   unsigned tempOffset=0;
 

@@ -178,8 +178,8 @@ void SubtargetEmitter::CPUKeyValues(std::ostream &OS) {
 // CollectAllItinClasses - Gathers and enumerates all the itinerary classes.
 // Returns itinerary class count.
 //
-unsigned SubtargetEmitter::CollectAllItinClasses(std::ostream &OS,
-                              std::map<std::string, unsigned> &ItinClassesMap) {
+unsigned SubtargetEmitter::CollectAllItinClasses(std::map<std::string, unsigned>
+                                                              &ItinClassesMap) {
   // Gather and sort all itinerary classes
   std::vector<Record*> ItinClassList =
                             Records.getAllDerivedDefinitions("InstrItinClass");
@@ -196,11 +196,6 @@ unsigned SubtargetEmitter::CollectAllItinClasses(std::ostream &OS,
     ItinClassesMap[Name] = i;
   }
   
-  // Emit size of table
-  OS<<"\nenum {\n";
-  OS<<"  ItinClassesSize = " << N << "\n";
-  OS<<"};\n";
-
   // Return itinerary class count
   return N;
 }
@@ -223,7 +218,7 @@ void SubtargetEmitter::FormItineraryString(Record *ItinData,
   
     // Form string as ,{ cycles, u1 | u2 | ... | un }
     int Cycles = Stage->getValueAsInt("Cycles");
-    ItinString += "  { " + itostr(Cycles) + ", ";
+    ItinString += "  ,{ " + itostr(Cycles) + ", ";
     
     // Get unit list
     std::vector<Record*> UnitList = Stage->getValueAsListOfDefs("Units");
@@ -260,7 +255,7 @@ void SubtargetEmitter::EmitStageData(std::ostream &OS,
 
   // Begin stages table
   OS << "static llvm::InstrStage Stages[] = {\n"
-        "  { 0, 0 }, // No itinerary\n";
+        "  { 0, 0 } // No itinerary\n";
         
   unsigned ItinEnum = 1;
   std::map<std::string, unsigned> ItinMap;
@@ -296,9 +291,8 @@ void SubtargetEmitter::EmitStageData(std::ostream &OS,
       
       // If new itinerary
       if (Find == 0) {
-        // Emit as { cycles, u1 | u2 | ... | un }, // index
-        OS << ItinString << ", // " << ItinEnum << "\n";
-        // Record Itin class number
+        // Emit as ,{ cycles, u1 | u2 | ... | un } // index
+        OS << ItinString << " // " << ItinEnum << "\n";
         ItinMap[ItinString] = Find = ItinEnum++;
       }
       
@@ -317,15 +311,8 @@ void SubtargetEmitter::EmitStageData(std::ostream &OS,
     ProcList.push_back(ItinList);
   }
   
-  // Closing stage
-  OS << "  { 0, 0 } // End itinerary\n";
   // End stages table
   OS << "};\n";
-  
-  // Emit size of table
-  OS<<"\nenum {\n";
-  OS<<"  StagesSize = sizeof(Stages)/sizeof(llvm::InstrStage)\n";
-  OS<<"};\n";
 }
 
 //
@@ -393,7 +380,7 @@ void SubtargetEmitter::EmitProcessorLookup(std::ostream &OS) {
   // Begin processor table
   OS << "\n";
   OS << "// Sorted (by key) array of itineraries for CPU subtype.\n"
-     << "static const llvm::SubtargetInfoKV ProcItinKV[] = {\n";
+     << "static const llvm::SubtargetInfoKV SubTypeInfoKV[] = {\n";
      
   // For each processor
   for (unsigned i = 0, N = ProcessorList.size(); i < N;) {
@@ -421,7 +408,7 @@ void SubtargetEmitter::EmitProcessorLookup(std::ostream &OS) {
 
   // Emit size of table
   OS<<"\nenum {\n";
-  OS<<"  ProcItinKVSize = sizeof(ProcItinKV)/"
+  OS<<"  SubTypeInfoKVSize = sizeof(SubTypeInfoKV)/"
                             "sizeof(llvm::SubtargetInfoKV)\n";
   OS<<"};\n";
 }
@@ -434,18 +421,13 @@ void SubtargetEmitter::EmitData(std::ostream &OS) {
   std::vector<std::vector<InstrItinerary> > ProcList;
   
   // Enumerate all the itinerary classes
-  unsigned NItinClasses = CollectAllItinClasses(OS, ItinClassesMap);
-  // Make sure the rest is worth the effort
-  HasItineraries = NItinClasses != 0;
-  
-  if (HasItineraries) {
-    // Emit the stage data
-    EmitStageData(OS, NItinClasses, ItinClassesMap, ProcList);
-    // Emit the processor itinerary data
-    EmitProcessorData(OS, ProcList);
-    // Emit the processor lookup data
-    EmitProcessorLookup(OS);
-  }
+  unsigned NItinClasses = CollectAllItinClasses(ItinClassesMap);
+  // Emit the stage data
+  EmitStageData(OS, NItinClasses, ItinClassesMap, ProcList);
+  // Emit the processor itinerary data
+  EmitProcessorData(OS, ProcList);
+  // Emit the processor lookup data
+  EmitProcessorLookup(OS);
 }
 
 //
@@ -478,14 +460,9 @@ void SubtargetEmitter::ParseFeaturesFunction(std::ostream &OS) {
     
     OS << "  " << Attribute << " = (Bits & " << Instance << ") != 0;\n";
   }
-  
-  if (HasItineraries) {
-    OS << "\n"
-       << "  InstrItinerary *Itinerary = (InstrItinerary *)"
-                        "Features.getInfo(ProcItinKV, ProcItinKVSize);\n"
-          "  InstrItins = InstrItineraryData(Stages, Itinerary);\n";
-  }
-  
+  OS << "\n"
+     << "  InstrItinerary *Itin = (InstrItinerary *)"
+                        "Features.getInfo(SubTypeInfoKV, SubTypeInfoKVSize);\n";
   OS << "}\n";
 }
 

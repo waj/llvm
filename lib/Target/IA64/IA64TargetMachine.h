@@ -37,7 +37,7 @@ public:
   }
 
   virtual bool addPassesToEmitFile(PassManager &PM, std::ostream &Out,
-                                   CodeGenFileType FileType, bool Fast);
+                                   CodeGenFileType FileType);
 
   static unsigned getModuleMatchQuality(const Module &M);
   static unsigned compileTimeMatchQuality(void);

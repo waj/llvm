@@ -40,8 +40,7 @@ SkeletonTargetMachine::SkeletonTargetMachine(const Module &M,
 ///
 bool SkeletonTargetMachine::addPassesToEmitFile(PassManager &PM,
                                                 std::ostream &Out,
-                                                CodeGenFileType FileType,
-                                                bool Fast) {
+                                                CodeGenFileType FileType) {
   if (FileType != TargetMachine::AssemblyFile) return true;
   // <insert instruction selector passes here>
   PM.add(createRegisterAllocator());

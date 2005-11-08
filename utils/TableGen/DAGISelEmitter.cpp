@@ -482,28 +482,10 @@ static unsigned char getIntrinsicType(Record *R, bool NotRegisters,
 /// exception.
 bool TreePatternNode::ApplyTypeConstraints(TreePattern &TP, bool NotRegisters) {
   if (isLeaf()) {
-    if (DefInit *DI = dynamic_cast<DefInit*>(getLeafValue())) {
+    if (DefInit *DI = dynamic_cast<DefInit*>(getLeafValue()))
       // If it's a regclass or something else known, include the type.
       return UpdateNodeType(getIntrinsicType(DI->getDef(), NotRegisters, TP),
                             TP);
-    } else if (IntInit *II = dynamic_cast<IntInit*>(getLeafValue())) {
-      // Int inits are always integers. :)
-      bool MadeChange = UpdateNodeType(MVT::isInt, TP);
-      
-      if (hasTypeSet()) {
-        unsigned Size = MVT::getSizeInBits(getType());
-        // Make sure that the value is representable for this type.
-        if (Size < 32) {
-          int Val = (II->getValue() << (32-Size)) >> (32-Size);
-          if (Val != II->getValue())
-            TP.error("Sign-extended integer value '" + itostr(II->getValue()) +
-                     "' is out of range for type 'MVT::" + 
-                     getEnumName(getType()) + "'!");
-        }
-      }
-      
-      return MadeChange;
-    }
     return false;
   }
   
@@ -639,10 +621,6 @@ TreePatternNode *TreePattern::ParseTreePattern(DagInit *Dag) {
       New = new TreePatternNode(DI);
     } else if (DagInit *DI = dynamic_cast<DagInit*>(Arg)) {
       New = ParseTreePattern(DI);
-    } else if (IntInit *II = dynamic_cast<IntInit*>(Arg)) {
-      New = new TreePatternNode(II);
-      if (!Dag->getArgName(0).empty())
-        error("Constant int argument should not have a name!");
     } else {
       Arg->dump();
       error("Unknown leaf value for tree pattern!");
@@ -1543,16 +1521,7 @@ void DAGISelEmitter::EmitMatchForPattern(TreePatternNode *N,
                                          const std::string &RootName,
                                      std::map<std::string,std::string> &VarMap,
                                          unsigned PatternNo, std::ostream &OS) {
-  if (N->isLeaf()) {
-    if (IntInit *II = dynamic_cast<IntInit*>(N->getLeafValue())) {
-      OS << "      if (cast<ConstantSDNode>(" << RootName
-         << ")->getSignExtended() != " << II->getValue() << ")\n"
-         << "        goto P" << PatternNo << "Fail;\n";
-      return;
-    }
-    assert(0 && "Cannot match this as a leaf value!");
-    abort();
-  }
+  assert(!N->isLeaf() && "Cannot match against a leaf!");
   
   // If this node has a name associated with it, capture it in VarMap.  If
   // we already saw this in the pattern, emit code to verify dagness.
@@ -1793,12 +1762,6 @@ static bool InsertOneTypeCheck(TreePatternNode *Pat, TreePatternNode *Other,
   return false;
 }
 
-Record *DAGISelEmitter::getSDNodeNamed(const std::string &Name) const {
-  Record *N = Records.getDef(Name);
-  assert(N && N->isSubClassOf("SDNode") && "Bad argument");
-  return N;
-}
-
 /// EmitCodeForPattern - Given a pattern to match, emit code to the specified
 /// stream to match the pattern, and generate the code for the match if it
 /// succeeds.
@@ -1934,17 +1897,8 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
   std::map<Record*, std::vector<PatternToMatch*>,
            CompareByRecordName> PatternsByOpcode;
   for (unsigned i = 0, e = PatternsToMatch.size(); i != e; ++i)
-    if (!PatternsToMatch[i].first->isLeaf()) {
-      PatternsByOpcode[PatternsToMatch[i].first->getOperator()]
-         .push_back(&PatternsToMatch[i]);
-    } else {
-      if (IntInit *II = 
-             dynamic_cast<IntInit*>(PatternsToMatch[i].first->getLeafValue())) {
-        PatternsByOpcode[getSDNodeNamed("imm")].push_back(&PatternsToMatch[i]);
-      } else {
-        assert(0 && "Unknown leaf value");
-      }
-    }
+    PatternsByOpcode[PatternsToMatch[i].first->getOperator()]
+      .push_back(&PatternsToMatch[i]);
   
   // Loop over all of the case statements.
   for (std::map<Record*, std::vector<PatternToMatch*>,

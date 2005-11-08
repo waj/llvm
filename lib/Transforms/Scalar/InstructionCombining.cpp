@@ -710,7 +710,7 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
     // X + (signbit) --> X ^ signbit
     if (ConstantInt *CI = dyn_cast<ConstantInt>(RHSC)) {
       unsigned NumBits = CI->getType()->getPrimitiveSizeInBits();
-      uint64_t Val = CI->getRawValue() & (~0ULL >> (64- NumBits));
+      uint64_t Val = CI->getRawValue() & (1ULL << NumBits)-1;
       if (Val == (1ULL << (NumBits-1)))
         return BinaryOperator::createXor(LHS, RHS);
     }
@@ -1240,32 +1240,13 @@ Instruction *InstCombiner::visitDiv(BinaryOperator &I) {
     if (LHS->equalsInt(0))
       return ReplaceInstUsesWith(I, Constant::getNullValue(I.getType()));
 
-  if (I.getType()->isSigned()) {
-    // If the top bits of both operands are zero (i.e. we can prove they are
-    // unsigned inputs), turn this into a udiv.
-    ConstantIntegral *MaskV = ConstantSInt::getMinValue(I.getType());
-    if (MaskedValueIsZero(Op1, MaskV) && MaskedValueIsZero(Op0, MaskV)) {
-      const Type *NTy = Op0->getType()->getUnsignedVersion();
-      Instruction *LHS = new CastInst(Op0, NTy, Op0->getName());
-      InsertNewInstBefore(LHS, I);
-      Value *RHS;
-      if (Constant *R = dyn_cast<Constant>(Op1))
-        RHS = ConstantExpr::getCast(R, NTy);
-      else
-        RHS = InsertNewInstBefore(new CastInst(Op1, NTy, Op1->getName()), I);
-      Instruction *Div = BinaryOperator::createDiv(LHS, RHS, I.getName());
-      InsertNewInstBefore(Div, I);
-      return new CastInst(Div, I.getType());
-    }      
-  }
-  
   return 0;
 }
 
 
 Instruction *InstCombiner::visitRem(BinaryOperator &I) {
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
-  if (I.getType()->isSigned()) {
+  if (I.getType()->isSigned())
     if (Value *RHSNeg = dyn_castNegVal(Op1))
       if (!isa<ConstantSInt>(RHSNeg) ||
           cast<ConstantSInt>(RHSNeg)->getValue() > 0) {
@@ -1274,24 +1255,6 @@ Instruction *InstCombiner::visitRem(BinaryOperator &I) {
         I.setOperand(1, RHSNeg);
         return &I;
       }
-   
-    // If the top bits of both operands are zero (i.e. we can prove they are
-    // unsigned inputs), turn this into a urem.
-    ConstantIntegral *MaskV = ConstantSInt::getMinValue(I.getType());
-    if (MaskedValueIsZero(Op1, MaskV) && MaskedValueIsZero(Op0, MaskV)) {
-      const Type *NTy = Op0->getType()->getUnsignedVersion();
-      Instruction *LHS = new CastInst(Op0, NTy, Op0->getName());
-      InsertNewInstBefore(LHS, I);
-      Value *RHS;
-      if (Constant *R = dyn_cast<Constant>(Op1))
-        RHS = ConstantExpr::getCast(R, NTy);
-      else
-        RHS = InsertNewInstBefore(new CastInst(Op1, NTy, Op1->getName()), I);
-      Instruction *Rem = BinaryOperator::createRem(LHS, RHS, I.getName());
-      InsertNewInstBefore(Rem, I);
-      return new CastInst(Rem, I.getType());
-    }
-  }
 
   if (isa<UndefValue>(Op0))              // undef % X -> 0
     return ReplaceInstUsesWith(I, Constant::getNullValue(I.getType()));
@@ -3936,9 +3899,9 @@ Instruction *InstCombiner::PromoteCastOfAllocation(CastInst &CI,
   std::string Name = AI.getName(); AI.setName("");
   AllocationInst *New;
   if (isa<MallocInst>(AI))
-    New = new MallocInst(CastElTy, Amt, AI.getAlignment(), Name);
+    New = new MallocInst(CastElTy, Amt, Name);
   else
-    New = new AllocaInst(CastElTy, Amt, AI.getAlignment(), Name);
+    New = new AllocaInst(CastElTy, Amt, Name);
   InsertNewInstBefore(New, AI);
   
   // If the allocation has multiple uses, insert a cast and change all things
@@ -5266,10 +5229,10 @@ Instruction *InstCombiner::visitAllocationInst(AllocationInst &AI) {
 
       // Create and insert the replacement instruction...
       if (isa<MallocInst>(AI))
-        New = new MallocInst(NewTy, 0, AI.getAlignment(), AI.getName());
+        New = new MallocInst(NewTy, 0, AI.getName());
       else {
         assert(isa<AllocaInst>(AI) && "Unknown type of allocation inst!");
-        New = new AllocaInst(NewTy, 0, AI.getAlignment(), AI.getName());
+        New = new AllocaInst(NewTy, 0, AI.getName());
       }
 
       InsertNewInstBefore(New, AI);

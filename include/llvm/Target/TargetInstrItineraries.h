@@ -41,44 +41,6 @@ struct InstrItinerary {
 };
 
 
-
-//===----------------------------------------------------------------------===//
-// Instruction itinerary Data - Itinerary data supplied by a subtarget to be
-// used by a target.
-//
-struct InstrItineraryData {
-  InstrStage     *Stages;         // Array of stages selected
-  InstrItinerary *Itineratries;   // Array of itineraries selected
-
-//
-// Ctors.
-//
-  InstrItineraryData() : Stages(0), Itineratries(0) {}
-  InstrItineraryData(InstrStage *S, InstrItinerary *I) : Stages(S), Itineratries(I) {}
-  
-  //
-  // isEmpty - Returns true if there are no itineraries.
-  //
-  inline bool isEmpty() const { return Itineratries == 0; }
-  
-  //
-  // begin - Return the first stage of the itinerary.
-  // 
-  inline InstrStage *begin(unsigned ItinClassIndx) const {
-    unsigned StageIdx = Itineratries[ItinClassIndx].First;
-    return Stages + StageIdx;
-  }
-
-  //
-  // end - Return the last+1 stage of the itinerary.
-  // 
-  inline InstrStage *end(unsigned ItinClassIndx) const {
-    unsigned StageIdx = Itineratries[ItinClassIndx].Last;
-    return Stages + StageIdx;
-  }
-};
-
-
 } // End llvm namespace
 
 #endif

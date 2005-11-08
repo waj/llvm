@@ -146,6 +146,7 @@ public:
     return get(Opcode).numOperands;
   }
 
+
   InstrSchedClass getSchedClass(MachineOpCode Opcode) const {
     return get(Opcode).schedClass;
   }

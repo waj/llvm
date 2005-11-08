@@ -44,7 +44,7 @@ namespace llvm {
                                             MachineCodeEmitter &MCE);
 
     virtual bool addPassesToEmitFile(PassManager &PM, std::ostream &Out,
-                                     CodeGenFileType FileType, bool Fast);
+                                     CodeGenFileType FileType);
   };
 
 } // end namespace llvm

@@ -271,8 +271,7 @@ FunctionPass *createLowerPackedPass();
 // "my LLVM-to-LLVM pass doesn't support the invoke instruction yet" lowering
 // pass.
 //
-FunctionPass *createLowerInvokePass(unsigned JumBufSize = 200, 
-                                    unsigned JumpBufAlign = 0);
+FunctionPass *createLowerInvokePass();
 extern const PassInfo *LowerInvokePassID;
 
 

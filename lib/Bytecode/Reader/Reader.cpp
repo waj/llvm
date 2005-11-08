@@ -902,33 +902,27 @@ void BytecodeReader::ParseInstruction(std::vector<unsigned> &Oprnds,
     if (CallingConv) cast<InvokeInst>(Result)->setCallingConv(CallingConv);
     break;
   }
-  case Instruction::Malloc: {
-    unsigned Align = 0;
-    if (Oprnds.size() == 2)
-      Align = (1 << Oprnds[1]) >> 1;
-    else if (Oprnds.size() > 2)
+  case Instruction::Malloc:
+    if (Oprnds.size() > 2)
       error("Invalid malloc instruction!");
     if (!isa<PointerType>(InstTy))
       error("Invalid malloc instruction!");
 
     Result = new MallocInst(cast<PointerType>(InstTy)->getElementType(),
-                            getValue(Type::UIntTyID, Oprnds[0]), Align);
+                            Oprnds.size() ? getValue(Type::UIntTyID,
+                                                   Oprnds[0]) : 0);
     break;
-  }
 
-  case Instruction::Alloca: {
-    unsigned Align = 0;
-    if (Oprnds.size() == 2)
-      Align = (1 << Oprnds[1]) >> 1;
-    else if (Oprnds.size() > 2)
+  case Instruction::Alloca:
+    if (Oprnds.size() > 2)
       error("Invalid alloca instruction!");
     if (!isa<PointerType>(InstTy))
       error("Invalid alloca instruction!");
 
     Result = new AllocaInst(cast<PointerType>(InstTy)->getElementType(),
-                            getValue(Type::UIntTyID, Oprnds[0]), Align);
+                            Oprnds.size() ? getValue(Type::UIntTyID,
+                            Oprnds[0]) :0);
     break;
-  }
   case Instruction::Free:
     if (!isa<PointerType>(InstTy))
       error("Invalid free instruction!");
@@ -1901,20 +1895,9 @@ void BytecodeReader::ParseModuleGlobalInfo() {
       error("Invalid type (type type) for global var!");
     unsigned LinkageID = (VarType >> 2) & 7;
     bool isConstant = VarType & 1;
-    bool hasInitializer = (VarType & 2) != 0;
-    unsigned Alignment = 0;
-    
-    // An extension word is present when linkage = 3 (internal) and hasinit = 0.
-    if (LinkageID == 3 && !hasInitializer) {
-      unsigned ExtWord = read_vbr_uint();
-      // The extension word has this format: bit 0 = has initializer, bit 1-3 =
-      // linkage, bit 4-8 = alignment (log2), bits 10+ = future use.
-      hasInitializer = ExtWord & 1;
-      LinkageID = (ExtWord >> 1) & 7;
-      Alignment = (1 << ((ExtWord >> 4) & 31)) >> 1;
-    }
-
+    bool hasInitializer = VarType & 2;
     GlobalValue::LinkageTypes Linkage;
+
     switch (LinkageID) {
     case 0: Linkage = GlobalValue::ExternalLinkage;  break;
     case 1: Linkage = GlobalValue::WeakLinkage;      break;
@@ -1928,18 +1911,19 @@ void BytecodeReader::ParseModuleGlobalInfo() {
     }
 
     const Type *Ty = getType(SlotNo);
-    if (!Ty)
+    if (!Ty) {
       error("Global has no type! SlotNo=" + utostr(SlotNo));
+    }
 
-    if (!isa<PointerType>(Ty))
+    if (!isa<PointerType>(Ty)) {
       error("Global not a pointer type! Ty= " + Ty->getDescription());
+    }
 
     const Type *ElTy = cast<PointerType>(Ty)->getElementType();
 
     // Create the global variable...
     GlobalVariable *GV = new GlobalVariable(ElTy, isConstant, Linkage,
                                             0, "", TheModule);
-    GV->setAlignment(Alignment);
     insertValue(GV, SlotNo, ModuleValues);
 
     unsigned initSlot = 0;
@@ -1963,8 +1947,8 @@ void BytecodeReader::ParseModuleGlobalInfo() {
     FnSignature = (FnSignature << 5) + 1;
 
   // List is terminated by VoidTy.
-  while (((FnSignature & (~0U >> 1)) >> 5) != Type::VoidTyID) {
-    const Type *Ty = getType((FnSignature & (~0U >> 1)) >> 5);
+  while ((FnSignature >> 5) != Type::VoidTyID) {
+    const Type *Ty = getType(FnSignature >> 5);
     if (!isa<PointerType>(Ty) ||
         !isa<FunctionType>(cast<PointerType>(Ty)->getElementType())) {
       error("Function not a pointer to function type! Ty = " +
@@ -1979,7 +1963,7 @@ void BytecodeReader::ParseModuleGlobalInfo() {
     // Insert the place holder.
     Function* Func = new Function(FTy, GlobalValue::ExternalLinkage,
                                   "", TheModule);
-    insertValue(Func, (FnSignature & (~0U >> 1)) >> 5, ModuleValues);
+    insertValue(Func, FnSignature >> 5, ModuleValues);
 
     // Flags are not used yet.
     unsigned Flags = FnSignature & 31;
@@ -1990,17 +1974,13 @@ void BytecodeReader::ParseModuleGlobalInfo() {
     if ((Flags & (1 << 4)) == 0)
       FunctionSignatureList.push_back(Func);
 
-    // Get the calling convention from the low bits.
-    unsigned CC = Flags & 15;
-    unsigned Alignment = 0;
-    if (FnSignature & (1 << 31)) {  // Has extension word?
-      unsigned ExtWord = read_vbr_uint();
-      Alignment = (1 << (ExtWord & 31)) >> 1;
-      CC |= ((ExtWord >> 5) & 15) << 4;
-    }
-    
-    Func->setCallingConv(CC-1);
-    Func->setAlignment(Alignment);
+    // Look at the low bits.  If there is a calling conv here, apply it,
+    // read it as a vbr.
+    Flags &= 15;
+    if (Flags)
+      Func->setCallingConv(Flags-1);
+    else
+      Func->setCallingConv(read_vbr_uint());
 
     if (Handler) Handler->handleFunctionDeclaration(Func);
 

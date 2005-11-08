@@ -27,13 +27,12 @@ class SubtargetEmitter : public TableGenBackend {
   
   RecordKeeper &Records;
   std::string Target;
-  bool HasItineraries;
   
   void Enumeration(std::ostream &OS, const char *ClassName, bool isBits);
   void FeatureKeyValues(std::ostream &OS);
   void CPUKeyValues(std::ostream &OS);
-  unsigned CollectAllItinClasses(std::ostream &OS,
-                               std::map<std::string, unsigned> &ItinClassesMap);
+  unsigned CollectAllItinClasses(std::map<std::string, unsigned>
+                                                               &ItinClassesMap);
   void FormItineraryString(Record *ItinData, std::string &ItinString,
                            unsigned &NStages);
   void EmitStageData(std::ostream &OS, unsigned NItinClasses,
@@ -46,7 +45,7 @@ class SubtargetEmitter : public TableGenBackend {
   void ParseFeaturesFunction(std::ostream &OS);
   
 public:
-  SubtargetEmitter(RecordKeeper &R) : Records(R), HasItineraries(false) {}
+  SubtargetEmitter(RecordKeeper &R) : Records(R) {}
 
   // run - Output the subtarget enumerations, returning true on failure.
   void run(std::ostream &o);

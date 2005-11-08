@@ -71,7 +71,6 @@ static const char *GetCurrentPowerPCCPU() {
 
 PPCSubtarget::PPCSubtarget(const Module &M, const std::string &FS)
   : StackAlignment(16)
-  , InstrItins()
   , IsGigaProcessor(false)
   , Is64Bit(false)
   , Has64BitRegs(false)

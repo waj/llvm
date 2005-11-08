@@ -19,7 +19,6 @@
 #include "llvm/SymbolTable.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/MathExtras.h"
 #include <algorithm>
 #include <iostream>
 #include <list>
@@ -517,10 +516,7 @@ static void setValueName(Value *V, char *NameStr) {
 /// this is a declaration, otherwise it is a definition.
 static void ParseGlobalVariable(char *NameStr,GlobalValue::LinkageTypes Linkage,
                                 bool isConstantGlobal, const Type *Ty,
-                                Constant *Initializer, unsigned Align) {
-  if (Align != 0 && !isPowerOf2_32(Align))
-    ThrowException("Global alignment must be a power of two!");
-  
+                                Constant *Initializer) {
   if (isa<FunctionType>(Ty))
     ThrowException("Cannot declare global vars of function type!");
 
@@ -550,7 +546,6 @@ static void ParseGlobalVariable(char *NameStr,GlobalValue::LinkageTypes Linkage,
     GV->setInitializer(Initializer);
     GV->setLinkage(Linkage);
     GV->setConstant(isConstantGlobal);
-    GV->setAlignment(Align);
     InsertValue(GV, CurModule.Values);
     return;
   }
@@ -577,7 +572,6 @@ static void ParseGlobalVariable(char *NameStr,GlobalValue::LinkageTypes Linkage,
         if (isConstantGlobal)
           EGV->setConstant(true);
         EGV->setLinkage(Linkage);
-        EGV->setAlignment(Align);
         return;
       }
 
@@ -590,7 +584,6 @@ static void ParseGlobalVariable(char *NameStr,GlobalValue::LinkageTypes Linkage,
   GlobalVariable *GV =
     new GlobalVariable(Ty, isConstantGlobal, Linkage, Initializer, Name,
                        CurModule.CurrentModule);
-  GV->setAlignment(Align);
   InsertValue(GV, CurModule.Values);
 }
 
@@ -955,12 +948,12 @@ Module *llvm::RunVMAsmParser(const char * AsmString, Module * M) {
 
 %token <StrVal> VAR_ID LABELSTR STRINGCONSTANT
 %type  <StrVal> Name OptName OptAssign
-%type  <UIntVal> OptAlign OptCAlign
+
 
 %token IMPLEMENTATION ZEROINITIALIZER TRUETOK FALSETOK BEGINTOK ENDTOK
 %token DECLARE GLOBAL CONSTANT VOLATILE
 %token TO DOTDOTDOT NULL_TOK UNDEF CONST INTERNAL LINKONCE WEAK  APPENDING
-%token OPAQUE NOT EXTERNAL TARGET TRIPLE ENDIAN POINTERSIZE LITTLE BIG ALIGN
+%token OPAQUE NOT EXTERNAL TARGET TRIPLE ENDIAN POINTERSIZE LITTLE BIG
 %token DEPLIBS CALL TAIL
 %token CC_TOK CCC_TOK FASTCC_TOK COLDCC_TOK
 %type <UIntVal> OptCallingConv
@@ -1041,13 +1034,6 @@ OptCallingConv : /*empty*/      { $$ = CallingConv::C; } |
                      ThrowException("Calling conv too large!");
                    $$ = $2;
                  };
-
-// OptAlign/OptCAlign - An optional alignment, and an optional alignment with
-// a comma before it.
-OptAlign : /*empty*/        { $$ = 0; } |
-           ALIGN EUINT64VAL { $$ = $2; };
-OptCAlign : /*empty*/            { $$ = 0; } |
-            ',' ALIGN EUINT64VAL { $$ = $3; };
 
 //===----------------------------------------------------------------------===//
 // Types includes all predefined types... except void, because it can only be
@@ -1557,12 +1543,12 @@ ConstPool : ConstPool OptAssign TYPE TypesV {
   }
   | ConstPool FunctionProto {       // Function prototypes can be in const pool
   }
-  | ConstPool OptAssign OptLinkage GlobalType ConstVal OptCAlign {
+  | ConstPool OptAssign OptLinkage GlobalType ConstVal {
     if ($5 == 0) ThrowException("Global value initializer is not a constant!");
-    ParseGlobalVariable($2, $3, $4, $5->getType(), $5, $6);
+    ParseGlobalVariable($2, $3, $4, $5->getType(), $5);
   }
-  | ConstPool OptAssign EXTERNAL GlobalType Types OptCAlign {
-    ParseGlobalVariable($2, GlobalValue::ExternalLinkage, $4, *$5, 0, $6);
+  | ConstPool OptAssign EXTERNAL GlobalType Types {
+    ParseGlobalVariable($2, GlobalValue::ExternalLinkage, $4, *$5, 0);
     delete $5;
   }
   | ConstPool TARGET TargetDefinition { 
@@ -1647,15 +1633,13 @@ ArgList : ArgListH {
     $$ = 0;
   };
 
-FunctionHeaderH : OptCallingConv TypesV Name '(' ArgList ')' OptAlign {
+FunctionHeaderH : OptCallingConv TypesV Name '(' ArgList ')' {
   UnEscapeLexed($3);
   std::string FunctionName($3);
   free($3);  // Free strdup'd memory!
   
   if (!(*$2)->isFirstClassType() && *$2 != Type::VoidTy)
     ThrowException("LLVM functions cannot return aggregate types!");
-  if ($7 != 0 && !isPowerOf2_32($7))
-    ThrowException("Function alignment must be a power of two!");
 
   std::vector<const Type*> ParamTypeList;
   if ($5) {   // If there are arguments...
@@ -1707,7 +1691,6 @@ FunctionHeaderH : OptCallingConv TypesV Name '(' ArgList ')' OptAlign {
 
   CurFun.FunctionStart(Fn);
   Fn->setCallingConv($1);
-  Fn->setAlignment($7);
 
   // Add all of the arguments we parsed to the function...
   if ($5) {                     // Is null if empty...
@@ -2221,32 +2204,20 @@ OptVolatile : VOLATILE {
 
 
 
-MemoryInst : MALLOC Types OptCAlign {
-    if ($3 != 0 && !isPowerOf2_32($3))
-      ThrowException("Alignment amount '" + utostr($3) +
-                     "' is not a power of 2!");
-    $$ = new MallocInst(*$2, 0, $3);
+MemoryInst : MALLOC Types {
+    $$ = new MallocInst(*$2);
     delete $2;
   }
-  | MALLOC Types ',' UINT ValueRef OptCAlign {
-    if ($6 != 0 && !isPowerOf2_32($6))
-      ThrowException("Alignment amount '" + utostr($6) +
-                     "' is not a power of 2!");
-    $$ = new MallocInst(*$2, getVal($4, $5), $6);
+  | MALLOC Types ',' UINT ValueRef {
+    $$ = new MallocInst(*$2, getVal($4, $5));
     delete $2;
   }
-  | ALLOCA Types OptCAlign {
-    if ($3 != 0 && !isPowerOf2_32($3))
-      ThrowException("Alignment amount '" + utostr($3) +
-                     "' is not a power of 2!");
-    $$ = new AllocaInst(*$2, 0, $3);
+  | ALLOCA Types {
+    $$ = new AllocaInst(*$2);
     delete $2;
   }
-  | ALLOCA Types ',' UINT ValueRef OptCAlign {
-    if ($6 != 0 && !isPowerOf2_32($6))
-      ThrowException("Alignment amount '" + utostr($6) +
-                     "' is not a power of 2!");
-    $$ = new AllocaInst(*$2, getVal($4, $5), $6);
+  | ALLOCA Types ',' UINT ValueRef {
+    $$ = new AllocaInst(*$2, getVal($4, $5));
     delete $2;
   }
   | FREE ResolvedVal {

@@ -27,11 +27,10 @@ class GlobalValue;
 class IntrinsicLowering;
 
 class PPCTargetMachine : public TargetMachine {
-  PPCInstrInfo           InstrInfo;
-  PPCSubtarget           Subtarget;
-  PPCFrameInfo           FrameInfo;
-  PPCJITInfo             JITInfo;
-  InstrItineraryData     InstrItins;
+  PPCInstrInfo    InstrInfo;
+  PPCSubtarget    Subtarget;
+  PPCFrameInfo    FrameInfo;
+  PPCJITInfo      JITInfo;
 public:
   PPCTargetMachine(const Module &M, IntrinsicLowering *IL,
                    const std::string &FS);
@@ -43,17 +42,13 @@ public:
   virtual const MRegisterInfo    *getRegisterInfo() const {
     return &InstrInfo.getRegisterInfo();
   }
-  virtual const InstrItineraryData getInstrItineraryData() const {  
-    return InstrItins;
-  }
-  
 
   static unsigned getJITMatchQuality();
 
   static unsigned getModuleMatchQuality(const Module &M);
   
   virtual bool addPassesToEmitFile(PassManager &PM, std::ostream &Out,
-                                   CodeGenFileType FileType, bool Fast);
+                                   CodeGenFileType FileType);
   
   bool addPassesToEmitMachineCode(FunctionPassManager &PM,
                                   MachineCodeEmitter &MCE);
