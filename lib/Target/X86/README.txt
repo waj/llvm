@@ -114,15 +114,6 @@ ctz:
 however, check that these are defined for 0 and 32.  Our intrinsics are, GCC's
 aren't.
 
-Another example (use predsimplify to eliminate a select):
-
-int foo (unsigned long j) {
-  if (j)
-    return __builtin_ffs (j) - 1;
-  else
-    return 0;
-}
-
 //===---------------------------------------------------------------------===//
 
 Use push/pop instructions in prolog/epilog sequences instead of stores off 
@@ -238,6 +229,17 @@ _test1:
         ret
 
 which is probably slower, but it's interesting at least :)
+
+//===---------------------------------------------------------------------===//
+
+Should generate min/max for stuff like:
+
+void minf(float a, float b, float *X) {
+  *X = a <= b ? a : b;
+}
+
+Make use of floating point min / max instructions. Perhaps introduce ISD::FMIN
+and ISD::FMAX node types?
 
 //===---------------------------------------------------------------------===//
 

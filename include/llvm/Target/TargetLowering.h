@@ -258,38 +258,6 @@ public:
     return getStoreXAction(VT) == Legal || getStoreXAction(VT) == Custom;
   }
 
-  /// getIndexedLoadAction - Return how the indexed load should be treated:
-  /// either it is legal, needs to be promoted to a larger size, needs to be
-  /// expanded to some other code sequence, or the target has a custom expander
-  /// for it.
-  LegalizeAction
-  getIndexedLoadAction(unsigned IdxMode, MVT::ValueType VT) const {
-    return (LegalizeAction)((IndexedModeActions[0][IdxMode] >> (2*VT)) & 3);
-  }
-
-  /// isIndexedLoadLegal - Return true if the specified indexed load is legal
-  /// on this target.
-  bool isIndexedLoadLegal(unsigned IdxMode, MVT::ValueType VT) const {
-    return getIndexedLoadAction(IdxMode, VT) == Legal ||
-           getIndexedLoadAction(IdxMode, VT) == Custom;
-  }
-  
-  /// getIndexedStoreAction - Return how the indexed store should be treated:
-  /// either it is legal, needs to be promoted to a larger size, needs to be
-  /// expanded to some other code sequence, or the target has a custom expander
-  /// for it.
-  LegalizeAction
-  getIndexedStoreAction(unsigned IdxMode, MVT::ValueType VT) const {
-    return (LegalizeAction)((IndexedModeActions[1][IdxMode] >> (2*VT)) & 3);
-  }  
-  
-  /// isIndexedStoreLegal - Return true if the specified indexed load is legal
-  /// on this target.
-  bool isIndexedStoreLegal(unsigned IdxMode, MVT::ValueType VT) const {
-    return getIndexedStoreAction(IdxMode, VT) == Legal ||
-           getIndexedStoreAction(IdxMode, VT) == Custom;
-  }
-  
   /// getTypeToPromoteTo - If the action for this operation is to promote, this
   /// method returns the ValueType to promote to.
   MVT::ValueType getTypeToPromoteTo(unsigned Op, MVT::ValueType VT) const {
@@ -409,18 +377,8 @@ public:
   /// can be legally represented as pre-indexed load / store address.
   virtual bool getPreIndexedAddressParts(SDNode *N, SDOperand &Base,
                                          SDOperand &Offset,
-                                         ISD::MemIndexedMode &AM,
+                                         ISD::MemOpAddrMode &AM,
                                          SelectionDAG &DAG) {
-    return false;
-  }
-  
-  /// getPostIndexedAddressParts - returns true by value, base pointer and
-  /// offset pointer and addressing mode by reference if this node can be
-  /// combined with a load / store to form a post-indexed load / store.
-  virtual bool getPostIndexedAddressParts(SDNode *N, SDNode *Op,
-                                          SDOperand &Base, SDOperand &Offset,
-                                          ISD::MemIndexedMode &AM,
-                                          SelectionDAG &DAG) {
     return false;
   }
   
@@ -633,32 +591,6 @@ protected:
     StoreXActions |= (uint64_t)Action << VT*2;
   }
 
-  /// setIndexedLoadAction - Indicate that the specified indexed load does or
-  /// does not work with the with specified type and indicate what to do abort
-  /// it. NOTE: All indexed mode loads are initialized to Expand in
-  /// TargetLowering.cpp
-  void setIndexedLoadAction(unsigned IdxMode, MVT::ValueType VT,
-                            LegalizeAction Action) {
-    assert(VT < 32 && IdxMode <
-           sizeof(IndexedModeActions[0]) / sizeof(IndexedModeActions[0][0]) &&
-           "Table isn't big enough!");
-    IndexedModeActions[0][IdxMode] &= ~(uint64_t(3UL) << VT*2);
-    IndexedModeActions[0][IdxMode] |= (uint64_t)Action << VT*2;
-  }
-  
-  /// setIndexedStoreAction - Indicate that the specified indexed store does or
-  /// does not work with the with specified type and indicate what to do about
-  /// it. NOTE: All indexed mode stores are initialized to Expand in
-  /// TargetLowering.cpp
-  void setIndexedStoreAction(unsigned IdxMode, MVT::ValueType VT,
-                             LegalizeAction Action) {
-    assert(VT < 32 && IdxMode <
-           sizeof(IndexedModeActions[1]) / sizeof(IndexedModeActions[1][0]) &&
-           "Table isn't big enough!");
-    IndexedModeActions[1][IdxMode] &= ~(uint64_t(3UL) << VT*2);
-    IndexedModeActions[1][IdxMode] |= (uint64_t)Action << VT*2;
-  }
-  
   /// AddPromotedToType - If Opc/OrigVT is specified as being promoted, the
   /// promotion code defaults to trying a larger integer/fp until it can find
   /// one that works.  If that default is insufficient, this method can be used
@@ -927,11 +859,6 @@ private:
   /// LegalizeAction that indicates how instruction selection should deal with
   /// the store.
   uint64_t StoreXActions;
-
-  /// IndexedModeActions - For each indexed mode and each value type, keep a
-  /// pair of LegalizeAction that indicates how instruction selection should
-  /// deal with the load / store.
-  uint64_t IndexedModeActions[2][ISD::LAST_INDEXED_MODE];
   
   ValueTypeActionImpl ValueTypeActions;
 

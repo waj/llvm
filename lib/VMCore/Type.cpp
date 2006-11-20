@@ -23,6 +23,7 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ManagedStatic.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
 
 // DEBUG_MERGE_TYPES - Enable this #define to see how and when derived types are
@@ -486,7 +487,7 @@ PointerType::PointerType(const Type *E) : SequentialType(PointerTyID, E) {
 OpaqueType::OpaqueType() : DerivedType(OpaqueTyID) {
   setAbstract(true);
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *this << "\n";
+  std::cerr << "Derived new type: " << *this << "\n";
 #endif
 }
 
@@ -830,8 +831,8 @@ public:
   void RefineAbstractType(TypeClass *Ty, const DerivedType *OldType,
                         const Type *NewType) {
 #ifdef DEBUG_MERGE_TYPES
-    DOUT << "RefineAbstractType(" << (void*)OldType << "[" << *OldType
-         << "], " << (void*)NewType << " [" << *NewType << "])\n";
+    std::cerr << "RefineAbstractType(" << (void*)OldType << "[" << *OldType
+    << "], " << (void*)NewType << " [" << *NewType << "])\n";
 #endif
     
     // Otherwise, we are changing one subelement type into another.  Clearly the
@@ -936,12 +937,12 @@ public:
 
   void print(const char *Arg) const {
 #ifdef DEBUG_MERGE_TYPES
-    DOUT << "TypeMap<>::" << Arg << " table contents:\n";
+    std::cerr << "TypeMap<>::" << Arg << " table contents:\n";
     unsigned i = 0;
     for (typename std::map<ValType, PATypeHolder>::const_iterator I
            = Map.begin(), E = Map.end(); I != E; ++I)
-      DOUT << " " << (++i) << ". " << (void*)I->second.get() << " "
-           << *I->second.get() << "\n";
+      std::cerr << " " << (++i) << ". " << (void*)I->second.get() << " "
+                << *I->second.get() << "\n";
 #endif
   }
 
@@ -1015,7 +1016,7 @@ FunctionType *FunctionType::get(const Type *ReturnType,
   FunctionTypes->add(VT, MT = new FunctionType(ReturnType, Params, isVarArg));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << MT << "\n";
+  std::cerr << "Derived new type: " << MT << "\n";
 #endif
   return MT;
 }
@@ -1064,7 +1065,7 @@ ArrayType *ArrayType::get(const Type *ElementType, uint64_t NumElements) {
   ArrayTypes->add(AVT, AT = new ArrayType(ElementType, NumElements));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *AT << "\n";
+  std::cerr << "Derived new type: " << *AT << "\n";
 #endif
   return AT;
 }
@@ -1115,7 +1116,7 @@ PackedType *PackedType::get(const Type *ElementType, unsigned NumElements) {
   PackedTypes->add(PVT, PT = new PackedType(ElementType, NumElements));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *PT << "\n";
+  std::cerr << "Derived new type: " << *PT << "\n";
 #endif
   return PT;
 }
@@ -1168,7 +1169,7 @@ StructType *StructType::get(const std::vector<const Type*> &ETypes) {
   StructTypes->add(STV, ST = new StructType(ETypes));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *ST << "\n";
+  std::cerr << "Derived new type: " << *ST << "\n";
 #endif
   return ST;
 }
@@ -1223,7 +1224,7 @@ PointerType *PointerType::get(const Type *ValueType) {
   PointerTypes->add(PVT, PT = new PointerType(ValueType));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *PT << "\n";
+  std::cerr << "Derived new type: " << *PT << "\n";
 #endif
   return PT;
 }
@@ -1252,14 +1253,14 @@ void Type::removeAbstractTypeUser(AbstractTypeUser *U) const {
   AbstractTypeUsers.erase(AbstractTypeUsers.begin()+i);
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "  remAbstractTypeUser[" << (void*)this << ", "
-       << *this << "][" << i << "] User = " << U << "\n";
+  std::cerr << "  remAbstractTypeUser[" << (void*)this << ", "
+            << *this << "][" << i << "] User = " << U << "\n";
 #endif
 
   if (AbstractTypeUsers.empty() && getRefCount() == 0 && isAbstract()) {
 #ifdef DEBUG_MERGE_TYPES
-    DOUT << "DELETEing unused abstract type: <" << *this
-         << ">[" << (void*)this << "]" << "\n";
+    std::cerr << "DELETEing unused abstract type: <" << *this
+              << ">[" << (void*)this << "]" << "\n";
 #endif
     delete this;                  // No users of this abstract type!
   }
@@ -1280,9 +1281,9 @@ void DerivedType::refineAbstractTypeTo(const Type *NewType) {
   AbstractTypeDescriptions->clear();
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "REFINING abstract type [" << (void*)this << " "
-       << *this << "] to [" << (void*)NewType << " "
-       << *NewType << "]!\n";
+  std::cerr << "REFINING abstract type [" << (void*)this << " "
+            << *this << "] to [" << (void*)NewType << " "
+            << *NewType << "]!\n";
 #endif
 
   // Make sure to put the type to be refined to into a holder so that if IT gets
@@ -1318,10 +1319,10 @@ void DerivedType::refineAbstractTypeTo(const Type *NewType) {
 
     unsigned OldSize = AbstractTypeUsers.size();
 #ifdef DEBUG_MERGE_TYPES
-    DOUT << " REFINING user " << OldSize-1 << "[" << (void*)User
-         << "] of abstract type [" << (void*)this << " "
-         << *this << "] to [" << (void*)NewTy.get() << " "
-         << *NewTy << "]!\n";
+    std::cerr << " REFINING user " << OldSize-1 << "[" << (void*)User
+              << "] of abstract type [" << (void*)this << " "
+              << *this << "] to [" << (void*)NewTy.get() << " "
+              << *NewTy << "]!\n";
 #endif
     User->refineAbstractType(this, NewTy);
 
@@ -1340,7 +1341,7 @@ void DerivedType::refineAbstractTypeTo(const Type *NewType) {
 //
 void DerivedType::notifyUsesThatTypeBecameConcrete() {
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "typeIsREFINED type: " << (void*)this << " " << *this << "\n";
+  std::cerr << "typeIsREFINED type: " << (void*)this << " " << *this << "\n";
 #endif
 
   unsigned OldSize = AbstractTypeUsers.size();

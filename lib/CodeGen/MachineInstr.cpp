@@ -38,53 +38,8 @@ namespace llvm {
 /// Eventually, the "resizing" ctors will be phased out.
 ///
 MachineInstr::MachineInstr(short opcode, unsigned numOperands)
-  : Opcode(opcode), NumImplicitOps(0), parent(0) {
+  : Opcode(opcode), parent(0) {
   Operands.reserve(numOperands);
-  // Make sure that we get added to a machine basicblock
-  LeakDetector::addGarbageObject(this);
-}
-
-void MachineInstr::addImplicitDefUseOperands(const TargetInstrDescriptor &TID) {
-  if (TID.ImplicitDefs)
-    for (const unsigned *ImpDefs = TID.ImplicitDefs; *ImpDefs; ++ImpDefs) {
-      MachineOperand Op;
-      Op.opType = MachineOperand::MO_Register;
-      Op.IsDef = true;
-      Op.IsImp = true;
-      Op.IsKill = false;
-      Op.IsDead = false;
-      Op.contents.RegNo = *ImpDefs;
-      Op.offset = 0;
-      Operands.push_back(Op);
-    }
-  if (TID.ImplicitUses)
-    for (const unsigned *ImpUses = TID.ImplicitUses; *ImpUses; ++ImpUses) {
-      MachineOperand Op;
-      Op.opType = MachineOperand::MO_Register;
-      Op.IsDef = false;
-      Op.IsImp = true;
-      Op.IsKill = false;
-      Op.IsDead = false;
-      Op.contents.RegNo = *ImpUses;
-      Op.offset = 0;
-      Operands.push_back(Op);
-    }
-}
-
-/// MachineInstr ctor - This constructor create a MachineInstr and add the
-/// implicit operands. It reserves space for numOperand operands.
-MachineInstr::MachineInstr(const TargetInstrInfo &TII, short opcode,
-                           unsigned numOperands)
-  : Opcode(opcode), NumImplicitOps(0), parent(0) {
-  const TargetInstrDescriptor &TID = TII.get(opcode);
-  if (TID.ImplicitDefs)
-    for (const unsigned *ImpDefs = TID.ImplicitDefs; *ImpDefs; ++ImpDefs)
-      NumImplicitOps++;
-  if (TID.ImplicitUses)
-    for (const unsigned *ImpUses = TID.ImplicitUses; *ImpUses; ++ImpUses)
-      NumImplicitOps++;
-  Operands.reserve(NumImplicitOps + numOperands);
-  addImplicitDefUseOperands(TID);
   // Make sure that we get added to a machine basicblock
   LeakDetector::addGarbageObject(this);
 }
@@ -94,18 +49,9 @@ MachineInstr::MachineInstr(const TargetInstrInfo &TII, short opcode,
 ///
 MachineInstr::MachineInstr(MachineBasicBlock *MBB, short opcode,
                            unsigned numOperands)
-  : Opcode(opcode), NumImplicitOps(0), parent(0) {
+  : Opcode(opcode), parent(0) {
   assert(MBB && "Cannot use inserting ctor with null basic block!");
-  const TargetInstrDescriptor &TID = MBB->getParent()->getTarget().
-    getInstrInfo()->get(opcode);
-  if (TID.ImplicitDefs)
-    for (const unsigned *ImpDefs = TID.ImplicitDefs; *ImpDefs; ++ImpDefs)
-      NumImplicitOps++;
-  if (TID.ImplicitUses)
-    for (const unsigned *ImpUses = TID.ImplicitUses; *ImpUses; ++ImpUses)
-      NumImplicitOps++;
-  Operands.reserve(NumImplicitOps + numOperands);
-  addImplicitDefUseOperands(TID);
+  Operands.reserve(numOperands);
   // Make sure that we get added to a machine basicblock
   LeakDetector::addGarbageObject(this);
   MBB->push_back(this);  // Add instruction to end of basic block!
@@ -115,7 +61,6 @@ MachineInstr::MachineInstr(MachineBasicBlock *MBB, short opcode,
 ///
 MachineInstr::MachineInstr(const MachineInstr &MI) {
   Opcode = MI.getOpcode();
-  NumImplicitOps = MI.NumImplicitOps;
   Operands.reserve(MI.getNumOperands());
 
   // Add operands
@@ -147,7 +92,7 @@ MachineInstr *MachineInstr::removeFromParent() {
 bool MachineInstr::OperandsComplete() const {
   int NumOperands = TargetInstrDescriptors[Opcode].numOperands;
   if ((TargetInstrDescriptors[Opcode].Flags & M_VARIABLE_OPS) == 0 &&
-      getNumOperands()-NumImplicitOps >= (unsigned)NumOperands)
+      getNumOperands() >= (unsigned)NumOperands)
     return true;  // Broken: we have all the operands of this instruction!
   return false;
 }
@@ -178,44 +123,6 @@ bool MachineOperand::isIdenticalTo(const MachineOperand &Other) const {
     return !strcmp(getSymbolName(), Other.getSymbolName()) &&
            getOffset() == Other.getOffset();
   }
-}
-
-/// setOpcode - Replace the opcode of the current instruction with a new one.
-///
-void MachineInstr::setOpcode(unsigned Op) {
-  Operands.erase(Operands.begin(), Operands.begin()+NumImplicitOps);
-  NumImplicitOps = 0;
-  Opcode = Op;
-  if (!getParent())
-    return;
-  const TargetInstrDescriptor &TID = getParent()->getParent()->
-    getTarget().getInstrInfo()->get(Op);
-  if (TID.ImplicitDefs)
-    for (const unsigned *ImpDefs = TID.ImplicitDefs; *ImpDefs; ++ImpDefs) {
-      MachineOperand Op;
-      Op.opType = MachineOperand::MO_Register;
-      Op.IsDef = true;
-      Op.IsImp = true;
-      Op.IsKill = false;
-      Op.IsDead = false;
-      Op.contents.RegNo = *ImpDefs;
-      Op.offset = 0;
-      Operands.insert(Operands.begin()+NumImplicitOps, Op);
-      NumImplicitOps++;
-    }
-  if (TID.ImplicitUses)
-    for (const unsigned *ImpUses = TID.ImplicitUses; *ImpUses; ++ImpUses) {
-      MachineOperand Op;
-      Op.opType = MachineOperand::MO_Register;
-      Op.IsDef = false;
-      Op.IsImp = true;
-      Op.IsKill = false;
-      Op.IsDead = false;
-      Op.contents.RegNo = *ImpUses;
-      Op.offset = 0;
-      Operands.insert(Operands.begin()+NumImplicitOps, Op);
-      NumImplicitOps++;
-    }
 }
 
 
@@ -298,28 +205,8 @@ void MachineInstr::print(std::ostream &OS, const TargetMachine *TM) const {
     OS << " ";
     ::print(mop, OS, TM);
 
-    if (mop.isReg()) {
-      if (mop.isDef() || mop.isKill() || mop.isDead() || mop.isImplicit()) {
-        OS << "<";
-        bool NeedComma = false;
-        if (mop.isImplicit()) {
-          OS << (mop.isDef() ? "imp-def" : "imp-use");
-          NeedComma = true;
-        } else if (mop.isDef()) {
-          OS << "def";
-          NeedComma = true;
-        }
-        if (mop.isKill() || mop.isDead()) {
-          if (NeedComma)
-            OS << ",";
-          if (mop.isKill())
-            OS << "kill";
-          if (mop.isDead())
-            OS << "dead";
-        }
-        OS << ">";
-      }
-    }
+    if (mop.isReg() && mop.isDef())
+      OS << "<def>";
   }
 
   OS << "\n";

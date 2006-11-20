@@ -16,22 +16,6 @@ We should make the following changes to clean up MachineInstr:
 
 //===---------------------------------------------------------------------===//
 
-With the recent changes to make the implicit def/use set explicit in
-machineinstrs, we should change the target descriptions for 'call' instructions
-so that the .td files don't list all the call-clobbered registers as implicit
-defs.  Instead, these should be added by the code generator (e.g. on the dag).
-
-This has a number of uses:
-
-1. PPC32/64 and X86 32/64 can avoid having multiple copies of call instructions
-   for their different impdef sets.
-2. Targets with multiple calling convs (e.g. x86) which have different clobber
-   sets don't need copies of call instructions.
-3. 'Interprocedural register allocation' can be done to reduce the clobber sets
-   of calls.
-
-//===---------------------------------------------------------------------===//
-
 FreeBench/mason contains code like this:
 
 static p_type m0u(p_type p) {
@@ -368,51 +352,5 @@ this construct.
 
 Instcombine misses several of these cases (see the testcase in the patch):
 http://gcc.gnu.org/ml/gcc-patches/2006-10/msg01519.html
-
-//===---------------------------------------------------------------------===//
-
-viterbi speeds up *significantly* if the various "history" related copy loops
-are turned into memcpy calls at the source level.  We need a "loops to memcpy"
-pass.
-
-//===---------------------------------------------------------------------===//
-
--predsimplify should transform this:
-
-void bad(unsigned x)
-{
-  if (x > 4)
-    bar(12);
-  else if (x > 3)
-    bar(523);
-  else if (x > 2)
-    bar(36);
-  else if (x > 1)
-    bar(65);
-  else if (x > 0)
-    bar(45);
-  else
-    bar(367);
-}
-
-into:
-
-void good(unsigned x)
-{
-  if (x == 4)
-    bar(523);
-  else if (x == 3)
-    bar(36);
-  else if (x == 2)
-    bar(65);
-  else if (x == 1)
-    bar(45);
-  else if (x == 0)
-    bar(367);
-  else
-    bar(12);
-}
-
-to enable further optimizations.
 
 //===---------------------------------------------------------------------===//

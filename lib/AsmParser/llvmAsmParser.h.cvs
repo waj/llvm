@@ -132,14 +132,13 @@
      CAST = 358,
      SELECT = 359,
      SHL = 360,
-     LSHR = 361,
-     ASHR = 362,
-     VAARG = 363,
-     EXTRACTELEMENT = 364,
-     INSERTELEMENT = 365,
-     SHUFFLEVECTOR = 366,
-     VAARG_old = 367,
-     VANEXT_old = 368
+     SHR = 361,
+     VAARG = 362,
+     EXTRACTELEMENT = 363,
+     INSERTELEMENT = 364,
+     SHUFFLEVECTOR = 365,
+     VAARG_old = 366,
+     VANEXT_old = 367
    };
 #endif
 /* Tokens.  */
@@ -246,20 +245,19 @@
 #define CAST 358
 #define SELECT 359
 #define SHL 360
-#define LSHR 361
-#define ASHR 362
-#define VAARG 363
-#define EXTRACTELEMENT 364
-#define INSERTELEMENT 365
-#define SHUFFLEVECTOR 366
-#define VAARG_old 367
-#define VANEXT_old 368
+#define SHR 361
+#define VAARG 362
+#define EXTRACTELEMENT 363
+#define INSERTELEMENT 364
+#define SHUFFLEVECTOR 365
+#define VAARG_old 366
+#define VANEXT_old 367
 
 
 
 
 #if ! defined (YYSTYPE) && ! defined (YYSTYPE_IS_DECLARED)
-#line 1040 "/proj/llvm/llvm-3/lib/AsmParser/llvmAsmParser.y"
+#line 1016 "/proj/llvm/llvm-4/lib/AsmParser/llvmAsmParser.y"
 typedef union YYSTYPE {
   llvm::Module                           *ModuleVal;
   llvm::Function                         *FunctionVal;
@@ -300,7 +298,7 @@ typedef union YYSTYPE {
   llvm::Module::Endianness          Endianness;
 } YYSTYPE;
 /* Line 1447 of yacc.c.  */
-#line 304 "llvmAsmParser.tab.h"
+#line 302 "llvmAsmParser.tab.h"
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
 # define YYSTYPE_IS_DECLARED 1
 # define YYSTYPE_IS_TRIVIAL 1

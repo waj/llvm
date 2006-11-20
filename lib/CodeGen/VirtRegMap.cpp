@@ -30,6 +30,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
 
 namespace {
@@ -112,11 +113,6 @@ void VirtRegMap::virtFolded(unsigned VirtReg, MachineInstr *OldMI,
 }
 
 void VirtRegMap::print(std::ostream &OS) const {
-  llvm_ostream LOS(OS);
-  print(LOS);
-}
-
-void VirtRegMap::print(llvm_ostream &OS) const {
   const MRegisterInfo* MRI = MF.getTarget().getRegisterInfo();
 
   OS << "********** REGISTER MAP **********\n";
@@ -134,10 +130,7 @@ void VirtRegMap::print(llvm_ostream &OS) const {
   OS << '\n';
 }
 
-void VirtRegMap::dump() const {
-  llvm_ostream OS = DOUT;
-  print(OS);
-}
+void VirtRegMap::dump() const { print(std::cerr); }
 
 
 //===----------------------------------------------------------------------===//
@@ -153,8 +146,9 @@ namespace {
 }
 
 bool SimpleSpiller::runOnMachineFunction(MachineFunction &MF, VirtRegMap &VRM) {
-  DOUT << "********** REWRITE MACHINE CODE **********\n";
-  DOUT << "********** Function: " << MF.getFunction()->getName() << '\n';
+  DEBUG(std::cerr << "********** REWRITE MACHINE CODE **********\n");
+  DEBUG(std::cerr << "********** Function: "
+                  << MF.getFunction()->getName() << '\n');
   const TargetMachine &TM = MF.getTarget();
   const MRegisterInfo &MRI = *TM.getRegisterInfo();
   bool *PhysRegsUsed = MF.getUsedPhysregs();
@@ -167,7 +161,7 @@ bool SimpleSpiller::runOnMachineFunction(MachineFunction &MF, VirtRegMap &VRM) {
 
   for (MachineFunction::iterator MBBI = MF.begin(), E = MF.end();
        MBBI != E; ++MBBI) {
-    DOUT << MBBI->getBasicBlock()->getName() << ":\n";
+    DEBUG(std::cerr << MBBI->getBasicBlock()->getName() << ":\n");
     MachineBasicBlock &MBB = *MBBI;
     for (MachineBasicBlock::iterator MII = MBB.begin(),
            E = MBB.end(); MII != E; ++MII) {
@@ -189,7 +183,7 @@ bool SimpleSpiller::runOnMachineFunction(MachineFunction &MF, VirtRegMap &VRM) {
                 MRI.loadRegFromStackSlot(MBB, &MI, PhysReg, StackSlot, RC);
                 LoadedRegs.push_back(VirtReg);
                 ++NumLoads;
-                DOUT << '\t' << *prior(MII);
+                DEBUG(std::cerr << '\t' << *prior(MII));
               }
 
               if (MO.isDef()) {
@@ -204,7 +198,7 @@ bool SimpleSpiller::runOnMachineFunction(MachineFunction &MF, VirtRegMap &VRM) {
           }
       }
 
-      DOUT << '\t' << MI;
+      DEBUG(std::cerr << '\t' << MI);
       LoadedRegs.clear();
     }
   }
@@ -227,8 +221,8 @@ namespace {
     bool runOnMachineFunction(MachineFunction &MF, VirtRegMap &VRM) {
       MRI = MF.getTarget().getRegisterInfo();
       TII = MF.getTarget().getInstrInfo();
-      DOUT << "\n**** Local spiller rewriting function '"
-           << MF.getFunction()->getName() << "':\n";
+      DEBUG(std::cerr << "\n**** Local spiller rewriting function '"
+                      << MF.getFunction()->getName() << "':\n");
 
       for (MachineFunction::iterator MBB = MF.begin(), E = MF.end();
            MBB != E; ++MBB)
@@ -299,8 +293,8 @@ public:
     PhysRegsAvailable.insert(std::make_pair(Reg, Slot));
     SpillSlotsAvailable[Slot] = (Reg << 1) | (unsigned)CanClobber;
   
-    DOUT << "Remembering SS#" << Slot << " in physreg "
-         << MRI->getName(Reg) << "\n";
+    DEBUG(std::cerr << "Remembering SS#" << Slot << " in physreg "
+                    << MRI->getName(Reg) << "\n");
   }
   
   /// canClobberPhysReg - Return true if the spiller is allowed to change the 
@@ -334,8 +328,8 @@ void AvailableSpills::ClobberPhysRegOnly(unsigned PhysReg) {
     assert((SpillSlotsAvailable[Slot] >> 1) == PhysReg &&
            "Bidirectional map mismatch!");
     SpillSlotsAvailable.erase(Slot);
-    DOUT << "PhysReg " << MRI->getName(PhysReg)
-         << " clobbered, invalidating SS#" << Slot << "\n";
+    DEBUG(std::cerr << "PhysReg " << MRI->getName(PhysReg)
+                    << " clobbered, invalidating SS#" << Slot << "\n");
   }
 }
 
@@ -492,9 +486,9 @@ namespace {
             Spills.addAvailable(NewOp.StackSlot, NewPhysReg);
             ++NumLoads;
             DEBUG(MachineBasicBlock::iterator MII = MI;
-                  DOUT << '\t' << *prior(MII));
+                  std::cerr << '\t' << *prior(MII));
             
-            DOUT << "Reuse undone!\n";
+            DEBUG(std::cerr << "Reuse undone!\n");
             --NumReused;
             
             // Finally, PhysReg is now available, go ahead and use it.
@@ -512,7 +506,7 @@ namespace {
 /// register allocator is done with them.  If possible, avoid reloading vregs.
 void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
 
-  DOUT << MBB.getBasicBlock()->getName() << ":\n";
+  DEBUG(std::cerr << MBB.getBasicBlock()->getName() << ":\n");
 
   // Spills - Keep track of which spilled values are available in physregs so
   // that we can choose to reuse the physregs instead of emitting reloads.
@@ -606,10 +600,10 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
         
         if (CanReuse) {
           // If this stack slot value is already available, reuse it!
-          DOUT << "Reusing SS#" << StackSlot << " from physreg "
-               << MRI->getName(PhysReg) << " for vreg"
-               << VirtReg <<" instead of reloading into physreg "
-               << MRI->getName(VRM.getPhys(VirtReg)) << "\n";
+          DEBUG(std::cerr << "Reusing SS#" << StackSlot << " from physreg "
+                          << MRI->getName(PhysReg) << " for vreg"
+                          << VirtReg <<" instead of reloading into physreg "
+                          << MRI->getName(VRM.getPhys(VirtReg)) << "\n");
           MI.getOperand(i).setReg(PhysReg);
 
           // The only technical detail we have is that we don't know that
@@ -660,10 +654,10 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
         // incoming, we don't need to inserted a dead copy.
         if (DesignatedReg == PhysReg) {
           // If this stack slot value is already available, reuse it!
-          DOUT << "Reusing SS#" << StackSlot << " from physreg "
-               << MRI->getName(PhysReg) << " for vreg"
-               << VirtReg
-               << " instead of reloading into same physreg.\n";
+          DEBUG(std::cerr << "Reusing SS#" << StackSlot << " from physreg "
+                          << MRI->getName(PhysReg) << " for vreg"
+                          << VirtReg
+                          << " instead of reloading into same physreg.\n");
           MI.getOperand(i).setReg(PhysReg);
           ReusedOperands.markClobbered(PhysReg);
           ++NumReused;
@@ -682,7 +676,7 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
         
         Spills.addAvailable(StackSlot, DesignatedReg);
         MI.getOperand(i).setReg(DesignatedReg);
-        DOUT << '\t' << *prior(MII);
+        DEBUG(std::cerr << '\t' << *prior(MII));
         ++NumReused;
         continue;
       }
@@ -712,26 +706,26 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
       Spills.addAvailable(StackSlot, PhysReg);
       ++NumLoads;
       MI.getOperand(i).setReg(PhysReg);
-      DOUT << '\t' << *prior(MII);
+      DEBUG(std::cerr << '\t' << *prior(MII));
     }
 
-    DOUT << '\t' << MI;
+    DEBUG(std::cerr << '\t' << MI);
 
     // If we have folded references to memory operands, make sure we clear all
     // physical registers that may contain the value of the spilled virtual
     // register
     VirtRegMap::MI2VirtMapTy::const_iterator I, End;
     for (tie(I, End) = VRM.getFoldedVirts(&MI); I != End; ++I) {
-      DOUT << "Folded vreg: " << I->second.first << "  MR: "
-           << I->second.second;
+      DEBUG(std::cerr << "Folded vreg: " << I->second.first << "  MR: "
+                      << I->second.second);
       unsigned VirtReg = I->second.first;
       VirtRegMap::ModRef MR = I->second.second;
       if (!VRM.hasStackSlot(VirtReg)) {
-        DOUT << ": No stack slot!\n";
+        DEBUG(std::cerr << ": No stack slot!\n");
         continue;
       }
       int SS = VRM.getStackSlot(VirtReg);
-      DOUT << " - StackSlot: " << SS << "\n";
+      DEBUG(std::cerr << " - StackSlot: " << SS << "\n");
       
       // If this folded instruction is just a use, check to see if it's a
       // straight load from the virt reg slot.
@@ -742,7 +736,7 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
             // If this spill slot is available, turn it into a copy (or nothing)
             // instead of leaving it as a load!
             if (unsigned InReg = Spills.getSpillSlotPhysReg(SS)) {
-              DOUT << "Promoted Load To Copy: " << MI;
+              DEBUG(std::cerr << "Promoted Load To Copy: " << MI);
               MachineFunction &MF = *MBB.getParent();
               if (DestReg != InReg) {
                 MRI->copyRegToReg(MBB, &MI, DestReg, InReg,
@@ -770,7 +764,7 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
         else {
           // If we get here, the store is dead, nuke it now.
           assert(VirtRegMap::isMod && "Can't be modref!");
-          DOUT << "Removed dead store:\t" << *MDSI->second;
+          DEBUG(std::cerr << "Removed dead store:\t" << *MDSI->second);
           MBB.erase(MDSI->second);
           VRM.RemoveFromFoldedVirtMap(MDSI->second);
           MaybeDeadStores.erase(MDSI);
@@ -819,7 +813,7 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
           unsigned Src, Dst;
           if (TII->isMoveInstr(MI, Src, Dst) && Src == Dst) {
             ++NumDCE;
-            DOUT << "Removing now-noop copy: " << MI;
+            DEBUG(std::cerr << "Removing now-noop copy: " << MI);
             MBB.erase(&MI);
             VRM.RemoveFromFoldedVirtMap(&MI);
             goto ProcessNextInst;
@@ -867,7 +861,7 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
         PhysRegsUsed[PhysReg] = true;
         ReusedOperands.markClobbered(PhysReg);
         MRI->storeRegToStackSlot(MBB, next(MII), PhysReg, StackSlot, RC);
-        DOUT << "Store:\t" << *next(MII);
+        DEBUG(std::cerr << "Store:\t" << *next(MII));
         MI.getOperand(i).setReg(PhysReg);
 
         // Check to see if this is a noop copy.  If so, eliminate the
@@ -876,7 +870,7 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
           unsigned Src, Dst;
           if (TII->isMoveInstr(MI, Src, Dst) && Src == Dst) {
             ++NumDCE;
-            DOUT << "Removing now-noop copy: " << MI;
+            DEBUG(std::cerr << "Removing now-noop copy: " << MI);
             MBB.erase(&MI);
             VRM.RemoveFromFoldedVirtMap(&MI);
             goto ProcessNextInst;
@@ -886,7 +880,7 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
         // If there is a dead store to this stack slot, nuke it now.
         MachineInstr *&LastStore = MaybeDeadStores[StackSlot];
         if (LastStore) {
-          DOUT << "Removed dead store:\t" << *LastStore;
+          DEBUG(std::cerr << "Removed dead store:\t" << *LastStore);
           ++NumDSE;
           MBB.erase(LastStore);
           VRM.RemoveFromFoldedVirtMap(LastStore);

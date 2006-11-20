@@ -83,8 +83,8 @@ static struct PerModuleInfo {
   Module *CurrentModule;
   std::map<const Type *, ValueList> Values; // Module level numbered definitions
   std::map<const Type *,ValueList> LateResolveValues;
-  std::vector<TypeInfo>    Types;
-  std::map<ValID, TypeInfo> LateResolveTypes;
+  std::vector<PATypeHolder>    Types;
+  std::map<ValID, PATypeHolder> LateResolveTypes;
 
   /// PlaceHolderInfo - When temporary placeholder objects are created, remember
   /// how they were referenced and on which line of the input they came from so
@@ -217,7 +217,7 @@ static const Type *getTypeVal(const ValID &D, bool DoNotImprovise = false) {
   case ValID::NumberVal:               // Is it a numbered definition?
     // Module constants occupy the lowest numbered slots...
     if ((unsigned)D.Num < CurModule.Types.size())
-      return CurModule.Types[(unsigned)D.Num].type->get();
+      return CurModule.Types[(unsigned)D.Num];
     break;
   case ValID::NameVal:                 // Is it a named definition?
     if (const Type *N = CurModule.CurrentModule->getTypeByName(D.Name)) {
@@ -247,15 +247,13 @@ static const Type *getTypeVal(const ValID &D, bool DoNotImprovise = false) {
     }
   }
 
-  std::map<ValID, TypeInfo>::iterator I =CurModule.LateResolveTypes.find(D);
+  std::map<ValID, PATypeHolder>::iterator I =CurModule.LateResolveTypes.find(D);
   if (I != CurModule.LateResolveTypes.end())
-    return I->second.type->get();
+    return I->second;
 
-  TypeInfo TI;
-  TI.type = new PATypeHolder(OpaqueType::get());
-  TI.signedness = isSignless;
-  CurModule.LateResolveTypes.insert(std::make_pair(D, TI));
-  return TI.type->get();
+  Type *Typ = OpaqueType::get();
+  CurModule.LateResolveTypes.insert(std::make_pair(D, Typ));
+  return Typ;
  }
 
 static Value *lookupInSymbolTable(const Type *Ty, const std::string &Name) {
@@ -559,10 +557,10 @@ static void ResolveTypeTo(char *Name, const Type *ToTy) {
   if (Name) D = ValID::create(Name);
   else      D = ValID::create((int)CurModule.Types.size());
 
-  std::map<ValID, TypeInfo>::iterator I =
+  std::map<ValID, PATypeHolder>::iterator I =
     CurModule.LateResolveTypes.find(D);
   if (I != CurModule.LateResolveTypes.end()) {
-    ((DerivedType*)I->second.type->get())->refineAbstractTypeTo(ToTy);
+    ((DerivedType*)I->second.get())->refineAbstractTypeTo(ToTy);
     CurModule.LateResolveTypes.erase(I);
   }
 }
@@ -822,15 +820,16 @@ static PATypeHolder HandleUpRefs(const Type *ty) {
 /// an obsolete opcode. For example, "div" was replaced by [usf]div but we need
 /// to maintain backwards compatibility for asm files that still have the "div"
 /// instruction. This function handles converting div -> [usf]div appropriately.
-/// @brief Convert obsolete BinaryOps opcodes to new values
+/// @brief Convert obsolete opcodes to new values
 static void 
-sanitizeOpCode(OpcodeInfo<Instruction::BinaryOps> &OI, const Type *Ty)
+sanitizeOpCode(OpcodeInfo<Instruction::BinaryOps> &OI, const PATypeHolder& PATy)
 {
   // If its not obsolete, don't do anything
   if (!OI.obsolete) 
     return;
 
   // If its a packed type we want to use the element type
+  const Type* Ty = PATy;
   if (const PackedType* PTy = dyn_cast<PackedType>(Ty))
     Ty = PTy->getElementType();
 
@@ -856,30 +855,7 @@ sanitizeOpCode(OpcodeInfo<Instruction::BinaryOps> &OI, const Type *Ty)
   // Its not obsolete any more, we fixed it.
   OI.obsolete = false;
 }
-
-/// This function is similar to the previous overload of sanitizeOpCode but
-/// operates on Instruction::OtherOps instead of Instruction::BinaryOps.
-/// @brief Convert obsolete OtherOps opcodes to new values
-static void 
-sanitizeOpCode(OpcodeInfo<Instruction::OtherOps> &OI, const Type *Ty)
-{
-  // If its not obsolete, don't do anything
-  if (!OI.obsolete) 
-    return;
-
-  switch (OI.opcode) {
-  default:
-    GenerateError("Invalid obsolete opcode (check Lexer.l)");
-    break;
-  case Instruction::LShr:
-    if (Ty->isSigned())
-      OI.opcode = Instruction::AShr;
-    break;
-  }
-  // Its not obsolete any more, we fixed it.
-  OI.obsolete = false;
-}
-
+  
 // common code from the two 'RunVMAsmParser' functions
 static Module* RunParser(Module * M) {
 
@@ -1040,18 +1016,19 @@ Module *llvm::RunVMAsmParser(const char * AsmString, Module * M) {
 %union {
   llvm::Module                           *ModuleVal;
   llvm::Function                         *FunctionVal;
-  std::pair<TypeInfo, char*>             *ArgVal;
+  std::pair<llvm::PATypeHolder*, char*>  *ArgVal;
   llvm::BasicBlock                       *BasicBlockVal;
   llvm::TerminatorInst                   *TermInstVal;
   llvm::Instruction                      *InstVal;
   llvm::Constant                         *ConstVal;
 
-  TypeInfo                                TypeVal;
+  const llvm::Type                       *PrimType;
+  llvm::PATypeHolder                     *TypeVal;
   llvm::Value                            *ValueVal;
 
-  std::vector<std::pair<TypeInfo,char*> >*ArgList;
+  std::vector<std::pair<llvm::PATypeHolder*,char*> > *ArgList;
   std::vector<llvm::Value*>              *ValueList;
-  std::list<TypeInfo>                    *TypeList;
+  std::list<llvm::PATypeHolder>          *TypeList;
   // Represent the RHS of PHI node
   std::list<std::pair<llvm::Value*,
                       llvm::BasicBlock*> > *PHIList;
@@ -1116,9 +1093,9 @@ Module *llvm::RunVMAsmParser(const char * AsmString, Module * M) {
 
 // Built in types...
 %type  <TypeVal> Types TypesV UpRTypes UpRTypesV
-%type  <TypeVal> SIntType UIntType IntType FPType PrimType   // Classifications
-%token <TypeVal> VOID BOOL SBYTE UBYTE SHORT USHORT INT UINT LONG ULONG
-%token <TypeVal> FLOAT DOUBLE TYPE LABEL
+%type  <PrimType> SIntType UIntType IntType FPType PrimType   // Classifications
+%token <PrimType> VOID BOOL SBYTE UBYTE SHORT USHORT INT UINT LONG ULONG
+%token <PrimType> FLOAT DOUBLE TYPE LABEL
 
 %token <StrVal> VAR_ID LABELSTR STRINGCONSTANT
 %type  <StrVal> Name OptName OptAssign
@@ -1149,7 +1126,7 @@ Module *llvm::RunVMAsmParser(const char * AsmString, Module * M) {
 
 // Other Operators
 %type  <OtherOpVal> ShiftOps
-%token <OtherOpVal> PHI_TOK CAST SELECT SHL LSHR ASHR VAARG
+%token <OtherOpVal> PHI_TOK CAST SELECT SHL SHR VAARG
 %token <OtherOpVal> EXTRACTELEMENT INSERTELEMENT SHUFFLEVECTOR
 %token VAARG_old VANEXT_old //OBSOLETE
 
@@ -1183,7 +1160,7 @@ ArithmeticOps: ADD | SUB | MUL | UDIV | SDIV | FDIV | UREM | SREM | FREM;
 LogicalOps   : AND | OR | XOR;
 SetCondOps   : SETLE | SETGE | SETLT | SETGT | SETEQ | SETNE;
 
-ShiftOps  : SHL | LSHR | ASHR;
+ShiftOps  : SHL | SHR;
 
 // These are some types that allow classification if we only want a particular 
 // thing... for example, only a signed, unsigned, or integral type.
@@ -1278,22 +1255,15 @@ GlobalVarAttribute : SectionString {
 //
 
 // TypesV includes all of 'Types', but it also includes the void type.
-TypesV    : Types    | VOID { 
-    $$.type = new PATypeHolder($1.type->get());
-    $$.signedness = $1.signedness;
-};
-UpRTypesV : UpRTypes | VOID { 
-    $$.type = new PATypeHolder($1.type->get()); 
-    $$.signedness = $1.signedness;
-};
+TypesV    : Types    | VOID { $$ = new PATypeHolder($1); };
+UpRTypesV : UpRTypes | VOID { $$ = new PATypeHolder($1); };
 
 Types     : UpRTypes {
     if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + 
-        ($1.type->get())->getDescription());
+      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     $$ = $1;
     CHECK_FOR_ERROR
-};
+  };
 
 
 // Derived types are added later...
@@ -1301,19 +1271,17 @@ Types     : UpRTypes {
 PrimType : BOOL | SBYTE | UBYTE | SHORT  | USHORT | INT   | UINT ;
 PrimType : LONG | ULONG | FLOAT | DOUBLE | TYPE   | LABEL;
 UpRTypes : OPAQUE {
-    $$.type = new PATypeHolder(OpaqueType::get());
-    $$.signedness = isSignless;
+    $$ = new PATypeHolder(OpaqueType::get());
     CHECK_FOR_ERROR
   }
   | PrimType {
-    $$ = $1;
+    $$ = new PATypeHolder($1);
     CHECK_FOR_ERROR
   };
 UpRTypes : SymbolicValueRef {            // Named types are also simple types...
   const Type* tmp = getTypeVal($1);
   CHECK_FOR_ERROR
-  $$.type = new PATypeHolder(tmp);
-  $$.signedness = isSignless;
+  $$ = new PATypeHolder(tmp);
 };
 
 // Include derived types in the Types production.
@@ -1322,69 +1290,59 @@ UpRTypes : '\\' EUINT64VAL {                   // Type UpReference
     if ($2 > (uint64_t)~0U) GEN_ERROR("Value out of range!");
     OpaqueType *OT = OpaqueType::get();        // Use temporary placeholder
     UpRefs.push_back(UpRefRecord((unsigned)$2, OT));  // Add to vector...
-    $$.type = new PATypeHolder(OT);
-    $$.signedness = isSignless;
+    $$ = new PATypeHolder(OT);
     UR_OUT("New Upreference!\n");
     CHECK_FOR_ERROR
   }
   | UpRTypesV '(' ArgTypeListI ')' {           // Function derived type?
     std::vector<const Type*> Params;
-    for (std::list<TypeInfo>::iterator I = $3->begin(),
+    for (std::list<llvm::PATypeHolder>::iterator I = $3->begin(),
            E = $3->end(); I != E; ++I)
-      Params.push_back(I->type->get());
+      Params.push_back(*I);
     bool isVarArg = Params.size() && Params.back() == Type::VoidTy;
     if (isVarArg) Params.pop_back();
 
-    $$.type = new PATypeHolder(HandleUpRefs(
-               FunctionType::get($1.type->get(),Params,isVarArg)));
-    $$.signedness = isSignless;
+    $$ = new PATypeHolder(HandleUpRefs(FunctionType::get(*$1,Params,isVarArg)));
     delete $3;      // Delete the argument list
-    delete $1.type;
+    delete $1;      // Delete the return type handle
     CHECK_FOR_ERROR
   }
   | '[' EUINT64VAL 'x' UpRTypes ']' {          // Sized array type?
-    $$.type = new PATypeHolder(HandleUpRefs(
-      ArrayType::get($4.type->get(), (unsigned)$2)));
-    $$.signedness = isSignless;
-    delete $4.type;
+    $$ = new PATypeHolder(HandleUpRefs(ArrayType::get(*$4, (unsigned)$2)));
+    delete $4;
     CHECK_FOR_ERROR
   }
   | '<' EUINT64VAL 'x' UpRTypes '>' {          // Packed array type?
-    const llvm::Type* ElemTy = $4.type->get();
-    if ((unsigned)$2 != $2)
-      GEN_ERROR("Unsigned result not equal to signed result");
-    if (!ElemTy->isPrimitiveType())
-      GEN_ERROR("Elemental type of a PackedType must be primitive");
-    if (!isPowerOf2_32($2))
-      GEN_ERROR("Vector length should be a power of 2!");
-    $$.type = new PATypeHolder(HandleUpRefs(
-                PackedType::get($4.type->get(), (unsigned)$2)));
-    $$.signedness = isSignless;
-    delete $4.type;
-    CHECK_FOR_ERROR
+     const llvm::Type* ElemTy = $4->get();
+     if ((unsigned)$2 != $2)
+        GEN_ERROR("Unsigned result not equal to signed result");
+     if (!ElemTy->isPrimitiveType())
+        GEN_ERROR("Elemental type of a PackedType must be primitive");
+     if (!isPowerOf2_32($2))
+       GEN_ERROR("Vector length should be a power of 2!");
+     $$ = new PATypeHolder(HandleUpRefs(PackedType::get(*$4, (unsigned)$2)));
+     delete $4;
+     CHECK_FOR_ERROR
   }
   | '{' TypeListI '}' {                        // Structure type?
     std::vector<const Type*> Elements;
-    for (std::list<TypeInfo>::iterator I = $2->begin(),
+    for (std::list<llvm::PATypeHolder>::iterator I = $2->begin(),
            E = $2->end(); I != E; ++I)
-      Elements.push_back(I->type->get());
+      Elements.push_back(*I);
 
-    $$.type = new PATypeHolder(HandleUpRefs(StructType::get(Elements)));
-    $$.signedness = isSignless;
+    $$ = new PATypeHolder(HandleUpRefs(StructType::get(Elements)));
     delete $2;
     CHECK_FOR_ERROR
   }
   | '{' '}' {                                  // Empty structure type?
-    $$.type = new PATypeHolder(StructType::get(std::vector<const Type*>()));
-    $$.signedness = isSignless;
+    $$ = new PATypeHolder(StructType::get(std::vector<const Type*>()));
     CHECK_FOR_ERROR
   }
   | UpRTypes '*' {                             // Pointer type?
-    if ($1.type->get() == Type::LabelTy)
+    if (*$1 == Type::LabelTy)
       GEN_ERROR("Cannot form a pointer to a basic block");
-    $$.type = new PATypeHolder(HandleUpRefs(PointerType::get($1.type->get())));
-    $$.signedness = $1.signedness;
-    delete $1.type;
+    $$ = new PATypeHolder(HandleUpRefs(PointerType::get(*$1)));
+    delete $1;
     CHECK_FOR_ERROR
   };
 
@@ -1392,31 +1350,27 @@ UpRTypes : '\\' EUINT64VAL {                   // Type UpReference
 // declaration type lists
 //
 TypeListI : UpRTypes {
-    $$ = new std::list<TypeInfo>();
-    $$->push_back($1);
+    $$ = new std::list<PATypeHolder>();
+    $$->push_back(*$1); delete $1;
     CHECK_FOR_ERROR
   }
   | TypeListI ',' UpRTypes {
-    ($$=$1)->push_back($3);
+    ($$=$1)->push_back(*$3); delete $3;
     CHECK_FOR_ERROR
   };
 
 // ArgTypeList - List of types for a function type declaration...
 ArgTypeListI : TypeListI
   | TypeListI ',' DOTDOTDOT {
-    TypeInfo TI; 
-    TI.type = new PATypeHolder(Type::VoidTy); TI.signedness = isSignless;
-    ($$=$1)->push_back(TI);
+    ($$=$1)->push_back(Type::VoidTy);
     CHECK_FOR_ERROR
   }
   | DOTDOTDOT {
-    TypeInfo TI; 
-    TI.type = new PATypeHolder(Type::VoidTy); TI.signedness = isSignless;
-    ($$ = new std::list<TypeInfo>())->push_back(TI);
+    ($$ = new std::list<PATypeHolder>())->push_back(Type::VoidTy);
     CHECK_FOR_ERROR
   }
   | /*empty*/ {
-    $$ = new std::list<TypeInfo>();
+    $$ = new std::list<PATypeHolder>();
     CHECK_FOR_ERROR
   };
 
@@ -1427,10 +1381,10 @@ ArgTypeListI : TypeListI
 // ResolvedVal, ValueRef and ConstValueRef productions.
 //
 ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
-    const ArrayType *ATy = dyn_cast<ArrayType>($1.type->get());
+    const ArrayType *ATy = dyn_cast<ArrayType>($1->get());
     if (ATy == 0)
       GEN_ERROR("Cannot make array constant with type: '" + 
-                     ($1.type->get())->getDescription() + "'!");
+                     (*$1)->getDescription() + "'!");
     const Type *ETy = ATy->getElementType();
     int NumElements = ATy->getNumElements();
 
@@ -1449,28 +1403,28 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     }
 
     $$ = ConstantArray::get(ATy, *$3);
-    delete $1.type; delete $3;
+    delete $1; delete $3;
     CHECK_FOR_ERROR
   }
   | Types '[' ']' {
-    const ArrayType *ATy = dyn_cast<ArrayType>($1.type->get());
+    const ArrayType *ATy = dyn_cast<ArrayType>($1->get());
     if (ATy == 0)
       GEN_ERROR("Cannot make array constant with type: '" + 
-                     ($1.type->get())->getDescription() + "'!");
+                     (*$1)->getDescription() + "'!");
 
     int NumElements = ATy->getNumElements();
     if (NumElements != -1 && NumElements != 0) 
       GEN_ERROR("Type mismatch: constant sized array initialized with 0"
                      " arguments, but has size of " + itostr(NumElements) +"!");
     $$ = ConstantArray::get(ATy, std::vector<Constant*>());
-    delete $1.type;
+    delete $1;
     CHECK_FOR_ERROR
   }
   | Types 'c' STRINGCONSTANT {
-    const ArrayType *ATy = dyn_cast<ArrayType>($1.type->get());
+    const ArrayType *ATy = dyn_cast<ArrayType>($1->get());
     if (ATy == 0)
       GEN_ERROR("Cannot make array constant with type: '" + 
-                     ($1.type->get())->getDescription() + "'!");
+                     (*$1)->getDescription() + "'!");
 
     int NumElements = ATy->getNumElements();
     const Type *ETy = ATy->getElementType();
@@ -1493,14 +1447,14 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     }
     free($3);
     $$ = ConstantArray::get(ATy, Vals);
-    delete $1.type;
+    delete $1;
     CHECK_FOR_ERROR
   }
   | Types '<' ConstVector '>' { // Nonempty unsized arr
-    const PackedType *PTy = dyn_cast<PackedType>($1.type->get());
+    const PackedType *PTy = dyn_cast<PackedType>($1->get());
     if (PTy == 0)
       GEN_ERROR("Cannot make packed constant with type: '" + 
-                     $1.type->get()->getDescription() + "'!");
+                     (*$1)->getDescription() + "'!");
     const Type *ETy = PTy->getElementType();
     int NumElements = PTy->getNumElements();
 
@@ -1519,14 +1473,14 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     }
 
     $$ = ConstantPacked::get(PTy, *$3);
-    delete $1.type; delete $3;
+    delete $1; delete $3;
     CHECK_FOR_ERROR
   }
   | Types '{' ConstVector '}' {
-    const StructType *STy = dyn_cast<StructType>($1.type->get());
+    const StructType *STy = dyn_cast<StructType>($1->get());
     if (STy == 0)
       GEN_ERROR("Cannot make struct constant with type: '" + 
-                     $1.type->get()->getDescription() + "'!");
+                     (*$1)->getDescription() + "'!");
 
     if ($3->size() != STy->getNumContainedTypes())
       GEN_ERROR("Illegal number of initializers for structure type!");
@@ -1540,39 +1494,39 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
                        " of structure initializer!");
 
     $$ = ConstantStruct::get(STy, *$3);
-    delete $1.type; delete $3;
+    delete $1; delete $3;
     CHECK_FOR_ERROR
   }
   | Types '{' '}' {
-    const StructType *STy = dyn_cast<StructType>($1.type->get());
+    const StructType *STy = dyn_cast<StructType>($1->get());
     if (STy == 0)
       GEN_ERROR("Cannot make struct constant with type: '" + 
-                     $1.type->get()->getDescription() + "'!");
+                     (*$1)->getDescription() + "'!");
 
     if (STy->getNumContainedTypes() != 0)
       GEN_ERROR("Illegal number of initializers for structure type!");
 
     $$ = ConstantStruct::get(STy, std::vector<Constant*>());
-    delete $1.type;
+    delete $1;
     CHECK_FOR_ERROR
   }
   | Types NULL_TOK {
-    const PointerType *PTy = dyn_cast<PointerType>($1.type->get());
+    const PointerType *PTy = dyn_cast<PointerType>($1->get());
     if (PTy == 0)
       GEN_ERROR("Cannot make null pointer constant with type: '" + 
-                     $1.type->get()->getDescription() + "'!");
+                     (*$1)->getDescription() + "'!");
 
     $$ = ConstantPointerNull::get(PTy);
-    delete $1.type;
+    delete $1;
     CHECK_FOR_ERROR
   }
   | Types UNDEF {
-    $$ = UndefValue::get($1.type->get());
-    delete $1.type;
+    $$ = UndefValue::get($1->get());
+    delete $1;
     CHECK_FOR_ERROR
   }
   | Types SymbolicValueRef {
-    const PointerType *Ty = dyn_cast<PointerType>($1.type->get());
+    const PointerType *Ty = dyn_cast<PointerType>($1->get());
     if (Ty == 0)
       GEN_ERROR("Global const reference must be a pointer type!");
 
@@ -1629,35 +1583,35 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     }
 
     $$ = cast<GlobalValue>(V);
-    delete $1.type;            // Free the type handle
+    delete $1;            // Free the type handle
     CHECK_FOR_ERROR
   }
   | Types ConstExpr {
-    if ($1.type->get() != $2->getType())
+    if ($1->get() != $2->getType())
       GEN_ERROR("Mismatched types for constant expression!");
     $$ = $2;
-    delete $1.type;
+    delete $1;
     CHECK_FOR_ERROR
   }
   | Types ZEROINITIALIZER {
-    const Type *Ty = $1.type->get();
+    const Type *Ty = $1->get();
     if (isa<FunctionType>(Ty) || Ty == Type::LabelTy || isa<OpaqueType>(Ty))
       GEN_ERROR("Cannot create a null initialized value of this type!");
     $$ = Constant::getNullValue(Ty);
-    delete $1.type;
+    delete $1;
     CHECK_FOR_ERROR
   };
 
 ConstVal : SIntType EINT64VAL {      // integral constants
-    if (!ConstantInt::isValueValidForType($1.type->get(), $2))
+    if (!ConstantInt::isValueValidForType($1, $2))
       GEN_ERROR("Constant value doesn't fit in type!");
-    $$ = ConstantInt::get($1.type->get(), $2);
+    $$ = ConstantInt::get($1, $2);
     CHECK_FOR_ERROR
   }
   | UIntType EUINT64VAL {            // integral constants
-    if (!ConstantInt::isValueValidForType($1.type->get(), $2))
+    if (!ConstantInt::isValueValidForType($1, $2))
       GEN_ERROR("Constant value doesn't fit in type!");
-    $$ = ConstantInt::get($1.type->get(), $2);
+    $$ = ConstantInt::get($1, $2);
     CHECK_FOR_ERROR
   }
   | BOOL TRUETOK {                      // Boolean constants
@@ -1669,9 +1623,9 @@ ConstVal : SIntType EINT64VAL {      // integral constants
     CHECK_FOR_ERROR
   }
   | FPType FPVAL {                   // Float & Double constants
-    if (!ConstantFP::isValueValidForType($1.type->get(), $2))
+    if (!ConstantFP::isValueValidForType($1, $2))
       GEN_ERROR("Floating point constant invalid for type!!");
-    $$ = ConstantFP::get($1.type->get(), $2);
+    $$ = ConstantFP::get($1, $2);
     CHECK_FOR_ERROR
   };
 
@@ -1680,11 +1634,11 @@ ConstExpr: CAST '(' ConstVal TO Types ')' {
     if (!$3->getType()->isFirstClassType())
       GEN_ERROR("cast constant expression from a non-primitive type: '" +
                      $3->getType()->getDescription() + "'!");
-    if (!$5.type->get()->isFirstClassType())
+    if (!$5->get()->isFirstClassType())
       GEN_ERROR("cast constant expression to a non-primitive type: '" +
-                     $5.type->get()->getDescription() + "'!");
-    $$ = ConstantExpr::getCast($3, $5.type->get());
-    delete $5.type;
+                     $5->get()->getDescription() + "'!");
+    $$ = ConstantExpr::getCast($3, $5->get());
+    delete $5;
     CHECK_FOR_ERROR
   }
   | GETELEMENTPTR '(' ConstVal IndexList ')' {
@@ -1776,9 +1730,6 @@ ConstExpr: CAST '(' ConstVal TO Types ')' {
       GEN_ERROR("Shift count for shift constant must be unsigned byte!");
     if (!$3->getType()->isInteger())
       GEN_ERROR("Shift constant expression requires integer operand!");
-    // Handle opcode upgrade situations
-    sanitizeOpCode($1, $3->getType());
-    CHECK_FOR_ERROR;
     $$ = ConstantExpr::get($1.opcode, $3, $5);
     CHECK_FOR_ERROR
   }
@@ -1875,16 +1826,16 @@ ConstPool : ConstPool OptAssign TYPE TypesV {
     // If types are not resolved eagerly, then the two types will not be
     // determined to be the same type!
     //
-    ResolveTypeTo($2, $4.type->get());
+    ResolveTypeTo($2, *$4);
 
-    if (!setTypeName($4.type->get(), $2) && !$2) {
+    if (!setTypeName(*$4, $2) && !$2) {
       CHECK_FOR_ERROR
       // If this is a named type that is not a redefinition, add it to the slot
       // table.
-      CurModule.Types.push_back($4);
-    } else {
-      delete $4.type;
+      CurModule.Types.push_back(*$4);
     }
+
+    delete $4;
     CHECK_FOR_ERROR
   }
   | ConstPool FunctionProto {       // Function prototypes can be in const pool
@@ -1902,29 +1853,26 @@ ConstPool : ConstPool OptAssign TYPE TypesV {
     CurGV = 0;
   }
   | ConstPool OptAssign EXTERNAL GlobalType Types {
-    CurGV = ParseGlobalVariable($2, GlobalValue::ExternalLinkage, $4,
-      $5.type->get(), 0);
+    CurGV = ParseGlobalVariable($2, GlobalValue::ExternalLinkage, $4, *$5, 0);
     CHECK_FOR_ERROR
-    delete $5.type;
+    delete $5;
   } GlobalVarAttributes {
     CurGV = 0;
     CHECK_FOR_ERROR
   }
   | ConstPool OptAssign DLLIMPORT GlobalType Types {
-    CurGV = ParseGlobalVariable($2, GlobalValue::DLLImportLinkage, $4,
-      $5.type->get(), 0);
+    CurGV = ParseGlobalVariable($2, GlobalValue::DLLImportLinkage, $4, *$5, 0);
     CHECK_FOR_ERROR
-    delete $5.type;
+    delete $5;
   } GlobalVarAttributes {
     CurGV = 0;
     CHECK_FOR_ERROR
   }
   | ConstPool OptAssign EXTERN_WEAK GlobalType Types {
     CurGV = 
-      ParseGlobalVariable($2, GlobalValue::ExternalWeakLinkage, $4,
-        $5.type->get(), 0);
+      ParseGlobalVariable($2, GlobalValue::ExternalWeakLinkage, $4, *$5, 0);
     CHECK_FOR_ERROR
-    delete $5.type;
+    delete $5;
   } GlobalVarAttributes {
     CurGV = 0;
     CHECK_FOR_ERROR
@@ -2002,9 +1950,9 @@ Name : VAR_ID | STRINGCONSTANT;
 OptName : Name | /*empty*/ { $$ = 0; };
 
 ArgVal : Types OptName {
-  if ($1.type->get() == Type::VoidTy)
+  if (*$1 == Type::VoidTy)
     GEN_ERROR("void typed arguments are invalid!");
-  $$ = new std::pair<TypeInfo, char*>($1, $2);
+  $$ = new std::pair<PATypeHolder*, char*>($1, $2);
   CHECK_FOR_ERROR
 };
 
@@ -2015,7 +1963,7 @@ ArgListH : ArgListH ',' ArgVal {
     CHECK_FOR_ERROR
   }
   | ArgVal {
-    $$ = new std::vector<std::pair<TypeInfo,char*> >();
+    $$ = new std::vector<std::pair<PATypeHolder*,char*> >();
     $$->push_back(*$1);
     delete $1;
     CHECK_FOR_ERROR
@@ -2027,18 +1975,13 @@ ArgList : ArgListH {
   }
   | ArgListH ',' DOTDOTDOT {
     $$ = $1;
-    TypeInfo TI;
-    TI.type = new PATypeHolder(Type::VoidTy);
-    TI.signedness = isSignless;
-    $$->push_back(std::pair<TypeInfo,char*>(TI,(char*)0));
+    $$->push_back(std::pair<PATypeHolder*,
+                            char*>(new PATypeHolder(Type::VoidTy), 0));
     CHECK_FOR_ERROR
   }
   | DOTDOTDOT {
-    $$ = new std::vector<std::pair<TypeInfo,char*> >();
-    TypeInfo TI;
-    TI.type = new PATypeHolder(Type::VoidTy);
-    TI.signedness = isSignless;
-    $$->push_back(std::make_pair(TI, (char*)0));
+    $$ = new std::vector<std::pair<PATypeHolder*,char*> >();
+    $$->push_back(std::make_pair(new PATypeHolder(Type::VoidTy), (char*)0));
     CHECK_FOR_ERROR
   }
   | /* empty */ {
@@ -2052,23 +1995,22 @@ FunctionHeaderH : OptCallingConv TypesV Name '(' ArgList ')'
   std::string FunctionName($3);
   free($3);  // Free strdup'd memory!
   
-  if (!($2.type->get())->isFirstClassType() && $2.type->get() != Type::VoidTy)
+  if (!(*$2)->isFirstClassType() && *$2 != Type::VoidTy)
     GEN_ERROR("LLVM functions cannot return aggregate types!");
 
   std::vector<const Type*> ParamTypeList;
   if ($5) {   // If there are arguments...
-    for (std::vector<std::pair<TypeInfo,char*> >::iterator I = $5->begin();
+    for (std::vector<std::pair<PATypeHolder*,char*> >::iterator I = $5->begin();
          I != $5->end(); ++I)
-      ParamTypeList.push_back(I->first.type->get());
+      ParamTypeList.push_back(I->first->get());
   }
 
   bool isVarArg = ParamTypeList.size() && ParamTypeList.back() == Type::VoidTy;
   if (isVarArg) ParamTypeList.pop_back();
 
-  const FunctionType *FT = FunctionType::get($2.type->get(), ParamTypeList, 
-    isVarArg);
+  const FunctionType *FT = FunctionType::get(*$2, ParamTypeList, isVarArg);
   const PointerType *PFT = PointerType::get(FT);
-  delete $2.type;
+  delete $2;
 
   ValID ID;
   if (!FunctionName.empty()) {
@@ -2122,19 +2064,21 @@ FunctionHeaderH : OptCallingConv TypesV Name '(' ArgList ')'
   // Add all of the arguments we parsed to the function...
   if ($5) {                     // Is null if empty...
     if (isVarArg) {  // Nuke the last entry
-      assert($5->back().first.type->get() == Type::VoidTy && 
-             $5->back().second == 0 && "Not a varargs marker!");
-      delete $5->back().first.type;
+      assert($5->back().first->get() == Type::VoidTy && $5->back().second == 0&&
+             "Not a varargs marker!");
+      delete $5->back().first;
       $5->pop_back();  // Delete the last entry
     }
     Function::arg_iterator ArgIt = Fn->arg_begin();
-    for (std::vector<std::pair<TypeInfo,char*> >::iterator I = $5->begin();
+    for (std::vector<std::pair<PATypeHolder*,char*> >::iterator I = $5->begin();
          I != $5->end(); ++I, ++ArgIt) {
-      delete I->first.type;                     // Delete the typeholder...
+      delete I->first;                          // Delete the typeholder...
+
       setValueName(ArgIt, I->second);           // Insert arg into symtab...
       CHECK_FOR_ERROR
       InsertValue(ArgIt);
     }
+
     delete $5;                     // We're now done with the argument list
   }
   CHECK_FOR_ERROR
@@ -2218,7 +2162,12 @@ ConstValueRef : ESINT64VAL {    // A reference to a direct constant
     
     PackedType* pt = PackedType::get(ETy, NumElements);
     PATypeHolder* PTy = new PATypeHolder(
-       HandleUpRefs(PackedType::get( ETy, NumElements)));
+                                         HandleUpRefs(
+                                            PackedType::get(
+                                                ETy, 
+                                                NumElements)
+                                            )
+                                         );
     
     // Verify all elements are correct type!
     for (unsigned i = 0; i < $2->size(); i++) {
@@ -2267,7 +2216,7 @@ ValueRef : SymbolicValueRef | ConstValueRef;
 // type immediately preceeds the value reference, and allows complex constant
 // pool references (for things like: 'ret [2 x int] [ int 12, int 42]')
 ResolvedVal : Types ValueRef {
-    $$ = getVal($1.type->get(), $2); delete $1.type;
+    $$ = getVal(*$1, $2); delete $1;
     CHECK_FOR_ERROR
   };
 
@@ -2348,7 +2297,7 @@ BBTerminatorInst : RET ResolvedVal {              // Return with a result...
     $$ = new BranchInst(tmpBBA, tmpBBB, tmpVal);
   }
   | SWITCH IntType ValueRef ',' LABEL ValueRef '[' JumpTable ']' {
-    Value* tmpVal = getVal($2.type->get(), $3);
+    Value* tmpVal = getVal($2, $3);
     CHECK_FOR_ERROR
     BasicBlock* tmpBB = getBBVal($6);
     CHECK_FOR_ERROR
@@ -2367,7 +2316,7 @@ BBTerminatorInst : RET ResolvedVal {              // Return with a result...
     CHECK_FOR_ERROR
   }
   | SWITCH IntType ValueRef ',' LABEL ValueRef '[' ']' {
-    Value* tmpVal = getVal($2.type->get(), $3);
+    Value* tmpVal = getVal($2, $3);
     CHECK_FOR_ERROR
     BasicBlock* tmpBB = getBBVal($6);
     CHECK_FOR_ERROR
@@ -2380,7 +2329,7 @@ BBTerminatorInst : RET ResolvedVal {              // Return with a result...
     const PointerType *PFTy;
     const FunctionType *Ty;
 
-    if (!(PFTy = dyn_cast<PointerType>($3.type->get())) ||
+    if (!(PFTy = dyn_cast<PointerType>($3->get())) ||
         !(Ty = dyn_cast<FunctionType>(PFTy->getElementType()))) {
       // Pull out the types of all of the arguments...
       std::vector<const Type*> ParamTypes;
@@ -2393,7 +2342,7 @@ BBTerminatorInst : RET ResolvedVal {              // Return with a result...
       bool isVarArg = ParamTypes.size() && ParamTypes.back() == Type::VoidTy;
       if (isVarArg) ParamTypes.pop_back();
 
-      Ty = FunctionType::get($3.type->get(), ParamTypes, isVarArg);
+      Ty = FunctionType::get($3->get(), ParamTypes, isVarArg);
       PFTy = PointerType::get(Ty);
     }
 
@@ -2427,7 +2376,7 @@ BBTerminatorInst : RET ResolvedVal {              // Return with a result...
     }
     cast<InvokeInst>($$)->setCallingConv($2);
   
-    delete $3.type;
+    delete $3;
     delete $6;
     CHECK_FOR_ERROR
   }
@@ -2444,7 +2393,7 @@ BBTerminatorInst : RET ResolvedVal {              // Return with a result...
 
 JumpTable : JumpTable IntType ConstValueRef ',' LABEL ValueRef {
     $$ = $1;
-    Constant *V = cast<Constant>(getValNonImprovising($2.type->get(), $3));
+    Constant *V = cast<Constant>(getValNonImprovising($2, $3));
     CHECK_FOR_ERROR
     if (V == 0)
       GEN_ERROR("May only switch on a constant pool value!");
@@ -2455,7 +2404,7 @@ JumpTable : JumpTable IntType ConstValueRef ',' LABEL ValueRef {
   }
   | IntType ConstValueRef ',' LABEL ValueRef {
     $$ = new std::vector<std::pair<Constant*, BasicBlock*> >();
-    Constant *V = cast<Constant>(getValNonImprovising($1.type->get(), $2));
+    Constant *V = cast<Constant>(getValNonImprovising($1, $2));
     CHECK_FOR_ERROR
 
     if (V == 0)
@@ -2477,12 +2426,12 @@ Inst : OptAssign InstVal {
 
 PHIList : Types '[' ValueRef ',' ValueRef ']' {    // Used for PHI nodes
     $$ = new std::list<std::pair<Value*, BasicBlock*> >();
-    Value* tmpVal = getVal($1.type->get(), $3);
+    Value* tmpVal = getVal(*$1, $3);
     CHECK_FOR_ERROR
     BasicBlock* tmpBB = getBBVal($5);
     CHECK_FOR_ERROR
     $$->push_back(std::make_pair(tmpVal, tmpBB));
-    delete $1.type;
+    delete $1;
   }
   | PHIList ',' '[' ValueRef ',' ValueRef ']' {
     $$ = $1;
@@ -2517,55 +2466,55 @@ OptTailCall : TAIL CALL {
   };
 
 InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
-    if (!$2.type->get()->isInteger() && !$2.type->get()->isFloatingPoint() && 
-        !isa<PackedType>($2.type->get()))
+    if (!(*$2)->isInteger() && !(*$2)->isFloatingPoint() && 
+        !isa<PackedType>((*$2).get()))
       GEN_ERROR(
         "Arithmetic operator requires integer, FP, or packed operands!");
-    if (isa<PackedType>($2.type->get()) && 
+    if (isa<PackedType>((*$2).get()) && 
         ($1.opcode == Instruction::URem || 
          $1.opcode == Instruction::SRem ||
          $1.opcode == Instruction::FRem))
       GEN_ERROR("U/S/FRem not supported on packed types!");
     // Upgrade the opcode from obsolete versions before we do anything with it.
-    sanitizeOpCode($1,$2.type->get());
+    sanitizeOpCode($1,*$2);
     CHECK_FOR_ERROR;
-    Value* val1 = getVal($2.type->get(), $3); 
+    Value* val1 = getVal(*$2, $3); 
     CHECK_FOR_ERROR
-    Value* val2 = getVal($2.type->get(), $5);
+    Value* val2 = getVal(*$2, $5);
     CHECK_FOR_ERROR
     $$ = BinaryOperator::create($1.opcode, val1, val2);
     if ($$ == 0)
       GEN_ERROR("binary operator returned null!");
-    delete $2.type;
+    delete $2;
   }
   | LogicalOps Types ValueRef ',' ValueRef {
-    if (!$2.type->get()->isIntegral()) {
-      if (!isa<PackedType>($2.type->get()) ||
-          !cast<PackedType>($2.type->get())->getElementType()->isIntegral())
+    if (!(*$2)->isIntegral()) {
+      if (!isa<PackedType>($2->get()) ||
+          !cast<PackedType>($2->get())->getElementType()->isIntegral())
         GEN_ERROR("Logical operator requires integral operands!");
     }
-    Value* tmpVal1 = getVal($2.type->get(), $3);
+    Value* tmpVal1 = getVal(*$2, $3);
     CHECK_FOR_ERROR
-    Value* tmpVal2 = getVal($2.type->get(), $5);
+    Value* tmpVal2 = getVal(*$2, $5);
     CHECK_FOR_ERROR
     $$ = BinaryOperator::create($1.opcode, tmpVal1, tmpVal2);
     if ($$ == 0)
       GEN_ERROR("binary operator returned null!");
-    delete $2.type;
+    delete $2;
   }
   | SetCondOps Types ValueRef ',' ValueRef {
-    if(isa<PackedType>($2.type->get())) {
+    if(isa<PackedType>((*$2).get())) {
       GEN_ERROR(
         "PackedTypes currently not supported in setcc instructions!");
     }
-    Value* tmpVal1 = getVal($2.type->get(), $3);
+    Value* tmpVal1 = getVal(*$2, $3);
     CHECK_FOR_ERROR
-    Value* tmpVal2 = getVal($2.type->get(), $5);
+    Value* tmpVal2 = getVal(*$2, $5);
     CHECK_FOR_ERROR
     $$ = new SetCondInst($1.opcode, tmpVal1, tmpVal2);
     if ($$ == 0)
       GEN_ERROR("binary operator returned null!");
-    delete $2.type;
+    delete $2;
   }
   | NOT ResolvedVal {
     std::cerr << "WARNING: Use of eliminated 'not' instruction:"
@@ -2585,18 +2534,15 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
       GEN_ERROR("Shift amount must be ubyte!");
     if (!$2->getType()->isInteger())
       GEN_ERROR("Shift constant expression requires integer operand!");
-    // Handle opcode upgrade situations
-    sanitizeOpCode($1, $2->getType());
-    CHECK_FOR_ERROR;
     $$ = new ShiftInst($1.opcode, $2, $4);
     CHECK_FOR_ERROR
   }
   | CAST ResolvedVal TO Types {
-    if (!$4.type->get()->isFirstClassType())
+    if (!$4->get()->isFirstClassType())
       GEN_ERROR("cast instruction to a non-primitive type: '" +
-                     $4.type->get()->getDescription() + "'!");
-    $$ = new CastInst($2, $4.type->get());
-    delete $4.type;
+                     $4->get()->getDescription() + "'!");
+    $$ = new CastInst($2, *$4);
+    delete $4;
     CHECK_FOR_ERROR
   }
   | SELECT ResolvedVal ',' ResolvedVal ',' ResolvedVal {
@@ -2609,8 +2555,8 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
   }
   | VAARG ResolvedVal ',' Types {
     NewVarArgs = true;
-    $$ = new VAArgInst($2, $4.type->get());
-    delete $4.type;
+    $$ = new VAArgInst($2, *$4);
+    delete $4;
     CHECK_FOR_ERROR
   }
   | VAARG_old ResolvedVal ',' Types {
@@ -2629,8 +2575,8 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
     CallInst* bar = new CallInst(NF, $2);
     CurBB->getInstList().push_back(bar);
     CurBB->getInstList().push_back(new StoreInst(bar, foo));
-    $$ = new VAArgInst(foo, $4.type->get());
-    delete $4.type;
+    $$ = new VAArgInst(foo, *$4);
+    delete $4;
     CHECK_FOR_ERROR
   }
   | VANEXT_old ResolvedVal ',' Types {
@@ -2650,10 +2596,10 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
     CallInst* bar = new CallInst(NF, $2);
     CurBB->getInstList().push_back(bar);
     CurBB->getInstList().push_back(new StoreInst(bar, foo));
-    Instruction* tmp = new VAArgInst(foo, $4.type->get());
+    Instruction* tmp = new VAArgInst(foo, *$4);
     CurBB->getInstList().push_back(tmp);
     $$ = new LoadInst(foo);
-    delete $4.type;
+    delete $4;
     CHECK_FOR_ERROR
   }
   | EXTRACTELEMENT ResolvedVal ',' ResolvedVal {
@@ -2690,10 +2636,10 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
     CHECK_FOR_ERROR
   }
   | OptTailCall OptCallingConv TypesV ValueRef '(' ValueRefListE ')'  {
-    const PointerType *PFTy = 0;
-    const FunctionType *Ty = 0;
+    const PointerType *PFTy;
+    const FunctionType *Ty;
 
-    if (!(PFTy = dyn_cast<PointerType>($3.type->get())) ||
+    if (!(PFTy = dyn_cast<PointerType>($3->get())) ||
         !(Ty = dyn_cast<FunctionType>(PFTy->getElementType()))) {
       // Pull out the types of all of the arguments...
       std::vector<const Type*> ParamTypes;
@@ -2706,11 +2652,10 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
       bool isVarArg = ParamTypes.size() && ParamTypes.back() == Type::VoidTy;
       if (isVarArg) ParamTypes.pop_back();
 
-      if (!$3.type->get()->isFirstClassType() && 
-           $3.type->get() != Type::VoidTy)
+      if (!(*$3)->isFirstClassType() && *$3 != Type::VoidTy)
         GEN_ERROR("LLVM functions cannot return aggregate types!");
 
-      Ty = FunctionType::get($3.type->get(), ParamTypes, isVarArg);
+      Ty = FunctionType::get($3->get(), ParamTypes, isVarArg);
       PFTy = PointerType::get(Ty);
     }
 
@@ -2745,7 +2690,7 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
     }
     cast<CallInst>($$)->setTailCall($1);
     cast<CallInst>($$)->setCallingConv($2);
-    delete $3.type;
+    delete $3;
     delete $6;
     CHECK_FOR_ERROR
   }
@@ -2776,26 +2721,26 @@ OptVolatile : VOLATILE {
 
 
 MemoryInst : MALLOC Types OptCAlign {
-    $$ = new MallocInst($2.type->get(), 0, $3);
-    delete $2.type;
+    $$ = new MallocInst(*$2, 0, $3);
+    delete $2;
     CHECK_FOR_ERROR
   }
   | MALLOC Types ',' UINT ValueRef OptCAlign {
-    Value* tmpVal = getVal($4.type->get(), $5);
+    Value* tmpVal = getVal($4, $5);
     CHECK_FOR_ERROR
-    $$ = new MallocInst($2.type->get(), tmpVal, $6);
-    delete $2.type;
+    $$ = new MallocInst(*$2, tmpVal, $6);
+    delete $2;
   }
   | ALLOCA Types OptCAlign {
-    $$ = new AllocaInst($2.type->get(), 0, $3);
-    delete $2.type;
+    $$ = new AllocaInst(*$2, 0, $3);
+    delete $2;
     CHECK_FOR_ERROR
   }
   | ALLOCA Types ',' UINT ValueRef OptCAlign {
-    Value* tmpVal = getVal($4.type->get(), $5);
+    Value* tmpVal = getVal($4, $5);
     CHECK_FOR_ERROR
-    $$ = new AllocaInst($2.type->get(), tmpVal, $6);
-    delete $2.type;
+    $$ = new AllocaInst(*$2, tmpVal, $6);
+    delete $2;
   }
   | FREE ResolvedVal {
     if (!isa<PointerType>($2->getType()))
@@ -2806,54 +2751,54 @@ MemoryInst : MALLOC Types OptCAlign {
   }
 
   | OptVolatile LOAD Types ValueRef {
-    if (!isa<PointerType>($3.type->get()))
+    if (!isa<PointerType>($3->get()))
       GEN_ERROR("Can't load from nonpointer type: " +
-                     $3.type->get()->getDescription());
-    if (!cast<PointerType>($3.type->get())->getElementType()->isFirstClassType())
+                     (*$3)->getDescription());
+    if (!cast<PointerType>($3->get())->getElementType()->isFirstClassType())
       GEN_ERROR("Can't load from pointer of non-first-class type: " +
-                     $3.type->get()->getDescription());
-    Value* tmpVal = getVal($3.type->get(), $4);
+                     (*$3)->getDescription());
+    Value* tmpVal = getVal(*$3, $4);
     CHECK_FOR_ERROR
     $$ = new LoadInst(tmpVal, "", $1);
-    delete $3.type;
+    delete $3;
   }
   | OptVolatile STORE ResolvedVal ',' Types ValueRef {
-    const PointerType *PT = dyn_cast<PointerType>($5.type->get());
+    const PointerType *PT = dyn_cast<PointerType>($5->get());
     if (!PT)
       GEN_ERROR("Can't store to a nonpointer type: " +
-                     ($5.type->get())->getDescription());
+                     (*$5)->getDescription());
     const Type *ElTy = PT->getElementType();
     if (ElTy != $3->getType())
       GEN_ERROR("Can't store '" + $3->getType()->getDescription() +
                      "' into space of type '" + ElTy->getDescription() + "'!");
 
-    Value* tmpVal = getVal($5.type->get(), $6);
+    Value* tmpVal = getVal(*$5, $6);
     CHECK_FOR_ERROR
     $$ = new StoreInst($3, tmpVal, $1);
-    delete $5.type;
+    delete $5;
   }
   | GETELEMENTPTR Types ValueRef IndexList {
-    if (!isa<PointerType>($2.type->get()))
+    if (!isa<PointerType>($2->get()))
       GEN_ERROR("getelementptr insn requires pointer operand!");
 
     // LLVM 1.2 and earlier used ubyte struct indices.  Convert any ubyte struct
     // indices to uint struct indices for compatibility.
     generic_gep_type_iterator<std::vector<Value*>::iterator>
-      GTI = gep_type_begin($2.type->get(), $4->begin(), $4->end()),
-      GTE = gep_type_end($2.type->get(), $4->begin(), $4->end());
+      GTI = gep_type_begin($2->get(), $4->begin(), $4->end()),
+      GTE = gep_type_end($2->get(), $4->begin(), $4->end());
     for (unsigned i = 0, e = $4->size(); i != e && GTI != GTE; ++i, ++GTI)
       if (isa<StructType>(*GTI))        // Only change struct indices
         if (ConstantInt *CUI = dyn_cast<ConstantInt>((*$4)[i]))
           if (CUI->getType() == Type::UByteTy)
             (*$4)[i] = ConstantExpr::getCast(CUI, Type::UIntTy);
 
-    if (!GetElementPtrInst::getIndexedType($2.type->get(), *$4, true))
+    if (!GetElementPtrInst::getIndexedType(*$2, *$4, true))
       GEN_ERROR("Invalid getelementptr indices for type '" +
-                     $2.type->get()->getDescription()+ "'!");
-    Value* tmpVal = getVal($2.type->get(), $3);
+                     (*$2)->getDescription()+ "'!");
+    Value* tmpVal = getVal(*$2, $3);
     CHECK_FOR_ERROR
     $$ = new GetElementPtrInst(tmpVal, *$4);
-    delete $2.type; 
+    delete $2; 
     delete $4;
   };
 

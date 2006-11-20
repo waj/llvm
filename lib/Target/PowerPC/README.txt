@@ -9,64 +9,6 @@ TODO:
 Support 'update' load/store instructions.  These are cracked on the G5, but are
 still a codesize win.
 
-With preinc enabled, this:
-
-long *%test4(long *%X, long *%dest) {
-        %Y = getelementptr long* %X, int 4
-        %A = load long* %Y
-        store long %A, long* %dest
-        ret long* %Y
-}
-
-compiles to:
-
-_test4:
-        mr r2, r3
-        lwzu r5, 32(r2)
-        lwz r3, 36(r3)
-        stw r5, 0(r4)
-        stw r3, 4(r4)
-        mr r3, r2
-        blr 
-
-with -sched=list-burr, I get:
-
-_test4:
-        lwz r2, 36(r3)
-        lwzu r5, 32(r3)
-        stw r2, 4(r4)
-        stw r5, 0(r4)
-        blr 
-
-===-------------------------------------------------------------------------===
-
-We compile the hottest inner loop of viterbi to:
-
-        li r6, 0
-        b LBB1_84       ;bb432.i
-LBB1_83:        ;bb420.i
-        lbzx r8, r5, r7
-        addi r6, r7, 1
-        stbx r8, r4, r7
-LBB1_84:        ;bb432.i
-        mr r7, r6
-        cmplwi cr0, r7, 143
-        bne cr0, LBB1_83        ;bb420.i
-
-The CBE manages to produce:
-
-	li r0, 143
-	mtctr r0
-loop:
-	lbzx r2, r2, r11
-	stbx r0, r2, r9
-	addi r2, r2, 1
-	bdz later
-	b loop
-
-This could be much better (bdnz instead of bdz) but it still beats us.  If we
-produced this with bdnz, the loop would be a single dispatch group.
-
 ===-------------------------------------------------------------------------===
 
 Compile:
@@ -85,6 +27,11 @@ _foo:
         blr
 
 This is effectively a simple form of predication.
+
+===-------------------------------------------------------------------------===
+
+Teach the .td file to pattern match PPC::BR_COND to appropriate bc variant, so
+we don't have to always run the branch selector for small functions.
 
 ===-------------------------------------------------------------------------===
 

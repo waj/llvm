@@ -73,6 +73,18 @@ inline void BytecodeReader::checkPastBlockEnd(const char * block_name) {
           " block.");
 }
 
+/// Align the buffer position to a 32 bit boundary
+inline void BytecodeReader::align32() {
+  if (hasAlignment) {
+    BufPtr Save = At;
+    At = (const unsigned char *)((intptr_t)(At+3) & (~3UL));
+    if (At > Save)
+      if (Handler) Handler->handleAlignment(At - Save);
+    if (At > BlockEnd)
+      error("Ran out of data while aligning!");
+  }
+}
+
 /// Read a whole unsigned integer
 inline unsigned BytecodeReader::read_uint() {
   if (At+4 > BlockEnd)
@@ -167,14 +179,89 @@ inline void BytecodeReader::read_double(double& DoubleVal) {
 
 /// Read a block header and obtain its type and size
 inline void BytecodeReader::read_block(unsigned &Type, unsigned &Size) {
-  Size = read_uint(); // Read the header
-  Type = Size & 0x1F; // mask low order five bits to get type
-  Size >>= 5;         // high order 27 bits is the size
+  if ( hasLongBlockHeaders ) {
+    Type = read_uint();
+    Size = read_uint();
+    switch (Type) {
+    case BytecodeFormat::Reserved_DoNotUse :
+      error("Reserved_DoNotUse used as Module Type?");
+      Type = BytecodeFormat::ModuleBlockID; break;
+    case BytecodeFormat::Module:
+      Type = BytecodeFormat::ModuleBlockID; break;
+    case BytecodeFormat::Function:
+      Type = BytecodeFormat::FunctionBlockID; break;
+    case BytecodeFormat::ConstantPool:
+      Type = BytecodeFormat::ConstantPoolBlockID; break;
+    case BytecodeFormat::SymbolTable:
+      Type = BytecodeFormat::SymbolTableBlockID; break;
+    case BytecodeFormat::ModuleGlobalInfo:
+      Type = BytecodeFormat::ModuleGlobalInfoBlockID; break;
+    case BytecodeFormat::GlobalTypePlane:
+      Type = BytecodeFormat::GlobalTypePlaneBlockID; break;
+    case BytecodeFormat::InstructionList:
+      Type = BytecodeFormat::InstructionListBlockID; break;
+    case BytecodeFormat::CompactionTable:
+      Type = BytecodeFormat::CompactionTableBlockID; break;
+    case BytecodeFormat::BasicBlock:
+      /// This block type isn't used after version 1.1. However, we have to
+      /// still allow the value in case this is an old bc format file.
+      /// We just let its value creep thru.
+      break;
+    default:
+      error("Invalid block id found: " + utostr(Type));
+      break;
+    }
+  } else {
+    Size = read_uint();
+    Type = Size & 0x1F; // mask low order five bits
+    Size >>= 5; // get rid of five low order bits, leaving high 27
+  }
   BlockStart = At;
   if (At + Size > BlockEnd)
     error("Attempt to size a block past end of memory");
   BlockEnd = At + Size;
   if (Handler) Handler->handleBlock(Type, BlockStart, Size);
+}
+
+
+/// In LLVM 1.2 and before, Types were derived from Value and so they were
+/// written as part of the type planes along with any other Value. In LLVM
+/// 1.3 this changed so that Type does not derive from Value. Consequently,
+/// the BytecodeReader's containers for Values can't contain Types because
+/// there's no inheritance relationship. This means that the "Type Type"
+/// plane is defunct along with the Type::TypeTyID TypeID. In LLVM 1.3
+/// whenever a bytecode construct must have both types and values together,
+/// the types are always read/written first and then the Values. Furthermore
+/// since Type::TypeTyID no longer exists, its value (12) now corresponds to
+/// Type::LabelTyID. In order to overcome this we must "sanitize" all the
+/// type TypeIDs we encounter. For LLVM 1.3 bytecode files, there's no change.
+/// For LLVM 1.2 and before, this function will decrement the type id by
+/// one to account for the missing Type::TypeTyID enumerator if the value is
+/// larger than 12 (Type::LabelTyID). If the value is exactly 12, then this
+/// function returns true, otherwise false. This helps detect situations
+/// where the pre 1.3 bytecode is indicating that what follows is a type.
+/// @returns true iff type id corresponds to pre 1.3 "type type"
+inline bool BytecodeReader::sanitizeTypeId(unsigned &TypeId) {
+  if (hasTypeDerivedFromValue) { /// do nothing if 1.3 or later
+    if (TypeId == Type::LabelTyID) {
+      TypeId = Type::VoidTyID; // sanitize it
+      return true; // indicate we got TypeTyID in pre 1.3 bytecode
+    } else if (TypeId > Type::LabelTyID)
+      --TypeId; // shift all planes down because type type plane is missing
+  }
+  return false;
+}
+
+/// Reads a vbr uint to read in a type id and does the necessary
+/// conversion on it by calling sanitizeTypeId.
+/// @returns true iff \p TypeId read corresponds to a pre 1.3 "type type"
+/// @see sanitizeTypeId
+inline bool BytecodeReader::read_typeid(unsigned &TypeId) {
+  TypeId = read_vbr_uint();
+  if ( !has32BitTypes )
+    if ( TypeId == 0x00FFFFFF )
+      TypeId = read_vbr_uint();
+  return sanitizeTypeId(TypeId);
 }
 
 //===----------------------------------------------------------------------===//
@@ -183,7 +270,9 @@ inline void BytecodeReader::read_block(unsigned &Type, unsigned &Size) {
 
 /// Determine if a type id has an implicit null value
 inline bool BytecodeReader::hasImplicitNull(unsigned TyID) {
-  return TyID != Type::LabelTyID && TyID != Type::VoidTyID;
+  if (!hasExplicitPrimitiveZeros)
+    return TyID != Type::LabelTyID && TyID != Type::VoidTyID;
+  return TyID >= Type::FirstDerivedTyID;
 }
 
 /// Obtain a type given a typeid and account for things like compaction tables,
@@ -215,11 +304,23 @@ const Type *BytecodeReader::getType(unsigned ID) {
   return Type::VoidTy;
 }
 
-/// This method just saves some coding. It uses read_vbr_uint to read
+/// Get a sanitized type id. This just makes sure that the \p ID
+/// is both sanitized and not the "type type" of pre-1.3 bytecode.
+/// @see sanitizeTypeId
+inline const Type* BytecodeReader::getSanitizedType(unsigned& ID) {
+  if (sanitizeTypeId(ID))
+    error("Invalid type id encountered");
+  return getType(ID);
+}
+
+/// This method just saves some coding. It uses read_typeid to read
 /// in a sanitized type id, errors that its not the type type, and
 /// then calls getType to return the type value.
-inline const Type* BytecodeReader::readType() {
-  return getType(read_vbr_uint());
+inline const Type* BytecodeReader::readSanitizedType() {
+  unsigned ID;
+  if (read_typeid(ID))
+    error("Invalid type id encountered");
+  return getType(ID);
 }
 
 /// Get the slot number associated with a type accounting for primitive
@@ -473,7 +574,7 @@ void BytecodeReader::insertArguments(Function* F) {
 // instruction generation should be used, but with the new Opcode value.
 // 
 Instruction*
-BytecodeReader::upgradeInstrOpcodes(
+BytecodeReader::handleObsoleteOpcodes(
   unsigned &Opcode,   ///< The old opcode, possibly updated by this function
   std::vector<unsigned> &Oprnds, ///< The operands to the instruction
   unsigned &iType,    ///< The type code from the bytecode file
@@ -482,46 +583,23 @@ BytecodeReader::upgradeInstrOpcodes(
 ) {
 
   // First, short circuit this if no conversion is required. When signless
-  // instructions were implemented the entire opcode sequence was revised in
-  // two stages: first Div/Rem became signed, then Shr/Cast/Setcc became 
-  // signed. If all of these instructions are signed then we don't have to
-  // upgrade the opcode.
-  if (!hasSignlessDivRem && !hasSignlessShrCastSetcc)
+  // instructions were implemented the entire opcode sequence was revised so
+  // we key on this first which means that the opcode value read is the one
+  // we should use.
+  if (!hasSignlessInstructions)
     return 0; // The opcode is fine the way it is.
-
-  // If this is bytecode version 6, that only had signed Rem and Div 
-  // instructions, then we must compensate for those two instructions only.
-  // So that the switch statement below works, we're trying to turn this into
-  // a version 5 opcode. To do that we must adjust the opcode to 10 (Div) if its
-  // any of the UDiv, SDiv or FDiv instructions; or, adjust the opcode to 
-  // 11 (Rem) if its any of the URem, SRem, or FRem instructions; or, simply
-  // decrement the instruction code if its beyond FRem.
-  if (!hasSignlessDivRem) {
-    // If its one of the signed Div/Rem opcodes, its fine the way it is
-    if (Opcode >= 10 && Opcode <= 12) // UDiv through FDiv
-      Opcode = 10; // Div
-    else if (Opcode >=13 && Opcode <= 15) // URem through FRem
-      Opcode = 11; // Rem
-    else if (Opcode >= 16 && Opcode <= 35)  // And through Shr
-      // Adjust for new instruction codes
-      Opcode -= 4;
-    else if (Opcode >= 36 && Opcode <= 42) // Everything after Select
-      // In vers 6 bytecode we eliminated the placeholders for the obsolete
-      // VAARG and VANEXT instructions. Consequently those two slots were
-      // filled starting with Select (36) which was 34. So now we only need
-      // to subtract two. This circumvents hitting opcodes 32 and 33
-      Opcode -= 2;
-    else {   // Opcode < 10 or > 42
-      // No upgrade necessary.
-      return 0;
-    }
-  }
 
   // Declare the resulting instruction we might build. In general we just 
   // change the Opcode argument but in a few cases we need to generate the 
   // Instruction here because the upgrade case is significantly different from 
   // the normal case.
   Instruction *Result = 0;
+
+  // If this is a bytecode format that did not include the unreachable
+  // instruction, bump up the opcode number to adjust it.
+  if (hasNoUnreachableInst)
+    if (Opcode >= Instruction::Unreachable && Opcode < 62)
+      ++Opcode;
 
   // We're dealing with an upgrade situation. For each of the opcode values,
   // perform the necessary conversion.
@@ -641,15 +719,7 @@ BytecodeReader::upgradeInstrOpcodes(
       Opcode = Instruction::Shl;
       break;
     case 31: // Shr
-      // The type of the instruction is based on the operands. We need to 
-      // select ashr or lshr based on that type. The iType values are hardcoded
-      // to the values used in bytecode version 5 (and prior) because it is 
-      // likely these codes will change in future versions of LLVM. This if 
-      // statement says "if (integer type and signed)"
-      if (iType >= 2 && iType <= 9 && iType % 2 != 0)
-        Opcode = Instruction::AShr;
-      else
-        Opcode = Instruction::LShr;
+      Opcode = Instruction::Shr;
       break;
     case 32: { //VANext_old ( <= llvm 1.5 )
       const Type* ArgTy = getValue(iType, Oprnds[0])->getType();
@@ -672,7 +742,7 @@ BytecodeReader::upgradeInstrOpcodes(
       CallInst* bar = new CallInst(NF, getValue(iType, Oprnds[0]));
       BB->getInstList().push_back(bar);
       BB->getInstList().push_back(new StoreInst(bar, foo));
-      Instruction* tmp = new VAArgInst(foo, getType(Oprnds[1]));
+      Instruction* tmp = new VAArgInst(foo, getSanitizedType(Oprnds[1]));
       BB->getInstList().push_back(tmp);
       Result = new LoadInst(foo);
       break;
@@ -696,7 +766,7 @@ BytecodeReader::upgradeInstrOpcodes(
       CallInst* bar = new CallInst(NF, getValue(iType, Oprnds[0]));
       BB->getInstList().push_back(bar);
       BB->getInstList().push_back(new StoreInst(bar, foo));
-      Result = new VAArgInst(foo, getType(Oprnds[1]));
+      Result = new VAArgInst(foo, getSanitizedType(Oprnds[1]));
       break;
     }
     case 34: // Select
@@ -812,15 +882,16 @@ void BytecodeReader::ParseInstruction(std::vector<unsigned> &Oprnds,
 
     for (unsigned i = 0; i != NumOprnds; ++i)
       Oprnds[i] = read_vbr_uint();
+    align32();
     break;
   }
 
-  const Type *InstTy = getType(iType);
+  const Type *InstTy = getSanitizedType(iType);
 
   // Make the necessary adjustments for dealing with backwards compatibility
   // of opcodes.
   Instruction* Result = 
-    upgradeInstrOpcodes(Opcode, Oprnds, iType, InstTy, BB);
+    handleObsoleteOpcodes(Opcode, Oprnds, iType, InstTy, BB);
 
   // We have enough info to inform the handler now.
   if (Handler) 
@@ -847,7 +918,7 @@ void BytecodeReader::ParseInstruction(std::vector<unsigned> &Oprnds,
       if (Oprnds.size() != 2)
         error("Invalid VAArg instruction!");
       Result = new VAArgInst(getValue(iType, Oprnds[0]),
-                             getType(Oprnds[1]));
+                             getSanitizedType(Oprnds[1]));
       break;
     case Instruction::ExtractElement: {
       if (Oprnds.size() != 2)
@@ -893,7 +964,7 @@ void BytecodeReader::ParseInstruction(std::vector<unsigned> &Oprnds,
       if (Oprnds.size() != 2)
         error("Invalid Cast instruction!");
       Result = new CastInst(getValue(iType, Oprnds[0]),
-                            getType(Oprnds[1]));
+                            getSanitizedType(Oprnds[1]));
       break;
     case Instruction::Select:
       if (Oprnds.size() != 3)
@@ -916,8 +987,7 @@ void BytecodeReader::ParseInstruction(std::vector<unsigned> &Oprnds,
     }
 
     case Instruction::Shl:
-    case Instruction::LShr:
-    case Instruction::AShr:
+    case Instruction::Shr:
       Result = new ShiftInst(Instruction::OtherOps(Opcode),
                              getValue(iType, Oprnds[0]),
                              getValue(Type::UByteTyID, Oprnds[1]));
@@ -1127,22 +1197,34 @@ void BytecodeReader::ParseInstruction(std::vector<unsigned> &Oprnds,
 
         unsigned ValIdx = Oprnds[i];
         unsigned IdxTy = 0;
-        // Struct indices are always uints, sequential type indices can be 
-        // any of the 32 or 64-bit integer types.  The actual choice of 
-        // type is encoded in the low two bits of the slot number.
-        if (isa<StructType>(TopTy))
-          IdxTy = Type::UIntTyID;
-        else {
-          switch (ValIdx & 3) {
-          default:
-          case 0: IdxTy = Type::UIntTyID; break;
-          case 1: IdxTy = Type::IntTyID; break;
-          case 2: IdxTy = Type::ULongTyID; break;
-          case 3: IdxTy = Type::LongTyID; break;
+        if (!hasRestrictedGEPTypes) {
+          // Struct indices are always uints, sequential type indices can be 
+          // any of the 32 or 64-bit integer types.  The actual choice of 
+          // type is encoded in the low two bits of the slot number.
+          if (isa<StructType>(TopTy))
+            IdxTy = Type::UIntTyID;
+          else {
+            switch (ValIdx & 3) {
+            default:
+            case 0: IdxTy = Type::UIntTyID; break;
+            case 1: IdxTy = Type::IntTyID; break;
+            case 2: IdxTy = Type::ULongTyID; break;
+            case 3: IdxTy = Type::LongTyID; break;
+            }
+            ValIdx >>= 2;
           }
-          ValIdx >>= 2;
+        } else {
+          IdxTy = isa<StructType>(TopTy) ? Type::UByteTyID : Type::LongTyID;
         }
+
         Idx.push_back(getValue(IdxTy, ValIdx));
+
+        // Convert ubyte struct indices into uint struct indices.
+        if (isa<StructType>(TopTy) && hasRestrictedGEPTypes)
+          if (ConstantInt *C = dyn_cast<ConstantInt>(Idx.back()))
+            if (C->getType() == Type::UByteTy)
+              Idx[Idx.size()-1] = ConstantExpr::getCast(C, Type::UIntTy);
+
         NextTy = GetElementPtrInst::getIndexedType(InstTy, Idx, true);
       }
 
@@ -1189,16 +1271,16 @@ void BytecodeReader::ParseInstruction(std::vector<unsigned> &Oprnds,
 }
 
 /// Get a particular numbered basic block, which might be a forward reference.
-/// This works together with ParseInstructionList to handle these forward 
-/// references in a clean manner.  This function is used when constructing 
-/// phi, br, switch, and other instructions that reference basic blocks. 
-/// Blocks are numbered sequentially as they appear in the function.
+/// This works together with ParseBasicBlock to handle these forward references
+/// in a clean manner.  This function is used when constructing phi, br, switch,
+/// and other instructions that reference basic blocks. Blocks are numbered
+/// sequentially as they appear in the function.
 BasicBlock *BytecodeReader::getBasicBlock(unsigned ID) {
   // Make sure there is room in the table...
   if (ParsedBasicBlocks.size() <= ID) ParsedBasicBlocks.resize(ID+1);
 
-  // First check to see if this is a backwards reference, i.e. this block
-  // has already been created, or if the forward reference has already
+  // First check to see if this is a backwards reference, i.e., ParseBasicBlock
+  // has already created this block, or if the forward reference has already
   // been created.
   if (ParsedBasicBlocks[ID])
     return ParsedBasicBlocks[ID];
@@ -1208,10 +1290,34 @@ BasicBlock *BytecodeReader::getBasicBlock(unsigned ID) {
   return ParsedBasicBlocks[ID] = new BasicBlock();
 }
 
+/// In LLVM 1.0 bytecode files, we used to output one basicblock at a time.
+/// This method reads in one of the basicblock packets. This method is not used
+/// for bytecode files after LLVM 1.0
+/// @returns The basic block constructed.
+BasicBlock *BytecodeReader::ParseBasicBlock(unsigned BlockNo) {
+  if (Handler) Handler->handleBasicBlockBegin(BlockNo);
+
+  BasicBlock *BB = 0;
+
+  if (ParsedBasicBlocks.size() == BlockNo)
+    ParsedBasicBlocks.push_back(BB = new BasicBlock());
+  else if (ParsedBasicBlocks[BlockNo] == 0)
+    BB = ParsedBasicBlocks[BlockNo] = new BasicBlock();
+  else
+    BB = ParsedBasicBlocks[BlockNo];
+
+  std::vector<unsigned> Operands;
+  while (moreInBlock())
+    ParseInstruction(Operands, BB);
+
+  if (Handler) Handler->handleBasicBlockEnd(BlockNo);
+  return BB;
+}
+
 /// Parse all of the BasicBlock's & Instruction's in the body of a function.
 /// In post 1.0 bytecode files, we no longer emit basic block individually,
 /// in order to avoid per-basic-block overhead.
-/// @returns the number of basic blocks encountered.
+/// @returns Rhe number of basic blocks encountered.
 unsigned BytecodeReader::ParseInstructionList(Function* F) {
   unsigned BlockNo = 0;
   std::vector<unsigned> Args;
@@ -1257,35 +1363,52 @@ void BytecodeReader::ParseSymbolTable(Function *CurrentFunction,
            E = CurrentFunction->end(); I != E; ++I)
       BBMap.push_back(I);
 
-  // Symtab block header: [num entries]
-  unsigned NumEntries = read_vbr_uint();
-  for (unsigned i = 0; i < NumEntries; ++i) {
-    // Symtab entry: [def slot #][name]
-    unsigned slot = read_vbr_uint();
-    std::string Name = read_str();
-    const Type* T = getType(slot);
-    ST->insert(Name, T);
+  /// In LLVM 1.3 we write types separately from values so
+  /// The types are always first in the symbol table. This is
+  /// because Type no longer derives from Value.
+  if (!hasTypeDerivedFromValue) {
+    // Symtab block header: [num entries]
+    unsigned NumEntries = read_vbr_uint();
+    for (unsigned i = 0; i < NumEntries; ++i) {
+      // Symtab entry: [def slot #][name]
+      unsigned slot = read_vbr_uint();
+      std::string Name = read_str();
+      const Type* T = getType(slot);
+      ST->insert(Name, T);
+    }
   }
 
   while (moreInBlock()) {
     // Symtab block header: [num entries][type id number]
     unsigned NumEntries = read_vbr_uint();
-    unsigned Typ = read_vbr_uint();
+    unsigned Typ = 0;
+    bool isTypeType = read_typeid(Typ);
 
     for (unsigned i = 0; i != NumEntries; ++i) {
       // Symtab entry: [def slot #][name]
       unsigned slot = read_vbr_uint();
       std::string Name = read_str();
-      Value *V = 0;
-      if (Typ == Type::LabelTyID) {
-        if (slot < BBMap.size())
-          V = BBMap[slot];
+
+      // if we're reading a pre 1.3 bytecode file and the type plane
+      // is the "type type", handle it here
+      if (isTypeType) {
+        const Type* T = getType(slot);
+        if (T == 0)
+          error("Failed type look-up for name '" + Name + "'");
+        ST->insert(Name, T);
+        continue; // code below must be short circuited
       } else {
-        V = getValue(Typ, slot, false); // Find mapping...
+        Value *V = 0;
+        if (Typ == Type::LabelTyID) {
+          if (slot < BBMap.size())
+            V = BBMap[slot];
+        } else {
+          V = getValue(Typ, slot, false); // Find mapping...
+        }
+        if (V == 0)
+          error("Failed value look-up for name '" + Name + "'");
+        V->setName(Name);
       }
-      if (V == 0)
-        error("Failed value look-up for name '" + Name + "'");
-      V->setName(Name);
     }
   }
   checkPastBlockEnd("Symbol Table");
@@ -1295,7 +1418,9 @@ void BytecodeReader::ParseSymbolTable(Function *CurrentFunction,
 /// Read in the types portion of a compaction table.
 void BytecodeReader::ParseCompactionTypes(unsigned NumEntries) {
   for (unsigned i = 0; i != NumEntries; ++i) {
-    unsigned TypeSlot = read_vbr_uint();
+    unsigned TypeSlot = 0;
+    if (read_typeid(TypeSlot))
+      error("Invalid type in compaction table: type type");
     const Type *Typ = getGlobalTableType(TypeSlot);
     CompactionTypes.push_back(std::make_pair(Typ, TypeSlot));
     if (Handler) Handler->handleCompactionTableType(i, TypeSlot, Typ);
@@ -1308,9 +1433,14 @@ void BytecodeReader::ParseCompactionTable() {
   // Notify handler that we're beginning a compaction table.
   if (Handler) Handler->handleCompactionTableBegin();
 
-  // Get the types for the compaction table.
-  unsigned NumEntries = read_vbr_uint();
-  ParseCompactionTypes(NumEntries);
+  // In LLVM 1.3 Type no longer derives from Value. So,
+  // we always write them first in the compaction table
+  // because they can't occupy a "type plane" where the
+  // Values reside.
+  if (! hasTypeDerivedFromValue) {
+    unsigned NumEntries = read_vbr_uint();
+    ParseCompactionTypes(NumEntries);
+  }
 
   // Compaction tables live in separate blocks so we have to loop
   // until we've read the whole thing.
@@ -1318,6 +1448,7 @@ void BytecodeReader::ParseCompactionTable() {
     // Read the number of Value* entries in the compaction table
     unsigned NumEntries = read_vbr_uint();
     unsigned Ty = 0;
+    unsigned isTypeType = false;
 
     // Decode the type from value read in. Most compaction table
     // planes will have one or two entries in them. If that's the
@@ -1327,35 +1458,42 @@ void BytecodeReader::ParseCompactionTable() {
       // In this case, both low-order bits are set (value 3). This
       // is a signal that the typeid follows.
       NumEntries >>= 2;
-      Ty = read_vbr_uint();
+      isTypeType = read_typeid(Ty);
     } else {
       // In this case, the low-order bits specify the number of entries
       // and the high order bits specify the type.
       Ty = NumEntries >> 2;
+      isTypeType = sanitizeTypeId(Ty);
       NumEntries &= 3;
     }
 
-    // Make sure we have enough room for the plane.
-    if (Ty >= CompactionValues.size())
-      CompactionValues.resize(Ty+1);
+    // if we're reading a pre 1.3 bytecode file and the type plane
+    // is the "type type", handle it here
+    if (isTypeType) {
+      ParseCompactionTypes(NumEntries);
+    } else {
+      // Make sure we have enough room for the plane.
+      if (Ty >= CompactionValues.size())
+        CompactionValues.resize(Ty+1);
 
-    // Make sure the plane is empty or we have some kind of error.
-    if (!CompactionValues[Ty].empty())
-      error("Compaction table plane contains multiple entries!");
+      // Make sure the plane is empty or we have some kind of error.
+      if (!CompactionValues[Ty].empty())
+        error("Compaction table plane contains multiple entries!");
 
-    // Notify handler about the plane.
-    if (Handler) Handler->handleCompactionTablePlane(Ty, NumEntries);
+      // Notify handler about the plane.
+      if (Handler) Handler->handleCompactionTablePlane(Ty, NumEntries);
 
-    // Push the implicit zero.
-    CompactionValues[Ty].push_back(Constant::getNullValue(getType(Ty)));
+      // Push the implicit zero.
+      CompactionValues[Ty].push_back(Constant::getNullValue(getType(Ty)));
 
-    // Read in each of the entries, put them in the compaction table
-    // and notify the handler that we have a new compaction table value.
-    for (unsigned i = 0; i != NumEntries; ++i) {
-      unsigned ValSlot = read_vbr_uint();
-      Value *V = getGlobalTableValue(Ty, ValSlot);
-      CompactionValues[Ty].push_back(V);
-      if (Handler) Handler->handleCompactionTableValue(i, Ty, ValSlot);
+      // Read in each of the entries, put them in the compaction table
+      // and notify the handler that we have a new compaction table value.
+      for (unsigned i = 0; i != NumEntries; ++i) {
+        unsigned ValSlot = read_vbr_uint();
+        Value *V = getGlobalTableValue(Ty, ValSlot);
+        CompactionValues[Ty].push_back(V);
+        if (Handler) Handler->handleCompactionTableValue(i, Ty, ValSlot);
+      }
     }
   }
   // Notify handler that the compaction table is done.
@@ -1367,20 +1505,23 @@ void BytecodeReader::ParseCompactionTable() {
 // a derived type, then additional data is read to fill out the type
 // definition.
 const Type *BytecodeReader::ParseType() {
-  unsigned PrimType = read_vbr_uint();
+  unsigned PrimType = 0;
+  if (read_typeid(PrimType))
+    error("Invalid type (type type) in type constants!");
+
   const Type *Result = 0;
   if ((Result = Type::getPrimitiveType((Type::TypeID)PrimType)))
     return Result;
 
   switch (PrimType) {
   case Type::FunctionTyID: {
-    const Type *RetType = readType();
+    const Type *RetType = readSanitizedType();
 
     unsigned NumParams = read_vbr_uint();
 
     std::vector<const Type*> Params;
     while (NumParams--)
-      Params.push_back(readType());
+      Params.push_back(readSanitizedType());
 
     bool isVarArg = Params.size() && Params.back() == Type::VoidTy;
     if (isVarArg) Params.pop_back();
@@ -1389,30 +1530,34 @@ const Type *BytecodeReader::ParseType() {
     break;
   }
   case Type::ArrayTyID: {
-    const Type *ElementType = readType();
+    const Type *ElementType = readSanitizedType();
     unsigned NumElements = read_vbr_uint();
     Result =  ArrayType::get(ElementType, NumElements);
     break;
   }
   case Type::PackedTyID: {
-    const Type *ElementType = readType();
+    const Type *ElementType = readSanitizedType();
     unsigned NumElements = read_vbr_uint();
     Result =  PackedType::get(ElementType, NumElements);
     break;
   }
   case Type::StructTyID: {
     std::vector<const Type*> Elements;
-    unsigned Typ = read_vbr_uint();
+    unsigned Typ = 0;
+    if (read_typeid(Typ))
+      error("Invalid element type (type type) for structure!");
+
     while (Typ) {         // List is terminated by void/0 typeid
       Elements.push_back(getType(Typ));
-      Typ = read_vbr_uint();
+      if (read_typeid(Typ))
+        error("Invalid element type (type type) for structure!");
     }
 
     Result = StructType::get(Elements);
     break;
   }
   case Type::PointerTyID: {
-    Result = PointerType::get(readType());
+    Result = PointerType::get(readSanitizedType());
     break;
   }
 
@@ -1482,45 +1627,13 @@ void BytecodeReader::ParseTypes(TypeListTy &Tab, unsigned NumEntries){
 // values used after ver 6. bytecode format. The operands are provided to the
 // function so that decisions based on the operand type can be made when 
 // auto-upgrading obsolete opcodes to the new ones.
-// NOTE: This code needs to be kept synchronized with upgradeInstrOpcodes. 
+// NOTE: This code needs to be kept synchronized with handleObsoleteOpcodes. 
 // We can't use that function because of that functions argument requirements.
 // This function only deals with the subset of opcodes that are applicable to
-// constant expressions and is therefore simpler than upgradeInstrOpcodes.
-inline unsigned BytecodeReader::upgradeCEOpcodes(
+// constant expressions and is therefore simpler than handleObsoleteOpcodes.
+inline unsigned fixCEOpcodes(
   unsigned Opcode, const std::vector<Constant*> &ArgVec
 ) {
-  // Determine if no upgrade necessary
-  if (!hasSignlessDivRem && !hasSignlessShrCastSetcc)
-    return Opcode;
-
-  // If this is bytecode version 6, that only had signed Rem and Div 
-  // instructions, then we must compensate for those two instructions only.
-  // So that the switch statement below works, we're trying to turn this into
-  // a version 5 opcode. To do that we must adjust the opcode to 10 (Div) if its
-  // any of the UDiv, SDiv or FDiv instructions; or, adjust the opcode to 
-  // 11 (Rem) if its any of the URem, SRem, or FRem instructions; or, simply
-  // decrement the instruction code if its beyond FRem.
-  if (!hasSignlessDivRem) {
-    // If its one of the signed Div/Rem opcodes, its fine the way it is
-    if (Opcode >= 10 && Opcode <= 12) // UDiv through FDiv
-      Opcode = 10; // Div
-    else if (Opcode >=13 && Opcode <= 15) // URem through FRem
-      Opcode = 11; // Rem
-    else if (Opcode >= 16 && Opcode <= 35)  // And through Shr
-      // Adjust for new instruction codes
-      Opcode -= 4;
-    else if (Opcode >= 36 && Opcode <= 42) // Everything after Select
-      // In vers 6 bytecode we eliminated the placeholders for the obsolete
-      // VAARG and VANEXT instructions. Consequently those two slots were
-      // filled starting with Select (36) which was 34. So now we only need
-      // to subtract two. This circumvents hitting opcodes 32 and 33
-      Opcode -= 2;
-    else {   // Opcode < 10 or > 42
-      // No upgrade necessary.
-      return 0;
-    }
-  }
-
   switch (Opcode) {
     default: // Pass Through
       // If we don't match any of the cases here then the opcode is fine the
@@ -1594,10 +1707,7 @@ inline unsigned BytecodeReader::upgradeCEOpcodes(
       Opcode = Instruction::Shl;
       break;
     case 31: // Shr
-      if (ArgVec[0]->getType()->isSigned())
-        Opcode = Instruction::AShr;
-      else
-        Opcode = Instruction::LShr;
+      Opcode = Instruction::Shr;
       break;
     case 34: // Select
       Opcode = Instruction::Select;
@@ -1624,46 +1734,54 @@ Value *BytecodeReader::ParseConstantPoolValue(unsigned TypeID) {
   unsigned isExprNumArgs = read_vbr_uint();
 
   if (isExprNumArgs) {
-    // 'undef' is encoded with 'exprnumargs' == 1.
-    if (isExprNumArgs == 1)
-      return UndefValue::get(getType(TypeID));
+    if (!hasNoUndefValue) {
+      // 'undef' is encoded with 'exprnumargs' == 1.
+      if (isExprNumArgs == 1)
+        return UndefValue::get(getType(TypeID));
 
-    // Inline asm is encoded with exprnumargs == ~0U.
-    if (isExprNumArgs == ~0U) {
-      std::string AsmStr = read_str();
-      std::string ConstraintStr = read_str();
-      unsigned Flags = read_vbr_uint();
+      // Inline asm is encoded with exprnumargs == ~0U.
+      if (isExprNumArgs == ~0U) {
+        std::string AsmStr = read_str();
+        std::string ConstraintStr = read_str();
+        unsigned Flags = read_vbr_uint();
+        
+        const PointerType *PTy = dyn_cast<PointerType>(getType(TypeID));
+        const FunctionType *FTy = 
+          PTy ? dyn_cast<FunctionType>(PTy->getElementType()) : 0;
+
+        if (!FTy || !InlineAsm::Verify(FTy, ConstraintStr))
+          error("Invalid constraints for inline asm");
+        if (Flags & ~1U)
+          error("Invalid flags for inline asm");
+        bool HasSideEffects = Flags & 1;
+        return InlineAsm::get(FTy, AsmStr, ConstraintStr, HasSideEffects);
+      }
       
-      const PointerType *PTy = dyn_cast<PointerType>(getType(TypeID));
-      const FunctionType *FTy = 
-        PTy ? dyn_cast<FunctionType>(PTy->getElementType()) : 0;
-
-      if (!FTy || !InlineAsm::Verify(FTy, ConstraintStr))
-        error("Invalid constraints for inline asm");
-      if (Flags & ~1U)
-        error("Invalid flags for inline asm");
-      bool HasSideEffects = Flags & 1;
-      return InlineAsm::get(FTy, AsmStr, ConstraintStr, HasSideEffects);
+      --isExprNumArgs;
     }
-    
-    --isExprNumArgs;
 
     // FIXME: Encoding of constant exprs could be much more compact!
     std::vector<Constant*> ArgVec;
     ArgVec.reserve(isExprNumArgs);
     unsigned Opcode = read_vbr_uint();
 
+    // Bytecode files before LLVM 1.4 need have a missing terminator inst.
+    if (hasNoUnreachableInst) Opcode++;
+
     // Read the slot number and types of each of the arguments
     for (unsigned i = 0; i != isExprNumArgs; ++i) {
       unsigned ArgValSlot = read_vbr_uint();
-      unsigned ArgTypeSlot = read_vbr_uint();
+      unsigned ArgTypeSlot = 0;
+      if (read_typeid(ArgTypeSlot))
+        error("Invalid argument type (type type) for constant value");
 
       // Get the arg value from its slot if it exists, otherwise a placeholder
       ArgVec.push_back(getConstantValue(ArgTypeSlot, ArgValSlot));
     }
 
     // Handle backwards compatibility for the opcode numbers
-    Opcode = upgradeCEOpcodes(Opcode, ArgVec);
+    if (hasSignlessInstructions)
+      Opcode = fixCEOpcodes(Opcode, ArgVec);
 
     // Construct a ConstantExpr of the appropriate kind
     if (isExprNumArgs == 1) {           // All one-operand expressions
@@ -1675,6 +1793,20 @@ Value *BytecodeReader::ParseConstantPoolValue(unsigned TypeID) {
       return Result;
     } else if (Opcode == Instruction::GetElementPtr) { // GetElementPtr
       std::vector<Constant*> IdxList(ArgVec.begin()+1, ArgVec.end());
+
+      if (hasRestrictedGEPTypes) {
+        const Type *BaseTy = ArgVec[0]->getType();
+        generic_gep_type_iterator<std::vector<Constant*>::iterator>
+          GTI = gep_type_begin(BaseTy, IdxList.begin(), IdxList.end()),
+          E = gep_type_end(BaseTy, IdxList.begin(), IdxList.end());
+        for (unsigned i = 0; GTI != E; ++GTI, ++i)
+          if (isa<StructType>(*GTI)) {
+            if (IdxList[i]->getType() != Type::UByteTy)
+              error("Invalid index for getelementptr!");
+            IdxList[i] = ConstantExpr::getCast(IdxList[i], Type::UIntTy);
+          }
+      }
+
       Constant* Result = ConstantExpr::getGetElementPtr(ArgVec[0], IdxList);
       if (Handler) Handler->handleConstantExpression(Opcode, ArgVec, Result);
       return Result;
@@ -1866,7 +1998,9 @@ void BytecodeReader::ResolveReferencesToConstant(Constant *NewV, unsigned Typ,
 /// Parse the constant strings section.
 void BytecodeReader::ParseStringConstants(unsigned NumEntries, ValueTable &Tab){
   for (; NumEntries; --NumEntries) {
-    unsigned Typ = read_vbr_uint();
+    unsigned Typ = 0;
+    if (read_typeid(Typ))
+      error("Invalid type (type type) for string constant");
     const Type *Ty = getType(Typ);
     if (!isa<ArrayType>(Ty))
       error("String constant data invalid!");
@@ -1902,16 +2036,22 @@ void BytecodeReader::ParseConstantPool(ValueTable &Tab,
   /// In LLVM 1.3 Type does not derive from Value so the types
   /// do not occupy a plane. Consequently, we read the types
   /// first in the constant pool.
-  if (isFunction) {
+  if (isFunction && !hasTypeDerivedFromValue) {
     unsigned NumEntries = read_vbr_uint();
     ParseTypes(TypeTab, NumEntries);
   }
 
   while (moreInBlock()) {
     unsigned NumEntries = read_vbr_uint();
-    unsigned Typ = read_vbr_uint();
+    unsigned Typ = 0;
+    bool isTypeType = read_typeid(Typ);
 
-    if (Typ == Type::VoidTyID) {
+    /// In LLVM 1.2 and before, Types were written to the
+    /// bytecode file in the "Type Type" plane (#12).
+    /// In 1.3 plane 12 is now the label plane.  Handle this here.
+    if (isTypeType) {
+      ParseTypes(TypeTab, NumEntries);
+    } else if (Typ == Type::VoidTyID) {
       /// Use of Type::VoidTyID is a misnomer. It actually means
       /// that the following plane is constant strings
       assert(&Tab == &ModuleValues && "Cannot read strings in functions!");
@@ -2003,6 +2143,20 @@ void BytecodeReader::ParseFunctionBody(Function* F) {
       ParseCompactionTable();
       break;
 
+    case BytecodeFormat::BasicBlock: {
+      if (!InsertedArguments) {
+        // Insert arguments into the value table before we parse the first basic
+        // block in the function, but after we potentially read in the
+        // compaction table.
+        insertArguments(F);
+        InsertedArguments = true;
+      }
+
+      BasicBlock *BB = ParseBasicBlock(BlockNum++);
+      F->getBasicBlockList().push_back(BB);
+      break;
+    }
+
     case BytecodeFormat::InstructionListBlockID: {
       // Insert arguments into the value table before we parse the instruction
       // list for the function, but after we potentially read in the compaction
@@ -2029,6 +2183,9 @@ void BytecodeReader::ParseFunctionBody(Function* F) {
       break;
     }
     BlockEnd = MyEnd;
+
+    // Malformed bc file if read past end of block.
+    align32();
   }
 
   // Make sure there were no references to non-existant basic blocks.
@@ -2155,6 +2312,11 @@ bool BytecodeReader::ParseAllFunctionBodies(std::string* ErrMsg) {
 void BytecodeReader::ParseGlobalTypes() {
   // Read the number of types
   unsigned NumEntries = read_vbr_uint();
+
+  // Ignore the type plane identifier for types if the bc file is pre 1.3
+  if (hasTypeDerivedFromValue)
+    read_vbr_uint();
+
   ParseTypes(ModuleTypes, NumEntries);
 }
 
@@ -2173,6 +2335,8 @@ void BytecodeReader::ParseModuleGlobalInfo() {
     // VarType Fields: bit0 = isConstant, bit1 = hasInitializer, bit2,3,4 =
     // Linkage, bit4+ = slot#
     unsigned SlotNo = VarType >> 5;
+    if (sanitizeTypeId(SlotNo))
+      error("Invalid type (type type) for global var!");
     unsigned LinkageID = (VarType >> 2) & 7;
     bool isConstant = VarType & 1;
     bool hasInitializer = (VarType & 2) != 0;
@@ -2243,6 +2407,9 @@ void BytecodeReader::ParseModuleGlobalInfo() {
   // Read the function objects for all of the functions that are coming
   unsigned FnSignature = read_vbr_uint();
 
+  if (hasNoFlagsForFunctions)
+    FnSignature = (FnSignature << 5) + 1;
+
   // List is terminated by VoidTy.
   while (((FnSignature & (~0U >> 1)) >> 5) != Type::VoidTyID) {
     const Type *Ty = getType((FnSignature & (~0U >> 1)) >> 5);
@@ -2298,6 +2465,8 @@ void BytecodeReader::ParseModuleGlobalInfo() {
 
     // Get the next function signature.
     FnSignature = read_vbr_uint();
+    if (hasNoFlagsForFunctions)
+      FnSignature = (FnSignature << 5) + 1;
   }
 
   // Now that the function signature list is set up, reverse it so that we can
@@ -2309,32 +2478,37 @@ void BytecodeReader::ParseModuleGlobalInfo() {
   /// into this to get their section name.
   std::vector<std::string> SectionNames;
   
-  // Read in the dependent library information.
-  unsigned num_dep_libs = read_vbr_uint();
-  std::string dep_lib;
-  while (num_dep_libs--) {
-    dep_lib = read_str();
-    TheModule->addLibrary(dep_lib);
-    if (Handler)
-      Handler->handleDependentLibrary(dep_lib);
-  }
+  if (hasInconsistentModuleGlobalInfo) {
+    align32();
+  } else if (!hasNoDependentLibraries) {
+    // If this bytecode format has dependent library information in it, read in
+    // the number of dependent library items that follow.
+    unsigned num_dep_libs = read_vbr_uint();
+    std::string dep_lib;
+    while (num_dep_libs--) {
+      dep_lib = read_str();
+      TheModule->addLibrary(dep_lib);
+      if (Handler)
+        Handler->handleDependentLibrary(dep_lib);
+    }
 
-  // Read target triple and place into the module.
-  std::string triple = read_str();
-  TheModule->setTargetTriple(triple);
-  if (Handler)
-    Handler->handleTargetTriple(triple);
-  
-  if (At != BlockEnd) {
-    // If the file has section info in it, read the section names now.
-    unsigned NumSections = read_vbr_uint();
-    while (NumSections--)
-      SectionNames.push_back(read_str());
+    // Read target triple and place into the module.
+    std::string triple = read_str();
+    TheModule->setTargetTriple(triple);
+    if (Handler)
+      Handler->handleTargetTriple(triple);
+    
+    if (!hasAlignment && At != BlockEnd) {
+      // If the file has section info in it, read the section names now.
+      unsigned NumSections = read_vbr_uint();
+      while (NumSections--)
+        SectionNames.push_back(read_str());
+    }
+    
+    // If the file has module-level inline asm, read it now.
+    if (!hasAlignment && At != BlockEnd)
+      TheModule->setModuleInlineAsm(read_str());
   }
-  
-  // If the file has module-level inline asm, read it now.
-  if (At != BlockEnd)
-    TheModule->setModuleInlineAsm(read_str());
 
   // If any globals are in specified sections, assign them now.
   for (std::map<GlobalValue*, unsigned>::iterator I = SectionID.begin(), E =
@@ -2369,42 +2543,107 @@ void BytecodeReader::ParseVersionInfo() {
 
   RevisionNum = Version >> 4;
 
-  // Default the backwards compatibility flag values for the current BC version
-  hasSignlessDivRem = false;
-  hasSignlessShrCastSetcc = false;
+  // Default values for the current bytecode version
+  hasInconsistentModuleGlobalInfo = false;
+  hasExplicitPrimitiveZeros = false;
+  hasRestrictedGEPTypes = false;
+  hasTypeDerivedFromValue = false;
+  hasLongBlockHeaders = false;
+  has32BitTypes = false;
+  hasNoDependentLibraries = false;
+  hasAlignment = false;
+  hasNoUndefValue = false;
+  hasNoFlagsForFunctions = false;
+  hasNoUnreachableInst = false;
+  hasSignlessInstructions = false;
 
   // Determine which backwards compatibility flags to set based on the
   // bytecode file's version number
   switch (RevisionNum) {
-  case 0: //  LLVM 1.0, 1.1 (Released)
-  case 1: // LLVM 1.2 (Released)
-  case 2: // 1.2.5 (Not Released)
-  case 3: // LLVM 1.3 (Released)
-  case 4: // 1.3.1 (Not Released)
-    error("Old bytecode formats no longer supported");
-    break;
-
-  case 5: // 1.4 (Released)
-    // In version 6, the Div and Rem instructions were converted to their
-    // signed and floating point counterparts: UDiv, SDiv, FDiv, URem, SRem, 
-    // and FRem. Versions prior to 6 need to indicate that they have the 
-    // signless Div and Rem instructions.
-    hasSignlessDivRem = true;
+  case 0:               //  LLVM 1.0, 1.1 (Released)
+    // Base LLVM 1.0 bytecode format.
+    hasInconsistentModuleGlobalInfo = true;
+    hasExplicitPrimitiveZeros = true;
 
     // FALL THROUGH
-    
-  case 6: // 1.9 (Released) 
+
+  case 1:               // LLVM 1.2 (Released)
+    // LLVM 1.2 added explicit support for emitting strings efficiently.
+
+    // Also, it fixed the problem where the size of the ModuleGlobalInfo block
+    // included the size for the alignment at the end, where the rest of the
+    // blocks did not.
+
+    // LLVM 1.2 and before required that GEP indices be ubyte constants for
+    // structures and longs for sequential types.
+    hasRestrictedGEPTypes = true;
+
+    // LLVM 1.2 and before had the Type class derive from Value class. This
+    // changed in release 1.3 and consequently LLVM 1.3 bytecode files are
+    // written differently because Types can no longer be part of the
+    // type planes for Values.
+    hasTypeDerivedFromValue = true;
+
+    // FALL THROUGH
+
+  case 2:                // 1.2.5 (Not Released)
+
+    // LLVM 1.2 and earlier had two-word block headers. This is a bit wasteful,
+    // especially for small files where the 8 bytes per block is a large
+    // fraction of the total block size. In LLVM 1.3, the block type and length
+    // are compressed into a single 32-bit unsigned integer. 27 bits for length,
+    // 5 bits for block type.
+    hasLongBlockHeaders = true;
+
+    // LLVM 1.2 and earlier wrote type slot numbers as vbr_uint32. In LLVM 1.3
+    // this has been reduced to vbr_uint24. It shouldn't make much difference
+    // since we haven't run into a module with > 24 million types, but for
+    // safety the 24-bit restriction has been enforced in 1.3 to free some bits
+    // in various places and to ensure consistency.
+    has32BitTypes = true;
+
+    // LLVM 1.2 and earlier did not provide a target triple nor a list of
+    // libraries on which the bytecode is dependent. LLVM 1.3 provides these
+    // features, for use in future versions of LLVM.
+    hasNoDependentLibraries = true;
+
+    // FALL THROUGH
+
+  case 3:               // LLVM 1.3 (Released)
+    // LLVM 1.3 and earlier caused alignment bytes to be written on some block
+    // boundaries and at the end of some strings. In extreme cases (e.g. lots
+    // of GEP references to a constant array), this can increase the file size
+    // by 30% or more. In version 1.4 alignment is done away with completely.
+    hasAlignment = true;
+
+    // FALL THROUGH
+
+  case 4:               // 1.3.1 (Not Released)
+    // In version 4, we did not support the 'undef' constant.
+    hasNoUndefValue = true;
+
+    // In version 4 and above, we did not include space for flags for functions
+    // in the module info block.
+    hasNoFlagsForFunctions = true;
+
+    // In version 4 and above, we did not include the 'unreachable' instruction
+    // in the opcode numbering in the bytecode file.
+    hasNoUnreachableInst = true;
+
+    // FALL THROUGH
+
+  case 5:               // 1.4 (Released)
     // In version 5 and prior, instructions were signless while integer types
     // were signed. In version 6, instructions became signed and types became
     // signless. For example in version 5 we have the DIV instruction but in
     // version 6 we have FDIV, SDIV and UDIV to replace it. This caused a 
     // renumbering of the instruction codes in version 6 that must be dealt with
     // when reading old bytecode files.
-    hasSignlessShrCastSetcc = true;
+    hasSignlessInstructions = true;
 
     // FALL THROUGH
-
-  case 7:
+    
+  case 6:               // SignlessTypes Implementation (1.9 release)
     break;
 
   default:
@@ -2428,6 +2667,7 @@ void BytecodeReader::ParseModule() {
 
   // Read into instance variables...
   ParseVersionInfo();
+  align32();
 
   bool SeenModuleGlobalInfo = false;
   bool SeenGlobalTypePlane = false;
@@ -2474,6 +2714,7 @@ void BytecodeReader::ParseModule() {
       break;
     }
     BlockEnd = MyEnd;
+    align32();
   }
 
   // After the module constant pool has been read, we can safely initialize

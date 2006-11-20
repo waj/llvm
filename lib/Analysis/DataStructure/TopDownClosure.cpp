@@ -13,7 +13,7 @@
 // like pointer analysis.
 //
 //===----------------------------------------------------------------------===//
-#define DEBUG_TYPE "td_dsa"
+
 #include "llvm/Analysis/DataStructure/DataStructure.h"
 #include "llvm/Module.h"
 #include "llvm/DerivedTypes.h"
@@ -21,6 +21,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/ADT/Statistic.h"
+#include <iostream>
 using namespace llvm;
 
 #if 0
@@ -240,7 +241,8 @@ void TDDataStructures::InlineCallersIntoGraph(DSGraph &DSG) {
       RC.getClonedNH(GG.getNodeForValue(*GI));
   }
 
-  DOUT << "[TD] Inlining callers into '" << DSG.getFunctionNames() << "'\n";
+  DEBUG(std::cerr << "[TD] Inlining callers into '" << DSG.getFunctionNames()
+        << "'\n");
 
   // Iteratively inline caller graphs into this graph.
   while (!EdgesFromCaller.empty()) {
@@ -256,13 +258,16 @@ void TDDataStructures::InlineCallersIntoGraph(DSGraph &DSG) {
     do {
       const DSCallSite &CS = *EdgesFromCaller.back().CS;
       Function &CF = *EdgesFromCaller.back().CalledFunction;
-      DOUT << "   [TD] Inlining graph into Fn '" << CF.getName() << "' from ";
+      DEBUG(std::cerr << "   [TD] Inlining graph into Fn '"
+            << CF.getName() << "' from ");
       if (CallerGraph.getReturnNodes().empty())
-        DOUT << "SYNTHESIZED INDIRECT GRAPH";
+        DEBUG(std::cerr << "SYNTHESIZED INDIRECT GRAPH");
       else
-        DOUT << "Fn '" << CS.getCallSite().getInstruction()->
-                            getParent()->getParent()->getName() << "'";
-      DOUT << ": " << CF.getFunctionType()->getNumParams() << " args\n";
+        DEBUG (std::cerr << "Fn '"
+               << CS.getCallSite().getInstruction()->
+               getParent()->getParent()->getName() << "'");
+      DEBUG(std::cerr << ": " << CF.getFunctionType()->getNumParams()
+            << " args\n");
 
       // Get the formal argument and return nodes for the called function and
       // merge them with the cloned subgraph.
@@ -366,8 +371,8 @@ void TDDataStructures::InlineCallersIntoGraph(DSGraph &DSG) {
 
     // If we already have this graph, recycle it.
     if (IndCallRecI != IndCallMap.end() && IndCallRecI->first == Callees) {
-      DOUT << "  [TD] *** Reuse of indcall graph for " << Callees.size()
-           << " callees!\n";
+      DEBUG(std::cerr << "  [TD] *** Reuse of indcall graph for " << Callees.size()
+            << " callees!\n");
       IndCallGraph = IndCallRecI->second;
     } else {
       // Otherwise, create a new DSGraph to represent this.
@@ -459,8 +464,8 @@ void TDDataStructures::copyValue(Value *From, Value *To) {
     return;
   }
 
-  DOUT << *From;
-  DOUT << *To;
+  std::cerr << *From;
+  std::cerr << *To;
   assert(0 && "Do not know how to copy this yet!");
   abort();
 }

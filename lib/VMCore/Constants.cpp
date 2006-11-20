@@ -19,11 +19,11 @@
 #include "llvm/SymbolTable.h"
 #include "llvm/Module.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/Compiler.h"
+#include "llvm/Support/ManagedStatic.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -42,9 +42,9 @@ void Constant::destroyConstantImpl() {
     Value *V = use_back();
 #ifndef NDEBUG      // Only in -g mode...
     if (!isa<Constant>(V))
-      DOUT << "While deleting: " << *this
-           << "\n\nUse still stuck around after Def is destroyed: "
-           << *V << "\n\n";
+      std::cerr << "While deleting: " << *this
+                << "\n\nUse still stuck around after Def is destroyed: "
+                << *V << "\n\n";
 #endif
     assert(isa<Constant>(V) && "References remain to Constant being destroyed");
     Constant *CV = cast<Constant>(V);
@@ -498,11 +498,20 @@ Constant *ConstantExpr::getSetGE(Constant *C1, Constant *C2) {
 Constant *ConstantExpr::getShl(Constant *C1, Constant *C2) {
   return get(Instruction::Shl, C1, C2);
 }
-Constant *ConstantExpr::getLShr(Constant *C1, Constant *C2) {
-  return get(Instruction::LShr, C1, C2);
+Constant *ConstantExpr::getShr(Constant *C1, Constant *C2) {
+  return get(Instruction::Shr, C1, C2);
 }
-Constant *ConstantExpr::getAShr(Constant *C1, Constant *C2) {
-  return get(Instruction::AShr, C1, C2);
+
+Constant *ConstantExpr::getUShr(Constant *C1, Constant *C2) {
+  if (C1->getType()->isUnsigned()) return getShr(C1, C2);
+  return getCast(getShr(getCast(C1,
+                    C1->getType()->getUnsignedVersion()), C2), C1->getType());
+}
+
+Constant *ConstantExpr::getSShr(Constant *C1, Constant *C2) {
+  if (C1->getType()->isSigned()) return getShr(C1, C2);
+  return getCast(getShr(getCast(C1,
+                        C1->getType()->getSignedVersion()), C2), C1->getType());
 }
 
 /// getWithOperandReplaced - Return a constant expression identical to this
@@ -870,7 +879,7 @@ public:
     }
 
     void dump() const {
-      DOUT << "Constant.cpp: ValueMap\n";
+      std::cerr << "Constant.cpp: ValueMap\n";
     }
   };
 }
@@ -1321,9 +1330,7 @@ namespace llvm {
         return new UnaryConstantExpr(Instruction::Cast, V.second[0], Ty);
       if ((V.first >= Instruction::BinaryOpsBegin &&
            V.first < Instruction::BinaryOpsEnd) ||
-          V.first == Instruction::Shl           || 
-          V.first == Instruction::LShr          ||
-          V.first == Instruction::AShr)
+          V.first == Instruction::Shl || V.first == Instruction::Shr)
         return new BinaryConstantExpr(V.first, V.second[0], V.second[1]);
       if (V.first == Instruction::Select)
         return new SelectConstantExpr(V.second[0], V.second[1], V.second[2]);
@@ -1357,8 +1364,7 @@ namespace llvm {
                                         OldC->getOperand(2));
         break;
       case Instruction::Shl:
-      case Instruction::LShr:
-      case Instruction::AShr:
+      case Instruction::Shr:
         New = ConstantExpr::getShiftTy(NewTy, OldC->getOpcode(),
                                      OldC->getOperand(0), OldC->getOperand(1));
         break;
@@ -1447,8 +1453,7 @@ Constant *ConstantExpr::getPtrPtrFromArrayPtr(Constant *C) {
 
 Constant *ConstantExpr::getTy(const Type *ReqTy, unsigned Opcode,
                               Constant *C1, Constant *C2) {
-  if (Opcode == Instruction::Shl || Opcode == Instruction::LShr ||
-      Opcode == Instruction::AShr)
+  if (Opcode == Instruction::Shl || Opcode == Instruction::Shr)
     return getShiftTy(ReqTy, Opcode, C1, C2);
   // Check the operands for consistency first
   assert(Opcode >= Instruction::BinaryOpsBegin &&
@@ -1516,10 +1521,9 @@ Constant *ConstantExpr::get(unsigned Opcode, Constant *C1, Constant *C2) {
     assert(C1->getType() == C2->getType() && "Op types should be identical!");
     break;
   case Instruction::Shl:
-  case Instruction::LShr:
-  case Instruction::AShr:
+  case Instruction::Shr:
     assert(C2->getType() == Type::UByteTy && "Shift should be by ubyte!");
-    assert(C1->getType()->isInteger() &&
+    assert((C1->getType()->isInteger() || isa<PackedType>(C1->getType())) &&
            "Tried to create a shift operation on a non-integer type!");
     break;
   default:
@@ -1554,9 +1558,8 @@ Constant *ConstantExpr::getSelectTy(const Type *ReqTy, Constant *C,
 Constant *ConstantExpr::getShiftTy(const Type *ReqTy, unsigned Opcode,
                                    Constant *C1, Constant *C2) {
   // Check the operands for consistency first
-  assert((Opcode == Instruction::Shl   ||
-          Opcode == Instruction::LShr  ||
-          Opcode == Instruction::AShr) &&
+  assert((Opcode == Instruction::Shl ||
+          Opcode == Instruction::Shr) &&
          "Invalid opcode in binary constant expression");
   assert(C1->getType()->isIntegral() && C2->getType() == Type::UByteTy &&
          "Invalid operand types for Shift constant expr!");

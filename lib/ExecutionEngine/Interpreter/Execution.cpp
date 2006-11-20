@@ -20,6 +20,7 @@
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/Debug.h"
+#include <cmath>  // For fmod
 using namespace llvm;
 
 namespace {
@@ -71,10 +72,8 @@ static GenericValue executeSetGEInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty);
 static GenericValue executeShlInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty);
-static GenericValue executeLShrInst(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty);
-static GenericValue executeAShrInst(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty);
+static GenericValue executeShrInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty);
 static GenericValue executeSelectInst(GenericValue Src1, GenericValue Src2,
                                       GenericValue Src3);
 
@@ -162,14 +161,10 @@ GenericValue Interpreter::getConstantExprValue (ConstantExpr *CE,
     return executeShlInst(getOperandValue(CE->getOperand(0), SF),
                           getOperandValue(CE->getOperand(1), SF),
                           CE->getOperand(0)->getType());
-  case Instruction::LShr:
-    return executeLShrInst(getOperandValue(CE->getOperand(0), SF),
-                           getOperandValue(CE->getOperand(1), SF),
-                           CE->getOperand(0)->getType());
-  case Instruction::AShr:
-    return executeAShrInst(getOperandValue(CE->getOperand(0), SF),
-                           getOperandValue(CE->getOperand(1), SF),
-                           CE->getOperand(0)->getType());
+  case Instruction::Shr:
+    return executeShrInst(getOperandValue(CE->getOperand(0), SF),
+                          getOperandValue(CE->getOperand(1), SF),
+                          CE->getOperand(0)->getType());
   case Instruction::Select:
     return executeSelectInst(getOperandValue(CE->getOperand(0), SF),
                              getOperandValue(CE->getOperand(1), SF),
@@ -948,10 +943,6 @@ void Interpreter::visitCallSite(CallSite CS) {
 #define IMPLEMENT_SHIFT(OP, TY) \
    case Type::TY##TyID: Dest.TY##Val = Src1.TY##Val OP Src2.UByteVal; break
 
-#define IMPLEMENT_SIGNLESS_SHIFT(OP, TY1, TY2) \
-   case Type::TY2##TyID: \
-   IMPLEMENT_SHIFT(OP, TY1) 
-
 static GenericValue executeShlInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
@@ -970,31 +961,20 @@ static GenericValue executeShlInst(GenericValue Src1, GenericValue Src2,
   return Dest;
 }
 
-static GenericValue executeLShrInst(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
+static GenericValue executeShrInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty) {
   GenericValue Dest;
   switch (Ty->getTypeID()) {
-    IMPLEMENT_SIGNLESS_SHIFT(>>, UByte,  SByte);
-    IMPLEMENT_SIGNLESS_SHIFT(>>, UShort, Short);
-    IMPLEMENT_SIGNLESS_SHIFT(>>, UInt,   Int);
-    IMPLEMENT_SIGNLESS_SHIFT(>>, ULong,  Long);
+    IMPLEMENT_SHIFT(>>, UByte);
+    IMPLEMENT_SHIFT(>>, SByte);
+    IMPLEMENT_SHIFT(>>, UShort);
+    IMPLEMENT_SHIFT(>>, Short);
+    IMPLEMENT_SHIFT(>>, UInt);
+    IMPLEMENT_SHIFT(>>, Int);
+    IMPLEMENT_SHIFT(>>, ULong);
+    IMPLEMENT_SHIFT(>>, Long);
   default:
-    std::cout << "Unhandled type for LShr instruction: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeAShrInst(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_SIGNLESS_SHIFT(>>, SByte, UByte);
-    IMPLEMENT_SIGNLESS_SHIFT(>>, Short, UShort);
-    IMPLEMENT_SIGNLESS_SHIFT(>>, Int,   UInt);
-    IMPLEMENT_SIGNLESS_SHIFT(>>, Long,  ULong);
-  default:
-    std::cout << "Unhandled type for AShr instruction: " << *Ty << "\n";
+    std::cout << "Unhandled type for Shr instruction: " << *Ty << "\n";
     abort();
   }
   return Dest;
@@ -1010,23 +990,13 @@ void Interpreter::visitShl(ShiftInst &I) {
   SetValue(&I, Dest, SF);
 }
 
-void Interpreter::visitLShr(ShiftInst &I) {
+void Interpreter::visitShr(ShiftInst &I) {
   ExecutionContext &SF = ECStack.back();
   const Type *Ty    = I.getOperand(0)->getType();
   GenericValue Src1 = getOperandValue(I.getOperand(0), SF);
   GenericValue Src2 = getOperandValue(I.getOperand(1), SF);
   GenericValue Dest;
-  Dest = executeLShrInst (Src1, Src2, Ty);
-  SetValue(&I, Dest, SF);
-}
-
-void Interpreter::visitAShr(ShiftInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  const Type *Ty    = I.getOperand(0)->getType();
-  GenericValue Src1 = getOperandValue(I.getOperand(0), SF);
-  GenericValue Src2 = getOperandValue(I.getOperand(1), SF);
-  GenericValue Dest;
-  Dest = executeAShrInst (Src1, Src2, Ty);
+  Dest = executeShrInst (Src1, Src2, Ty);
   SetValue(&I, Dest, SF);
 }
 

@@ -235,7 +235,7 @@ inline typename cast_retty<X, Y>::ret_type dyn_cast_or_null(Y Val) {
 
 
 #ifdef DEBUG_CAST_OPERATORS
-#include "llvm/Support/Debug.h"
+#include <iostream>
 
 struct bar {
   bar() {}
@@ -245,13 +245,13 @@ private:
 struct foo {
   void ext() const;
   /*  static bool classof(const bar *X) {
-    llvm_cerr << "Classof: " << X << "\n";
+    cerr << "Classof: " << X << "\n";
     return true;
     }*/
 };
 
 template <> inline bool isa_impl<foo,bar>(const bar &Val) {
-  llvm_cerr << "Classof: " << &Val << "\n";
+  cerr << "Classof: " << &Val << "\n";
   return true;
 }
 

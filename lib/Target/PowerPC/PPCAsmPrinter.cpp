@@ -18,7 +18,6 @@
 
 #define DEBUG_TYPE "asmprinter"
 #include "PPC.h"
-#include "PPCPredicates.h"
 #include "PPCTargetMachine.h"
 #include "PPCSubtarget.h"
 #include "llvm/Constants.h"
@@ -128,16 +127,7 @@ namespace {
       O << (unsigned short)MI->getOperand(OpNo).getImmedValue();
     }
     void printS16X4ImmOperand(const MachineInstr *MI, unsigned OpNo) {
-      if (MI->getOperand(OpNo).isImmediate()) {
-        O << (short)(MI->getOperand(OpNo).getImmedValue()*4);
-      } else {
-        O << "lo16(";
-        printOp(MI->getOperand(OpNo));
-        if (TM.getRelocationModel() == Reloc::PIC_)
-          O << "-\"L" << getFunctionNumber() << "$pb\")";
-        else
-          O << ')';
-      }
+      O << (short)(MI->getOperand(OpNo).getImmedValue()*4);
     }
     void printBranchOperand(const MachineInstr *MI, unsigned OpNo) {
       // Branches can take an immediate operand.  This is used by the branch
@@ -436,18 +426,6 @@ void PPCAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
       O << ", ";
       printOperand(MI, 1);
       O << "\n";
-      return;
-    }
-  } else if (MI->getOpcode() == PPC::RLDICR) {
-    unsigned char SH = MI->getOperand(2).getImmedValue();
-    unsigned char ME = MI->getOperand(3).getImmedValue();
-    // rldicr RA, RS, SH, 63-SH == sldi RA, RS, SH
-    if (63-SH == ME) {
-      O << "sldi ";
-      printOperand(MI, 0);
-      O << ", ";
-      printOperand(MI, 1);
-      O << ", " << (unsigned int)SH << "\n";
       return;
     }
   }

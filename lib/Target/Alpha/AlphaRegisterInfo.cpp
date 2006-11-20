@@ -51,9 +51,8 @@ static long getLower16(long l)
   return l - h * IMM_MULT;
 }
 
-AlphaRegisterInfo::AlphaRegisterInfo(const TargetInstrInfo &tii)
-  : AlphaGenRegisterInfo(Alpha::ADJUSTSTACKDOWN, Alpha::ADJUSTSTACKUP),
-    TII(tii)
+AlphaRegisterInfo::AlphaRegisterInfo()
+  : AlphaGenRegisterInfo(Alpha::ADJUSTSTACKDOWN, Alpha::ADJUSTSTACKUP)
 {
 }
 
@@ -104,7 +103,6 @@ MachineInstr *AlphaRegisterInfo::foldMemoryOperand(MachineInstr *MI,
    // Make sure this is a reg-reg copy.
    unsigned Opc = MI->getOpcode();
 
-   MachineInstr *NewMI = NULL;
    switch(Opc) {
    default:
      break;
@@ -116,20 +114,18 @@ MachineInstr *AlphaRegisterInfo::foldMemoryOperand(MachineInstr *MI,
 	 unsigned InReg = MI->getOperand(1).getReg();
 	 Opc = (Opc == Alpha::BISr) ? Alpha::STQ : 
 	   ((Opc == Alpha::CPYSS) ? Alpha::STS : Alpha::STT);
-	 NewMI = BuildMI(TII, Opc, 3).addReg(InReg).addFrameIndex(FrameIndex)
+	 return BuildMI(Opc, 3).addReg(InReg).addFrameIndex(FrameIndex)
 	   .addReg(Alpha::F31);
        } else {           // load -> move
 	 unsigned OutReg = MI->getOperand(0).getReg();
 	 Opc = (Opc == Alpha::BISr) ? Alpha::LDQ : 
 	   ((Opc == Alpha::CPYSS) ? Alpha::LDS : Alpha::LDT);
-	 NewMI = BuildMI(TII, Opc, 2, OutReg).addFrameIndex(FrameIndex)
+	 return BuildMI(Opc, 2, OutReg).addFrameIndex(FrameIndex)
 	   .addReg(Alpha::F31);
        }
      }
      break;
    }
-  if (NewMI)
-    NewMI->copyKillDeadInfo(MI);
   return 0;
 }
 
@@ -209,11 +205,11 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 
       MachineInstr *New;
       if (Old->getOpcode() == Alpha::ADJUSTSTACKDOWN) {
-        New=BuildMI(TII, Alpha::LDA, 2, Alpha::R30)
+         New=BuildMI(Alpha::LDA, 2, Alpha::R30)
           .addImm(-Amount).addReg(Alpha::R30);
       } else {
          assert(Old->getOpcode() == Alpha::ADJUSTSTACKUP);
-         New=BuildMI(TII, Alpha::LDA, 2, Alpha::R30)
+         New=BuildMI(Alpha::LDA, 2, Alpha::R30)
           .addImm(Amount).addReg(Alpha::R30);
       }
 
@@ -270,7 +266,7 @@ AlphaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II) const {
     MI.getOperand(i + 1).ChangeToRegister(Alpha::R28, false);
     MI.getOperand(i).ChangeToImmediate(getLower16(Offset));
     //insert the new
-    MachineInstr* nMI=BuildMI(TII, Alpha::LDAH, 2, Alpha::R28)
+    MachineInstr* nMI=BuildMI(Alpha::LDAH, 2, Alpha::R28)
       .addImm(getUpper16(Offset)).addReg(FP ? Alpha::R15 : Alpha::R30);
     MBB.insert(II, nMI);
   } else {

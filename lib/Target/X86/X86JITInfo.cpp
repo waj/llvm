@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/MachineCodeEmitter.h"
 #include "llvm/Config/alloca.h"
 #include <cstdlib>
+#include <iostream>
 using namespace llvm;
 
 #ifdef _MSC_VER
@@ -194,7 +195,7 @@ extern "C" {
 
 #else // Not an i386 host
   void X86CompilationCallback() {
-    assert(0 && "Cannot call X86CompilationCallback() on a non-x86 arch!\n");
+    std::cerr << "Cannot call X86CompilationCallback() on a non-x86 arch!\n";
     abort();
   }
 #endif
@@ -224,10 +225,10 @@ extern "C" void X86CompilationCallback2(intptr_t *StackPtr, intptr_t RetAddr) {
   RetAddr -= 4;  // Backtrack to the reference itself...
 
 #if 0
-  DOUT << "In callback! Addr=" << (void*)RetAddr
-       << " ESP=" << (void*)StackPtr
-       << ": Resolving call to function: "
-       << TheVM->getFunctionReferencedName((void*)RetAddr) << "\n";
+  DEBUG(std::cerr << "In callback! Addr=" << (void*)RetAddr
+                  << " ESP=" << (void*)StackPtr
+                  << ": Resolving call to function: "
+                  << TheVM->getFunctionReferencedName((void*)RetAddr) << "\n");
 #endif
 
   // Sanity check to make sure this really is a call instruction.
@@ -287,13 +288,13 @@ void *X86JITInfo::emitFunctionStub(void *Fn, MachineCodeEmitter &MCE) {
   bool NotCC = Fn != (void*)(intptr_t)X86CompilationCallback;
 #endif
   if (NotCC) {
-    MCE.startFunctionStub(5, 4);
+    MCE.startFunctionStub(5);
     MCE.emitByte(0xE9);
     MCE.emitWordLE((intptr_t)Fn-MCE.getCurrentPCValue()-4);
     return MCE.finishFunctionStub(0);
   }
 
-  MCE.startFunctionStub(6, 4);
+  MCE.startFunctionStub(6);
   MCE.emitByte(0xE8);   // Call with 32 bit pc-rel destination...
 
   MCE.emitWordLE((intptr_t)Fn-MCE.getCurrentPCValue()-4);

@@ -26,8 +26,6 @@
 #ifndef LLVM_SUPPORT_DEBUG_H
 #define LLVM_SUPPORT_DEBUG_H
 
-#include "llvm/Support/Streams.h"
-
 namespace llvm {
 
 // DebugFlag - This boolean is set to true if the '-debug' command line option
@@ -59,18 +57,6 @@ bool isCurrentDebugType(const char *Type);
 #else
 #define DEBUG(X) \
   do { if (DebugFlag && isCurrentDebugType(DEBUG_TYPE)) { X; } } while (0)
-#endif
-
-/// getErrorOutputStream - Returns the error output stream (std::cerr). This
-/// places the std::c* I/O streams into one .cpp file and relieves the whole
-/// program from having to have hundreds of static c'tor/d'tors for them.
-/// 
-llvm_ostream getErrorOutputStream(const char *DebugType);
-
-#ifdef NDEBUG
-#define DOUT llvm_ostream()
-#else
-#define DOUT getErrorOutputStream(DEBUG_TYPE)
 #endif
 
 } // End llvm namespace

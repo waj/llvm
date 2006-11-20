@@ -23,12 +23,12 @@
 #ifndef LLVM_SUPPORT_GRAPHWRITER_H
 #define LLVM_SUPPORT_GRAPHWRITER_H
 
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/DOTGraphTraits.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/System/Path.h"
-#include <fstream>
 #include <vector>
+#include <iostream>
+#include <fstream>
 
 namespace llvm {
 
@@ -247,16 +247,16 @@ sys::Path WriteGraph(const GraphType &G,
   std::string ErrMsg;
   sys::Path Filename = sys::Path::GetTemporaryDirectory(&ErrMsg);
   if (Filename.isEmpty()) {
-    llvm_cerr << "Error: " << ErrMsg << "\n";
+    std::cerr << "Error: " << ErrMsg << "\n";
     return Filename;
   }
   Filename.appendComponent(Name + ".dot");
   if (Filename.makeUnique(true,&ErrMsg)) {
-    llvm_cerr << "Error: " << ErrMsg << "\n";
+    std::cerr << "Error: " << ErrMsg << "\n";
     return sys::Path();
   }
 
-  llvm_cerr << "Writing '" << Filename << "'... ";
+  std::cerr << "Writing '" << Filename << "'... ";
   
   std::ofstream O(Filename.c_str());
 
@@ -275,12 +275,12 @@ sys::Path WriteGraph(const GraphType &G,
 
     // Output the end of the graph
     W.writeFooter();
-    llvm_cerr << " done. \n";
+    std::cerr << " done. \n";
 
     O.close();
     
   } else {
-    llvm_cerr << "error opening file for writing!\n";
+    std::cerr << "error opening file for writing!\n";
     Filename.clear();
   }
   

@@ -969,11 +969,8 @@ private:
   // Lines - List of of source line correspondence.
   std::vector<SourceLineInfo> Lines;
   
-  // LabelIDList - One entry per assigned label.  Normally the entry is equal to
-  // the list index(+1).  If the entry is zero then the label has been deleted.
-  // Any other value indicates the label has been deleted by is mapped to
-  // another label.
-  std::vector<unsigned> LabelIDList;
+  // LabelID - Current number assigned to unique label numbers.
+  unsigned LabelID;
   
   // ScopeMap - Tracks the scopes in the current function.
   std::map<DebugInfoDesc *, DebugScope *> ScopeMap;
@@ -981,6 +978,10 @@ private:
   // RootScope - Top level scope for the current function.
   //
   DebugScope *RootScope;
+  
+  // DeletedLabelIDs - Sorted list of label IDs that have been removed from the
+  // module.
+  std::vector<unsigned> DeletedLabelIDs;
   
   // FrameMoves - List of moves done by a function's prolog.  Used to construct
   // frame maps by debug consumers.
@@ -1025,11 +1026,7 @@ public:
   
   /// NextLabelID - Return the next unique label id.
   ///
-  unsigned NextLabelID() {
-    unsigned ID = LabelIDList.size() + 1;
-    LabelIDList.push_back(ID);
-    return ID;
-  }
+  unsigned NextLabelID() { return ++LabelID; }
   
   /// RecordLabel - Records location information and associates it with a
   /// debug label.  Returns a unique label ID used to generate a label and 
@@ -1038,27 +1035,11 @@ public:
   
   /// InvalidateLabel - Inhibit use of the specified label # from
   /// MachineDebugInfo, for example because the code was deleted.
-  void InvalidateLabel(unsigned LabelID) {
-    // Remap to zero to indicate deletion.
-    RemapLabel(LabelID, 0);
-  }
-
-  /// RemapLabel - Indicate that a label has been merged into another.
-  ///
-  void RemapLabel(unsigned OldLabelID, unsigned NewLabelID) {
-    assert(0 < OldLabelID && OldLabelID <= LabelIDList.size() &&
-          "Old debug label ID out of range.");
-    assert(NewLabelID <= LabelIDList.size() &&
-          "New debug label ID out of range.");
-    LabelIDList[OldLabelID - 1] = NewLabelID;
-  }
+  void InvalidateLabel(unsigned LabelID);
   
-  /// MappedLabel - Find out the label's final ID.  Zero indicates deletion.
-  /// ID != Mapped ID indicates that the label was folded into another label.
-  unsigned MappedLabel(unsigned LabelID) const {
-    assert(LabelID <= LabelIDList.size() && "Debug label ID out of range.");
-    return LabelID ? LabelIDList[LabelID - 1] : 0;
-  }
+  /// isLabelValid - Check to make sure the label is still valid before
+  /// attempting to use.
+  bool isLabelValid(unsigned LabelID);
 
   /// RecordSource - Register a source file with debug info. Returns an source
   /// ID.

@@ -17,6 +17,7 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/ilist"
+#include <iosfwd>
 
 namespace llvm {
   class MachineFunction;
@@ -221,7 +222,6 @@ private:   // Methods used to maintain doubly linked list of blocks...
   void removePredecessor(MachineBasicBlock *pred);
 };
 
-std::ostream& operator<<(std::ostream &OS, const MachineBasicBlock &MBB);
 
 
 //===--------------------------------------------------------------------===//

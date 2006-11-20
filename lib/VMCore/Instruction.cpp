@@ -11,10 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Type.h"
 #include "llvm/Instructions.h"
 #include "llvm/Function.h"
 #include "llvm/SymbolTable.h"
+#include "llvm/Type.h"
 #include "llvm/Support/LeakDetector.h"
 using namespace llvm;
 
@@ -128,8 +128,7 @@ const char *Instruction::getOpcodeName(unsigned OpCode) {
   case Select:  return "select";
   case Call:    return "call";
   case Shl:     return "shl";
-  case LShr:     return "lshr";
-  case AShr:     return "ashr";
+  case Shr:     return "shr";
   case VAArg:   return "va_arg";
   case ExtractElement: return "extractelement";
   case InsertElement: return "insertelement";

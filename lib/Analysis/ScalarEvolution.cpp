@@ -75,6 +75,7 @@
 #include "llvm/Support/InstIterator.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/ADT/Statistic.h"
+#include <cmath>
 #include <iostream>
 #include <algorithm>
 using namespace llvm;

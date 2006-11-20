@@ -29,6 +29,8 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Compiler.h"
 #include <algorithm>
+#include <cmath>
+#include <iostream>
 #include <set>
 #include <queue>
 #include <memory>
@@ -137,14 +139,14 @@ namespace {
 
     template <typename ItTy>
     void printIntervals(const char* const str, ItTy i, ItTy e) const {
-      if (str) DOUT << str << " intervals:\n";
+      if (str) std::cerr << str << " intervals:\n";
       for (; i != e; ++i) {
-        DOUT << "\t" << *i->first << " -> ";
+        std::cerr << "\t" << *i->first << " -> ";
         unsigned reg = i->first->reg;
         if (MRegisterInfo::isVirtualRegister(reg)) {
           reg = vrm_->getPhys(reg);
         }
-        DOUT << mri_->getName(reg) << '\n';
+        std::cerr << mri_->getName(reg) << '\n';
       }
     }
   };
@@ -242,8 +244,9 @@ void RA::initIntervalSets()
 void RA::linearScan()
 {
   // linear scan algorithm
-  DOUT << "********** LINEAR SCAN **********\n";
-  DOUT << "********** Function: " << mf_->getFunction()->getName() << '\n';
+  DEBUG(std::cerr << "********** LINEAR SCAN **********\n");
+  DEBUG(std::cerr << "********** Function: "
+        << mf_->getFunction()->getName() << '\n');
 
   // DEBUG(printIntervals("unhandled", unhandled_.begin(), unhandled_.end()));
   DEBUG(printIntervals("fixed", fixed_.begin(), fixed_.end()));
@@ -255,7 +258,7 @@ void RA::linearScan()
     LiveInterval* cur = unhandled_.top();
     unhandled_.pop();
     ++numIterations;
-    DOUT << "\n*** CURRENT ***: " << *cur << '\n';
+    DEBUG(std::cerr << "\n*** CURRENT ***: " << *cur << '\n');
 
     processActiveIntervals(cur->beginNumber());
     processInactiveIntervals(cur->beginNumber());
@@ -278,7 +281,7 @@ void RA::linearScan()
   for (IntervalPtrs::reverse_iterator
          i = active_.rbegin(); i != active_.rend(); ) {
     unsigned reg = i->first->reg;
-    DOUT << "\tinterval " << *i->first << " expired\n";
+    DEBUG(std::cerr << "\tinterval " << *i->first << " expired\n");
     assert(MRegisterInfo::isVirtualRegister(reg) &&
            "Can only allocate virtual registers!");
     reg = vrm_->getPhys(reg);
@@ -289,18 +292,18 @@ void RA::linearScan()
   // expire any remaining inactive intervals
   for (IntervalPtrs::reverse_iterator
          i = inactive_.rbegin(); i != inactive_.rend(); ) {
-    DOUT << "\tinterval " << *i->first << " expired\n";
+    DEBUG(std::cerr << "\tinterval " << *i->first << " expired\n");
     i = IntervalPtrs::reverse_iterator(inactive_.erase(i.base()-1));
   }
 
-  DOUT << *vrm_;
+  DEBUG(std::cerr << *vrm_);
 }
 
 /// processActiveIntervals - expire old intervals and move non-overlapping ones
 /// to the inactive list.
 void RA::processActiveIntervals(unsigned CurPoint)
 {
-  DOUT << "\tprocessing active intervals:\n";
+  DEBUG(std::cerr << "\tprocessing active intervals:\n");
 
   for (unsigned i = 0, e = active_.size(); i != e; ++i) {
     LiveInterval *Interval = active_[i].first;
@@ -310,7 +313,7 @@ void RA::processActiveIntervals(unsigned CurPoint)
     IntervalPos = Interval->advanceTo(IntervalPos, CurPoint);
 
     if (IntervalPos == Interval->end()) {     // Remove expired intervals.
-      DOUT << "\t\tinterval " << *Interval << " expired\n";
+      DEBUG(std::cerr << "\t\tinterval " << *Interval << " expired\n");
       assert(MRegisterInfo::isVirtualRegister(reg) &&
              "Can only allocate virtual registers!");
       reg = vrm_->getPhys(reg);
@@ -323,7 +326,7 @@ void RA::processActiveIntervals(unsigned CurPoint)
 
     } else if (IntervalPos->start > CurPoint) {
       // Move inactive intervals to inactive list.
-      DOUT << "\t\tinterval " << *Interval << " inactive\n";
+      DEBUG(std::cerr << "\t\tinterval " << *Interval << " inactive\n");
       assert(MRegisterInfo::isVirtualRegister(reg) &&
              "Can only allocate virtual registers!");
       reg = vrm_->getPhys(reg);
@@ -346,7 +349,7 @@ void RA::processActiveIntervals(unsigned CurPoint)
 /// ones to the active list.
 void RA::processInactiveIntervals(unsigned CurPoint)
 {
-  DOUT << "\tprocessing inactive intervals:\n";
+  DEBUG(std::cerr << "\tprocessing inactive intervals:\n");
 
   for (unsigned i = 0, e = inactive_.size(); i != e; ++i) {
     LiveInterval *Interval = inactive_[i].first;
@@ -356,7 +359,7 @@ void RA::processInactiveIntervals(unsigned CurPoint)
     IntervalPos = Interval->advanceTo(IntervalPos, CurPoint);
 
     if (IntervalPos == Interval->end()) {       // remove expired intervals.
-      DOUT << "\t\tinterval " << *Interval << " expired\n";
+      DEBUG(std::cerr << "\t\tinterval " << *Interval << " expired\n");
 
       // Pop off the end of the list.
       inactive_[i] = inactive_.back();
@@ -364,7 +367,7 @@ void RA::processInactiveIntervals(unsigned CurPoint)
       --i; --e;
     } else if (IntervalPos->start <= CurPoint) {
       // move re-activated intervals in active list
-      DOUT << "\t\tinterval " << *Interval << " active\n";
+      DEBUG(std::cerr << "\t\tinterval " << *Interval << " active\n");
       assert(MRegisterInfo::isVirtualRegister(reg) &&
              "Can only allocate virtual registers!");
       reg = vrm_->getPhys(reg);
@@ -414,7 +417,7 @@ static void RevertVectorIteratorsTo(RA::IntervalPtrs &V, unsigned Point) {
 /// spill.
 void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
 {
-  DOUT << "\tallocating current interval: ";
+  DEBUG(std::cerr << "\tallocating current interval: ");
 
   PhysRegTracker backupPrt = *prt_;
 
@@ -514,14 +517,14 @@ void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
   // the free physical register and add this interval to the active
   // list.
   if (physReg) {
-    DOUT <<  mri_->getName(physReg) << '\n';
+    DEBUG(std::cerr <<  mri_->getName(physReg) << '\n');
     vrm_->assignVirt2Phys(cur->reg, physReg);
     prt_->addRegUse(physReg);
     active_.push_back(std::make_pair(cur, cur->begin()));
     handled_.push_back(cur);
     return;
   }
-  DOUT << "no free registers\n";
+  DEBUG(std::cerr << "no free registers\n");
 
   // Compile the spill weights into an array that is better for scanning.
   std::vector<float> SpillWeights(mri_->getNumRegs(), 0.0);
@@ -539,10 +542,10 @@ void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
     updateSpillWeights(SpillWeights, reg, i->first->weight, mri_);
   }
  
-  DOUT << "\tassigning stack slot at interval "<< *cur << ":\n";
+  DEBUG(std::cerr << "\tassigning stack slot at interval "<< *cur << ":\n");
 
   // Find a register to spill.
-  float minWeight = HUGE_VALF;
+  float minWeight = float(HUGE_VAL);
   unsigned minReg = 0;
   for (TargetRegisterClass::iterator i = RC->allocation_order_begin(*mf_),
        e = RC->allocation_order_end(*mf_); i != e; ++i) {
@@ -573,14 +576,14 @@ void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
       minReg = *RC->allocation_order_begin(*mf_);
   }
   
-  DOUT << "\t\tregister with min weight: "
-       << mri_->getName(minReg) << " (" << minWeight << ")\n";
+  DEBUG(std::cerr << "\t\tregister with min weight: "
+        << mri_->getName(minReg) << " (" << minWeight << ")\n");
 
   // if the current has the minimum weight, we need to spill it and
   // add any added intervals back to unhandled, and restart
   // linearscan.
-  if (cur->weight != HUGE_VALF && cur->weight <= minWeight) {
-    DOUT << "\t\t\tspilling(c): " << *cur << '\n';
+  if (cur->weight != float(HUGE_VAL) && cur->weight <= minWeight) {
+    DEBUG(std::cerr << "\t\t\tspilling(c): " << *cur << '\n';);
     int slot = vrm_->assignVirt2StackSlot(cur->reg);
     std::vector<LiveInterval*> added =
       li_->addIntervalsForSpills(*cur, *vrm_, slot);
@@ -632,7 +635,7 @@ void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
     if (//MRegisterInfo::isVirtualRegister(reg) &&
         toSpill[vrm_->getPhys(reg)] &&
         cur->overlapsFrom(*i->first, i->second)) {
-      DOUT << "\t\t\tspilling(a): " << *i->first << '\n';
+      DEBUG(std::cerr << "\t\t\tspilling(a): " << *i->first << '\n');
       earliestStart = std::min(earliestStart, i->first->beginNumber());
       int slot = vrm_->assignVirt2StackSlot(i->first->reg);
       std::vector<LiveInterval*> newIs =
@@ -646,7 +649,7 @@ void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
     if (//MRegisterInfo::isVirtualRegister(reg) &&
         toSpill[vrm_->getPhys(reg)] &&
         cur->overlapsFrom(*i->first, i->second-1)) {
-      DOUT << "\t\t\tspilling(i): " << *i->first << '\n';
+      DEBUG(std::cerr << "\t\t\tspilling(i): " << *i->first << '\n');
       earliestStart = std::min(earliestStart, i->first->beginNumber());
       int slot = vrm_->assignVirt2StackSlot(reg);
       std::vector<LiveInterval*> newIs =
@@ -656,7 +659,7 @@ void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
     }
   }
 
-  DOUT << "\t\trolling back to: " << earliestStart << '\n';
+  DEBUG(std::cerr << "\t\trolling back to: " << earliestStart << '\n');
 
   // Scan handled in reverse order up to the earliest start of a
   // spilled live interval and undo each one, restoring the state of
@@ -666,7 +669,7 @@ void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
     // If this interval starts before t we are done.
     if (i->beginNumber() < earliestStart)
       break;
-    DOUT << "\t\t\tundo changes for: " << *i << '\n';
+    DEBUG(std::cerr << "\t\t\tundo changes for: " << *i << '\n');
     handled_.pop_back();
 
     // When undoing a live interval allocation we must know if it is active or
@@ -706,7 +709,7 @@ void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
     LiveInterval *HI = handled_[i];
     if (!HI->expiredAt(earliestStart) &&
         HI->expiredAt(cur->beginNumber())) {
-      DOUT << "\t\t\tundo changes for: " << *HI << '\n';
+      DEBUG(std::cerr << "\t\t\tundo changes for: " << *HI << '\n');
       active_.push_back(std::make_pair(HI, HI->begin()));
       assert(!MRegisterInfo::isPhysicalRegister(HI->reg));
       prt_->addRegUse(vrm_->getPhys(HI->reg));

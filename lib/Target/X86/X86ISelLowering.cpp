@@ -2582,22 +2582,6 @@ bool X86::isMOVHLPSMask(SDNode *N) {
          isUndefOrEqual(N->getOperand(3), 3);
 }
 
-/// isMOVHLPS_v_undef_Mask - Special case of isMOVHLPSMask for canonical form
-/// of vector_shuffle v, v, <2, 3, 2, 3>, i.e. vector_shuffle v, undef,
-/// <2, 3, 2, 3>
-bool X86::isMOVHLPS_v_undef_Mask(SDNode *N) {
-  assert(N->getOpcode() == ISD::BUILD_VECTOR);
-
-  if (N->getNumOperands() != 4)
-    return false;
-
-  // Expect bit0 == 2, bit1 == 3, bit2 == 2, bit3 == 3
-  return isUndefOrEqual(N->getOperand(0), 2) &&
-         isUndefOrEqual(N->getOperand(1), 3) &&
-         isUndefOrEqual(N->getOperand(2), 2) &&
-         isUndefOrEqual(N->getOperand(3), 3);
-}
-
 /// isMOVLPMask - Return true if the specified VECTOR_SHUFFLE operand
 /// specifies a shuffle of elements that is suitable for input to MOVLP{S|D}.
 bool X86::isMOVLPMask(SDNode *N) {
@@ -3740,7 +3724,7 @@ X86TargetLowering::LowerEXTRACT_VECTOR_ELT(SDOperand Op, SelectionDAG &DAG) {
     SDOperand Mask = DAG.getNode(ISD::BUILD_VECTOR, MaskVT,
                                  &IdxVec[0], IdxVec.size());
     Vec = DAG.getNode(ISD::VECTOR_SHUFFLE, Vec.getValueType(),
-                      Vec, DAG.getNode(ISD::UNDEF, Vec.getValueType()), Mask);
+                      Vec, Vec, Mask);
     return DAG.getNode(ISD::EXTRACT_VECTOR_ELT, VT, Vec,
                        DAG.getConstant(0, getPointerTy()));
   } else if (MVT::getSizeInBits(VT) == 64) {
@@ -5376,8 +5360,8 @@ static SDOperand PerformSELECTCombine(SDNode *N, SelectionDAG &DAG,
           // FALL THROUGH.
         case ISD::SETOLT:  // (X olt/lt Y) ? X : Y -> min
         case ISD::SETLT:
-          Opcode = X86ISD::FMIN;
-          break;
+          Opcode = X86ISD::FMIN;  
+	  break;
           
         case ISD::SETOGT: // (X > Y) ? X : Y -> max
         case ISD::SETUGT:
@@ -5386,8 +5370,8 @@ static SDOperand PerformSELECTCombine(SDNode *N, SelectionDAG &DAG,
           // FALL THROUGH.
         case ISD::SETUGE:  // (X uge/ge Y) ? X : Y -> max
         case ISD::SETGE:
-          Opcode = X86ISD::FMAX;
-          break;
+	  Opcode = X86ISD::FMAX; 
+	  break;
         }
       } else if (LHS == Cond.getOperand(1) && RHS == Cond.getOperand(0)) {
         switch (CC) {
@@ -5399,8 +5383,8 @@ static SDOperand PerformSELECTCombine(SDNode *N, SelectionDAG &DAG,
           // FALL THROUGH.
         case ISD::SETUGE:  // (X uge/ge Y) ? Y : X -> min
         case ISD::SETGE:
-          Opcode = X86ISD::FMIN;
-          break;
+          Opcode = X86ISD::FMIN; 
+	  break;
           
         case ISD::SETOLE:   // (X <= Y) ? Y : X -> max
         case ISD::SETULE:
@@ -5409,13 +5393,12 @@ static SDOperand PerformSELECTCombine(SDNode *N, SelectionDAG &DAG,
           // FALL THROUGH.
         case ISD::SETOLT:   // (X olt/lt Y) ? Y : X -> max
         case ISD::SETLT:
-          Opcode = X86ISD::FMAX;
-          break;
+          Opcode = X86ISD::FMAX; 
+	  break;
         }
       }
-      
       if (Opcode)
-        return DAG.getNode(Opcode, N->getValueType(0), LHS, RHS);
+        return DAG.getNode(Opcode, N->getValueType(0), LHS, RHS);  
     }
     
   }

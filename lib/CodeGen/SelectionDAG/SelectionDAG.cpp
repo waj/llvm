@@ -28,6 +28,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include <iostream>
 #include <set>
+#include <cmath>
 #include <algorithm>
 using namespace llvm;
 
@@ -1130,7 +1131,7 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
   case ISD::BIT_CONVERT:
     // Basic sanity checking.
     assert(MVT::getSizeInBits(VT) == MVT::getSizeInBits(Operand.getValueType())
-           && "Cannot BIT_CONVERT between types of different sizes!");
+           && "Cannot BIT_CONVERT between two different types!");
     if (VT == Operand.getValueType()) return Operand;  // noop conversion.
     if (OpOpcode == ISD::BIT_CONVERT)  // bitconv(bitconv(x)) -> bitconv(x)
       return getNode(ISD::BIT_CONVERT, VT, Operand.getOperand(0));
@@ -1481,6 +1482,7 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
   // Perform various simplifications.
   ConstantSDNode *N1C = dyn_cast<ConstantSDNode>(N1.Val);
   ConstantSDNode *N2C = dyn_cast<ConstantSDNode>(N2.Val);
+  //ConstantSDNode *N3C = dyn_cast<ConstantSDNode>(N3.Val);
   switch (Opcode) {
   case ISD::SETCC: {
     // Use FoldSetCC to simplify SETCC's.
@@ -1618,9 +1620,8 @@ SDOperand SelectionDAG::getExtLoad(ISD::LoadExtType ExtType, MVT::ValueType VT,
   return SDOperand(N, 0);
 }
 
-SDOperand
-SelectionDAG::getIndexedLoad(SDOperand OrigLoad, SDOperand Base,
-                             SDOperand Offset, ISD::MemIndexedMode AM) {
+SDOperand SelectionDAG::getIndexedLoad(SDOperand OrigLoad, SDOperand Base,
+                                       SDOperand Offset, ISD::MemOpAddrMode AM){
   LoadSDNode *LD = cast<LoadSDNode>(OrigLoad);
   assert(LD->getOffset().getOpcode() == ISD::UNDEF &&
          "Load is already a indexed load!");
@@ -1722,9 +1723,8 @@ SDOperand SelectionDAG::getTruncStore(SDOperand Chain, SDOperand Val,
   return SDOperand(N, 0);
 }
 
-SDOperand
-SelectionDAG::getIndexedStore(SDOperand OrigStore, SDOperand Base,
-                              SDOperand Offset, ISD::MemIndexedMode AM) {
+SDOperand SelectionDAG::getIndexedStore(SDOperand OrigStore, SDOperand Base,
+                                       SDOperand Offset, ISD::MemOpAddrMode AM){
   StoreSDNode *ST = cast<StoreSDNode>(OrigStore);
   assert(ST->getOffset().getOpcode() == ISD::UNDEF &&
          "Store is already a indexed store!");
@@ -2842,7 +2842,7 @@ const char *SDNode::getOperationName(const SelectionDAG *G) const {
   }
 }
 
-const char *SDNode::getIndexedModeName(ISD::MemIndexedMode AM) {
+const char *SDNode::getAddressingModeName(ISD::MemOpAddrMode AM) {
   switch (AM) {
   default:
     return "";
@@ -2944,7 +2944,7 @@ void SDNode::dump(const SelectionDAG *G) const {
     if (doExt)
       std::cerr << MVT::getValueTypeString(LD->getLoadedVT()) << ">";
 
-    const char *AM = getIndexedModeName(LD->getAddressingMode());
+    const char *AM = getAddressingModeName(LD->getAddressingMode());
     if (AM != "")
       std::cerr << " " << AM;
   } else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(this)) {
@@ -2952,7 +2952,7 @@ void SDNode::dump(const SelectionDAG *G) const {
       std::cerr << " <trunc "
                 << MVT::getValueTypeString(ST->getStoredVT()) << ">";
 
-    const char *AM = getIndexedModeName(ST->getAddressingMode());
+    const char *AM = getAddressingModeName(ST->getAddressingMode());
     if (AM != "")
       std::cerr << " " << AM;
   }

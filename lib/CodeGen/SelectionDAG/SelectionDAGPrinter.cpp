@@ -24,7 +24,6 @@
 #include "llvm/Config/config.h"
 #include <fstream>
 #include <sstream>
-#include <iostream>
 using namespace llvm;
 
 namespace llvm {
@@ -166,11 +165,11 @@ std::string DOTGraphTraits<SelectionDAG*>::getNodeLabel(const SDNode *Node,
     if (doExt)
       Op = Op + MVT::getValueTypeString(LD->getLoadedVT()) + ">";
 
-    Op += LD->getIndexedModeName(LD->getAddressingMode());
+    Op += LD->getAddressingModeName(LD->getAddressingMode());
   } else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(Node)) {
     if (ST->isTruncatingStore())
       Op = Op + "<trunc " + MVT::getValueTypeString(ST->getStoredVT()) + ">";
-    Op += ST->getIndexedModeName(ST->getAddressingMode());
+    Op += ST->getAddressingModeName(ST->getAddressingMode());
   }
   
   return Op;

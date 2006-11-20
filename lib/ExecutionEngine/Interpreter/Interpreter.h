@@ -154,8 +154,7 @@ public:
   void visitUnreachableInst(UnreachableInst &I);
 
   void visitShl(ShiftInst &I);
-  void visitLShr(ShiftInst &I);
-  void visitAShr(ShiftInst &I);
+  void visitShr(ShiftInst &I);
   void visitVAArgInst(VAArgInst &I);
   void visitInstruction(Instruction &I) {
     std::cerr << I;

@@ -289,7 +289,6 @@ public:
   unsigned   getAbbrevNumber()               const {
     return Abbrev.getNumber();
   }
-  unsigned getTag()                          const { return Abbrev.getTag(); }
   unsigned getOffset()                       const { return Offset; }
   unsigned getSize()                         const { return Size; }
   const std::vector<DIE *> &getChildren()    const { return Children; }
@@ -439,11 +438,10 @@ public:
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, unsigned Integer) {
+  virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isInteger);
     ID.AddInteger(Integer);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, Integer); }
   
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -478,11 +476,10 @@ public:
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, const std::string &String) {
+  virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isString);
     ID.AddString(String);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, String); }
   
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -515,11 +512,10 @@ public:
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, const DWLabel &Label) {
+  virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isLabel);
     Label.Profile(ID);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, Label); }
   
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -553,11 +549,10 @@ public:
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, const std::string &Label) {
+  virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isAsIsLabel);
     ID.AddString(Label);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, Label); }
 
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -591,13 +586,11 @@ public:
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, const DWLabel &LabelHi,
-                                            const DWLabel &LabelLo) {
+  virtual void Profile(FoldingSetNodeID &ID){
     ID.AddInteger(isDelta);
     LabelHi.Profile(ID);
     LabelLo.Profile(ID);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, LabelHi, LabelLo); }
 
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -635,10 +628,6 @@ public:
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, DIE *Entry) {
-    ID.AddInteger(isEntry);
-    ID.AddPointer(Entry);
-  }
   virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isEntry);
     
@@ -1156,7 +1145,7 @@ public:
     
     if (Entry) {
       FoldingSetNodeID ID;
-      DIEntry::Profile(ID, Entry);
+      ID.AddPointer(Entry);
       void *Where;
       Value = static_cast<DIEntry *>(ValuesSet.FindNodeOrInsertPos(ID, Where));
       
@@ -1187,7 +1176,7 @@ public:
     if (!Form) Form = DIEInteger::BestForm(false, Integer);
 
     FoldingSetNodeID ID;
-    DIEInteger::Profile(ID, Integer);
+    ID.AddInteger(Integer);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1205,7 +1194,7 @@ public:
     if (!Form) Form = DIEInteger::BestForm(true, Integer);
 
     FoldingSetNodeID ID;
-    DIEInteger::Profile(ID, (uint64_t)Integer);
+    ID.AddInteger((uint64_t)Integer);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1222,7 +1211,7 @@ public:
   void AddString(DIE *Die, unsigned Attribute, unsigned Form,
                  const std::string &String) {
     FoldingSetNodeID ID;
-    DIEString::Profile(ID, String);
+    ID.AddString(String);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1239,7 +1228,7 @@ public:
   void AddLabel(DIE *Die, unsigned Attribute, unsigned Form,
                      const DWLabel &Label) {
     FoldingSetNodeID ID;
-    DIEDwarfLabel::Profile(ID, Label);
+    Label.Profile(ID);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1256,7 +1245,7 @@ public:
   void AddObjectLabel(DIE *Die, unsigned Attribute, unsigned Form,
                       const std::string &Label) {
     FoldingSetNodeID ID;
-    DIEObjectLabel::Profile(ID, Label);
+    ID.AddString(Label);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1273,7 +1262,8 @@ public:
   void AddDelta(DIE *Die, unsigned Attribute, unsigned Form,
                           const DWLabel &Hi, const DWLabel &Lo) {
     FoldingSetNodeID ID;
-    DIEDelta::Profile(ID, Hi, Lo);
+    Hi.Profile(ID);
+    Lo.Profile(ID);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1439,12 +1429,8 @@ private:
       Buffer.setTag(DW_TAG_base_type);
       AddUInt(&Buffer, DW_AT_encoding,  DW_FORM_data1, BasicTy->getEncoding());
     } else if (DerivedTypeDesc *DerivedTy = dyn_cast<DerivedTypeDesc>(TyDesc)) {
-      // Fetch tag.
-      unsigned Tag = DerivedTy->getTag();
-      // FIXME - Workaround for templates.
-      if (Tag == DW_TAG_inheritance) Tag = DW_TAG_reference_type;
-      // Pointers, typedefs et al. 
-      Buffer.setTag(Tag);
+      // Pointers, tyepdefs et al. 
+      Buffer.setTag(DerivedTy->getTag());
       // Map to main type, void will not have a type.
       if (TypeDesc *FromTy = DerivedTy->getFromType())
         AddType(&Buffer, FromTy, Unit);
@@ -1709,18 +1695,15 @@ private:
     return Unit;
   }
 
-  /// GetBaseCompileUnit - Get the main compile unit.
-  ///
-  CompileUnit *GetBaseCompileUnit() const {
-    CompileUnit *Unit = CompileUnits[0];
-    assert(Unit && "Missing compile unit.");
-    return Unit;
-  }
-
   /// FindCompileUnit - Get the compile unit for the given descriptor.
   ///
   CompileUnit *FindCompileUnit(CompileUnitDesc *UnitDesc) {
+#if 1
+    // FIXME - Using only one compile unit.  Needs to me fixed at the FE.
+    CompileUnit *Unit = CompileUnits[0];
+#else
     CompileUnit *Unit = DescToUnitMap[UnitDesc];
+#endif
     assert(Unit && "Missing compile unit.");
     return Unit;
   }
@@ -1731,7 +1714,7 @@ private:
     // Get the compile unit context.
     CompileUnitDesc *UnitDesc =
       static_cast<CompileUnitDesc *>(GVD->getContext());
-    CompileUnit *Unit = GetBaseCompileUnit();
+    CompileUnit *Unit = FindCompileUnit(UnitDesc);
 
     // Check for pre-existence.
     DIE *&Slot = Unit->getDieMapSlotFor(GVD);
@@ -1785,7 +1768,7 @@ private:
     // Get the compile unit context.
     CompileUnitDesc *UnitDesc =
       static_cast<CompileUnitDesc *>(SPD->getContext());
-    CompileUnit *Unit = GetBaseCompileUnit();
+    CompileUnit *Unit = FindCompileUnit(UnitDesc);
 
     // Check for pre-existence.
     DIE *&Slot = Unit->getDieMapSlotFor(SPD);
@@ -1853,7 +1836,7 @@ private:
     MachineLocation Location;
     RI->getLocation(*MF, DV->getFrameIndex(), Location);
     AddAddress(VariableDie, DW_AT_location, Location);
-
+    
     return VariableDie;
   }
 
@@ -1876,12 +1859,13 @@ private:
       // FIXME - Ignore inlined functions for the time being.
       if (!Scope->getParent()) continue;
       
-      unsigned StartID = DebugInfo->MappedLabel(Scope->getStartLabelID());
-      unsigned EndID = DebugInfo->MappedLabel(Scope->getEndLabelID());
-
-      // Ignore empty scopes.
-      if (StartID == EndID && StartID != 0) continue;
-      if (Scope->getScopes().empty() && Scope->getVariables().empty()) continue;
+      unsigned StartID = Scope->getStartLabelID();
+      unsigned EndID = Scope->getEndLabelID();
+      
+      // Widen scope if label is discarded.
+      // FIXME - really need to find a GOOD label if a block is dead.
+      if (StartID && !DebugInfo->isLabelValid(StartID)) StartID = 0;
+      if (EndID && !DebugInfo->isLabelValid(EndID)) EndID = 0;
       
       DIE *ScopeDie = new DIE(DW_TAG_lexical_block);
       
@@ -1917,7 +1901,9 @@ private:
     SubprogramDesc *SPD = cast<SubprogramDesc>(RootScope->getDesc());
     
     // Get the compile unit context.
-    CompileUnit *Unit = GetBaseCompileUnit();
+    CompileUnitDesc *UnitDesc =
+      static_cast<CompileUnitDesc *>(SPD->getContext());
+    CompileUnit *Unit = FindCompileUnit(UnitDesc);
     
     // Get the subprogram die.
     DIE *SPDie = Unit->getDieMapSlotFor(SPD);
@@ -1930,7 +1916,7 @@ private:
                     DWLabel("func_end", SubprogramCount));
     MachineLocation Location(RI->getFrameRegister(*MF));
     AddAddress(SPDie, DW_AT_frame_base, Location);
-
+                    
     ConstructScope(RootScope, SPDie, Unit);
   }
 
@@ -2078,14 +2064,18 @@ private:
   /// SizeAndOffsets - Compute the size and offset of all the DIEs.
   ///
   void SizeAndOffsets() {
-    // Process base compile unit.
-    CompileUnit *Unit = GetBaseCompileUnit();
-    // Compute size of compile unit header
-    unsigned Offset = sizeof(int32_t) + // Length of Compilation Unit Info
-                      sizeof(int16_t) + // DWARF version number
-                      sizeof(int32_t) + // Offset Into Abbrev. Section
-                      sizeof(int8_t);   // Pointer Size (in bytes)
-    SizeAndOffsetDie(Unit->getDie(), Offset, true);
+    // Process each compile unit.
+    for (unsigned i = 0, N = CompileUnits.size(); i < N; ++i) {
+      CompileUnit *Unit = CompileUnits[i];
+      if (Unit->hasContent()) {
+        // Compute size of compile unit header
+        unsigned Offset = sizeof(int32_t) + // Length of Compilation Unit Info
+                          sizeof(int16_t) + // DWARF version number
+                          sizeof(int32_t) + // Offset Into Abbrev. Section
+                          sizeof(int8_t);   // Pointer Size (in bytes)
+        SizeAndOffsetDie(Unit->getDie(), Offset, (i + 1) == N);
+      }
+    }
   }
 
   /// EmitFrameMoves - Emit frame instructions to describe the layout of the
@@ -2094,10 +2084,10 @@ private:
                                    std::vector<MachineMove *> &Moves) {
     for (unsigned i = 0, N = Moves.size(); i < N; ++i) {
       MachineMove *Move = Moves[i];
-      unsigned LabelID = DebugInfo->MappedLabel(Move->getLabelID());
+      unsigned LabelID = Move->getLabelID();
       
       // Throw out move if the label is invalid.
-      if (!LabelID) continue;
+      if (LabelID && !DebugInfo->isLabelValid(LabelID)) continue;
       
       const MachineLocation &Dst = Move->getDestination();
       const MachineLocation &Src = Move->getSource();
@@ -2172,26 +2162,32 @@ private:
     // Start debug info section.
     Asm->SwitchToDataSection(TAI->getDwarfInfoSection());
     
-    CompileUnit *Unit = GetBaseCompileUnit();
-    DIE *Die = Unit->getDie();
-    // Emit the compile units header.
-    EmitLabel("info_begin", Unit->getID());
-    // Emit size of content not including length itself
-    unsigned ContentSize = Die->getSize() +
-                           sizeof(int16_t) + // DWARF version number
-                           sizeof(int32_t) + // Offset Into Abbrev. Section
-                           sizeof(int8_t);   // Pointer Size (in bytes)
-                           
-    EmitInt32(ContentSize);  EOL("Length of Compilation Unit Info");
-    EmitInt16(DWARF_VERSION); EOL("DWARF version number");
-    EmitDifference("abbrev_begin", 0, "section_abbrev", 0);
-    EOL("Offset Into Abbrev. Section");
-    EmitInt8(TAI->getAddressSize()); EOL("Address Size (in bytes)");
-  
-    EmitDIE(Die);
-    EmitLabel("info_end", Unit->getID());
-    
-    O << "\n";
+    // Process each compile unit.
+    for (unsigned i = 0, N = CompileUnits.size(); i < N; ++i) {
+      CompileUnit *Unit = CompileUnits[i];
+      
+      if (Unit->hasContent()) {
+        DIE *Die = Unit->getDie();
+        // Emit the compile units header.
+        EmitLabel("info_begin", Unit->getID());
+        // Emit size of content not including length itself
+        unsigned ContentSize = Die->getSize() +
+                               sizeof(int16_t) + // DWARF version number
+                               sizeof(int32_t) + // Offset Into Abbrev. Section
+                               sizeof(int8_t);   // Pointer Size (in bytes)
+                               
+        EmitInt32(ContentSize);  EOL("Length of Compilation Unit Info");
+        EmitInt16(DWARF_VERSION); EOL("DWARF version number");
+        EmitDifference("abbrev_begin", 0, "section_abbrev", 0);
+        EOL("Offset Into Abbrev. Section");
+        EmitInt8(TAI->getAddressSize()); EOL("Address Size (in bytes)");
+      
+        EmitDIE(Die);
+        EmitLabel("info_end", Unit->getID());
+      }
+      
+      O << "\n";
+    }
   }
 
   /// EmitAbbreviations - Emit the abbreviation section.
@@ -2311,8 +2307,9 @@ private:
       // Construct rows of the address, source, line, column matrix.
       for (unsigned i = 0, N = LineInfos.size(); i < N; ++i) {
         const SourceLineInfo &LineInfo = LineInfos[i];
-        unsigned LabelID = DebugInfo->MappedLabel(LineInfo.getLabelID());
-        if (!LabelID) continue;
+        unsigned LabelID = LineInfo.getLabelID();
+        
+        // Source line labels are validated at the MachineDebugInfo level.
         
         if (DwarfVerbose) {
           unsigned SourceID = LineInfo.getSourceID();
@@ -2423,7 +2420,6 @@ private:
   void EmitFunctionDebugFrame() {
     if (!TAI->getDwarfRequiresFrameSection())
       return;
-       
     // Start the dwarf frame section.
     Asm->SwitchToDataSection(TAI->getDwarfFrameSection());
     
@@ -2457,38 +2453,43 @@ private:
     // Start the dwarf pubnames section.
     Asm->SwitchToDataSection(TAI->getDwarfPubNamesSection());
       
-    CompileUnit *Unit = GetBaseCompileUnit(); 
- 
-    EmitDifference("pubnames_end", Unit->getID(),
-                   "pubnames_begin", Unit->getID());
-    EOL("Length of Public Names Info");
-    
-    EmitLabel("pubnames_begin", Unit->getID());
-    
-    EmitInt16(DWARF_VERSION); EOL("DWARF Version");
-    
-    EmitDifference("info_begin", Unit->getID(), "section_info", 0);
-    EOL("Offset of Compilation Unit Info");
-
-    EmitDifference("info_end", Unit->getID(), "info_begin", Unit->getID());
-    EOL("Compilation Unit Length");
-    
-    std::map<std::string, DIE *> &Globals = Unit->getGlobals();
-    
-    for (std::map<std::string, DIE *>::iterator GI = Globals.begin(),
-                                                GE = Globals.end();
-         GI != GE; ++GI) {
-      const std::string &Name = GI->first;
-      DIE * Entity = GI->second;
+    // Process each compile unit.
+    for (unsigned i = 0, N = CompileUnits.size(); i < N; ++i) {
+      CompileUnit *Unit = CompileUnits[i];
       
-      EmitInt32(Entity->getOffset()); EOL("DIE offset");
-      EmitString(Name); EOL("External Name");
+      if (Unit->hasContent()) {
+        EmitDifference("pubnames_end", Unit->getID(),
+                       "pubnames_begin", Unit->getID());
+        EOL("Length of Public Names Info");
+        
+        EmitLabel("pubnames_begin", Unit->getID());
+        
+        EmitInt16(DWARF_VERSION); EOL("DWARF Version");
+        
+        EmitDifference("info_begin", Unit->getID(), "section_info", 0);
+        EOL("Offset of Compilation Unit Info");
+
+        EmitDifference("info_end", Unit->getID(), "info_begin", Unit->getID());
+        EOL("Compilation Unit Length");
+        
+        std::map<std::string, DIE *> &Globals = Unit->getGlobals();
+        
+        for (std::map<std::string, DIE *>::iterator GI = Globals.begin(),
+                                                    GE = Globals.end();
+             GI != GE; ++GI) {
+          const std::string &Name = GI->first;
+          DIE * Entity = GI->second;
+          
+          EmitInt32(Entity->getOffset()); EOL("DIE offset");
+          EmitString(Name); EOL("External Name");
+        }
+      
+        EmitInt32(0); EOL("End Mark");
+        EmitLabel("pubnames_end", Unit->getID());
+      
+        O << "\n";
+      }
     }
-  
-    EmitInt32(0); EOL("End Mark");
-    EmitLabel("pubnames_end", Unit->getID());
-  
-    O << "\n";
   }
 
   /// EmitDebugStr - Emit visible names into a debug str section.
@@ -2530,31 +2531,36 @@ private:
     
     // FIXME - Mock up
   #if 0
-    CompileUnit *Unit = GetBaseCompileUnit(); 
+    // Process each compile unit.
+    for (unsigned i = 0, N = CompileUnits.size(); i < N; ++i) {
+      CompileUnit *Unit = CompileUnits[i];
       
-    // Don't include size of length
-    EmitInt32(0x1c); EOL("Length of Address Ranges Info");
-    
-    EmitInt16(DWARF_VERSION); EOL("Dwarf Version");
-    
-    EmitReference("info_begin", Unit->getID());
-    EOL("Offset of Compilation Unit Info");
+      if (Unit->hasContent()) {
+        // Don't include size of length
+        EmitInt32(0x1c); EOL("Length of Address Ranges Info");
+        
+        EmitInt16(DWARF_VERSION); EOL("Dwarf Version");
+        
+        EmitReference("info_begin", Unit->getID());
+        EOL("Offset of Compilation Unit Info");
 
-    EmitInt8(TAI->getAddressSize()); EOL("Size of Address");
+        EmitInt8(TAI->getAddressSize()); EOL("Size of Address");
 
-    EmitInt8(0); EOL("Size of Segment Descriptor");
+        EmitInt8(0); EOL("Size of Segment Descriptor");
 
-    EmitInt16(0);  EOL("Pad (1)");
-    EmitInt16(0);  EOL("Pad (2)");
+        EmitInt16(0);  EOL("Pad (1)");
+        EmitInt16(0);  EOL("Pad (2)");
 
-    // Range 1
-    EmitReference("text_begin", 0); EOL("Address");
-    EmitDifference("text_end", 0, "text_begin", 0); EOL("Length");
+        // Range 1
+        EmitReference("text_begin", 0); EOL("Address");
+        EmitDifference("text_end", 0, "text_begin", 0); EOL("Length");
 
-    EmitInt32(0); EOL("EOM (1)");
-    EmitInt32(0); EOL("EOM (2)");
-    
-    O << "\n";
+        EmitInt32(0); EOL("EOM (1)");
+        EmitInt32(0); EOL("EOM (2)");
+        
+        O << "\n";
+      }
+    }
   #endif
   }
 
@@ -2582,8 +2588,7 @@ private:
     const UniqueVector<CompileUnitDesc *> CUW = DebugInfo->getCompileUnits();
     
     for (unsigned i = 1, N = CUW.size(); i <= N; ++i) {
-      unsigned ID = DebugInfo->RecordSource(CUW[i]);
-      CompileUnit *Unit = NewCompileUnit(CUW[i], ID);
+      CompileUnit *Unit = NewCompileUnit(CUW[i], i);
       CompileUnits.push_back(Unit);
     }
   }

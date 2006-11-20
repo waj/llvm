@@ -50,12 +50,6 @@
 #include <stdint.h>
 #endif
 
-#ifdef __cplusplus
-#include <cmath>
-#else
-#include <math.h>
-#endif
-
 #ifdef _AIX
 #include "llvm/Support/AIXDataTypesFix.h"
 #endif
@@ -121,10 +115,6 @@ typedef signed int ssize_t;
 #define END_WITH_NULL __attribute__((sentinel))
 #else
 #define END_WITH_NULL
-#endif
-
-#ifndef HUGE_VALF
-#define HUGE_VALF (float)HUGE_VAL
 #endif
 
 #endif  /* SUPPORT_DATATYPES_H */

@@ -32,10 +32,10 @@ Linker::LinkInItems(const ItemList& Items, ItemList& NativeItems) {
        I != E; ++I) {
     if (I->second) {
       // Link in the library suggested.
-      bool is_bytecode = true;
-      if (LinkInLibrary(I->first,is_bytecode))
+      bool is_file = true;
+      if (LinkInLibrary(I->first,is_file))
         return true;
-      if (!is_bytecode)
+      if (!is_file)
         NativeItems.push_back(*I);
     } else {
       // Link in the file suggested
@@ -61,8 +61,8 @@ Linker::LinkInItems(const ItemList& Items, ItemList& NativeItems) {
 
 /// LinkInLibrary - links one library into the HeadModule.
 ///
-bool Linker::LinkInLibrary(const std::string& Lib, bool& is_bytecode) {
-  is_bytecode = false;
+bool Linker::LinkInLibrary(const std::string& Lib, bool& is_file) {
+  is_file = false;
   // Determine where this library lives.
   sys::Path Pathname = FindLib(Lib);
   if (Pathname.isEmpty())
@@ -77,12 +77,11 @@ bool Linker::LinkInLibrary(const std::string& Lib, bool& is_bytecode) {
       // LLVM ".so" file.
       if (LinkInFile(Pathname))
         return error("Cannot link file '" + Pathname.toString() + "'");
-      is_bytecode = true;
+      is_file = true;
       break;
     case sys::ArchiveFileType:
       if (LinkInArchive(Pathname))
         return error("Cannot link archive '" + Pathname.toString() + "'");
-      is_bytecode = true;
       break;
     default:
       return warning("Supposed library '" + Lib + "' isn't a library.");

@@ -16,7 +16,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "branchfolding"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineDebugInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -24,7 +23,6 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
 #include <algorithm>
@@ -588,24 +586,6 @@ bool BranchFolder::CanFallThrough(MachineBasicBlock *CurBB) {
   return CanFallThrough(CurBB, CurUnAnalyzable, TBB, FBB, Cond);
 }
 
-/// IsBetterFallthrough - Return true if it would be clearly better to
-/// fall-through to MBB1 than to fall through into MBB2.  This has to return
-/// a strict ordering, returning true for both (MBB1,MBB2) and (MBB2,MBB1) will
-/// result in infinite loops.
-static bool IsBetterFallthrough(MachineBasicBlock *MBB1, 
-                                MachineBasicBlock *MBB2,
-                                const TargetInstrInfo &TII) {
-  // Right now, we use a simple heuristic.  If MBB2 ends with a call, and
-  // MBB1 doesn't, we prefer to fall through into MBB1.  This allows us to
-  // optimize branches that branch to either a return block or an assert block
-  // into a fallthrough to the return.
-  if (MBB1->empty() || MBB2->empty()) return false;
-
-  MachineInstr *MBB1I = --MBB1->end();
-  MachineInstr *MBB2I = --MBB2->end();
-  return TII.isCall(MBB2I->getOpcode()) && !TII.isCall(MBB1I->getOpcode());
-}
-
 /// OptimizeBlock - Analyze and optimize control flow related to the specified
 /// block.  This is never called on the entry block.
 void BranchFolder::OptimizeBlock(MachineBasicBlock *MBB) {
@@ -695,63 +675,6 @@ void BranchFolder::OptimizeBlock(MachineBasicBlock *MBB) {
         return OptimizeBlock(MBB);
       }
     }
-    
-    // If this block doesn't fall through (e.g. it ends with an uncond branch or
-    // has no successors) and if the pred falls through into this block, and if
-    // it would otherwise fall through into the block after this, move this
-    // block to the end of the function.
-    //
-    // We consider it more likely that execution will stay in the function (e.g.
-    // due to loops) than it is to exit it.  This asserts in loops etc, moving
-    // the assert condition out of the loop body.
-    if (!PriorCond.empty() && PriorFBB == 0 &&
-        MachineFunction::iterator(PriorTBB) == FallThrough &&
-        !CanFallThrough(MBB)) {
-      bool DoTransform = true;
-      
-      // We have to be careful that the succs of PredBB aren't both no-successor
-      // blocks.  If neither have successors and if PredBB is the second from
-      // last block in the function, we'd just keep swapping the two blocks for
-      // last.  Only do the swap if one is clearly better to fall through than
-      // the other.
-      if (FallThrough == --MBB->getParent()->end() &&
-          !IsBetterFallthrough(PriorTBB, MBB, *TII))
-        DoTransform = false;
-
-      // We don't want to do this transformation if we have control flow like:
-      //   br cond BB2
-      // BB1:
-      //   ..
-      //   jmp BBX
-      // BB2:
-      //   ..
-      //   ret
-      //
-      // In this case, we could actually be moving the return block *into* a
-      // loop!
-      if (DoTransform && !MBB->succ_empty() &&
-          (!CanFallThrough(PriorTBB) || PriorTBB->empty()))
-        DoTransform = false;
-      
-      
-      if (DoTransform) {
-        // Reverse the branch so we will fall through on the previous true cond.
-        std::vector<MachineOperand> NewPriorCond(PriorCond);
-        if (!TII->ReverseBranchCondition(NewPriorCond)) {
-          DOUT << "\nMoving MBB: " << *MBB;
-          DOUT << "To make fallthrough to: " << *PriorTBB << "\n";
-          
-          TII->RemoveBranch(PrevBB);
-          TII->InsertBranch(PrevBB, MBB, 0, NewPriorCond);
-
-          // Move this block to the end of the function.
-          MBB->moveAfter(--MBB->getParent()->end());
-          MadeChange = true;
-          ++NumBranchOpts;
-          return;
-        }
-      }
-    }
   }
   
   // Analyze the branch in the current block.
@@ -764,23 +687,6 @@ void BranchFolder::OptimizeBlock(MachineBasicBlock *MBB) {
                                        !CurCond.empty(),
                                        ++MachineFunction::iterator(MBB));
 
-    // If this is a two-way branch, and the FBB branches to this block, reverse 
-    // the condition so the single-basic-block loop is faster.  Instead of:
-    //    Loop: xxx; jcc Out; jmp Loop
-    // we want:
-    //    Loop: xxx; jncc Loop; jmp Out
-    if (CurTBB && CurFBB && CurFBB == MBB && CurTBB != MBB) {
-      std::vector<MachineOperand> NewCond(CurCond);
-      if (!TII->ReverseBranchCondition(NewCond)) {
-        TII->RemoveBranch(*MBB);
-        TII->InsertBranch(*MBB, CurFBB, CurTBB, NewCond);
-        MadeChange = true;
-        ++NumBranchOpts;
-        return OptimizeBlock(MBB);
-      }
-    }
-    
-    
     // If this branch is the only thing in its block, see if we can forward
     // other blocks across it.
     if (CurTBB && CurCond.empty() && CurFBB == 0 && 

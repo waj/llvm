@@ -784,8 +784,7 @@ void Andersens::visitInstruction(Instruction &I) {
   case Instruction::Unreachable:
   case Instruction::Free:
   case Instruction::Shl:
-  case Instruction::LShr:
-  case Instruction::AShr:
+  case Instruction::Shr:
     return;
   default:
     // Is this something we aren't handling yet?
@@ -1036,7 +1035,7 @@ void Andersens::SolveConstraints() {
   while (Changed) {
     Changed = false;
     ++NumIters;
-    DOUT << "Starting iteration #" << Iteration++ << "!\n";
+    DEBUG(std::cerr << "Starting iteration #" << Iteration++ << "!\n");
 
     // Loop over all of the constraints, applying them in turn.
     for (unsigned i = 0, e = Constraints.size(); i != e; ++i) {
@@ -1069,7 +1068,8 @@ void Andersens::SolveConstraints() {
             // We found a function that is just now escaping.  Mark it as if it
             // didn't have internal linkage.
             AddConstraintsForNonInternalLinkage(F);
-            DOUT << "Found escaping internal function: " << F->getName() <<"\n";
+            DEBUG(std::cerr << "Found escaping internal function: "
+                            << F->getName() << "\n");
             ++NumEscapingFunctions;
           }
 
@@ -1087,9 +1087,9 @@ void Andersens::SolveConstraints() {
             if (IP == KnownCallees.end() || *IP != F) {
               // Add the constraints for the call now.
               AddConstraintsForCall(CS, F);
-              DOUT << "Found actual callee '"
-                   << F->getName() << "' for call: "
-                   << *CS.getInstruction() << "\n";
+              DEBUG(std::cerr << "Found actual callee '"
+                              << F->getName() << "' for call: "
+                              << *CS.getInstruction() << "\n");
               ++NumIndirectCallees;
               KnownCallees.insert(IP, F);
             }

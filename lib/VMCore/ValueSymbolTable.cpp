@@ -15,8 +15,9 @@
 #include "llvm/Type.h"
 #include "llvm/ValueSymbolTable.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/Debug.h"
 #include <algorithm>
+#include <iostream>
+
 using namespace llvm;
 
 #define DEBUG_SYMBOL_TABLE 0
@@ -28,9 +29,9 @@ ValueSymbolTable::~ValueSymbolTable() {
   bool LeftoverValues = true;
   for (iterator VI = vmap.begin(), VE = vmap.end(); VI != VE; ++VI)
     if (!isa<Constant>(VI->second) ) {
-      DOUT << "Value still in symbol table! Type = '"
-           << VI->second->getType()->getDescription() << "' Name = '"
-           << VI->first << "'\n";
+      std::cerr << "Value still in symbol table! Type = '"
+                << VI->second->getType()->getDescription() << "' Name = '"
+                << VI->first << "'\n";
       LeftoverValues = false;
     }
   assert(LeftoverValues && "Values remain in symbol table!");
@@ -88,7 +89,7 @@ void ValueSymbolTable::insert(Value* V) {
 
 #if DEBUG_SYMBOL_TABLE
   dump();
-  DOUT << " Inserting value: " << UniqueName << ": " << V->dump() << "\n";
+  std::cerr << " Inserting value: " << UniqueName << ": " << V->dump() << "\n";
 #endif
 
   // Insert the vmap entry
@@ -104,7 +105,7 @@ bool ValueSymbolTable::erase(Value *V) {
 
 #if DEBUG_SYMBOL_TABLE
   dump();
-  DOUT << " Removing Value: " << Entry->second->getName() << "\n";
+  std::cerr << " Removing Value: " << Entry->second->getName() << "\n";
 #endif
 
   // Remove the value from the plane...
@@ -152,14 +153,14 @@ bool ValueSymbolTable::rename(Value *V, const std::string &name) {
 // DumpVal - a std::for_each function for dumping a value
 //
 static void DumpVal(const std::pair<const std::string, Value *> &V) {
-  DOUT << "  '" << V.first << "' = ";
+  std::cerr << "  '" << V.first << "' = ";
   V.second->dump();
-  DOUT << "\n";
+  std::cerr << "\n";
 }
 
 // dump - print out the symbol table
 //
 void ValueSymbolTable::dump() const {
-  DOUT << "ValueSymbolTable:\n";
+  std::cerr << "ValueSymbolTable:\n";
   for_each(vmap.begin(), vmap.end(), DumpVal);
 }

@@ -161,18 +161,17 @@ void X86RegisterInfo::copyRegToReg(MachineBasicBlock &MBB,
 }
 
 static MachineInstr *FuseTwoAddrInst(unsigned Opcode, unsigned FrameIndex,
-                                     MachineInstr *MI,
-                                     const TargetInstrInfo &TII) {
-  unsigned NumOps = TII.getNumOperands(MI->getOpcode())-2;
+                                     MachineInstr *MI) {
+  unsigned NumOps = MI->getNumOperands()-2;
   // Create the base instruction with the memory operand as the first part.
-  MachineInstrBuilder MIB = addFrameReference(BuildMI(TII, Opcode, 4+NumOps),
+  MachineInstrBuilder MIB = addFrameReference(BuildMI(Opcode, 4+NumOps),
                                               FrameIndex);
   
   // Loop over the rest of the ri operands, converting them over.
   for (unsigned i = 0; i != NumOps; ++i) {
     MachineOperand &MO = MI->getOperand(i+2);
     if (MO.isReg())
-      MIB = MIB.addReg(MO.getReg(), false, MO.isImplicit());
+      MIB = MIB.addReg(MO.getReg());
     else if (MO.isImm())
       MIB = MIB.addImm(MO.getImm());
     else if (MO.isGlobalAddress())
@@ -186,9 +185,8 @@ static MachineInstr *FuseTwoAddrInst(unsigned Opcode, unsigned FrameIndex,
 }
 
 static MachineInstr *FuseInst(unsigned Opcode, unsigned OpNo,
-                              unsigned FrameIndex, MachineInstr *MI,
-                              const TargetInstrInfo &TII) {
-  MachineInstrBuilder MIB = BuildMI(TII, Opcode, MI->getNumOperands()+3);
+                              unsigned FrameIndex, MachineInstr *MI) {
+  MachineInstrBuilder MIB = BuildMI(Opcode, MI->getNumOperands()+3);
   
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
     MachineOperand &MO = MI->getOperand(i);
@@ -196,7 +194,7 @@ static MachineInstr *FuseInst(unsigned Opcode, unsigned OpNo,
       assert(MO.isReg() && "Expected to fold into reg operand!");
       MIB = addFrameReference(MIB, FrameIndex);
     } else if (MO.isReg())
-      MIB = MIB.addReg(MO.getReg(), MO.isDef(), MO.isImplicit());
+      MIB = MIB.addReg(MO.getReg(), MO.isDef());
     else if (MO.isImm())
       MIB = MIB.addImm(MO.getImm());
     else if (MO.isGlobalAddress())
@@ -209,10 +207,9 @@ static MachineInstr *FuseInst(unsigned Opcode, unsigned OpNo,
   return MIB;
 }
 
-static MachineInstr *MakeM0Inst(const TargetInstrInfo &TII,
-                                unsigned Opcode, unsigned FrameIndex,
+static MachineInstr *MakeM0Inst(unsigned Opcode, unsigned FrameIndex,
                                 MachineInstr *MI) {
-  return addFrameReference(BuildMI(TII, Opcode, 5), FrameIndex).addImm(0);
+  return addFrameReference(BuildMI(Opcode, 5), FrameIndex).addImm(0);
 }
 
 
@@ -287,18 +284,14 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
   const TableEntry *OpcodeTablePtr = NULL;
   unsigned OpcodeTableSize = 0;
   bool isTwoAddrFold = false;
-  unsigned NumOps = TII.getNumOperands(MI->getOpcode());
-  bool isTwoAddr = NumOps > 1 &&
-    TII.getOperandConstraint(MI->getOpcode(), 1,TargetInstrInfo::TIED_TO) != -1;
 
-  MachineInstr *NewMI = NULL;
   // Folding a memory location into the two-address part of a two-address
   // instruction is different than folding it other places.  It requires
   // replacing the *two* registers with the memory location.
-  if (isTwoAddr && NumOps >= 2 && i < 2 &&
-      MI->getOperand(0).isReg() && 
-      MI->getOperand(1).isReg() &&
-      MI->getOperand(0).getReg() == MI->getOperand(1).getReg()) {
+  if (MI->getNumOperands() >= 2 && MI->getOperand(0).isReg() && 
+      MI->getOperand(1).isReg() && i < 2 &&
+      MI->getOperand(0).getReg() == MI->getOperand(1).getReg() &&
+      TII.isTwoAddrInstr(MI->getOpcode())) {
     static const TableEntry OpcodeTable[] = {
       { X86::ADC32ri,     X86::ADC32mi },
       { X86::ADC32ri8,    X86::ADC32mi8 },
@@ -466,17 +459,13 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
     isTwoAddrFold = true;
   } else if (i == 0) { // If operand 0
     if (MI->getOpcode() == X86::MOV16r0)
-      NewMI = MakeM0Inst(TII, X86::MOV16mi, FrameIndex, MI);
+      return MakeM0Inst(X86::MOV16mi, FrameIndex, MI);
     else if (MI->getOpcode() == X86::MOV32r0)
-      NewMI = MakeM0Inst(TII, X86::MOV32mi, FrameIndex, MI);
+      return MakeM0Inst(X86::MOV32mi, FrameIndex, MI);
     else if (MI->getOpcode() == X86::MOV64r0)
-      NewMI = MakeM0Inst(TII, X86::MOV64mi32, FrameIndex, MI);
+      return MakeM0Inst(X86::MOV64mi32, FrameIndex, MI);
     else if (MI->getOpcode() == X86::MOV8r0)
-      NewMI = MakeM0Inst(TII, X86::MOV8mi, FrameIndex, MI);
-    if (NewMI) {
-      NewMI->copyKillDeadInfo(MI);
-      return NewMI;
-    }
+      return MakeM0Inst(X86::MOV8mi, FrameIndex, MI);
     
     static const TableEntry OpcodeTable[] = {
       { X86::CMP16ri,     X86::CMP16mi },
@@ -509,7 +498,6 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
       { X86::MOVAPDrr,    X86::MOVAPDmr },
       { X86::MOVAPSrr,    X86::MOVAPSmr },
       { X86::MOVPDI2DIrr, X86::MOVPDI2DImr },
-      { X86::MOVPQIto64rr,X86::MOVPQIto64mr },
       { X86::MOVPS2SSrr,  X86::MOVPS2SSmr },
       { X86::MOVSDrr,     X86::MOVSDmr },
       { X86::MOVSSrr,     X86::MOVSSmr },
@@ -607,12 +595,12 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
       { X86::MOV16rr,         X86::MOV16rm },
       { X86::MOV32rr,         X86::MOV32rm },
       { X86::MOV64rr,         X86::MOV64rm },
-      { X86::MOV64toPQIrr,    X86::MOV64toPQIrm },
       { X86::MOV8rr,          X86::MOV8rm },
       { X86::MOVAPDrr,        X86::MOVAPDrm },
       { X86::MOVAPSrr,        X86::MOVAPSrm },
       { X86::MOVDDUPrr,       X86::MOVDDUPrm },
       { X86::MOVDI2PDIrr,     X86::MOVDI2PDIrm },
+      { X86::MOVQI2PQIrr,     X86::MOVQI2PQIrm },
       { X86::MOVSD2PDrr,      X86::MOVSD2PDrm },
       { X86::MOVSDrr,         X86::MOVSDrm },
       { X86::MOVSHDUPrr,      X86::MOVSHDUPrm },
@@ -834,11 +822,9 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
     if (const TableEntry *Entry = TableLookup(OpcodeTablePtr, OpcodeTableSize,
                                               fromOpcode)) {
       if (isTwoAddrFold)
-        NewMI = FuseTwoAddrInst(Entry->to, FrameIndex, MI, TII);
-      else
-        NewMI = FuseInst(Entry->to, i, FrameIndex, MI, TII);
-      NewMI->copyKillDeadInfo(MI);
-      return NewMI;
+        return FuseTwoAddrInst(Entry->to, FrameIndex, MI);
+      
+      return FuseInst(Entry->to, i, FrameIndex, MI);
     }
   }
   
@@ -908,7 +894,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 
       MachineInstr *New = 0;
       if (Old->getOpcode() == X86::ADJCALLSTACKDOWN) {
-        New=BuildMI(TII, Is64Bit ? X86::SUB64ri32 : X86::SUB32ri, 1, StackPtr)
+        New=BuildMI(Is64Bit ? X86::SUB64ri32 : X86::SUB32ri, 1, StackPtr)
           .addReg(StackPtr).addImm(Amount);
       } else {
         assert(Old->getOpcode() == X86::ADJCALLSTACKUP);
@@ -919,7 +905,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
           unsigned Opc = (Amount < 128) ?
             (Is64Bit ? X86::ADD64ri8 : X86::ADD32ri8) :
             (Is64Bit ? X86::ADD64ri32 : X86::ADD32ri);
-          New = BuildMI(TII, Opc, 1,  StackPtr).addReg(StackPtr).addImm(Amount);
+          New = BuildMI(Opc, 1,  StackPtr).addReg(StackPtr).addImm(Amount);
         }
       }
 
@@ -935,7 +921,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
         (Is64Bit ? X86::SUB64ri8 : X86::SUB32ri8) :
         (Is64Bit ? X86::SUB64ri32 : X86::SUB32ri);
       MachineInstr *New =
-        BuildMI(TII, Opc, 1, StackPtr).addReg(StackPtr).addImm(CalleeAmt);
+        BuildMI(Opc, 1, StackPtr).addReg(StackPtr).addImm(CalleeAmt);
       MBB.insert(I, New);
     }
   }
@@ -1012,15 +998,15 @@ void X86RegisterInfo::emitPrologue(MachineFunction &MF) const {
       // more than 4k bytes in one go. Touching the stack at 4K increments is  
       // necessary to ensure that the guard pages used by the OS virtual memory
       // manager are allocated in correct sequence.
-      MI = BuildMI(TII, X86::MOV32ri, 2, X86::EAX).addImm(NumBytes);
+      MI = BuildMI(X86::MOV32ri, 2, X86::EAX).addImm(NumBytes);
       MBB.insert(MBBI, MI);
-      MI = BuildMI(TII, X86::CALLpcrel32, 1).addExternalSymbol("_alloca");
+      MI = BuildMI(X86::CALLpcrel32, 1).addExternalSymbol("_alloca");
       MBB.insert(MBBI, MI);
     } else {
       unsigned Opc = (NumBytes < 128) ?
         (Is64Bit ? X86::SUB64ri8 : X86::SUB32ri8) :
         (Is64Bit ? X86::SUB64ri32 : X86::SUB32ri);
-      MI= BuildMI(TII, Opc, 1, StackPtr).addReg(StackPtr).addImm(NumBytes);
+      MI= BuildMI(Opc, 1, StackPtr).addReg(StackPtr).addImm(NumBytes);
       MBB.insert(MBBI, MI);
     }
   }
@@ -1029,21 +1015,19 @@ void X86RegisterInfo::emitPrologue(MachineFunction &MF) const {
     // Get the offset of the stack slot for the EBP register... which is
     // guaranteed to be the last slot by processFunctionBeforeFrameFinalized.
     int EBPOffset = MFI->getObjectOffset(MFI->getObjectIndexBegin())+SlotSize;
-    // Update the frame offset adjustment.
-    MFI->setOffsetAdjustment(SlotSize-NumBytes);
-    
+
     // Save EBP into the appropriate stack slot...
     // mov [ESP-<offset>], EBP
-    MI = addRegOffset(BuildMI(TII, Is64Bit ? X86::MOV64mr : X86::MOV32mr, 5),
+    MI = addRegOffset(BuildMI(Is64Bit ? X86::MOV64mr : X86::MOV32mr, 5),
                       StackPtr, EBPOffset+NumBytes).addReg(FramePtr);
     MBB.insert(MBBI, MI);
 
     // Update EBP with the new base value...
     if (NumBytes == SlotSize)    // mov EBP, ESP
-      MI = BuildMI(TII, Is64Bit ? X86::MOV64rr : X86::MOV32rr, 2, FramePtr).
+      MI = BuildMI(Is64Bit ? X86::MOV64rr : X86::MOV32rr, 2, FramePtr).
         addReg(StackPtr);
     else                  // lea EBP, [ESP+StackSize]
-      MI = addRegOffset(BuildMI(TII, Is64Bit ? X86::LEA64r : X86::LEA32r,
+      MI = addRegOffset(BuildMI(Is64Bit ? X86::LEA64r : X86::LEA32r,
                                5, FramePtr), StackPtr, NumBytes-SlotSize);
 
     MBB.insert(MBBI, MI);
@@ -1052,13 +1036,13 @@ void X86RegisterInfo::emitPrologue(MachineFunction &MF) const {
   // If it's main() on Cygwin\Mingw32 we should align stack as well
   if (Fn->hasExternalLinkage() && Fn->getName() == "main" &&
       Subtarget->isTargetCygwin()) {
-    MI= BuildMI(TII, X86::AND32ri, 2, X86::ESP).addReg(X86::ESP).addImm(-Align);
+    MI = BuildMI(X86::AND32ri, 2, X86::ESP).addReg(X86::ESP).addImm(-Align);
     MBB.insert(MBBI, MI);
 
     // Probe the stack
-    MI = BuildMI(TII, X86::MOV32ri, 2, X86::EAX).addImm(Align);
+    MI = BuildMI(X86::MOV32ri, 2, X86::EAX).addImm(Align);
     MBB.insert(MBBI, MI);
-    MI = BuildMI(TII, X86::CALLpcrel32, 1).addExternalSymbol("_alloca");
+    MI = BuildMI(X86::CALLpcrel32, 1).addExternalSymbol("_alloca");
     MBB.insert(MBBI, MI);
   }
 }

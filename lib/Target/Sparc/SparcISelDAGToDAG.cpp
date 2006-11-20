@@ -968,9 +968,8 @@ public:
   SDNode *Select(SDOperand Op);
 
   // Complex Pattern Selectors.
-  bool SelectADDRrr(SDOperand Op, SDOperand N, SDOperand &R1, SDOperand &R2);
-  bool SelectADDRri(SDOperand Op, SDOperand N, SDOperand &Base,
-                    SDOperand &Offset);
+  bool SelectADDRrr(SDOperand N, SDOperand &R1, SDOperand &R2);
+  bool SelectADDRri(SDOperand N, SDOperand &Base, SDOperand &Offset);
   
   /// InstructionSelectBasicBlock - This callback is invoked by
   /// SelectionDAGISel when it has created a SelectionDAG for us to codegen.
@@ -998,8 +997,8 @@ void SparcDAGToDAGISel::InstructionSelectBasicBlock(SelectionDAG &DAG) {
   ScheduleAndEmitDAG(DAG);
 }
 
-bool SparcDAGToDAGISel::SelectADDRri(SDOperand Op, SDOperand Addr,
-                                     SDOperand &Base, SDOperand &Offset) {
+bool SparcDAGToDAGISel::SelectADDRri(SDOperand Addr, SDOperand &Base,
+                                     SDOperand &Offset) {
   if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
     Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i32);
     Offset = CurDAG->getTargetConstant(0, MVT::i32);
@@ -1039,8 +1038,8 @@ bool SparcDAGToDAGISel::SelectADDRri(SDOperand Op, SDOperand Addr,
   return true;
 }
 
-bool SparcDAGToDAGISel::SelectADDRrr(SDOperand Op, SDOperand Addr,
-                                     SDOperand &R1,  SDOperand &R2) {
+bool SparcDAGToDAGISel::SelectADDRrr(SDOperand Addr, SDOperand &R1, 
+                                     SDOperand &R2) {
   if (Addr.getOpcode() == ISD::FrameIndex) return false;
   if (Addr.getOpcode() == ISD::TargetExternalSymbol ||
       Addr.getOpcode() == ISD::TargetGlobalAddress)

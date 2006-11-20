@@ -76,8 +76,34 @@ namespace {
     }
 
     void printAddrMode1(const MachineInstr *MI, int opNum);
-    void printAddrMode2(const MachineInstr *MI, int opNum);
     void printAddrMode5(const MachineInstr *MI, int opNum);
+
+    void printMemRegImm(const MachineInstr *MI, int opNum,
+			const char *Modifier = NULL) {
+      const MachineOperand &MO1 = MI->getOperand(opNum);
+      const MachineOperand &MO2 = MI->getOperand(opNum + 1);
+      assert(MO1.isImmediate());
+      bool arith = false;
+      if (Modifier != NULL) {
+	assert(strcmp(Modifier, "arith") == 0);
+	arith = true;
+      }
+
+      if (MO2.isConstantPoolIndex()) {
+	printOperand(MI, opNum + 1);
+      } else if (MO2.isRegister()) {
+	if(!arith)
+	  O << '[';
+	printOperand(MI, opNum + 1);
+	O << ", ";
+	printOperand(MI, opNum);
+	if(!arith)
+	  O << ']';
+      } else {
+	assert(0 && "Invalid Operand Type");
+      }
+    }
+
     void printOperand(const MachineInstr *MI, int opNum);
     void printMemOperand(const MachineInstr *MI, int opNum,
                          const char *Modifier = 0);
@@ -186,24 +212,6 @@ void ARMAsmPrinter::printAddrMode1(const MachineInstr *MI, int opNum) {
       O << s;
       printOperand(MI, opNum + 1);
     }
-  }
-}
-
-void ARMAsmPrinter::printAddrMode2(const MachineInstr *MI, int opNum) {
-  const MachineOperand &Arg    = MI->getOperand(opNum);
-  const MachineOperand &Offset = MI->getOperand(opNum + 1);
-  assert(Offset.isImmediate());
-
-  if (Arg.isConstantPoolIndex()) {
-    assert(Offset.getImmedValue() == 0);
-    printOperand(MI, opNum);
-  } else {
-    assert(Arg.isRegister());
-    O << '[';
-    printOperand(MI, opNum);
-    O << ", ";
-    printOperand(MI, opNum + 1);
-    O << ']';
   }
 }
 

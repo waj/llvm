@@ -40,10 +40,6 @@ static cl::opt<bool>
 TrackIntegersAsPointers("dsa-track-integers", cl::Hidden,
          cl::desc("If this is set, track integers as potential pointers"));
 
-static cl::opt<bool>
-IgnoreSetCC("dsa-ignore-setcc", cl::Hidden,
-         cl::desc("If this is set, do nothing at pointer comparisons"));
-
 static cl::list<std::string>
 AllocList("dsa-alloc-list",
           cl::value_desc("list"),
@@ -188,7 +184,7 @@ DSGraph::DSGraph(EquivalenceClasses<GlobalValue*> &ECs, const TargetData &td,
   : GlobalsGraph(GG), ScalarMap(ECs), TD(td) {
   PrintAuxCalls = false;
 
-  DOUT << "  [Loc] Calculating graph for: " << F.getName() << "\n";
+  DEBUG(std::cerr << "  [Loc] Calculating graph for: " << F.getName() << "\n");
 
   // Use the graph builder to construct the local version of the graph
   GraphBuilder B(F, *this, ReturnNodes[&F], FunctionCalls);
@@ -340,8 +336,7 @@ void GraphBuilder::visitSelectInst(SelectInst &SI) {
 void GraphBuilder::visitSetCondInst(SetCondInst &SCI) {
   if (!isPointerType(SCI.getOperand(0)->getType()) ||
       isa<ConstantPointerNull>(SCI.getOperand(1))) return; // Only pointers
-  if(!IgnoreSetCC)
-    ScalarMap[SCI.getOperand(0)].mergeWith(getValueDest(*SCI.getOperand(1)));
+  ScalarMap[SCI.getOperand(0)].mergeWith(getValueDest(*SCI.getOperand(1)));
 }
 
 
@@ -573,7 +568,7 @@ bool GraphBuilder::visitIntrinsic(CallSite CS, Function *F) {
       N->setModifiedMarker();
     return true;
   default:
-    DOUT << "[dsa:local] Unhandled intrinsic: " << F->getName() << "\n";
+    DEBUG(std::cerr << "[dsa:local] Unhandled intrinsic: " << F->getName() << "\n");
     return false;
   }
 }
@@ -1047,8 +1042,8 @@ void GraphBuilder::visitCallSite(CallSite CS) {
               break;
             }
         if (Warn) {
-          DOUT << "WARNING: Call to unknown external function '"
-               << F->getName() << "' will cause pessimistic results!\n";
+          DEBUG(std::cerr << "WARNING: Call to unknown external function '"
+                << F->getName() << "' will cause pessimistic results!\n");
         }
       }
 
@@ -1158,7 +1153,7 @@ void GraphBuilder::MergeConstantInitIntoNode(DSNodeHandle &NH, Constant *C) {
         DSNodeHandle NewNH(NHN, NH.getOffset()+(unsigned)SL->MemberOffsets[i]);
         MergeConstantInitIntoNode(NewNH, cast<Constant>(CS->getOperand(i)));
       } else if (SL->MemberOffsets[i] == SL->StructSize) {
-        DOUT << "Zero size element at end of struct\n";
+        DEBUG(std::cerr << "Zero size element at end of struct\n");
         NHN->foldNodeCompletely();
       } else {
         assert(0 && "type was smaller than offsets of of struct layout indicate");
@@ -1280,7 +1275,7 @@ bool LocalDataStructures::runOnModule(Module &M) {
   // together the globals into equivalence classes.
   std::set<GlobalValue*> ECGlobals;
   BuildGlobalECs(*GlobalsGraph, ECGlobals);
-  DOUT << "Eliminating " << ECGlobals.size() << " EC Globals!\n";
+  DEBUG(std::cerr << "Eliminating " << ECGlobals.size() << " EC Globals!\n");
   ECGlobals.clear();
 
   // Calculate all of the graphs...
@@ -1298,7 +1293,7 @@ bool LocalDataStructures::runOnModule(Module &M) {
   // program.
   BuildGlobalECs(*GlobalsGraph, ECGlobals);
   if (!ECGlobals.empty()) {
-    DOUT << "Eliminating " << ECGlobals.size() << " EC Globals!\n";
+    DEBUG(std::cerr << "Eliminating " << ECGlobals.size() << " EC Globals!\n");
     for (hash_map<Function*, DSGraph*>::iterator I = DSInfo.begin(),
            E = DSInfo.end(); I != E; ++I)
       EliminateUsesOfECGlobals(*I->second, ECGlobals);

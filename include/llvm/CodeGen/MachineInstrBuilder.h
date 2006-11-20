@@ -18,8 +18,6 @@
 #define LLVM_CODEGEN_MACHINEINSTRBUILDER_H
 
 #include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
 
@@ -35,10 +33,8 @@ public:
 
   /// addReg - Add a new virtual register operand...
   ///
-  const
-  MachineInstrBuilder &addReg(int RegNo, bool isDef = false, bool isImp = false,
-                              bool isKill = false, bool isDead = false) const {
-    MI->addRegOperand(RegNo, isDef, isImp);
+  const MachineInstrBuilder &addReg(int RegNo, bool isDef = false) const {
+    MI->addRegOperand(RegNo, isDef);
     return *this;
   }
 
@@ -86,18 +82,17 @@ public:
 /// itself.  NumOperands is the number of operands to the machine instruction to
 /// allow for memory efficient representation of machine instructions.
 ///
-inline MachineInstrBuilder BuildMI(const TargetInstrInfo &TII, int Opcode,
-                                   unsigned NumOperands) {
-  return MachineInstrBuilder(new MachineInstr(TII, Opcode, NumOperands));
+inline MachineInstrBuilder BuildMI(int Opcode, unsigned NumOperands) {
+  return MachineInstrBuilder(new MachineInstr(Opcode, NumOperands));
 }
 
 /// BuildMI - This version of the builder sets up the first operand as a
 /// destination virtual register.  NumOperands is the number of additional add*
 /// calls that are expected, not including the destination register.
 ///
-inline MachineInstrBuilder  BuildMI(const TargetInstrInfo &TII, int Opcode,
-                                    unsigned NumOperands, unsigned DestReg) {
-  return MachineInstrBuilder(new MachineInstr(TII, Opcode, NumOperands+1))
+inline MachineInstrBuilder 
+BuildMI(int Opcode, unsigned NumOperands, unsigned DestReg) {
+  return MachineInstrBuilder(new MachineInstr(Opcode, NumOperands+1))
                .addReg(DestReg, true);
 }
 
@@ -111,8 +106,7 @@ inline MachineInstrBuilder BuildMI(MachineBasicBlock &BB,
                                    MachineBasicBlock::iterator I,
                                    int Opcode, unsigned NumOperands,
                                    unsigned DestReg) {
-  MachineInstr *MI = new MachineInstr(*BB.getParent()->getTarget().
-                                      getInstrInfo(), Opcode, NumOperands+1);
+  MachineInstr *MI = new MachineInstr(Opcode, NumOperands+1);
   BB.insert(I, MI);
   return MachineInstrBuilder(MI).addReg(DestReg, true);
 }
@@ -124,8 +118,7 @@ inline MachineInstrBuilder BuildMI(MachineBasicBlock &BB,
 inline MachineInstrBuilder BuildMI(MachineBasicBlock &BB,
                                    MachineBasicBlock::iterator I,
                                    int Opcode, unsigned NumOperands) {
-  MachineInstr *MI = new MachineInstr(*BB.getParent()->getTarget().
-                                      getInstrInfo(), Opcode, NumOperands);
+  MachineInstr *MI = new MachineInstr(Opcode, NumOperands);
   BB.insert(I, MI);
   return MachineInstrBuilder(MI);
 }

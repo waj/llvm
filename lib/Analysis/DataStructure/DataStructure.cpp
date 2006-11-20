@@ -62,17 +62,7 @@ bool DSNodeHandle::isForwarding() const {
 
 DSNode *DSNodeHandle::HandleForwarding() const {
   assert(N->isForwarding() && "Can only be invoked if forwarding!");
-  DEBUG(
-        { //assert not looping
-          DSNode* NH = N;
-          std::set<DSNode*> seen;
-          while(NH && NH->isForwarding()) {
-            assert(seen.find(NH) == seen.end() && "Loop detected");
-            seen.insert(NH);
-            NH = NH->ForwardNH.N;
-          }
-        }
-        );
+
   // Handle node forwarding here!
   DSNode *Next = N->ForwardNH.getNode();  // Cause recursive shrinkage
   Offset += N->ForwardNH.getOffset();
@@ -431,7 +421,6 @@ static bool ElementTypesAreCompatible(const Type *T1, const Type *T2,
 ///
 bool DSNode::mergeTypeInfo(const Type *NewTy, unsigned Offset,
                            bool FoldIfIncompatible) {
-  DOUT << "merging " << *NewTy << " at " << Offset << " with " << *Ty << "\n";
   const TargetData &TD = getTargetData();
   // Check to make sure the Size member is up-to-date.  Size can be one of the
   // following:
@@ -520,10 +509,9 @@ bool DSNode::mergeTypeInfo(const Type *NewTy, unsigned Offset,
       //handle some common cases:
       // Ty:    struct { t1, t2, t3, t4, ..., tn}
       // NewTy: struct { offset, stuff...}
-      // try merge with NewTy: struct {t1, t2, stuff...} if offset lands exactly
-      // on a field in Ty
+      // try merge with NewTy: struct {t1, t2, stuff...} if offset lands exactly on a field in Ty
       if (isa<StructType>(NewTy) && isa<StructType>(Ty)) {
-        DOUT << "Ty: " << *Ty << "\nNewTy: " << *NewTy << "@" << Offset << "\n";
+        DEBUG(std::cerr << "Ty: " << *Ty << "\nNewTy: " << *NewTy << "@" << Offset << "\n");
         const StructType *STy = cast<StructType>(Ty);
         const StructLayout &SL = *TD.getStructLayout(STy);
         unsigned i = SL.getElementContainingOffset(Offset);
@@ -539,16 +527,15 @@ bool DSNode::mergeTypeInfo(const Type *NewTy, unsigned Offset,
         nt.insert(nt.end(), STy->element_begin(), STy->element_end());
         //and merge
         STy = StructType::get(nt);
-        DOUT << "Trying with: " << *STy << "\n";
+        DEBUG(std::cerr << "Trying with: " << *STy << "\n");
         return mergeTypeInfo(STy, 0);
       }
 
       //Ty: struct { t1, t2, t3 ... tn}
       //NewTy T offset x
-      //try merge with NewTy: struct : {t1, t2, T} if offset lands on a field
-      //in Ty
+      //try merge with NewTy: struct : {t1, t2, T} if offset lands on a field in Ty
       if (isa<StructType>(Ty)) {
-        DOUT << "Ty: " << *Ty << "\nNewTy: " << *NewTy << "@" << Offset << "\n";
+        DEBUG(std::cerr << "Ty: " << *Ty << "\nNewTy: " << *NewTy << "@" << Offset << "\n");
         const StructType *STy = cast<StructType>(Ty);
         const StructLayout &SL = *TD.getStructLayout(STy);
         unsigned i = SL.getElementContainingOffset(Offset);
@@ -563,13 +550,12 @@ bool DSNode::mergeTypeInfo(const Type *NewTy, unsigned Offset,
         nt.push_back(NewTy);
         //and merge
         STy = StructType::get(nt);
-        DOUT << "Trying with: " << *STy << "\n";
+        DEBUG(std::cerr << "Trying with: " << *STy << "\n");
         return mergeTypeInfo(STy, 0);
       }
 
-      assert(0 &&
-             "UNIMP: Trying to merge a growth type into "
-             "offset != 0: Collapsing!");
+      std::cerr << "UNIMP: Trying to merge a growth type into "
+                << "offset != 0: Collapsing!\n";
       abort();
       if (FoldIfIncompatible) foldNodeCompletely();
       return true;
@@ -719,11 +705,10 @@ bool DSNode::mergeTypeInfo(const Type *NewTy, unsigned Offset,
   Module *M = 0;
   if (getParentGraph()->retnodes_begin() != getParentGraph()->retnodes_end())
     M = getParentGraph()->retnodes_begin()->first->getParent();
-
-  DOUT << "MergeTypeInfo Folding OrigTy: ";
-  DEBUG(WriteTypeSymbolic(std::cerr, Ty, M) << "\n due to:";
+  DEBUG(std::cerr << "MergeTypeInfo Folding OrigTy: ";
+        WriteTypeSymbolic(std::cerr, Ty, M) << "\n due to:";
         WriteTypeSymbolic(std::cerr, NewTy, M) << " @ " << Offset << "!\n"
-                                               << "SubType: ";
+                  << "SubType: ";
         WriteTypeSymbolic(std::cerr, SubType, M) << "\n\n");
 
   if (FoldIfIncompatible) foldNodeCompletely();
@@ -929,7 +914,8 @@ void DSNode::mergeWith(const DSNodeHandle &NH, unsigned Offset) {
   if (N == this) {
     // We cannot merge two pieces of the same node together, collapse the node
     // completely.
-    DOUT << "Attempting to merge two chunks of the same node together!\n";
+    DEBUG(std::cerr << "Attempting to merge two chunks of"
+                    << " the same node together!\n");
     foldNodeCompletely();
     return;
   }
@@ -1609,13 +1595,13 @@ void DSGraph::mergeInGraph(const DSCallSite &CS,
     for (afc_iterator I = Graph.afc_begin(), E = Graph.afc_end(); I!=E; ++I)
       if (SCCFinder.PathExistsToClonedNode(*I))
         AuxCallToCopy.push_back(&*I);
-//       else if (I->isIndirectCall()){
-//  	//If the call node doesn't have any callees, clone it
-//  	std::vector< Function *> List;
-//  	I->getCalleeNode()->addFullFunctionList(List);
-//  	if (!List.size())
-//  	  AuxCallToCopy.push_back(&*I);
-//        }
+      else if (I->isIndirectCall()){
+ 	//If the call node doesn't have any callees, clone it
+ 	std::vector< Function *> List;
+ 	I->getCalleeNode()->addFullFunctionList(List);
+ 	if (!List.size())
+ 	  AuxCallToCopy.push_back(&*I);
+       }
 
   const DSScalarMap &GSM = Graph.getScalarMap();
   for (DSScalarMap::global_iterator GI = GSM.global_begin(),
@@ -1810,7 +1796,9 @@ static void removeIdenticalCalls(std::list<DSCallSite> &Calls) {
       // eliminate it.
       if (Callee->getNumReferrers() == 1 && Callee->isComplete() &&
           Callee->getGlobalsList().empty()) {  // No useful info?
-        DOUT << "WARNING: Useless call site found.\n";
+#ifndef NDEBUG
+        std::cerr << "WARNING: Useless call site found.\n";
+#endif
         Calls.erase(OldIt);
         ++NumDeleted;
         continue;
@@ -1930,8 +1918,8 @@ static void removeIdenticalCalls(std::list<DSCallSite> &Calls) {
   // Track the number of call nodes merged away...
   NumCallNodesMerged += NumDeleted;
 
-  if (NumDeleted)
-    DOUT << "Merged " << NumDeleted << " call nodes.\n";
+  DEBUG(if (NumDeleted)
+          std::cerr << "Merged " << NumDeleted << " call nodes.\n";);
 }
 
 
@@ -2263,7 +2251,7 @@ void DSGraph::AssertCallSiteInGraph(const DSCallSite &CS) const {
 #if 0
     if (CS.getNumPtrArgs() && CS.getCalleeNode() == CS.getPtrArg(0).getNode() &&
         CS.getCalleeNode() && CS.getCalleeNode()->getGlobals().empty())
-      DOUT << "WARNING: WEIRD CALL SITE FOUND!\n";
+      std::cerr << "WARNING: WEIRD CALL SITE FOUND!\n";
 #endif
   }
   AssertNodeInGraph(CS.getRetVal().getNode());

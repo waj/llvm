@@ -25,9 +25,8 @@ class Type;
 class PPCRegisterInfo : public PPCGenRegisterInfo {
   std::map<unsigned, unsigned> ImmToIdxMap;
   const PPCSubtarget &Subtarget;
-  const TargetInstrInfo &TII;
 public:
-  PPCRegisterInfo(const PPCSubtarget &SubTarget, const TargetInstrInfo &tii);
+  PPCRegisterInfo(const PPCSubtarget &SubTarget);
   
   /// getRegisterNumbering - Given the enum value for some register, e.g.
   /// PPC::F14, return the number that it corresponds to (e.g. 14).
@@ -61,12 +60,7 @@ public:
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I) const;
 
-  void lowerDynamicAlloc(MachineBasicBlock::iterator II) const;
   void eliminateFrameIndex(MachineBasicBlock::iterator II) const;
-
-  /// determineFrameLayout - Determine the size of the frame and maximum call
-  /// frame size.
-  void determineFrameLayout(MachineFunction &MF) const;
 
   void emitPrologue(MachineFunction &MF) const;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;

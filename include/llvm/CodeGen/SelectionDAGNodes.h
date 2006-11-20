@@ -524,8 +524,8 @@ namespace ISD {
   bool isBuildVectorAllZeros(const SDNode *N);
   
   //===--------------------------------------------------------------------===//
-  /// MemIndexedMode enum - This enum defines the load / store indexed 
-  /// addressing modes.
+  /// MemOpAddrMode enum - This enum defines the three load / store addressing
+  /// modes.
   ///
   /// UNINDEXED    "Normal" load / store. The effective address is already
   ///              computed and is available in the base pointer. The offset
@@ -552,13 +552,12 @@ namespace ISD {
   ///              computation); a post-indexed store produces one value (the
   ///              the result of the base +/- offset computation).
   ///
-  enum MemIndexedMode {
+  enum MemOpAddrMode {
     UNINDEXED = 0,
     PRE_INC,
     PRE_DEC,
     POST_INC,
-    POST_DEC,
-    LAST_INDEXED_MODE
+    POST_DEC
   };
 
   //===--------------------------------------------------------------------===//
@@ -866,7 +865,7 @@ public:
   /// getOperationName - Return the opcode of this operation for printing.
   ///
   const char* getOperationName(const SelectionDAG *G = 0) const;
-  static const char* getIndexedModeName(ISD::MemIndexedMode AM);
+  static const char* getAddressingModeName(ISD::MemOpAddrMode AM);
   void dump() const;
   void dump(const SelectionDAG *G) const;
 
@@ -1384,7 +1383,7 @@ public:
 ///
 class LoadSDNode : public SDNode {
   // AddrMode - unindexed, pre-indexed, post-indexed.
-  ISD::MemIndexedMode AddrMode;
+  ISD::MemOpAddrMode AddrMode;
 
   // ExtType - non-ext, anyext, sext, zext.
   ISD::LoadExtType ExtType;
@@ -1406,7 +1405,7 @@ class LoadSDNode : public SDNode {
 protected:
   friend class SelectionDAG;
   LoadSDNode(SDOperand Chain, SDOperand Ptr, SDOperand Off,
-             ISD::MemIndexedMode AM, ISD::LoadExtType ETy, MVT::ValueType LVT,
+             ISD::MemOpAddrMode AM, ISD::LoadExtType ETy, MVT::ValueType LVT,
              const Value *SV, int O=0, unsigned Align=1, bool Vol=false)
     : SDNode(ISD::LOAD, Chain, Ptr, Off),
       AddrMode(AM), ExtType(ETy), LoadedVT(LVT), SrcValue(SV), SVOffset(O),
@@ -1419,7 +1418,7 @@ public:
   const SDOperand getChain() const { return getOperand(0); }
   const SDOperand getBasePtr() const { return getOperand(1); }
   const SDOperand getOffset() const { return getOperand(2); }
-  ISD::MemIndexedMode getAddressingMode() const { return AddrMode; }
+  ISD::MemOpAddrMode getAddressingMode() const { return AddrMode; }
   ISD::LoadExtType getExtensionType() const { return ExtType; }
   MVT::ValueType getLoadedVT() const { return LoadedVT; }
   const Value *getSrcValue() const { return SrcValue; }
@@ -1437,7 +1436,7 @@ public:
 ///
 class StoreSDNode : public SDNode {
   // AddrMode - unindexed, pre-indexed, post-indexed.
-  ISD::MemIndexedMode AddrMode;
+  ISD::MemOpAddrMode AddrMode;
 
   // IsTruncStore - True is the op does a truncation before store.
   bool IsTruncStore;
@@ -1459,7 +1458,7 @@ class StoreSDNode : public SDNode {
 protected:
   friend class SelectionDAG;
   StoreSDNode(SDOperand Chain, SDOperand Value, SDOperand Ptr, SDOperand Off,
-              ISD::MemIndexedMode AM, bool isTrunc, MVT::ValueType SVT,
+              ISD::MemOpAddrMode AM, bool isTrunc, MVT::ValueType SVT,
               const Value *SV, int O=0, unsigned Align=0, bool Vol=false)
     : SDNode(ISD::STORE, Chain, Value, Ptr, Off),
       AddrMode(AM), IsTruncStore(isTrunc), StoredVT(SVT), SrcValue(SV),
@@ -1473,7 +1472,7 @@ public:
   const SDOperand getValue() const { return getOperand(1); }
   const SDOperand getBasePtr() const { return getOperand(2); }
   const SDOperand getOffset() const { return getOperand(3); }
-  ISD::MemIndexedMode getAddressingMode() const { return AddrMode; }
+  ISD::MemOpAddrMode getAddressingMode() const { return AddrMode; }
   bool isTruncatingStore() const { return IsTruncStore; }
   MVT::ValueType getStoredVT() const { return StoredVT; }
   const Value *getSrcValue() const { return SrcValue; }

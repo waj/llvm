@@ -17,8 +17,6 @@
 #ifndef LLVM_PASSMANAGER_H
 #define LLVM_PASSMANAGER_H
 
-#include "llvm/Pass.h"
-
 namespace llvm {
 
 class Pass;
@@ -86,74 +84,6 @@ public:
   ///
   bool doFinalization();
 };
-
-class ModulePassManager_New;
-class PassManagerImpl_New;
-class FunctionPassManagerImpl_New;
-
-/// PassManager_New manages ModulePassManagers
-class PassManager_New {
-
-public:
-
-  PassManager_New();
-
-  /// add - Add a pass to the queue of passes to run.  This passes ownership of
-  /// the Pass to the PassManager.  When the PassManager is destroyed, the pass
-  /// will be destroyed as well, so there is no need to delete the pass.  This
-  /// implies that all passes MUST be allocated with 'new'.
-  void add(Pass *P);
- 
-  /// run - Execute all of the passes scheduled for execution.  Keep track of
-  /// whether any of the passes modifies the module, and if so, return true.
-  bool run(Module &M);
-
-private:
-
-  /// PassManagerImpl_New is the actual class. PassManager_New is just the 
-  /// wraper to publish simple pass manager interface
-  PassManagerImpl_New *PM;
-
-};
-
-/// FunctionPassManager_New manages FunctionPasses and BasicBlockPassManagers.
-class FunctionPassManager_New {
-public:
-  FunctionPassManager_New(ModuleProvider *P) { /* TODO */ }
-  FunctionPassManager_New();
-  ~FunctionPassManager_New() { /* TODO */ };
- 
-  /// add - Add a pass to the queue of passes to run.  This passes
-  /// ownership of the Pass to the PassManager.  When the
-  /// PassManager_X is destroyed, the pass will be destroyed as well, so
-  /// there is no need to delete the pass. (TODO delete passes.)
-  /// This implies that all passes MUST be allocated with 'new'.
-  void add(Pass *P);
-
-  /// Execute all of the passes scheduled for execution.  Keep
-  /// track of whether any of the passes modifies the function, and if
-  /// so, return true.
-  bool runOnModule(Module &M);
-
-  /// run - Execute all of the passes scheduled for execution.  Keep
-  /// track of whether any of the passes modifies the function, and if
-  /// so, return true.
-  ///
-  bool run(Function &F);
-  
-  /// doInitialization - Run all of the initializers for the function passes.
-  ///
-  bool doInitialization();
-  
-  /// doFinalization - Run all of the initializers for the function passes.
-  ///
-  bool doFinalization();
-private:
-  
-  FunctionPassManagerImpl_New *FPM;
-  ModuleProvider *MP;
-};
-
 
 } // End llvm namespace
 

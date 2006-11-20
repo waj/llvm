@@ -76,12 +76,10 @@ bool llvm::ExpressionConvertibleToType(Value *V, const Type *Ty,
         !ExpressionConvertibleToType(I->getOperand(1), Ty, CTMap, TD))
       return false;
     break;
-  case Instruction::LShr:
-  case Instruction::AShr:
+  case Instruction::Shr:
     if (!Ty->isInteger()) return false;
-    if (!ExpressionConvertibleToType(I->getOperand(0), Ty, CTMap, TD))
-      return false;
-    break;
+    if (Ty->isSigned() != V->getType()->isSigned()) return false;
+    // FALL THROUGH
   case Instruction::Shl:
     if (!Ty->isInteger()) return false;
     if (!ExpressionConvertibleToType(I->getOperand(0), Ty, CTMap, TD))
@@ -245,8 +243,7 @@ Value *llvm::ConvertExpressionToType(Value *V, const Type *Ty,
     break;
 
   case Instruction::Shl:
-  case Instruction::LShr:
-  case Instruction::AShr:
+  case Instruction::Shr:
     Res = new ShiftInst(cast<ShiftInst>(I)->getOpcode(), Dummy,
                         I->getOperand(1), Name);
     VMC.ExprMap[I] = Res;
@@ -479,8 +476,7 @@ static bool OperandConvertibleToType(User *U, Value *V, const Type *Ty,
     Value *OtherOp = I->getOperand((V == I->getOperand(0)) ? 1 : 0);
     return ExpressionConvertibleToType(OtherOp, Ty, CTMap, TD);
   }
-  case Instruction::LShr:
-  case Instruction::AShr:
+  case Instruction::Shr:
     if (Ty->isSigned() != V->getType()->isSigned()) return false;
     // FALL THROUGH
   case Instruction::Shl:
@@ -750,8 +746,7 @@ static void ConvertOperandToType(User *U, Value *OldVal, Value *NewVal,
     break;
   }
   case Instruction::Shl:
-  case Instruction::LShr:
-  case Instruction::AShr:
+  case Instruction::Shr:
     assert(I->getOperand(0) == OldVal);
     Res = new ShiftInst(cast<ShiftInst>(I)->getOpcode(), NewVal,
                         I->getOperand(1), Name);

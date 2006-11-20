@@ -33,6 +33,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 using namespace llvm;
 
@@ -207,24 +208,14 @@ bool LiveIntervals::runOnMachineFunction(MachineFunction &fn) {
     }
   }
 
-  
   for (iterator I = begin(), E = end(); I != E; ++I) {
-    LiveInterval &LI = I->second;
-    if (MRegisterInfo::isVirtualRegister(LI.reg)) {
+    LiveInterval &li = I->second;
+    if (MRegisterInfo::isVirtualRegister(li.reg)) {
       // If the live interval length is essentially zero, i.e. in every live
       // range the use follows def immediately, it doesn't make sense to spill
       // it and hope it will be easier to allocate for this li.
-      if (isZeroLengthInterval(&LI))
-        LI.weight = HUGE_VALF;
-      
-      // Divide the weight of the interval by its size.  This encourages 
-      // spilling of intervals that are large and have few uses, and
-      // discourages spilling of small intervals with many uses.
-      unsigned Size = 0;
-      for (LiveInterval::iterator II = LI.begin(), E = LI.end(); II != E;++II)
-        Size += II->end - II->start;
-      
-      LI.weight /= Size;
+      if (isZeroLengthInterval(&li))
+        li.weight = float(HUGE_VAL);
     }
   }
 
@@ -251,55 +242,6 @@ void LiveIntervals::print(std::ostream &O, const Module* ) const {
   }
 }
 
-/// CreateNewLiveInterval - Create a new live interval with the given live
-/// ranges. The new live interval will have an infinite spill weight.
-LiveInterval&
-LiveIntervals::CreateNewLiveInterval(const LiveInterval *LI,
-                                     const std::vector<LiveRange> &LRs) {
-  const TargetRegisterClass *RC = mf_->getSSARegMap()->getRegClass(LI->reg);
-
-  // Create a new virtual register for the spill interval.
-  unsigned NewVReg = mf_->getSSARegMap()->createVirtualRegister(RC);
-
-  // Replace the old virtual registers in the machine operands with the shiny
-  // new one.
-  for (std::vector<LiveRange>::const_iterator
-         I = LRs.begin(), E = LRs.end(); I != E; ++I) {
-    unsigned Index = getBaseIndex(I->start);
-    unsigned End = getBaseIndex(I->end - 1) + InstrSlots::NUM;
-
-    for (; Index != End; Index += InstrSlots::NUM) {
-      // Skip deleted instructions
-      while (Index != End && !getInstructionFromIndex(Index))
-        Index += InstrSlots::NUM;
-
-      if (Index == End) break;
-
-      MachineInstr *MI = getInstructionFromIndex(Index);
-
-      for (unsigned J = 0, e = MI->getNumOperands(); J != e; ++J) {
-        MachineOperand &MOp = MI->getOperand(J);
-        if (MOp.isRegister() && rep(MOp.getReg()) == LI->reg)
-          MOp.setReg(NewVReg);
-      }
-    }
-  }
-
-  LiveInterval &NewLI = getOrCreateInterval(NewVReg);
-
-  // The spill weight is now infinity as it cannot be spilled again
-  NewLI.weight = float(HUGE_VAL);
-
-  for (std::vector<LiveRange>::const_iterator
-         I = LRs.begin(), E = LRs.end(); I != E; ++I) {
-    DEBUG(std::cerr << "  Adding live range " << *I << " to new interval\n");
-    NewLI.addRange(*I);
-  }
-            
-  DEBUG(std::cerr << "Created new live interval " << NewLI << "\n");
-  return NewLI;
-}
-
 std::vector<LiveInterval*> LiveIntervals::
 addIntervalsForSpills(const LiveInterval &li, VirtRegMap &vrm, int slot) {
   // since this is called after the analysis is done we don't know if
@@ -308,7 +250,7 @@ addIntervalsForSpills(const LiveInterval &li, VirtRegMap &vrm, int slot) {
 
   std::vector<LiveInterval*> added;
 
-  assert(li.weight != HUGE_VALF &&
+  assert(li.weight != HUGE_VAL &&
          "attempt to spill already spilled interval!");
 
   DEBUG(std::cerr << "\t\t\t\tadding intervals for spills for interval: ";
@@ -383,7 +325,7 @@ addIntervalsForSpills(const LiveInterval &li, VirtRegMap &vrm, int slot) {
 
             // the spill weight is now infinity as it
             // cannot be spilled again
-            nI.weight = HUGE_VALF;
+            nI.weight = float(HUGE_VAL);
 
             if (HasUse) {
               LiveRange LR(getLoadIndex(index), getUseIndex(index),
@@ -624,6 +566,7 @@ void LiveIntervals::handlePhysicalRegisterDef(MachineBasicBlock *MBB,
   // A physical register cannot be live across basic block, so its
   // lifetime must end somewhere in its defining basic block.
   DEBUG(std::cerr << "\t\tregister: "; printRegName(interval.reg));
+  typedef LiveVariables::killed_iterator KillIter;
 
   unsigned baseIndex = MIIdx;
   unsigned start = getDefIndex(baseIndex);
@@ -646,14 +589,6 @@ void LiveIntervals::handlePhysicalRegisterDef(MachineBasicBlock *MBB,
     if (lv_->KillsRegister(mi, interval.reg)) {
       DEBUG(std::cerr << " killed");
       end = getUseIndex(baseIndex) + 1;
-      goto exit;
-    } else if (lv_->ModifiesRegister(mi, interval.reg)) {
-      // Another instruction redefines the register before it is ever read.
-      // Then the register is essentially dead at the instruction that defines
-      // it. Hence its interval is:
-      // [defSlot(def), defSlot(def)+1)
-      DEBUG(std::cerr << " dead");
-      end = getDefIndex(start) + 1;
       goto exit;
     }
   }
@@ -714,9 +649,16 @@ void LiveIntervals::computeIntervals() {
     }
     
     for (; MI != miEnd; ++MI) {
+      const TargetInstrDescriptor &TID = tii_->get(MI->getOpcode());
       DEBUG(std::cerr << MIIndex << "\t" << *MI);
+      
+      // Handle implicit defs.
+      if (TID.ImplicitDefs) {
+        for (const unsigned *ImpDef = TID.ImplicitDefs; *ImpDef; ++ImpDef)
+          handleRegisterDef(MBB, MI, MIIndex, *ImpDef);
+      }
 
-      // Handle defs.
+      // Handle explicit defs.
       for (int i = MI->getNumOperands() - 1; i >= 0; --i) {
         MachineOperand &MO = MI->getOperand(i);
         // handle register defs - build intervals
@@ -1405,6 +1347,6 @@ bool LiveIntervals::differingRegisterClasses(unsigned RegA,
 
 LiveInterval LiveIntervals::createInterval(unsigned reg) {
   float Weight = MRegisterInfo::isPhysicalRegister(reg) ?
-                       HUGE_VALF : 0.0F;
+                       (float)HUGE_VAL : 0.0F;
   return LiveInterval(reg, Weight);
 }

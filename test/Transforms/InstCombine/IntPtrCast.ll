@@ -1,4 +1,4 @@
-; RUN: llvm-as < %s | opt -instcombine | llvm-dis | notcast
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep cast
 target pointersize = 32
 
 int *%test(int *%P) {

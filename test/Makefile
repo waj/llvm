@@ -24,7 +24,6 @@ include Makefile.tests
 
 ifdef TESTSUITE
 CLEANED_TESTSUITE := $(patsubst %/,%,$(TESTSUITE))
-CLEANED_TESTSUITE := $(patsubst test/%,%,$(CLEANED_TESTSUITE))
 RUNTESTFLAGS := --tool $(CLEANED_TESTSUITE)
 endif
 

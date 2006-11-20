@@ -69,7 +69,7 @@ namespace {
   /// module to a C translation unit.
   class CWriter : public FunctionPass, public InstVisitor<CWriter> {
     std::ostream &Out;
-    IntrinsicLowering IL;
+    DefaultIntrinsicLowering IL;
     Mangler *Mang;
     LoopInfo *LI;
     const Module *TheModule;
@@ -606,8 +606,7 @@ void CWriter::printConstant(Constant *CPV) {
     case Instruction::SetGT:
     case Instruction::SetGE:
     case Instruction::Shl:
-    case Instruction::LShr:
-    case Instruction::AShr:
+    case Instruction::Shr:
     {
       Out << '(';
       bool NeedsClosingParens = printConstExprCast(CE); 
@@ -632,8 +631,7 @@ void CWriter::printConstant(Constant *CPV) {
       case Instruction::SetGT: Out << " > "; break;
       case Instruction::SetGE: Out << " >= "; break;
       case Instruction::Shl: Out << " << "; break;
-      case Instruction::LShr:
-      case Instruction::AShr: Out << " >> "; break;
+      case Instruction::Shr: Out << " >> "; break;
       default: assert(0 && "Illegal opcode here!");
       }
       printConstantWithCast(CE->getOperand(1), CE->getOpcode());
@@ -828,23 +826,23 @@ void CWriter::printConstant(Constant *CPV) {
 // because their operands were casted to the expected type. This function takes
 // care of detecting that case and printing the cast for the ConstantExpr.
 bool CWriter::printConstExprCast(const ConstantExpr* CE) {
-  bool NeedsExplicitCast = false;
+  bool Result = false;
   const Type* Ty = CE->getOperand(0)->getType();
   switch (CE->getOpcode()) {
-  case Instruction::LShr:
+  case Instruction::UDiv: 
   case Instruction::URem: 
-  case Instruction::UDiv: NeedsExplicitCast = Ty->isSigned(); break;
-  case Instruction::AShr:
+    Result = Ty->isSigned(); break;
+  case Instruction::SDiv: 
   case Instruction::SRem: 
-  case Instruction::SDiv: NeedsExplicitCast = Ty->isUnsigned(); break;
+    Result = Ty->isUnsigned(); break;
   default: break;
   }
-  if (NeedsExplicitCast) {
+  if (Result) {
     Out << "((";
     printType(Out, Ty);
     Out << ")(";
   }
-  return NeedsExplicitCast;
+  return Result;
 }
 
 //  Print a constant assuming that it is the operand for a given Opcode. The
@@ -865,7 +863,6 @@ void CWriter::printConstantWithCast(Constant* CPV, unsigned Opcode) {
     default:
       // for most instructions, it doesn't matter
       break; 
-    case Instruction::LShr:
     case Instruction::UDiv:
     case Instruction::URem:
       // For UDiv/URem get correct type
@@ -874,7 +871,6 @@ void CWriter::printConstantWithCast(Constant* CPV, unsigned Opcode) {
         shouldCast = true;
       }
       break;
-    case Instruction::AShr:
     case Instruction::SDiv:
     case Instruction::SRem:
       // For SDiv/SRem get correct type
@@ -931,23 +927,23 @@ void CWriter::writeOperand(Value *Operand) {
 // This function takes care of detecting that case and printing the cast 
 // for the Instruction.
 bool CWriter::writeInstructionCast(const Instruction &I) {
-  bool NeedsExplicitCast = false;
+  bool Result = false;
   const Type* Ty = I.getOperand(0)->getType();
   switch (I.getOpcode()) {
-  case Instruction::LShr:
+  case Instruction::UDiv: 
   case Instruction::URem: 
-  case Instruction::UDiv: NeedsExplicitCast = Ty->isSigned(); break;
-  case Instruction::AShr:
+    Result = Ty->isSigned(); break;
+  case Instruction::SDiv: 
   case Instruction::SRem: 
-  case Instruction::SDiv: NeedsExplicitCast = Ty->isUnsigned(); break;
+    Result = Ty->isUnsigned(); break;
   default: break;
   }
-  if (NeedsExplicitCast) {
+  if (Result) {
     Out << "((";
     printType(Out, Ty);
     Out << ")(";
   }
-  return NeedsExplicitCast;
+  return Result;
 }
 
 // Write the operand with a cast to another type based on the Opcode being used.
@@ -968,7 +964,6 @@ void CWriter::writeOperandWithCast(Value* Operand, unsigned Opcode) {
     default:
       // for most instructions, it doesn't matter
       break; 
-    case Instruction::LShr:
     case Instruction::UDiv:
     case Instruction::URem:
       // For UDiv to have unsigned operands
@@ -977,7 +972,6 @@ void CWriter::writeOperandWithCast(Value* Operand, unsigned Opcode) {
         shouldCast = true;
       }
       break;
-    case Instruction::AShr:
     case Instruction::SDiv:
     case Instruction::SRem:
       if (OpTy->isUnsigned()) {
@@ -1838,8 +1832,7 @@ void CWriter::visitBinaryOperator(Instruction &I) {
     case Instruction::SetLT: Out << " < "; break;
     case Instruction::SetGT: Out << " > "; break;
     case Instruction::Shl : Out << " << "; break;
-    case Instruction::LShr:
-    case Instruction::AShr: Out << " >> "; break;
+    case Instruction::Shr : Out << " >> "; break;
     default: std::cerr << "Invalid operator type!" << I; abort();
     }
 

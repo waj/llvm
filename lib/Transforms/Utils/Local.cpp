@@ -21,6 +21,7 @@
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/MathExtras.h"
 #include <cerrno>
+#include <cmath>
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -119,8 +120,7 @@ Constant *llvm::ConstantFoldInstOperands(unsigned Opc, const Type *DestTy,
     }
     return 0;
   case Instruction::Shl:
-  case Instruction::LShr:
-  case Instruction::AShr:
+  case Instruction::Shr:
     return ConstantExpr::get(Opc, Ops[0], Ops[1]);
   case Instruction::Cast:
     return ConstantExpr::getCast(Ops[0], DestTy);

@@ -195,13 +195,8 @@ def CR7 : CR<7, "cr7">, DwarfRegNum<75>;
 
 // Link register
 def LR  : SPR<8, "lr">, DwarfRegNum<65>;
-//let Aliases = [LR] in
-def LR8 : SPR<8, "lr">, DwarfRegNum<65>;
-
 // Count register
-def CTR  : SPR<9, "ctr">, DwarfRegNum<66>;
-def CTR8 : SPR<9, "ctr">, DwarfRegNum<66>;
-
+def CTR : SPR<9, "ctr">, DwarfRegNum<66>;
 // VRsave register
 def VRSAVE: SPR<256, "VRsave">, DwarfRegNum<107>;
 
@@ -224,7 +219,7 @@ def GPRC : RegisterClass<"PPC", [i32], 32,
     }
     GPRCClass::iterator
     GPRCClass::allocation_order_end(const MachineFunction &MF) const {
-      if (needsFP(MF))
+      if (hasFP(MF))
         return end()-4;  // don't allocate R31, R0, R1, LR
       else
         return end()-3;  // don't allocate R0, R1, LR
@@ -234,7 +229,7 @@ def GPRC : RegisterClass<"PPC", [i32], 32,
 def G8RC : RegisterClass<"PPC", [i64], 64,
      [X2, X3, X4, X5, X6, X7, X8, X9, X10, X11, X12,
       X30, X29, X28, X27, X26, X25, X24, X23, X22, X21, X20, X19, X18, X17,
-      X16, X15, X14, X13, X31, X0, X1, LR8]>
+      X16, X15, X14, X13, X31, X0, X1]>
 {
   let MethodProtos = [{
     iterator allocation_order_begin(const MachineFunction &MF) const;
@@ -247,10 +242,10 @@ def G8RC : RegisterClass<"PPC", [i64], 64,
     }
     G8RCClass::iterator
     G8RCClass::allocation_order_end(const MachineFunction &MF) const {
-      if (needsFP(MF))
-        return end()-4;
-      else
+      if (hasFP(MF))
         return end()-3;
+      else
+        return end()-2;
     }
   }];
 }

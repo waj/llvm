@@ -124,12 +124,8 @@ Linker::LinkInArchive(const sys::Path &Filename) {
   // variable is used to "set_subtract" from the set of undefined symbols.
   std::set<std::string> NotDefinedByArchive;
 
-  // Save the current set of undefined symbols, because we may have to make
-  // multiple passes over the archive:
-  std::set<std::string> CurrentlyUndefinedSymbols;
-
-  do {
-    CurrentlyUndefinedSymbols = UndefinedSymbols;
+  // While we are linking in object files, loop.
+  while (true) {
 
     // Find the modules we need to link into the target module
     std::set<ModuleProvider*> Modules;
@@ -153,21 +149,17 @@ Linker::LinkInArchive(const sys::Path &Filename) {
          I != E; ++I) {
 
       // Get the module we must link in.
-      std::string moduleErrorMsg;
-      std::auto_ptr<Module> AutoModule((*I)->releaseModule( &moduleErrorMsg ));
+      std::auto_ptr<Module> AutoModule( (*I)->releaseModule() );
       Module* aModule = AutoModule.get();
 
-      if (aModule != NULL) {
-        verbose("  Linking in module: " + aModule->getModuleIdentifier());
+      verbose("  Linking in module: " + aModule->getModuleIdentifier());
 
-        // Link it in
-        if (LinkInModule(aModule, &moduleErrorMsg)) {
-          return error("Cannot link in module '" +
-                       aModule->getModuleIdentifier() + "': " + moduleErrorMsg);
-        }
-      } 
+      // Link it in
+      if (LinkInModule(aModule))
+        return error("Cannot link in module '" +
+                     aModule->getModuleIdentifier() + "': " + Error);
     }
-    
+
     // Get the undefined symbols from the aggregate module. This recomputes the
     // symbols we still need after the new modules have been linked in.
     GetAllUndefinedSymbols(Composite, UndefinedSymbols);
@@ -183,7 +175,7 @@ Linker::LinkInArchive(const sys::Path &Filename) {
     // archive.
     if (UndefinedSymbols.empty())
       break;
-  } while (CurrentlyUndefinedSymbols != UndefinedSymbols);
+  }
 
   return false;
 }

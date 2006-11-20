@@ -275,7 +275,7 @@ namespace {
     JITMemoryManager(bool useGOT);
     ~JITMemoryManager();
 
-    inline unsigned char *allocateStub(unsigned StubSize, unsigned Alignment);
+    inline unsigned char *allocateStub(unsigned StubSize);
     
     /// startFunctionBody - When a function starts, allocate a block of free
     /// executable memory, returning a pointer to it and its actual size.
@@ -403,11 +403,8 @@ JITMemoryManager::~JITMemoryManager() {
   Blocks.clear();
 }
 
-unsigned char *JITMemoryManager::allocateStub(unsigned StubSize,
-                                              unsigned Alignment) {
+unsigned char *JITMemoryManager::allocateStub(unsigned StubSize) {
   CurStubPtr -= StubSize;
-  CurStubPtr = (unsigned char*)(((intptr_t)CurStubPtr) &
-                                ~(intptr_t)(Alignment-1));
   if (CurStubPtr < StubBase) {
     // FIXME: allocate a new block
     std::cerr << "JIT ran out of memory for function stubs!\n";
@@ -616,13 +613,6 @@ void *JITResolver::JITCompilerFn(void *Stub) {
          "This is not a known stub!");
   Function *F = (--I)->second;
 
-  // If disabled, emit a useful error message and abort.
-  if (TheJIT->isLazyCompilationDisabled()) {
-    std::cerr << "LLVM JIT requested to do lazy compilation of function '"
-              << F->getName() << "' when lazy compiles are disabled!\n";
-    abort();
-  }
-  
   // We might like to remove the stub from the StubToFunction map.
   // We can't do that! Multiple threads could be stuck, waiting to acquire the
   // lock above. As soon as the 1st function finishes compiling the function,
@@ -703,7 +693,7 @@ public:
     void initJumpTableInfo(MachineJumpTableInfo *MJTI);
     void emitJumpTableInfo(MachineJumpTableInfo *MJTI);
     
-    virtual void startFunctionStub(unsigned StubSize, unsigned Alignment = 1);
+    virtual void startFunctionStub(unsigned StubSize);
     virtual void* finishFunctionStub(const Function *F);
 
     virtual void addRelocation(const MachineRelocation &MR) {
@@ -772,9 +762,6 @@ void JITEmitter::startFunction(MachineFunction &F) {
   BufferBegin = CurBufferPtr = MemMgr.startFunctionBody(ActualSize);
   BufferEnd = BufferBegin+ActualSize;
   
-  // Ensure the constant pool/jump table info is at least 4-byte aligned.
-  emitAlignment(16);
-
   emitConstantPool(F.getConstantPool());
   initJumpTableInfo(F.getJumpTableInfo());
 
@@ -934,12 +921,12 @@ void JITEmitter::emitJumpTableInfo(MachineJumpTableInfo *MJTI) {
   }
 }
 
-void JITEmitter::startFunctionStub(unsigned StubSize, unsigned Alignment) {
+void JITEmitter::startFunctionStub(unsigned StubSize) {
   SavedBufferBegin = BufferBegin;
   SavedBufferEnd = BufferEnd;
   SavedCurBufferPtr = CurBufferPtr;
   
-  BufferBegin = CurBufferPtr = MemMgr.allocateStub(StubSize, Alignment);
+  BufferBegin = CurBufferPtr = MemMgr.allocateStub(StubSize);
   BufferEnd = BufferBegin+StubSize+1;
 }
 

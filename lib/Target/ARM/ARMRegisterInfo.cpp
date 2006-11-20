@@ -44,7 +44,7 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                     unsigned SrcReg, int FI,
                     const TargetRegisterClass *RC) const {
   assert (RC == ARM::IntRegsRegisterClass);
-  BuildMI(MBB, I, ARM::STR, 3).addReg(SrcReg).addFrameIndex(FI).addImm(0);
+  BuildMI(MBB, I, ARM::str, 3).addReg(SrcReg).addImm(0).addFrameIndex(FI);
 }
 
 void ARMRegisterInfo::
@@ -52,7 +52,7 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                      unsigned DestReg, int FI,
                      const TargetRegisterClass *RC) const {
   assert (RC == ARM::IntRegsRegisterClass);
-  BuildMI(MBB, I, ARM::LDR, 2, DestReg).addFrameIndex(FI).addImm(0);
+  BuildMI(MBB, I, ARM::ldr, 2, DestReg).addImm(0).addFrameIndex(FI);
 }
 
 void ARMRegisterInfo::copyRegToReg(MachineBasicBlock &MBB,
@@ -128,12 +128,12 @@ ARMRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II) const {
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
 
-  assert (MI.getOpcode() == ARM::LDR ||
-          MI.getOpcode() == ARM::STR ||
-          MI.getOpcode() == ARM::ADD);
+  assert (MI.getOpcode() == ARM::ldr ||
+	  MI.getOpcode() == ARM::str ||
+	  MI.getOpcode() == ARM::lea_addri);
 
-  unsigned FrameIdx = 1;
-  unsigned   OffIdx = 2;
+  unsigned FrameIdx = 2;
+  unsigned OffIdx = 1;
 
   int FrameIndex = MI.getOperand(FrameIdx).getFrameIndex();
 
@@ -195,8 +195,8 @@ void ARMRegisterInfo::emitPrologue(MachineFunction &MF) const {
 	  .addImm(0).addImm(ARMShift::LSL);
 
   if (HasFP) {
-    BuildMI(MBB, MBBI, ARM::STR, 3)
-      .addReg(ARM::R11).addReg(ARM::R13).addImm(0);
+    BuildMI(MBB, MBBI, ARM::str, 3)
+      .addReg(ARM::R11).addImm(0).addReg(ARM::R13);
     BuildMI(MBB, MBBI, ARM::MOV, 3, ARM::R11).addReg(ARM::R13).addImm(0).
       addImm(ARMShift::LSL);
   }
@@ -214,7 +214,7 @@ void ARMRegisterInfo::emitEpilogue(MachineFunction &MF,
   if (hasFP(MF)) {
     BuildMI(MBB, MBBI, ARM::MOV, 3, ARM::R13).addReg(ARM::R11).addImm(0).
       addImm(ARMShift::LSL);
-    BuildMI(MBB, MBBI, ARM::LDR, 2, ARM::R11).addReg(ARM::R13).addImm(0);
+    BuildMI(MBB, MBBI, ARM::ldr, 2, ARM::R11).addImm(0).addReg(ARM::R13);
   }
 
   //add sp, sp, #NumBytes

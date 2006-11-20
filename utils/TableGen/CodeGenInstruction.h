@@ -57,18 +57,12 @@ namespace llvm {
       unsigned MIOperandNo;
       unsigned MINumOperands;   // The number of operands.
 
-      /// DoNotEncode - Bools are set to true in this vector for each operand in
-      /// the DisableEncoding list.  These should not be emitted by the code
-      /// emitter.
-      std::vector<bool> DoNotEncode;
-      
       /// MIOperandInfo - Default MI operand type. Note an operand may be made
       /// up of multiple MI operands.
       DagInit *MIOperandInfo;
       
-      /// Constraint info for this operand.  This operand can have pieces, so we
-      /// track constraint info for each.
-      std::vector<std::string> Constraints;
+      /// Constraint info for this operand.
+      std::string Constraint;
 
       OperandInfo(Record *R, const std::string &N, const std::string &PMN, 
                   unsigned MION, unsigned MINO, DagInit *MIOI)
@@ -87,6 +81,7 @@ namespace llvm {
     bool isCall;
     bool isLoad;
     bool isStore;
+    bool isTwoAddress;
     bool isPredicated;
     bool isConvertibleToThreeAddress;
     bool isCommutable;
@@ -96,40 +91,6 @@ namespace llvm {
     bool hasVariableNumberOfOperands;
     bool hasCtrlDep;
     bool noResults;
-    
-    /// ParseOperandName - Parse an operand name like "$foo" or "$foo.bar",
-    /// where $foo is a whole operand and $foo.bar refers to a suboperand.
-    /// This throws an exception if the name is invalid.  If AllowWholeOp is
-    /// true, references to operands with suboperands are allowed, otherwise
-    /// not.
-    std::pair<unsigned,unsigned> ParseOperandName(const std::string &Op,
-                                                  bool AllowWholeOp = true);
-    
-    /// getFlattenedOperandNumber - Flatten a operand/suboperand pair into a
-    /// flat machineinstr operand #.
-    unsigned getFlattenedOperandNumber(std::pair<unsigned,unsigned> Op) const {
-      return OperandList[Op.first].MIOperandNo + Op.second;
-    }
-    
-    /// getSubOperandNumber - Unflatten a operand number into an
-    /// operand/suboperand pair.
-    std::pair<unsigned,unsigned> getSubOperandNumber(unsigned Op) const {
-      for (unsigned i = 0; ; ++i) {
-        assert(i < OperandList.size() && "Invalid flat operand #");
-        if (OperandList[i].MIOperandNo+OperandList[i].MINumOperands > Op)
-          return std::make_pair(i, Op-OperandList[i].MIOperandNo);
-      }
-    }
-    
-    
-    /// isFlatOperandNotEmitted - Return true if the specified flat operand #
-    /// should not be emitted with the code emitter.
-    bool isFlatOperandNotEmitted(unsigned FlatOpNo) const {
-      std::pair<unsigned,unsigned> Op = getSubOperandNumber(FlatOpNo);
-      if (OperandList[Op.first].DoNotEncode.size() > Op.second)
-        return OperandList[Op.first].DoNotEncode[Op.second];
-      return false;
-    }
 
     CodeGenInstruction(Record *R, const std::string &AsmStr);
 
