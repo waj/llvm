@@ -1,5 +1,7 @@
-; RUN: llvm-upgrade < %s | llvm-as -f -o %t.bc
+; RUN: llvm-as -f %s -o %t.bc
 ; RUN: lli %t.bc > /dev/null
+
+
 
 int %main() {
 	br label %Loop

@@ -15,42 +15,17 @@
 #include "X86GenSubtarget.inc"
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Target/TargetMachine.h"
+#include <iostream>
 using namespace llvm;
 
 cl::opt<X86Subtarget::AsmWriterFlavorTy>
-AsmWriterFlavor("x86-asm-syntax", cl::init(X86Subtarget::Unset),
+AsmWriterFlavor("x86-asm-syntax", cl::init(X86Subtarget::unset),
   cl::desc("Choose style of code to emit from X86 backend:"),
   cl::values(
-    clEnumValN(X86Subtarget::ATT,   "att",   "  Emit AT&T-style assembly"),
-    clEnumValN(X86Subtarget::Intel, "intel", "  Emit Intel-style assembly"),
+    clEnumValN(X86Subtarget::att,   "att",   "  Emit AT&T-style assembly"),
+    clEnumValN(X86Subtarget::intel, "intel", "  Emit Intel-style assembly"),
     clEnumValEnd));
 
-
-/// True if accessing the GV requires an extra load. For Windows, dllimported
-/// symbols are indirect, loading the value at address GV rather then the
-/// value of GV itself. This means that the GlobalAddress must be in the base
-/// or index register of the address, not the GV offset field.
-bool X86Subtarget::GVRequiresExtraLoad(const GlobalValue* GV,
-                                       const TargetMachine& TM,
-                                       bool isDirectCall) const
-{
-  // FIXME: PIC
-  if (TM.getRelocationModel() != Reloc::Static)
-    if (isTargetDarwin()) {
-      return (!isDirectCall &&
-              (GV->hasWeakLinkage() || GV->hasLinkOnceLinkage() ||
-               (GV->isDeclaration() && !GV->hasNotBeenReadFromBytecode())));
-    } else if (TM.getRelocationModel() == Reloc::PIC_ && isPICStyleGOT()) {
-      // Extra load is needed for all non-statics.
-      return (!isDirectCall &&
-              (GV->isDeclaration() || !GV->hasInternalLinkage()));
-    } else if (isTargetCygMing() || isTargetWindows()) {
-      return (GV->hasDLLImportLinkage());
-    }
-  
-  return false;
-}
 
 /// GetCpuIDAndInfo - Execute the specified cpuid and return the 4 values in the
 /// specified arguments.  If we can't run cpuid on the host, return true.
@@ -69,9 +44,10 @@ bool X86::GetCpuIDAndInfo(unsigned value, unsigned *rEAX, unsigned *rEBX,
   return false;
 #elif defined(i386) || defined(__i386__) || defined(__x86__) || defined(_M_IX86)
 #if defined(__GNUC__)
-  asm ("movl\t%%ebx, %%esi\n\t"
+  asm ("pushl\t%%ebx\n\t"
        "cpuid\n\t"
-       "xchgl\t%%ebx, %%esi\n\t"
+       "movl\t%%ebx, %%esi\n\t"
+       "popl\t%%ebx"
        : "=a" (*rEAX),
          "=S" (*rEBX),
          "=c" (*rECX),
@@ -103,10 +79,10 @@ void X86Subtarget::AutoDetectSubtargetFeatures() {
     unsigned u[3];
     char     c[12];
   } text;
-  
+
   if (X86::GetCpuIDAndInfo(0, &EAX, text.u+0, text.u+2, text.u+1))
     return;
-  
+
   // FIXME: support for AMD family of processors.
   if (memcmp(text.c, "GenuineIntel", 12) == 0) {
     X86::GetCpuIDAndInfo(0x1, &EAX, &EBX, &ECX, &EDX);
@@ -217,7 +193,6 @@ static const char *GetCurrentX86CPU() {
 
 X86Subtarget::X86Subtarget(const Module &M, const std::string &FS, bool is64Bit)
   : AsmFlavor(AsmWriterFlavor)
-  , PICStyle(PICStyle::None)
   , X86SSELevel(NoMMXSSE)
   , HasX86_64(false)
   , stackAlignment(8)
@@ -231,42 +206,30 @@ X86Subtarget::X86Subtarget(const Module &M, const std::string &FS, bool is64Bit)
     // If feature string is not empty, parse features string.
     std::string CPU = GetCurrentX86CPU();
     ParseSubtargetFeatures(FS, CPU);
-    
-    if (Is64Bit && !HasX86_64)
-      cerr << "Warning: Generation of 64-bit code for a 32-bit processor "
-           << "requested.\n";
-    if (Is64Bit && X86SSELevel < SSE2)
-      cerr << "Warning: 64-bit processors all have at least SSE2.\n";
-  } else {
+  } else
     // Otherwise, use CPUID to auto-detect feature set.
     AutoDetectSubtargetFeatures();
-  }
-    
-  // If requesting codegen for X86-64, make sure that 64-bit and SSE2 features
-  // are enabled.  These are available on all x86-64 CPUs.
-  if (Is64Bit) {
-    HasX86_64 = true;
-    if (X86SSELevel < SSE2)
-      X86SSELevel = SSE2;
+
+  if (Is64Bit && !HasX86_64) {
+      std::cerr << "Warning: Generation of 64-bit code for a 32-bit processor "
+                   "requested.\n";
+      HasX86_64 = true;
   }
 
   // Set the boolean corresponding to the current target triple, or the default
   // if one cannot be determined, to true.
   const std::string& TT = M.getTargetTriple();
   if (TT.length() > 5) {
-    if (TT.find("cygwin") != std::string::npos)
+    if (TT.find("cygwin") != std::string::npos ||
+        TT.find("mingw")  != std::string::npos)
       TargetType = isCygwin;
-    else if (TT.find("mingw") != std::string::npos)
-      TargetType = isMingw;
     else if (TT.find("darwin") != std::string::npos)
       TargetType = isDarwin;
     else if (TT.find("win32") != std::string::npos)
       TargetType = isWindows;
   } else if (TT.empty()) {
-#if defined(__CYGWIN__)
+#if defined(__CYGWIN__) || defined(__MINGW32__)
     TargetType = isCygwin;
-#elif defined(__MINGW32__)
-    TargetType = isMingw;
 #elif defined(__APPLE__)
     TargetType = isDarwin;
 #elif defined(_WIN32)
@@ -276,17 +239,14 @@ X86Subtarget::X86Subtarget(const Module &M, const std::string &FS, bool is64Bit)
 
   // If the asm syntax hasn't been overridden on the command line, use whatever
   // the target wants.
-  if (AsmFlavor == X86Subtarget::Unset) {
+  if (AsmFlavor == X86Subtarget::unset) {
     if (TargetType == isWindows) {
-      AsmFlavor = X86Subtarget::Intel;
+      AsmFlavor = X86Subtarget::intel;
     } else {
-      AsmFlavor = X86Subtarget::ATT;
+      AsmFlavor = X86Subtarget::att;
     }
   }
 
-  if (TargetType == isDarwin ||
-      TargetType == isCygwin ||
-      TargetType == isMingw  ||
-      (TargetType == isELF && Is64Bit))
+  if (TargetType == isDarwin || TargetType == isCygwin)
     stackAlignment = 16;
 }

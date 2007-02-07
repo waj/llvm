@@ -16,17 +16,25 @@
 #include "llvm/Function.h"
 using namespace llvm;
 
-PPCTargetAsmInfo::PPCTargetAsmInfo(const PPCTargetMachine &TM) {
+DarwinTargetAsmInfo::DarwinTargetAsmInfo(const PPCTargetMachine &TM) {
   bool isPPC64 = TM.getSubtargetImpl()->isPPC64();
-  
+
+  CommentString = ";";
+  GlobalPrefix = "_";
+  PrivateGlobalPrefix = "L";
   ZeroDirective = "\t.space\t";
   SetDirective = "\t.set";
   Data64bitsDirective = isPPC64 ? "\t.quad\t" : 0;  
   AlignmentIsInBytes = false;
+  ConstantPoolSection = "\t.const\t";
+  JumpTableDataSection = ".const";
+  CStringSection = "\t.cstring";
   LCOMMDirective = "\t.lcomm\t";
+  StaticCtorsSection = ".mod_init_func";
+  StaticDtorsSection = ".mod_term_func";
+  UsedDirective = "\t.no_dead_strip\t";
   InlineAsmStart = "# InlineAsm Start";
   InlineAsmEnd = "# InlineAsm End";
-  AssemblerDialect = TM.getSubtargetImpl()->getAsmFlavor();
   
   NeedsSet = true;
   AddressSize = isPPC64 ? 8 : 4;
@@ -41,52 +49,5 @@ PPCTargetAsmInfo::PPCTargetAsmInfo(const PPCTargetMachine &TM) {
   DwarfARangesSection = ".section __DWARF,__debug_aranges,regular,debug";
   DwarfRangesSection = ".section __DWARF,__debug_ranges,regular,debug";
   DwarfMacInfoSection = ".section __DWARF,__debug_macinfo,regular,debug";
-  DwarfEHFrameSection =
-  ".section __TEXT,__eh_frame,coalesced,no_toc+strip_static_syms+live_support";
 }
 
-DarwinTargetAsmInfo::DarwinTargetAsmInfo(const PPCTargetMachine &TM)
-: PPCTargetAsmInfo(TM)
-{
-  PCSymbol = ".";
-  CommentString = ";";
-  GlobalPrefix = "_";
-  PrivateGlobalPrefix = "L";
-  ConstantPoolSection = "\t.const\t";
-  JumpTableDataSection = ".const";
-  GlobalDirective = "\t.globl\t";
-  CStringSection = "\t.cstring";
-  if (TM.getRelocationModel() == Reloc::Static) {
-    StaticCtorsSection = ".constructor";
-    StaticDtorsSection = ".destructor";
-  } else {
-    StaticCtorsSection = ".mod_init_func";
-    StaticDtorsSection = ".mod_term_func";
-  }
-  UsedDirective = "\t.no_dead_strip\t";
-  WeakRefDirective = "\t.weak_reference\t";
-  HiddenDirective = "\t.private_extern\t";
-  SupportsExceptionHandling = true;
-  
-  // In non-PIC modes, emit a special label before jump tables so that the
-  // linker can perform more accurate dead code stripping.
-  if (TM.getRelocationModel() != Reloc::PIC_) {
-    // Emit a local label that is preserved until the linker runs.
-    JumpTableSpecialLabelPrefix = "l";
-  }
-}
-
-LinuxTargetAsmInfo::LinuxTargetAsmInfo(const PPCTargetMachine &TM)
-: PPCTargetAsmInfo(TM)
-{
-  CommentString = "#";
-  GlobalPrefix = "";
-  PrivateGlobalPrefix = "";
-  ConstantPoolSection = "\t.section .rodata.cst4\t";
-  JumpTableDataSection = ".section .rodata.cst4";
-  CStringSection = "\t.section\t.rodata";
-  StaticCtorsSection = ".section\t.ctors,\"aw\",@progbits";
-  StaticDtorsSection = ".section\t.dtors,\"aw\",@progbits";
-  UsedDirective = "\t# .no_dead_strip\t";
-  WeakRefDirective = "\t.weak\t";
-}

@@ -22,11 +22,11 @@
 #include "llvm/Support/CallSite.h"
 using namespace llvm;
 
-bool llvm::InlineFunction(CallInst *CI, CallGraph *CG, const TargetData *TD) {
-  return InlineFunction(CallSite(CI), CG, TD);
+bool llvm::InlineFunction(CallInst *CI, CallGraph *CG) {
+  return InlineFunction(CallSite(CI), CG);
 }
-bool llvm::InlineFunction(InvokeInst *II, CallGraph *CG, const TargetData *TD) {
-  return InlineFunction(CallSite(II), CG, TD);
+bool llvm::InlineFunction(InvokeInst *II, CallGraph *CG) {
+  return InlineFunction(CallSite(II), CG);
 }
 
 /// HandleInlinedInvoke - If we inlined an invoke site, we need to convert calls
@@ -143,7 +143,7 @@ static void HandleInlinedInvoke(InvokeInst *II, BasicBlock *FirstNewBlock,
 static void UpdateCallGraphAfterInlining(const Function *Caller,
                                          const Function *Callee,
                                          Function::iterator FirstNewBlock,
-                                       DenseMap<const Value*, Value*> &ValueMap,
+                                       std::map<const Value*, Value*> &ValueMap,
                                          CallGraph &CG) {
   // Update the call graph by deleting the edge from Callee to Caller
   CallGraphNode *CalleeNode = CG[Callee];
@@ -156,7 +156,7 @@ static void UpdateCallGraphAfterInlining(const Function *Caller,
        E = CalleeNode->end(); I != E; ++I) {
     const Instruction *OrigCall = I->first.getInstruction();
     
-    DenseMap<const Value*, Value*>::iterator VMI = ValueMap.find(OrigCall);
+    std::map<const Value*, Value*>::iterator VMI = ValueMap.find(OrigCall);
     // Only copy the edge if the call was inlined!
     if (VMI != ValueMap.end() && VMI->second) {
       // If the call was inlined, but then constant folded, there is no edge to
@@ -177,14 +177,14 @@ static void UpdateCallGraphAfterInlining(const Function *Caller,
 // exists in the instruction stream.  Similiarly this will inline a recursive
 // function by one level.
 //
-bool llvm::InlineFunction(CallSite CS, CallGraph *CG, const TargetData *TD) {
+bool llvm::InlineFunction(CallSite CS, CallGraph *CG) {
   Instruction *TheCall = CS.getInstruction();
   assert(TheCall->getParent() && TheCall->getParent()->getParent() &&
          "Instruction not in function!");
 
   const Function *CalledFunc = CS.getCalledFunction();
   if (CalledFunc == 0 ||          // Can't inline external function or indirect
-      CalledFunc->isDeclaration() || // call, or call to a vararg function!
+      CalledFunc->isExternal() || // call, or call to a vararg function!
       CalledFunc->getFunctionType()->isVarArg()) return false;
 
 
@@ -208,7 +208,7 @@ bool llvm::InlineFunction(CallSite CS, CallGraph *CG, const TargetData *TD) {
   Function::iterator FirstNewBlock;
   
   { // Scope to destroy ValueMap after cloning.
-    DenseMap<const Value*, Value*> ValueMap;
+    std::map<const Value*, Value*> ValueMap;
 
     // Calculate the vector of arguments to pass into the function cloner, which
     // matches up the formal to the actual argument values.
@@ -225,7 +225,7 @@ bool llvm::InlineFunction(CallSite CS, CallGraph *CG, const TargetData *TD) {
     // (which can happen, e.g., because an argument was constant), but we'll be
     // happy with whatever the cloner can do.
     CloneAndPruneFunctionInto(Caller, CalledFunc, ValueMap, Returns, ".i",
-                              &InlinedFunctionInfo, TD);
+                              &InlinedFunctionInfo);
     
     // Remember the first block that is newly cloned over.
     FirstNewBlock = LastBlock; ++FirstNewBlock;
@@ -274,21 +274,19 @@ bool llvm::InlineFunction(CallSite CS, CallGraph *CG, const TargetData *TD) {
   // code with llvm.stacksave/llvm.stackrestore intrinsics.
   if (InlinedFunctionInfo.ContainsDynamicAllocas) {
     Module *M = Caller->getParent();
-    const Type *BytePtr = PointerType::get(Type::Int8Ty);
+    const Type *SBytePtr = PointerType::get(Type::SByteTy);
     // Get the two intrinsics we care about.
-    Constant *StackSave, *StackRestore;
-    StackSave    = M->getOrInsertFunction("llvm.stacksave", BytePtr, NULL);
+    Function *StackSave, *StackRestore;
+    StackSave    = M->getOrInsertFunction("llvm.stacksave", SBytePtr, NULL);
     StackRestore = M->getOrInsertFunction("llvm.stackrestore", Type::VoidTy,
-                                          BytePtr, NULL);
+                                          SBytePtr, NULL);
 
     // If we are preserving the callgraph, add edges to the stacksave/restore
     // functions for the calls we insert.
     CallGraphNode *StackSaveCGN = 0, *StackRestoreCGN = 0, *CallerNode = 0;
     if (CG) {
-      // We know that StackSave/StackRestore are Function*'s, because they are
-      // intrinsics which must have the right types.
-      StackSaveCGN    = CG->getOrInsertFunction(cast<Function>(StackSave));
-      StackRestoreCGN = CG->getOrInsertFunction(cast<Function>(StackRestore));
+      StackSaveCGN    = CG->getOrInsertFunction(StackSave);
+      StackRestoreCGN = CG->getOrInsertFunction(StackRestore);
       CallerNode = (*CG)[Caller];
     }
       

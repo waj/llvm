@@ -33,7 +33,6 @@
 // pass invokable via the "opt" command at will.
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "lowersetjmp"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
@@ -42,7 +41,6 @@
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/InstVisitor.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/ADT/DepthFirstIterator.h"
@@ -51,24 +49,28 @@
 #include "llvm/ADT/VectorExtras.h"
 using namespace llvm;
 
-STATISTIC(LongJmpsTransformed, "Number of longjmps transformed");
-STATISTIC(SetJmpsTransformed , "Number of setjmps transformed");
-STATISTIC(CallsTransformed   , "Number of calls invokified");
-STATISTIC(InvokesTransformed , "Number of invokes modified");
-
 namespace {
+  Statistic<> LongJmpsTransformed("lowersetjmp",
+                                  "Number of longjmps transformed");
+  Statistic<> SetJmpsTransformed("lowersetjmp",
+                                 "Number of setjmps transformed");
+  Statistic<> CallsTransformed("lowersetjmp",
+                               "Number of calls invokified");
+  Statistic<> InvokesTransformed("lowersetjmp",
+                                 "Number of invokes modified");
+
   //===--------------------------------------------------------------------===//
   // LowerSetJmp pass implementation.
-  class VISIBILITY_HIDDEN LowerSetJmp : public ModulePass,
+  class LowerSetJmp : public ModulePass,
                       public InstVisitor<LowerSetJmp> {
     // LLVM library functions...
-    Constant *InitSJMap;        // __llvm_sjljeh_init_setjmpmap
-    Constant *DestroySJMap;     // __llvm_sjljeh_destroy_setjmpmap
-    Constant *AddSJToMap;       // __llvm_sjljeh_add_setjmp_to_map
-    Constant *ThrowLongJmp;     // __llvm_sjljeh_throw_longjmp
-    Constant *TryCatchLJ;       // __llvm_sjljeh_try_catching_longjmp_exception
-    Constant *IsLJException;    // __llvm_sjljeh_is_longjmp_exception
-    Constant *GetLJValue;       // __llvm_sjljeh_get_longjmp_value
+    Function* InitSJMap;        // __llvm_sjljeh_init_setjmpmap
+    Function* DestroySJMap;     // __llvm_sjljeh_destroy_setjmpmap
+    Function* AddSJToMap;       // __llvm_sjljeh_add_setjmp_to_map
+    Function* ThrowLongJmp;     // __llvm_sjljeh_throw_longjmp
+    Function* TryCatchLJ;       // __llvm_sjljeh_try_catching_longjmp_exception
+    Function* IsLJException;    // __llvm_sjljeh_is_longjmp_exception
+    Function* GetLJValue;       // __llvm_sjljeh_get_longjmp_value
 
     typedef std::pair<SwitchInst*, CallInst*> SwitchValuePair;
 
@@ -128,8 +130,8 @@ bool LowerSetJmp::runOnModule(Module& M) {
   bool Changed = false;
 
   // These are what the functions are called.
-  Function* SetJmp = M.getFunction("llvm.setjmp");
-  Function* LongJmp = M.getFunction("llvm.longjmp");
+  Function* SetJmp = M.getNamedFunction("llvm.setjmp");
+  Function* LongJmp = M.getNamedFunction("llvm.longjmp");
 
   // This program doesn't have longjmp and setjmp calls.
   if ((!LongJmp || LongJmp->use_empty()) &&
@@ -194,7 +196,7 @@ bool LowerSetJmp::runOnModule(Module& M) {
 // This function is always successful, unless it isn't.
 bool LowerSetJmp::doInitialization(Module& M)
 {
-  const Type *SBPTy = PointerType::get(Type::Int8Ty);
+  const Type *SBPTy = PointerType::get(Type::SByteTy);
   const Type *SBPPTy = PointerType::get(SBPTy);
 
   // N.B. See llvm/runtime/GCCLibraries/libexception/SJLJ-Exception.h for
@@ -210,25 +212,25 @@ bool LowerSetJmp::doInitialization(Module& M)
   // void __llvm_sjljeh_add_setjmp_to_map(void**, void*, unsigned)
   AddSJToMap = M.getOrInsertFunction("__llvm_sjljeh_add_setjmp_to_map",
                                      Type::VoidTy, SBPPTy, SBPTy,
-                                     Type::Int32Ty, (Type *)0);
+                                     Type::UIntTy, (Type *)0);
 
   // void __llvm_sjljeh_throw_longjmp(int*, int)
   ThrowLongJmp = M.getOrInsertFunction("__llvm_sjljeh_throw_longjmp",
-                                       Type::VoidTy, SBPTy, Type::Int32Ty,
+                                       Type::VoidTy, SBPTy, Type::IntTy,
                                        (Type *)0);
 
   // unsigned __llvm_sjljeh_try_catching_longjmp_exception(void **)
   TryCatchLJ =
     M.getOrInsertFunction("__llvm_sjljeh_try_catching_longjmp_exception",
-                          Type::Int32Ty, SBPPTy, (Type *)0);
+                          Type::UIntTy, SBPPTy, (Type *)0);
 
   // bool __llvm_sjljeh_is_longjmp_exception()
   IsLJException = M.getOrInsertFunction("__llvm_sjljeh_is_longjmp_exception",
-                                        Type::Int1Ty, (Type *)0);
+                                        Type::BoolTy, (Type *)0);
 
   // int __llvm_sjljeh_get_longjmp_value()
   GetLJValue = M.getOrInsertFunction("__llvm_sjljeh_get_longjmp_value",
-                                     Type::Int32Ty, (Type *)0);
+                                     Type::IntTy, (Type *)0);
   return true;
 }
 
@@ -251,14 +253,13 @@ bool LowerSetJmp::IsTransformableFunction(const std::string& Name) {
 // throwing the exception for us.
 void LowerSetJmp::TransformLongJmpCall(CallInst* Inst)
 {
-  const Type* SBPTy = PointerType::get(Type::Int8Ty);
+  const Type* SBPTy = PointerType::get(Type::SByteTy);
 
   // Create the call to "__llvm_sjljeh_throw_longjmp". This takes the
   // same parameters as "longjmp", except that the buffer is cast to a
   // char*. It returns "void", so it doesn't need to replace any of
   // Inst's uses and doesn't get a name.
-  CastInst* CI = 
-    new BitCastInst(Inst->getOperand(1), SBPTy, "LJBuf", Inst);
+  CastInst* CI = new CastInst(Inst->getOperand(1), SBPTy, "LJBuf", Inst);
   new CallInst(ThrowLongJmp, make_vector<Value*>(CI, Inst->getOperand(2), 0),
                "", Inst);
 
@@ -301,7 +302,7 @@ AllocaInst* LowerSetJmp::GetSetJmpMap(Function* Func)
   assert(Inst && "Couldn't find even ONE instruction in entry block!");
 
   // Fill in the alloca and call to initialize the SJ map.
-  const Type *SBPTy = PointerType::get(Type::Int8Ty);
+  const Type *SBPTy = PointerType::get(Type::SByteTy);
   AllocaInst* Map = new AllocaInst(SBPTy, 0, "SJMap", Inst);
   new CallInst(InitSJMap, make_vector<Value*>(Map, 0), "", Inst);
   return SJMap[Func] = Map;
@@ -373,12 +374,11 @@ void LowerSetJmp::TransformSetJmpCall(CallInst* Inst)
   Function* Func = ABlock->getParent();
 
   // Add this setjmp to the setjmp map.
-  const Type* SBPTy = PointerType::get(Type::Int8Ty);
-  CastInst* BufPtr = 
-    new BitCastInst(Inst->getOperand(1), SBPTy, "SBJmpBuf", Inst);
+  const Type* SBPTy = PointerType::get(Type::SByteTy);
+  CastInst* BufPtr = new CastInst(Inst->getOperand(1), SBPTy, "SBJmpBuf", Inst);
   new CallInst(AddSJToMap,
                make_vector<Value*>(GetSetJmpMap(Func), BufPtr,
-                                   ConstantInt::get(Type::Int32Ty,
+                                   ConstantInt::get(Type::UIntTy,
                                                      SetJmpIDMap[Func]++), 0),
                "", Inst);
 
@@ -422,14 +422,14 @@ void LowerSetJmp::TransformSetJmpCall(CallInst* Inst)
 
   // This PHI node will be in the new block created from the
   // splitBasicBlock call.
-  PHINode* PHI = new PHINode(Type::Int32Ty, "SetJmpReturn", Inst);
+  PHINode* PHI = new PHINode(Type::IntTy, "SetJmpReturn", Inst);
 
   // Coming from a call to setjmp, the return is 0.
-  PHI->addIncoming(ConstantInt::getNullValue(Type::Int32Ty), ABlock);
+  PHI->addIncoming(ConstantInt::getNullValue(Type::IntTy), ABlock);
 
   // Add the case for this setjmp's number...
   SwitchValuePair SVP = GetSJSwitch(Func, GetRethrowBB(Func));
-  SVP.first->addCase(ConstantInt::get(Type::Int32Ty, SetJmpIDMap[Func] - 1),
+  SVP.first->addCase(ConstantInt::get(Type::UIntTy, SetJmpIDMap[Func] - 1),
                      SetJmpContBlock);
 
   // Value coming from the handling of the exception.

@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade %s | llvm-as | llc
+; RUN: llvm-as -f %s -o - | llc
 
 %AConst    = constant int 123
 
@@ -203,7 +203,7 @@ end
 ;
 int "checkFoldGEP"(%Domain* %D, long %idx)
 begin
-        %reg841 = getelementptr %Domain* %D, long 0, uint 1
+        %reg841 = getelementptr %Domain* %D, long 0, ubyte 1
         %reg820 = load int* %reg841
         ret int %reg820
 end

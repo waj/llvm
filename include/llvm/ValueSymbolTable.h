@@ -20,30 +20,13 @@
 #include <map>
 
 namespace llvm {
-  template<typename ValueSubClass, typename ItemParentClass,
-           typename SymTabClass, typename SubClass>
-        class SymbolTableListTraits;
-  template<typename NodeTy> struct ilist_traits;
-  class BasicBlock;
-  class Function;
-  class Module;
-  
+
 /// This class provides a symbol table of name/value pairs. It is essentially
 /// a std::map<std::string,Value*> but has a controlled interface provided by
 /// LLVM as well as ensuring uniqueness of names.
 ///
 class ValueSymbolTable {
-  friend class Value;
-  friend class SymbolTableListTraits<Argument, Function, Function,
-                                     ilist_traits<Argument> >;
-  friend class SymbolTableListTraits<BasicBlock, Function, Function,
-                                     ilist_traits<BasicBlock> >;
-  friend class SymbolTableListTraits<Instruction, BasicBlock, Function,
-                                     ilist_traits<Instruction> >;
-  friend class SymbolTableListTraits<Function, Module, Module, 
-                                     ilist_traits<Function> >;
-  friend class SymbolTableListTraits<GlobalVariable, Module, Module, 
-                                     ilist_traits<GlobalVariable> >;
+
 /// @name Types
 /// @{
 public:
@@ -89,12 +72,6 @@ public:
   /// @brief Get a name unique to this symbol table
   std::string getUniqueName(const std::string &BaseName) const;
 
-  /// @return 1 if the name is in the symbol table, 0 otherwise
-  /// @brief Determine if a name is in the symbol table
-  bool count(const std::string &name) const { 
-    return vmap.count(name);
-  }
-
   /// This function can be used from the debugger to display the
   /// content of the symbol table while debugging.
   /// @brief Print out symbol table on stderr
@@ -120,7 +97,12 @@ public:
 /// @}
 /// @name Mutators
 /// @{
-private:
+public:
+
+  /// This method will strip the symbol table of its names.
+  /// @brief Strip the symbol table.
+  bool strip();
+
   /// This method adds the provided value \p N to the symbol table.  The Value
   /// must have a name which is used to place the value in the symbol table. 
   /// @brief Add a named value to the symbol table
@@ -128,10 +110,18 @@ private:
 
   /// This method removes a value from the symbol table. The name of the
   /// Value is extracted from \p Val and used to lookup the Value in the
-  /// symbol table.  \p Val is not deleted, just removed from the symbol table.
+  /// symbol table. If the Value is not in the symbol table, this method
+  /// returns false.
+  /// @returns true if \p Val was successfully erased, false otherwise
   /// @brief Remove a value from the symbol table.
-  void remove(Value* Val);
-  
+  bool erase(Value* Val);
+
+  /// Given a value with a non-empty name, remove its existing
+  /// entry from the symbol table and insert a new one for Name.  This is
+  /// equivalent to doing "remove(V), V->Name = Name, insert(V)".
+  /// @brief Rename a value in the symbol table
+  bool rename(Value *V, const std::string &Name);
+
 /// @}
 /// @name Internal Data
 /// @{
@@ -140,6 +130,7 @@ private:
   mutable uint32_t LastUnique; ///< Counter for tracking unique names
 
 /// @}
+
 };
 
 } // End llvm namespace

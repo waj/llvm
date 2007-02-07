@@ -15,8 +15,8 @@
 
 // NOTE: NO INCLUDE GUARD DESIRED!
 
-// Provide definitions of macros so that users of this file do not have to 
-// define everything to use it...
+// Provide definitions of macros so that users of this file do not have to define
+// everything to use it...
 //
 #ifndef FIRST_TERM_INST
 #define FIRST_TERM_INST(num)
@@ -60,20 +60,6 @@
 #define LAST_MEMORY_INST(num)
 #endif
 
-#ifndef FIRST_CAST_INST
-#define FIRST_CAST_INST(num)
-#endif
-#ifndef HANDLE_CAST_INST
-#ifndef HANDLE_INST
-#define HANDLE_CAST_INST(num, opcode, Class)
-#else
-#define HANDLE_CAST_INST(num, opcode, Class) HANDLE_INST(num, opcode, Class)
-#endif
-#endif
-#ifndef LAST_CAST_INST
-#define LAST_CAST_INST(num)
-#endif
-
 #ifndef FIRST_OTHER_INST
 #define FIRST_OTHER_INST(num)
 #endif
@@ -114,57 +100,45 @@ HANDLE_BINARY_INST(13, URem , BinaryOperator)
 HANDLE_BINARY_INST(14, SRem , BinaryOperator)
 HANDLE_BINARY_INST(15, FRem , BinaryOperator)
 
-// Logical operators (integer operands)
-HANDLE_BINARY_INST(16, Shl  , BinaryOperator) // Shift left  (logical)
-HANDLE_BINARY_INST(17, LShr , BinaryOperator) // Shift right (logical) 
-HANDLE_BINARY_INST(18, AShr , BinaryOperator) // shift right (arithmetic)
-HANDLE_BINARY_INST(19, And  , BinaryOperator)
-HANDLE_BINARY_INST(20, Or   , BinaryOperator)
-HANDLE_BINARY_INST(21, Xor  , BinaryOperator)
-  LAST_BINARY_INST(21)
+// Logical operators...
+HANDLE_BINARY_INST(16, And   , BinaryOperator)
+HANDLE_BINARY_INST(17, Or    , BinaryOperator)
+HANDLE_BINARY_INST(18, Xor   , BinaryOperator)
+
+// Binary comparison operators...
+HANDLE_BINARY_INST(19, SetEQ , SetCondInst)
+HANDLE_BINARY_INST(20, SetNE , SetCondInst)
+HANDLE_BINARY_INST(21, SetLE , SetCondInst)
+HANDLE_BINARY_INST(22, SetGE , SetCondInst)
+HANDLE_BINARY_INST(23, SetLT , SetCondInst)
+HANDLE_BINARY_INST(24, SetGT , SetCondInst)
+  LAST_BINARY_INST(24)
 
 // Memory operators...
- FIRST_MEMORY_INST(22)
-HANDLE_MEMORY_INST(22, Malloc, MallocInst)  // Heap management instructions
-HANDLE_MEMORY_INST(23, Free  , FreeInst  )
-HANDLE_MEMORY_INST(24, Alloca, AllocaInst)  // Stack management
-HANDLE_MEMORY_INST(25, Load  , LoadInst  )  // Memory manipulation instrs
-HANDLE_MEMORY_INST(26, Store , StoreInst )
-HANDLE_MEMORY_INST(27, GetElementPtr, GetElementPtrInst)
-  LAST_MEMORY_INST(27)
-
-// Cast operators ...
-// NOTE: The order matters here because CastInst::isEliminableCastPair 
-// NOTE: (see Instructions.cpp) encodes a table based on this ordering.
- FIRST_CAST_INST(28)
-HANDLE_CAST_INST(28, Trunc   , TruncInst   )  // Truncate integers
-HANDLE_CAST_INST(29, ZExt    , ZExtInst    )  // Zero extend integers
-HANDLE_CAST_INST(30, SExt    , SExtInst    )  // Sign extend integers
-HANDLE_CAST_INST(31, FPToUI  , FPToUIInst  )  // floating point -> UInt
-HANDLE_CAST_INST(32, FPToSI  , FPToSIInst  )  // floating point -> SInt
-HANDLE_CAST_INST(33, UIToFP  , UIToFPInst  )  // UInt -> floating point
-HANDLE_CAST_INST(34, SIToFP  , SIToFPInst  )  // SInt -> floating point
-HANDLE_CAST_INST(35, FPTrunc , FPTruncInst )  // Truncate floating point
-HANDLE_CAST_INST(36, FPExt   , FPExtInst   )  // Extend floating point
-HANDLE_CAST_INST(37, PtrToInt, PtrToIntInst)  // Pointer -> Integer
-HANDLE_CAST_INST(38, IntToPtr, IntToPtrInst)  // Integer -> Pointer
-HANDLE_CAST_INST(39, BitCast , BitCastInst )  // Type cast
-  LAST_CAST_INST(39)
+ FIRST_MEMORY_INST(25)
+HANDLE_MEMORY_INST(25, Malloc, MallocInst)  // Heap management instructions
+HANDLE_MEMORY_INST(26, Free  , FreeInst  )
+HANDLE_MEMORY_INST(27, Alloca, AllocaInst)  // Stack management
+HANDLE_MEMORY_INST(28, Load  , LoadInst  )  // Memory manipulation instrs
+HANDLE_MEMORY_INST(29, Store , StoreInst )
+HANDLE_MEMORY_INST(30, GetElementPtr, GetElementPtrInst)
+  LAST_MEMORY_INST(30)
 
 // Other operators...
- FIRST_OTHER_INST(40)
-HANDLE_OTHER_INST(40, ICmp   , ICmpInst   )  // Integer comparison instruction
-HANDLE_OTHER_INST(41, FCmp   , FCmpInst   )  // Floating point comparison instr.
-HANDLE_OTHER_INST(42, PHI    , PHINode    )  // PHI node instruction
-HANDLE_OTHER_INST(43, Call   , CallInst   )  // Call a function
-HANDLE_OTHER_INST(44, Select , SelectInst )  // select instruction
-HANDLE_OTHER_INST(45, UserOp1, Instruction)  // May be used internally in a pass
-HANDLE_OTHER_INST(46, UserOp2, Instruction)  // Internal to passes only
-HANDLE_OTHER_INST(47, VAArg  , VAArgInst  )  // vaarg instruction
-HANDLE_OTHER_INST(48, ExtractElement, ExtractElementInst)// extract from vector.
-HANDLE_OTHER_INST(49, InsertElement, InsertElementInst)  // insert into vector
-HANDLE_OTHER_INST(50, ShuffleVector, ShuffleVectorInst)  // shuffle two vectors.
-  LAST_OTHER_INST(50)
+ FIRST_OTHER_INST(31)
+HANDLE_OTHER_INST(31, PHI    , PHINode    )  // PHI node instruction
+HANDLE_OTHER_INST(32, Cast   , CastInst   )  // Type cast
+HANDLE_OTHER_INST(33, Call   , CallInst   )  // Call a function
+HANDLE_OTHER_INST(34, Shl    , ShiftInst  )  // Shift operations
+HANDLE_OTHER_INST(35, Shr    , ShiftInst  )
+HANDLE_OTHER_INST(36, Select , SelectInst )  // select instruction
+HANDLE_OTHER_INST(37, UserOp1, Instruction)  // May be used internally in a pass
+HANDLE_OTHER_INST(38, UserOp2, Instruction)
+HANDLE_OTHER_INST(39, VAArg  , VAArgInst  )  // vaarg instruction
+HANDLE_OTHER_INST(40, ExtractElement, ExtractElementInst)// extract from vector.
+HANDLE_OTHER_INST(41, InsertElement, InsertElementInst)  // insert into vector
+HANDLE_OTHER_INST(42, ShuffleVector, ShuffleVectorInst)  // shuffle two vectors.
+  LAST_OTHER_INST(42)
 
 #undef  FIRST_TERM_INST
 #undef HANDLE_TERM_INST
@@ -177,10 +151,6 @@ HANDLE_OTHER_INST(50, ShuffleVector, ShuffleVectorInst)  // shuffle two vectors.
 #undef  FIRST_MEMORY_INST
 #undef HANDLE_MEMORY_INST
 #undef   LAST_MEMORY_INST
-
-#undef  FIRST_CAST_INST
-#undef HANDLE_CAST_INST
-#undef   LAST_CAST_INST
 
 #undef  FIRST_OTHER_INST
 #undef HANDLE_OTHER_INST

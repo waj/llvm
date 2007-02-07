@@ -22,6 +22,7 @@ namespace llvm {
 class X86TargetMachine;
 class FunctionPassManager;
 class FunctionPass;
+class IntrinsicLowering;
 class MachineCodeEmitter;
 
 /// createX86ISelDag - This pass converts a legalized DAG into a 

@@ -16,7 +16,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Streams.h"
 #include <algorithm>
 #include <set>
 using namespace llvm;
@@ -110,7 +109,7 @@ SDTypeConstraint::SDTypeConstraint(Record *R) {
     x.SDTCisIntVectorOfSameSize_Info.OtherOperandNum =
       R->getValueAsInt("OtherOpNum");
   } else {
-    cerr << "Unrecognized SDTypeConstraint '" << R->getName() << "'!\n";
+    std::cerr << "Unrecognized SDTypeConstraint '" << R->getName() << "'!\n";
     exit(1);
   }
 }
@@ -124,9 +123,9 @@ TreePatternNode *SDTypeConstraint::getOperandNum(unsigned OpNo,
          "We only work with nodes with zero or one result so far!");
   
   if (OpNo >= (NumResults + N->getNumChildren())) {
-    cerr << "Invalid operand number " << OpNo << " ";
+    std::cerr << "Invalid operand number " << OpNo << " ";
     N->dump();
-    cerr << '\n';
+    std::cerr << '\n';
     exit(1);
   }
 
@@ -317,8 +316,8 @@ SDNodeInfo::SDNodeInfo(Record *R) : Def(R) {
     } else if (PropList[i]->getName() == "SDNPOptInFlag") {
       Properties |= 1 << SDNPOptInFlag;
     } else {
-      cerr << "Unknown SD Node property '" << PropList[i]->getName()
-           << "' on node '" << R->getName() << "'!\n";
+      std::cerr << "Unknown SD Node property '" << PropList[i]->getName()
+                << "' on node '" << R->getName() << "'!\n";
       exit(1);
     }
   }
@@ -413,7 +412,7 @@ bool TreePatternNode::UpdateNodeType(const std::vector<unsigned char> &ExtVTs,
 
   if (isLeaf()) {
     dump();
-    cerr << " ";
+    std::cerr << " ";
     TP.error("Type inference contradiction found in node!");
   } else {
     TP.error("Type inference contradiction found in node " + 
@@ -469,7 +468,7 @@ void TreePatternNode::print(std::ostream &OS) const {
 
 }
 void TreePatternNode::dump() const {
-  print(*cerr.stream());
+  print(std::cerr);
 }
 
 /// isIsomorphicTo - Return true if this node is recursively isomorphic to
@@ -619,9 +618,6 @@ static std::vector<unsigned char> getImplicitType(Record *R, bool NotRegisters,
     std::vector<unsigned char>
     ComplexPat(1, TP.getDAGISelEmitter().getComplexPattern(R).getValueType());
     return ComplexPat;
-  } else if (R->getName() == "ptr_rc") {
-    Other[0] = MVT::iPTR;
-    return Other;
   } else if (R->getName() == "node" || R->getName() == "srcvalue") {
     // Placeholder.
     return Unknown;
@@ -751,23 +747,16 @@ bool TreePatternNode::ApplyTypeConstraints(TreePattern &TP, bool NotRegisters) {
     CodeGenInstruction &InstInfo =
       ISE.getTargetInfo().getInstruction(getOperator()->getName());
     // Apply the result type to the node
-    if (NumResults == 0 || InstInfo.noResults) { // FIXME: temporary hack.
+    if (NumResults == 0 || InstInfo.noResults) { // FIXME: temporary hack...
       MadeChange = UpdateNodeType(MVT::isVoid, TP);
     } else {
       Record *ResultNode = Inst.getResult(0);
-      
-      if (ResultNode->getName() == "ptr_rc") {
-        std::vector<unsigned char> VT;
-        VT.push_back(MVT::iPTR);
-        MadeChange = UpdateNodeType(VT, TP);
-      } else {
-        assert(ResultNode->isSubClassOf("RegisterClass") &&
-               "Operands should be register classes!");
+      assert(ResultNode->isSubClassOf("RegisterClass") &&
+             "Operands should be register classes!");
 
-        const CodeGenRegisterClass &RC = 
-          ISE.getTargetInfo().getRegisterClass(ResultNode);
-        MadeChange = UpdateNodeType(ConvertVTs(RC.getValueTypes()), TP);
-      }
+      const CodeGenRegisterClass &RC = 
+        ISE.getTargetInfo().getRegisterClass(ResultNode);
+      MadeChange = UpdateNodeType(ConvertVTs(RC.getValueTypes()), TP);
     }
 
     unsigned ChildNo = 0;
@@ -793,8 +782,6 @@ bool TreePatternNode::ApplyTypeConstraints(TreePattern &TP, bool NotRegisters) {
       } else if (OperandNode->isSubClassOf("Operand")) {
         VT = getValueType(OperandNode->getValueAsDef("Type"));
         MadeChange |= Child->UpdateNodeType(VT, TP);
-      } else if (OperandNode->getName() == "ptr_rc") {
-        MadeChange |= Child->UpdateNodeType(MVT::iPTR, TP);
       } else {
         assert(0 && "Unknown operand type!");
         abort();
@@ -1010,9 +997,9 @@ TreePatternNode *TreePattern::ParseTreePattern(DagInit *Dag) {
         error("Constant int argument should not have a name!");
       Children.push_back(Node);
     } else {
-      cerr << '"';
+      std::cerr << '"';
       Arg->dump();
-      cerr << "\": ";
+      std::cerr << "\": ";
       error("Unknown leaf value for tree pattern!");
     }
   }
@@ -1082,7 +1069,7 @@ void TreePattern::print(std::ostream &OS) const {
     OS << "]\n";
 }
 
-void TreePattern::dump() const { print(*cerr.stream()); }
+void TreePattern::dump() const { print(std::cerr); }
 
 
 
@@ -1394,8 +1381,7 @@ FindPatternInputsAndOutputs(TreePattern *I, TreePatternNode *Pat,
     if (!Val)
       I->error("set destination should be a register!");
 
-    if (Val->getDef()->isSubClassOf("RegisterClass") ||
-        Val->getDef()->getName() == "ptr_rc") {
+    if (Val->getDef()->isSubClassOf("RegisterClass")) {
       if (Dest->getName().empty())
         I->error("set destination must have a name!");
       if (InstResults.count(Dest->getName()))
@@ -1623,7 +1609,7 @@ void DAGISelEmitter::ParseInstructions() {
     if (I == 0) continue;  // No pattern.
 
     if (I->getNumTrees() != 1) {
-      cerr << "CANNOT HANDLE: " << I->getRecord()->getName() << " yet!";
+      std::cerr << "CANNOT HANDLE: " << I->getRecord()->getName() << " yet!";
       continue;
     }
     TreePatternNode *Pattern = I->getTree(0);
@@ -1950,7 +1936,7 @@ static void GenerateVariantsOf(TreePatternNode *N,
 // match multiple ways.  Add them to PatternsToMatch as well.
 void DAGISelEmitter::GenerateVariants() {
   
-  DOUT << "Generating instruction variants.\n";
+  DEBUG(std::cerr << "Generating instruction variants.\n");
   
   // Loop over all of the patterns we've collected, checking to see if we can
   // generate variants of the instruction, through the exploitation of
@@ -1971,23 +1957,23 @@ void DAGISelEmitter::GenerateVariants() {
     if (Variants.empty())  // No variants for this pattern.
       continue;
 
-    DOUT << "FOUND VARIANTS OF: ";
-    DEBUG(PatternsToMatch[i].getSrcPattern()->dump());
-    DOUT << "\n";
+    DEBUG(std::cerr << "FOUND VARIANTS OF: ";
+          PatternsToMatch[i].getSrcPattern()->dump();
+          std::cerr << "\n");
 
     for (unsigned v = 0, e = Variants.size(); v != e; ++v) {
       TreePatternNode *Variant = Variants[v];
 
-      DOUT << "  VAR#" << v <<  ": ";
-      DEBUG(Variant->dump());
-      DOUT << "\n";
+      DEBUG(std::cerr << "  VAR#" << v <<  ": ";
+            Variant->dump();
+            std::cerr << "\n");
       
       // Scan to see if an instruction or explicit pattern already matches this.
       bool AlreadyExists = false;
       for (unsigned p = 0, e = PatternsToMatch.size(); p != e; ++p) {
         // Check to see if this variant already exists.
         if (Variant->isIsomorphicTo(PatternsToMatch[p].getSrcPattern())) {
-          DOUT << "  *** ALREADY EXISTS, ignoring variant.\n";
+          DEBUG(std::cerr << "  *** ALREADY EXISTS, ignoring variant.\n");
           AlreadyExists = true;
           break;
         }
@@ -2002,7 +1988,7 @@ void DAGISelEmitter::GenerateVariants() {
                                  PatternsToMatch[i].getAddedComplexity()));
     }
 
-    DOUT << "\n";
+    DEBUG(std::cerr << "\n");
   }
 }
 
@@ -2161,7 +2147,7 @@ static void RemoveAllTypes(TreePatternNode *N) {
 Record *DAGISelEmitter::getSDNodeNamed(const std::string &Name) const {
   Record *N = Records.getDef(Name);
   if (!N || !N->isSubClassOf("SDNode")) {
-    cerr << "Error getting SDNode '" << Name << "'!\n";
+    std::cerr << "Error getting SDNode '" << Name << "'!\n";
     exit(1);
   }
   return N;
@@ -2478,7 +2464,7 @@ public:
         emitCode("SDOperand Chain" + ChainSuffix + ";");
       }
 
-      std::string Code = Fn + "(" + RootName + ", " + RootName;
+      std::string Code = Fn + "(" + RootName;
       for (unsigned i = 0; i < NumOps; i++)
         Code += ", CPTmp" + utostr(i);
       if (CP->hasProperty(SDNPHasChain)) {
@@ -2521,8 +2507,7 @@ public:
       // Handle leaves of various types.
       if (DefInit *DI = dynamic_cast<DefInit*>(Child->getLeafValue())) {
         Record *LeafRec = DI->getDef();
-        if (LeafRec->isSubClassOf("RegisterClass") || 
-            LeafRec->getName() == "ptr_rc") {
+        if (LeafRec->isSubClassOf("RegisterClass")) {
           // Handle register references.  Nothing to do here.
         } else if (LeafRec->isSubClassOf("Register")) {
           // Handle register references.
@@ -2546,10 +2531,10 @@ public:
             emitCode("SDOperand " + ChainName + ";");
           }
           
-          std::string Code = Fn + "(N, ";
+          std::string Code = Fn + "(";
           if (CP->hasProperty(SDNPHasChain)) {
             std::string ParentName(RootName.begin(), RootName.end()-1);
-            Code += ParentName + ", ";
+            Code += "N, " + ParentName + ", ";
           }
           Code += RootName;
           for (unsigned i = 0; i < NumOps; i++)
@@ -2570,7 +2555,7 @@ public:
         } else {
 #ifndef NDEBUG
           Child->dump();
-          cerr << " ";
+          std::cerr << " ";
 #endif
           assert(0 && "Unknown leaf type!");
         }
@@ -2621,10 +2606,7 @@ public:
         assert(N->getExtTypes().size() == 1 && "Multiple types not handled!");
         std::string CastType;
         switch (N->getTypeNum(0)) {
-        default:
-          cerr << "Cannot handle " << getEnumName(N->getTypeNum(0))
-               << " type as an immediate constant. Aborting\n";
-          abort();
+        default: assert(0 && "Unknown type for constant node!");
         case MVT::i1:  CastType = "bool"; break;
         case MVT::i8:  CastType = "unsigned char"; break;
         case MVT::i16: CastType = "unsigned short"; break;
@@ -2680,6 +2662,7 @@ public:
         // value if used multiple times by this pattern result.
         Val = "Tmp"+utostr(ResNo);
       } else if (N->isLeaf() && (CP = NodeGetComplexPattern(N, ISE))) {
+        std::string Fn = CP->getSelectFunc();
         for (unsigned i = 0; i < CP->getNumOperands(); ++i) {
           emitCode("AddToISelQueue(CPTmp" + utostr(i) + ");");
           NodeOps.push_back("CPTmp" + utostr(i));
@@ -2870,11 +2853,6 @@ public:
         if (NodeHasOutFlag)
           Code += ", MVT::Flag";
 
-        // Figure out how many fixed inputs the node has.  This is important to
-        // know which inputs are the variable ones if present.
-        unsigned NumInputs = AllOps.size();
-        NumInputs += NodeHasChain;
-        
         // Inputs.
         if (HasVarOps) {
           for (unsigned i = 0, e = AllOps.size(); i != e; ++i)
@@ -2883,17 +2861,15 @@ public:
         }
 
         if (HasVarOps) {
-          // Figure out whether any operands at the end of the op list are not
-          // part of the variable section.
-          std::string EndAdjust;
           if (NodeHasInFlag || HasImpInputs)
-            EndAdjust = "-1";  // Always has one flag.
-          else if (NodeHasOptInFlag)
-            EndAdjust = "-(HasInFlag?1:0)"; // May have a flag.
-
-          emitCode("for (unsigned i = " + utostr(NumInputs) +
-                   ", e = N.getNumOperands()" + EndAdjust + "; i != e; ++i) {");
-
+            emitCode("for (unsigned i = 2, e = N.getNumOperands()-1; "
+                     "i != e; ++i) {");
+          else if (NodeHasOptInFlag) 
+            emitCode("for (unsigned i = 2, e = N.getNumOperands()-"
+                     "(HasInFlag?1:0); i != e; ++i) {");
+          else
+            emitCode("for (unsigned i = 2, e = N.getNumOperands(); "
+                     "i != e; ++i) {");
           emitCode("  AddToISelQueue(N.getOperand(i));");
           emitCode("  Ops" + utostr(OpsNo) + ".push_back(N.getOperand(i));");
           emitCode("}");
@@ -3072,7 +3048,7 @@ public:
       return NodeOps;
     } else {
       N->dump();
-      cerr << "\n";
+      std::cerr << "\n";
       throw std::string("Unknown node in result pattern!");
     }
   }
@@ -3399,59 +3375,51 @@ void DAGISelEmitter::EmitPatterns(std::vector<std::pair<PatternToMatch*,
     OS << std::string(Indent-2, ' ') << "}\n";
 }
 
-static std::string getOpcodeName(Record *Op, DAGISelEmitter &ISE) {
-  const SDNodeInfo &OpcodeInfo = ISE.getSDNodeInfo(Op);
-  return OpcodeInfo.getEnumName();
-}
 
-static std::string getLegalCName(std::string OpName) {
-  std::string::size_type pos = OpName.find("::");
-  if (pos != std::string::npos)
-    OpName.replace(pos, 2, "_");
-  return OpName;
+
+namespace {
+  /// CompareByRecordName - An ordering predicate that implements less-than by
+  /// comparing the names records.
+  struct CompareByRecordName {
+    bool operator()(const Record *LHS, const Record *RHS) const {
+      // Sort by name first.
+      if (LHS->getName() < RHS->getName()) return true;
+      // If both names are equal, sort by pointer.
+      return LHS->getName() == RHS->getName() && LHS < RHS;
+    }
+  };
 }
 
 void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
-  // Get the namespace to insert instructions into.  Make sure not to pick up
-  // "TargetInstrInfo" by accidentally getting the namespace off the PHI
-  // instruction or something.
-  std::string InstNS;
-  for (CodeGenTarget::inst_iterator i = Target.inst_begin(),
-       e = Target.inst_end(); i != e; ++i) {
-    InstNS = i->second.Namespace;
-    if (InstNS != "TargetInstrInfo")
-      break;
-  }
-  
+  std::string InstNS = Target.inst_begin()->second.Namespace;
   if (!InstNS.empty()) InstNS += "::";
   
   // Group the patterns by their top-level opcodes.
-  std::map<std::string, std::vector<PatternToMatch*> > PatternsByOpcode;
+  std::map<Record*, std::vector<PatternToMatch*>,
+    CompareByRecordName> PatternsByOpcode;
   // All unique target node emission functions.
   std::map<std::string, unsigned> EmitFunctions;
   for (unsigned i = 0, e = PatternsToMatch.size(); i != e; ++i) {
     TreePatternNode *Node = PatternsToMatch[i].getSrcPattern();
     if (!Node->isLeaf()) {
-      PatternsByOpcode[getOpcodeName(Node->getOperator(), *this)].
-        push_back(&PatternsToMatch[i]);
+      PatternsByOpcode[Node->getOperator()].push_back(&PatternsToMatch[i]);
     } else {
       const ComplexPattern *CP;
       if (dynamic_cast<IntInit*>(Node->getLeafValue())) {
-        PatternsByOpcode[getOpcodeName(getSDNodeNamed("imm"), *this)].
-          push_back(&PatternsToMatch[i]);
+        PatternsByOpcode[getSDNodeNamed("imm")].push_back(&PatternsToMatch[i]);
       } else if ((CP = NodeGetComplexPattern(Node, *this))) {
         std::vector<Record*> OpNodes = CP->getRootNodes();
         for (unsigned j = 0, e = OpNodes.size(); j != e; j++) {
-          PatternsByOpcode[getOpcodeName(OpNodes[j], *this)]
-            .insert(PatternsByOpcode[getOpcodeName(OpNodes[j], *this)].begin(),
-                    &PatternsToMatch[i]);
+          PatternsByOpcode[OpNodes[j]]
+            .insert(PatternsByOpcode[OpNodes[j]].begin(), &PatternsToMatch[i]);
         }
       } else {
-        cerr << "Unrecognized opcode '";
+        std::cerr << "Unrecognized opcode '";
         Node->dump();
-        cerr << "' on tree pattern '";
-        cerr << PatternsToMatch[i].getDstPattern()->getOperator()->getName();
-        cerr << "'!\n";
+        std::cerr << "' on tree pattern '";
+        std::cerr << 
+           PatternsToMatch[i].getDstPattern()->getOperator()->getName();
+        std::cerr << "'!\n";
         exit(1);
       }
     }
@@ -3465,10 +3433,11 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
   // Emit one Select_* method for each top-level opcode.  We do this instead of
   // emitting one giant switch statement to support compilers where this will
   // result in the recursive functions taking less stack space.
-  for (std::map<std::string, std::vector<PatternToMatch*> >::iterator
-         PBOI = PatternsByOpcode.begin(), E = PatternsByOpcode.end();
-       PBOI != E; ++PBOI) {
-    const std::string &OpName = PBOI->first;
+  for (std::map<Record*, std::vector<PatternToMatch*>,
+       CompareByRecordName>::iterator PBOI = PatternsByOpcode.begin(),
+       E = PatternsByOpcode.end(); PBOI != E; ++PBOI) {
+    const std::string &OpName = PBOI->first->getName();
+    const SDNodeInfo &OpcodeInfo = getSDNodeInfo(PBOI->first);
     std::vector<PatternToMatch*> &PatternsOfOp = PBOI->second;
     assert(!PatternsOfOp.empty() && "No patterns but map has entry?");
 
@@ -3483,6 +3452,8 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
     for (unsigned i = 0, e = PatternsOfOp.size(); i != e; ++i) {
       PatternToMatch *Pat = PatternsOfOp[i];
       TreePatternNode *SrcPat = Pat->getSrcPattern();
+      if (OpcodeInfo.getNumResults() == 0 && SrcPat->getNumChildren() > 0)
+        SrcPat = SrcPat->getChild(0);
       MVT::ValueType VT = SrcPat->getTypeNum(0);
       std::map<MVT::ValueType, std::vector<PatternToMatch*> >::iterator TI = 
         PatternsByType.find(VT);
@@ -3537,9 +3508,9 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
         // If this pattern definitely matches, and if it isn't the last one, the
         // patterns after it CANNOT ever match.  Error out.
         if (mightNotMatch == false && i != CodeForPatterns.size()-1) {
-          cerr << "Pattern '";
-          CodeForPatterns[i].first->getSrcPattern()->print(*cerr.stream());
-          cerr << "' is impossible to select!\n";
+          std::cerr << "Pattern '";
+          CodeForPatterns[i].first->getSrcPattern()->print(std::cerr);
+          std::cerr << "' is impossible to select!\n";
           exit(1);
         }
       }
@@ -3614,16 +3585,8 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
       }
 
       // Print function.
-      std::string OpVTStr;
-      if (OpVT == MVT::iPTR) {
-        OpVTStr = "_iPTR";
-      } else if (OpVT == MVT::isVoid) {
-        // Nodes with a void result actually have a first result type of either
-        // Other (a chain) or Flag.  Since there is no one-to-one mapping from
-        // void to this case, we handle it specially here.
-      } else {
-        OpVTStr = "_" + getEnumName(OpVT).substr(5);  // Skip 'MVT::'
-      }
+      std::string OpVTStr = (OpVT != MVT::isVoid && OpVT != MVT::iPTR)
+        ? getEnumName(OpVT).substr(5) : "" ;
       std::map<std::string, std::vector<std::string> >::iterator OpVTI =
         OpcodeVTMap.find(OpName);
       if (OpVTI == OpcodeVTMap.end()) {
@@ -3633,7 +3596,7 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
       } else
         OpVTI->second.push_back(OpVTStr);
 
-      OS << "SDNode *Select_" << getLegalCName(OpName)
+      OS << "SDNode *Select_" << OpName << (OpVTStr != "" ? "_" : "")
          << OpVTStr << "(const SDOperand &N) {\n";    
 
       // Loop through and reverse all of the CodeList vectors, as we will be
@@ -3653,18 +3616,18 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
       // If the last pattern has predicates (which could fail) emit code to
       // catch the case where nothing handles a pattern.
       if (mightNotMatch) {
-        OS << "  cerr << \"Cannot yet select: \";\n";
-        if (OpName != "ISD::INTRINSIC_W_CHAIN" &&
-            OpName != "ISD::INTRINSIC_WO_CHAIN" &&
-            OpName != "ISD::INTRINSIC_VOID") {
+        OS << "  std::cerr << \"Cannot yet select: \";\n";
+        if (OpcodeInfo.getEnumName() != "ISD::INTRINSIC_W_CHAIN" &&
+            OpcodeInfo.getEnumName() != "ISD::INTRINSIC_WO_CHAIN" &&
+            OpcodeInfo.getEnumName() != "ISD::INTRINSIC_VOID") {
           OS << "  N.Val->dump(CurDAG);\n";
         } else {
           OS << "  unsigned iid = cast<ConstantSDNode>(N.getOperand("
             "N.getOperand(0).getValueType() == MVT::Other))->getValue();\n"
-             << "  cerr << \"intrinsic %\"<< "
+             << "  std::cerr << \"intrinsic %\"<< "
             "Intrinsic::getName((Intrinsic::ID)iid);\n";
         }
-        OS << "  cerr << '\\n';\n"
+        OS << "  std::cerr << '\\n';\n"
            << "  abort();\n"
            << "  return NULL;\n";
       }
@@ -3688,16 +3651,6 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "  return New.Val;\n"
      << "}\n\n";
   
-  OS << "SDNode *Select_LABEL(const SDOperand &N) {\n"
-     << "  SDOperand Chain = N.getOperand(0);\n"
-     << "  SDOperand N1 = N.getOperand(1);\n"
-     << "  unsigned C = cast<ConstantSDNode>(N1)->getValue();\n"
-     << "  SDOperand Tmp = CurDAG->getTargetConstant(C, MVT::i32);\n"
-     << "  AddToISelQueue(Chain);\n"
-     << "  return CurDAG->getTargetNode(TargetInstrInfo::LABEL,\n"
-     << "                               MVT::Other, Tmp, Chain);\n"
-     << "}\n\n";
-
   OS << "// The main instruction selector code.\n"
      << "SDNode *SelectCode(SDOperand N) {\n"
      << "  if (N.getOpcode() >= ISD::BUILTIN_OP_END &&\n"
@@ -3705,7 +3658,6 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "INSTRUCTION_LIST_END)) {\n"
      << "    return NULL;   // Already selected.\n"
      << "  }\n\n"
-     << "  MVT::ValueType NVT = N.Val->getValueType(0);\n"
      << "  switch (N.getOpcode()) {\n"
      << "  default: break;\n"
      << "  case ISD::EntryToken:       // These leaves remain the same.\n"
@@ -3732,61 +3684,53 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "      AddToISelQueue(N.getOperand(i));\n"
      << "    return NULL;\n"
      << "  }\n"
-     << "  case ISD::INLINEASM: return Select_INLINEASM(N);\n"
-     << "  case ISD::LABEL: return Select_LABEL(N);\n";
+     << "  case ISD::INLINEASM:  return Select_INLINEASM(N);\n";
 
     
   // Loop over all of the case statements, emiting a call to each method we
   // emitted above.
-  for (std::map<std::string, std::vector<PatternToMatch*> >::iterator
-         PBOI = PatternsByOpcode.begin(), E = PatternsByOpcode.end();
-       PBOI != E; ++PBOI) {
-    const std::string &OpName = PBOI->first;
+  for (std::map<Record*, std::vector<PatternToMatch*>,
+                CompareByRecordName>::iterator PBOI = PatternsByOpcode.begin(),
+       E = PatternsByOpcode.end(); PBOI != E; ++PBOI) {
+    const SDNodeInfo &OpcodeInfo = getSDNodeInfo(PBOI->first);
+    const std::string &OpName = PBOI->first->getName();
     // Potentially multiple versions of select for this opcode. One for each
     // ValueType of the node (or its first true operand if it doesn't produce a
     // result.
     std::map<std::string, std::vector<std::string> >::iterator OpVTI =
       OpcodeVTMap.find(OpName);
     std::vector<std::string> &OpVTs = OpVTI->second;
-    OS << "  case " << OpName << ": {\n";
+    OS << "  case " << OpcodeInfo.getEnumName() << ": {\n";
     if (OpVTs.size() == 1) {
       std::string &VTStr = OpVTs[0];
-      OS << "    return Select_" << getLegalCName(OpName)
-         << VTStr << "(N);\n";
+      OS << "    return Select_" << OpName
+         << (VTStr != "" ? "_" : "") << VTStr << "(N);\n";
     } else {
-      // Keep track of whether we see a pattern that has an iPtr result.
-      bool HasPtrPattern = false;
-      bool HasDefaultPattern = false;
-      
+      if (OpcodeInfo.getNumResults())
+        OS << "    MVT::ValueType NVT = N.Val->getValueType(0);\n";
+      else if (OpcodeInfo.hasProperty(SDNPHasChain))
+        OS << "    MVT::ValueType NVT = (N.getNumOperands() > 1) ?"
+           << " N.getOperand(1).Val->getValueType(0) : MVT::isVoid;\n";
+      else
+        OS << "    MVT::ValueType NVT = (N.getNumOperands() > 0) ?"
+           << " N.getOperand(0).Val->getValueType(0) : MVT::isVoid;\n";
+      int Default = -1;
       OS << "    switch (NVT) {\n";
       for (unsigned i = 0, e = OpVTs.size(); i < e; ++i) {
         std::string &VTStr = OpVTs[i];
-        if (VTStr.empty()) {
-          HasDefaultPattern = true;
+        if (VTStr == "") {
+          Default = i;
           continue;
         }
-
-        // If this is a match on iPTR: don't emit it directly, we need special
-        // code.
-        if (VTStr == "_iPTR") {
-          HasPtrPattern = true;
-          continue;
-        }
-        OS << "    case MVT::" << VTStr.substr(1) << ":\n"
-           << "      return Select_" << getLegalCName(OpName)
-           << VTStr << "(N);\n";
+        OS << "    case MVT::" << VTStr << ":\n"
+           << "      return Select_" << OpName
+           << "_" << VTStr << "(N);\n";
       }
       OS << "    default:\n";
-      
-      // If there is an iPTR result version of this pattern, emit it here.
-      if (HasPtrPattern) {
-        OS << "      if (NVT == TLI.getPointerTy())\n";
-        OS << "        return Select_" << getLegalCName(OpName) <<"_iPTR(N);\n";
-      }
-      if (HasDefaultPattern) {
-        OS << "      return Select_" << getLegalCName(OpName) << "(N);\n";
-      }
-      OS << "      break;\n";
+      if (Default != -1)
+        OS << "      return Select_" << OpName << "(N);\n";
+      else
+	OS << "      break;\n";
       OS << "    }\n";
       OS << "    break;\n";
     }
@@ -3794,7 +3738,7 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
   }
 
   OS << "  } // end of big switch.\n\n"
-     << "  cerr << \"Cannot yet select: \";\n"
+     << "  std::cerr << \"Cannot yet select: \";\n"
      << "  if (N.getOpcode() != ISD::INTRINSIC_W_CHAIN &&\n"
      << "      N.getOpcode() != ISD::INTRINSIC_WO_CHAIN &&\n"
      << "      N.getOpcode() != ISD::INTRINSIC_VOID) {\n"
@@ -3802,10 +3746,10 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "  } else {\n"
      << "    unsigned iid = cast<ConstantSDNode>(N.getOperand("
                "N.getOperand(0).getValueType() == MVT::Other))->getValue();\n"
-     << "    cerr << \"intrinsic %\"<< "
-               "Intrinsic::getName((Intrinsic::ID)iid);\n"
+     << "    std::cerr << \"intrinsic %\"<< "
+                        "Intrinsic::getName((Intrinsic::ID)iid);\n"
      << "  }\n"
-     << "  cerr << '\\n';\n"
+     << "  std::cerr << '\\n';\n"
      << "  abort();\n"
      << "  return NULL;\n"
      << "}\n";
@@ -3951,12 +3895,13 @@ OS << "  unsigned NumKilled = ISelKilled.size();\n";
   // multiple ways.  Add them to PatternsToMatch as well.
   GenerateVariants();
 
-  DOUT << "\n\nALL PATTERNS TO MATCH:\n\n";
-  for (unsigned i = 0, e = PatternsToMatch.size(); i != e; ++i) {
-    DOUT << "PATTERN: ";   DEBUG(PatternsToMatch[i].getSrcPattern()->dump());
-    DOUT << "\nRESULT:  "; DEBUG(PatternsToMatch[i].getDstPattern()->dump());
-    DOUT << "\n";
-  }
+  
+  DEBUG(std::cerr << "\n\nALL PATTERNS TO MATCH:\n\n";
+        for (unsigned i = 0, e = PatternsToMatch.size(); i != e; ++i) {
+          std::cerr << "PATTERN: ";  PatternsToMatch[i].getSrcPattern()->dump();
+          std::cerr << "\nRESULT:  ";PatternsToMatch[i].getDstPattern()->dump();
+          std::cerr << "\n";
+        });
   
   // At this point, we have full information about the 'Patterns' we need to
   // parse, both implicitly from instructions as well as from explicit pattern

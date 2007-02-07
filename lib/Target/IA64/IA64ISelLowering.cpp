@@ -88,7 +88,7 @@ IA64TargetLowering::IA64TargetLowering(TargetMachine &TM)
       // We don't have line number support yet.
       setOperationAction(ISD::LOCATION, MVT::Other, Expand);
       setOperationAction(ISD::DEBUG_LOC, MVT::Other, Expand);
-      setOperationAction(ISD::LABEL, MVT::Other, Expand);
+      setOperationAction(ISD::DEBUG_LABEL, MVT::Other, Expand);
 
       //IA64 has these, but they are not implemented
       setOperationAction(ISD::CTTZ , MVT::i64  , Expand);
@@ -139,7 +139,6 @@ IA64TargetLowering::LowerArguments(Function &F, SelectionDAG &DAG) {
   //
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
-  const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
   
   GP = MF.getSSARegMap()->createVirtualRegister(getRegClassFor(MVT::i64));
   SP = MF.getSSARegMap()->createVirtualRegister(getRegClassFor(MVT::i64));
@@ -226,7 +225,7 @@ IA64TargetLowering::LowerArguments(Function &F, SelectionDAG &DAG) {
   // Create a vreg to hold the output of (what will become)
   // the "alloc" instruction
   VirtGPR = MF.getSSARegMap()->createVirtualRegister(getRegClassFor(MVT::i64));
-  BuildMI(&BB, TII->get(IA64::PSEUDO_ALLOC), VirtGPR);
+  BuildMI(&BB, IA64::PSEUDO_ALLOC, 0, VirtGPR);
   // we create a PSEUDO_ALLOC (pseudo)instruction for now
 /*
   BuildMI(&BB, IA64::IDEF, 0, IA64::r1);
@@ -256,14 +255,14 @@ IA64TargetLowering::LowerArguments(Function &F, SelectionDAG &DAG) {
   // here we actually do the moving of args, and store them to the stack
   // too if this is a varargs function:
   for (int i = 0; i < count && i < 8; ++i) {
-    BuildMI(&BB, TII->get(argOpc[i]), argVreg[i]).addReg(argPreg[i]);
+    BuildMI(&BB, argOpc[i], 1, argVreg[i]).addReg(argPreg[i]);
     if(F.isVarArg()) {
       // if this is a varargs function, we copy the input registers to the stack
       int FI = MFI->CreateFixedObject(8, tempOffset);
       tempOffset+=8;   //XXX: is it safe to use r22 like this?
-      BuildMI(&BB, TII->get(IA64::MOV), IA64::r22).addFrameIndex(FI);
+      BuildMI(&BB, IA64::MOV, 1, IA64::r22).addFrameIndex(FI);
       // FIXME: we should use st8.spill here, one day
-      BuildMI(&BB, TII->get(IA64::ST8), IA64::r22).addReg(argPreg[i]);
+      BuildMI(&BB, IA64::ST8, 1, IA64::r22).addReg(argPreg[i]);
     }
   }
 
@@ -290,10 +289,10 @@ IA64TargetLowering::LowerArguments(Function &F, SelectionDAG &DAG) {
 
 std::pair<SDOperand, SDOperand>
 IA64TargetLowering::LowerCallTo(SDOperand Chain,
-                                const Type *RetTy, bool RetTyIsSigned, 
-                                bool isVarArg, unsigned CallingConv, 
-                                bool isTailCall, SDOperand Callee, 
-                                ArgListTy &Args, SelectionDAG &DAG) {
+                                const Type *RetTy, bool isVarArg,
+                                unsigned CallingConv, bool isTailCall,
+                                SDOperand Callee, ArgListTy &Args,
+                                SelectionDAG &DAG) {
 
   MachineFunction &MF = DAG.getMachineFunction();
 
@@ -315,8 +314,7 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain,
     std::max(outRegsUsed, MF.getInfo<IA64FunctionInfo>()->outRegsUsed);
 
   // keep stack frame 16-byte aligned
-  // assert(NumBytes==((NumBytes+15) & ~15) && 
-  //        "stack frame not 16-byte aligned!");
+  //assert(NumBytes==((NumBytes+15) & ~15) && "stack frame not 16-byte aligned!");
   NumBytes = (NumBytes+15) & ~15;
   
   Chain = DAG.getCALLSEQ_START(Chain,DAG.getConstant(NumBytes, getPointerTy()));
@@ -329,7 +327,7 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain,
   
   for (unsigned i = 0, e = Args.size(); i != e; ++i)
     {
-      SDOperand Val = Args[i].Node;
+      SDOperand Val = Args[i].first;
       MVT::ValueType ObjectVT = Val.getValueType();
       SDOperand ValToStore(0, 0), ValToConvert(0, 0);
       unsigned ObjSize=8;
@@ -338,15 +336,14 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain,
       case MVT::i1:
       case MVT::i8:
       case MVT::i16:
-      case MVT::i32: {
+      case MVT::i32:
         //promote to 64-bits, sign/zero extending based on type
         //of the argument
-        ISD::NodeType ExtendKind = ISD::ZERO_EXTEND;
-        if (Args[i].isSigned)
-          ExtendKind = ISD::SIGN_EXTEND;
-        Val = DAG.getNode(ExtendKind, MVT::i64, Val);
+        if(Args[i].second->isSigned())
+          Val = DAG.getNode(ISD::SIGN_EXTEND, MVT::i64, Val);
+        else
+          Val = DAG.getNode(ISD::ZERO_EXTEND, MVT::i64, Val);
         // XXX: fall through
-      }
       case MVT::i64:
         //ObjSize = 8;
         if(RegValuesToPass.size() >= 8) {
@@ -424,8 +421,7 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain,
   unsigned seenConverts = 0;
   for (unsigned i = 0, e = RegValuesToPass.size(); i != e; ++i) {
     if(MVT::isFloatingPoint(RegValuesToPass[i].getValueType())) {
-      Chain = DAG.getCopyToReg(Chain, IntArgRegs[i], Converts[seenConverts++], 
-                               InFlag);
+      Chain = DAG.getCopyToReg(Chain, IntArgRegs[i], Converts[seenConverts++], InFlag);
       InFlag = Chain.getValue(1);
     }
   }
@@ -435,7 +431,8 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain,
   for (unsigned i = 0, e = RegValuesToPass.size(); i != e; ++i) {
     Chain = DAG.getCopyToReg(Chain,
       MVT::isInteger(RegValuesToPass[i].getValueType()) ?
-        IntArgRegs[i] : FPArgRegs[usedFPArgs++], RegValuesToPass[i], InFlag);
+                                          IntArgRegs[i] : FPArgRegs[usedFPArgs++],
+      RegValuesToPass[i], InFlag);
     InFlag = Chain.getValue(1);
   }
 
@@ -485,7 +482,7 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain,
     case MVT::i1: { // bools are just like other integers (returned in r8)
       // we *could* fall through to the truncate below, but this saves a
       // few redundant predicate ops
-      SDOperand boolInR8 = DAG.getCopyFromReg(Chain, IA64::r8, MVT::i64,InFlag);
+      SDOperand boolInR8 = DAG.getCopyFromReg(Chain, IA64::r8, MVT::i64, InFlag);
       InFlag = boolInR8.getValue(2);
       Chain = boolInR8.getValue(1);
       SDOperand zeroReg = DAG.getCopyFromReg(Chain, IA64::r0, MVT::i64, InFlag);
@@ -530,6 +527,13 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain,
                       DAG.getConstant(NumBytes, getPointerTy()));
   
   return std::make_pair(RetVal, Chain);
+}
+
+std::pair<SDOperand, SDOperand> IA64TargetLowering::
+LowerFrameReturnAddress(bool isFrameAddress, SDOperand Chain, unsigned Depth,
+                        SelectionDAG &DAG) {
+  assert(0 && "LowerFrameReturnAddress unimplemented");
+  abort();
 }
 
 SDOperand IA64TargetLowering::
@@ -587,9 +591,5 @@ LowerOperation(SDOperand Op, SelectionDAG &DAG) {
     return DAG.getStore(Op.getOperand(0), FR, 
                         Op.getOperand(1), SV->getValue(), SV->getOffset());
   }
-  // Frame & Return address.  Currently unimplemented
-  case ISD::RETURNADDR:         break;
-  case ISD::FRAMEADDR:          break;
   }
-  return SDOperand();
 }

@@ -32,7 +32,7 @@ namespace {
   struct ExternalFunctionsPassedConstants : public ModulePass {
     virtual bool runOnModule(Module &M) {
       for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
-        if (I->isDeclaration()) {
+        if (I->isExternal()) {
           bool PrintedFn = false;
           for (Value::use_iterator UI = I->use_begin(), E = I->use_end();
                UI != E; ++UI)
@@ -67,7 +67,7 @@ namespace {
   struct CallGraphPrinter : public ModulePass {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
-      AU.addRequiredTransitive<CallGraph>();
+      AU.addRequired<CallGraph>();
     }
     virtual bool runOnModule(Module &M) { return false; }
 

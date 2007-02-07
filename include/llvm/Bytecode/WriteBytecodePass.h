@@ -17,18 +17,18 @@
 
 #include "llvm/Pass.h"
 #include "llvm/Bytecode/Writer.h"
-#include "llvm/Support/Streams.h"
+#include <iostream>
 
 namespace llvm {
 
 class WriteBytecodePass : public ModulePass {
-  OStream *Out;                 // ostream to print on
+  std::ostream *Out;           // ostream to print on
   bool DeleteStream;
   bool CompressFile;
 public:
   WriteBytecodePass()
-    : Out(&cout), DeleteStream(false), CompressFile(false) {}
-  WriteBytecodePass(OStream *o, bool DS = false, bool CF = false)
+    : Out(&std::cout), DeleteStream(false), CompressFile(true) {}
+  WriteBytecodePass(std::ostream *o, bool DS = false, bool CF = true)
     : Out(o), DeleteStream(DS), CompressFile(CF) {}
 
   inline ~WriteBytecodePass() {

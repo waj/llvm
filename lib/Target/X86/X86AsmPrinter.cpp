@@ -16,7 +16,6 @@
 
 #include "X86AsmPrinter.h"
 #include "X86ATTAsmPrinter.h"
-#include "X86COFF.h"
 #include "X86IntelAsmPrinter.h"
 #include "X86MachineFunctionInfo.h"
 #include "X86Subtarget.h"
@@ -28,8 +27,11 @@
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/Mangler.h"
 #include "llvm/Target/TargetAsmInfo.h"
-#include "llvm/Target/TargetOptions.h"
+
 using namespace llvm;
+
+Statistic<> llvm::EmittedInsts("asm-printer",
+                               "Number of machine instrs printed");
 
 static X86FunctionInfo calculateFunctionInfo(const Function *F,
                                              const TargetData *TD) {
@@ -71,10 +73,6 @@ void X86SharedAsmPrinter::decorateName(std::string &Name,
   unsigned CC = F->getCallingConv();
   if (CC != CallingConv::X86_StdCall && CC != CallingConv::X86_FastCall)
     return;
-
-  // Decorate names only when we're targeting Cygwin/Mingw32 targets
-  if (!Subtarget->isTargetCygMing())
-    return;
     
   FMFInfoMap::const_iterator info_item = FunctionInfoMap.find(F);
 
@@ -111,9 +109,13 @@ void X86SharedAsmPrinter::decorateName(std::string &Name,
 
 /// doInitialization
 bool X86SharedAsmPrinter::doInitialization(Module &M) {
-  if (Subtarget->isTargetELF() ||
-      Subtarget->isTargetCygMing() ||
-      Subtarget->isTargetDarwin()) {
+  if (Subtarget->isTargetDarwin()) {
+    if (!Subtarget->is64Bit())
+      X86PICStyle = PICStyle::Stub;
+
+    // Emit initial debug information.
+    DW.BeginModule(&M);
+  } else if (Subtarget->isTargetELF() || Subtarget->isTargetCygwin()) {
     // Emit initial debug information.
     DW.BeginModule(&M);
   }
@@ -126,63 +128,43 @@ bool X86SharedAsmPrinter::doFinalization(Module &M) {
   // from how MASM does things.  When making changes here don't forget to look
   // at X86IntelAsmPrinter::doFinalization().
   const TargetData *TD = TM.getTargetData();
-  
+
   // Print out module-level global variables here.
   for (Module::const_global_iterator I = M.global_begin(), E = M.global_end();
        I != E; ++I) {
-    if (!I->hasInitializer())
-      continue;   // External global require no code
+    if (!I->hasInitializer()) continue;   // External global require no code
     
     // Check to see if this is a special global used by LLVM, if so, emit it.
-    if (EmitSpecialLLVMGlobal(I)) {
-      if (Subtarget->isTargetDarwin() &&
-          TM.getRelocationModel() == Reloc::Static) {
-        if (I->getName() == "llvm.global_ctors")
-          O << ".reference .constructors_used\n";
-        else if (I->getName() == "llvm.global_dtors")
-          O << ".reference .destructors_used\n";
-      }
+    if (EmitSpecialLLVMGlobal(I))
       continue;
-    }
     
     std::string name = Mang->getValueName(I);
     Constant *C = I->getInitializer();
     unsigned Size = TD->getTypeSize(C->getType());
     unsigned Align = TD->getPreferredAlignmentLog(I);
 
-    if (I->hasHiddenVisibility())
-      if (const char *Directive = TAI->getHiddenDirective())
-        O << Directive << name << "\n";
-    if (Subtarget->isTargetELF())
-      O << "\t.type " << name << ",@object\n";
-    
-    if (C->isNullValue()) {
+    if (C->isNullValue() && /* FIXME: Verify correct */
+        !I->hasSection() &&
+        (I->hasInternalLinkage() || I->hasWeakLinkage() ||
+         I->hasLinkOnceLinkage() ||
+         (Subtarget->isTargetDarwin() && 
+          I->hasExternalLinkage()))) {
+      if (Size == 0) Size = 1;   // .comm Foo, 0 is undefined, avoid it.
       if (I->hasExternalLinkage()) {
-        if (const char *Directive = TAI->getZeroFillDirective()) {
           O << "\t.globl\t" << name << "\n";
-          O << Directive << "__DATA__, __common, " << name << ", "
-            << Size << ", " << Align << "\n";
-          continue;
-        }
-      }
-      
-      if (!I->hasSection() &&
-          (I->hasInternalLinkage() || I->hasWeakLinkage() ||
-           I->hasLinkOnceLinkage())) {
-        if (Size == 0) Size = 1;   // .comm Foo, 0 is undefined, avoid it.
-        if (!NoZerosInBSS && TAI->getBSSSection())
-          SwitchToDataSection(TAI->getBSSSection(), I);
-        else
-          SwitchToDataSection(TAI->getDataSection(), I);
+          O << "\t.zerofill __DATA__, __common, " << name << ", "
+            << Size << ", " << Align;
+      } else {
+        SwitchToDataSection(TAI->getDataSection(), I);
         if (TAI->getLCOMMDirective() != NULL) {
           if (I->hasInternalLinkage()) {
             O << TAI->getLCOMMDirective() << name << "," << Size;
             if (Subtarget->isTargetDarwin())
-              O << "," << Align;
+              O << "," << (TAI->getAlignmentIsInBytes() ? (1 << Align) : Align);
           } else
             O << TAI->getCOMMDirective()  << name << "," << Size;
         } else {
-          if (!Subtarget->isTargetCygMing()) {
+          if (!Subtarget->isTargetCygwin()) {
             if (I->hasInternalLinkage())
               O << "\t.local\t" << name << "\n";
           }
@@ -190,91 +172,82 @@ bool X86SharedAsmPrinter::doFinalization(Module &M) {
           if (TAI->getCOMMDirectiveTakesAlignment())
             O << "," << (TAI->getAlignmentIsInBytes() ? (1 << Align) : Align);
         }
-        O << "\t\t" << TAI->getCommentString() << " " << I->getName() << "\n";
-        continue;
       }
-    }
-
-    switch (I->getLinkage()) {
-    case GlobalValue::LinkOnceLinkage:
-    case GlobalValue::WeakLinkage:
-      if (Subtarget->isTargetDarwin()) {
-        O << "\t.globl " << name << "\n"
-          << "\t.weak_definition " << name << "\n";
-        SwitchToDataSection(".section __DATA,__const_coal,coalesced", I);
-      } else if (Subtarget->isTargetCygMing()) {
-        std::string SectionName(".section\t.data$linkonce." +
-                                name +
-                                ",\"aw\"");
-        SwitchToDataSection(SectionName.c_str(), I);
-        O << "\t.globl " << name << "\n"
-          << "\t.linkonce same_size\n";
-      } else {
-        std::string SectionName("\t.section\t.llvm.linkonce.d." +
-                                name +
-                                ",\"aw\",@progbits");
-        SwitchToDataSection(SectionName.c_str(), I);
-        O << "\t.weak " << name << "\n";
-      }
-      break;
-    case GlobalValue::AppendingLinkage:
-      // FIXME: appending linkage variables should go into a section of
-      // their name or something.  For now, just emit them as external.
-    case GlobalValue::DLLExportLinkage:
-      DLLExportedGVs.insert(Mang->makeNameProper(I->getName(),""));
-      // FALL THROUGH
-    case GlobalValue::ExternalLinkage:
-      // If external or appending, declare as a global symbol
-      O << "\t.globl " << name << "\n";
-      // FALL THROUGH
-    case GlobalValue::InternalLinkage: {
-      if (I->isConstant()) {
-        const ConstantArray *CVA = dyn_cast<ConstantArray>(C);
-        if (TAI->getCStringSection() && CVA && CVA->isCString()) {
-          SwitchToDataSection(TAI->getCStringSection(), I);
-          break;
-        }
-      }
-      // FIXME: special handling for ".ctors" & ".dtors" sections
-      if (I->hasSection() &&
-          (I->getSection() == ".ctors" ||
-           I->getSection() == ".dtors")) {
-        std::string SectionName = ".section " + I->getSection();
-        
-        if (Subtarget->isTargetCygMing()) {
-          SectionName += ",\"aw\"";
+      O << "\t\t" << TAI->getCommentString() << " " << I->getName() << "\n";
+    } else {
+      switch (I->getLinkage()) {
+      case GlobalValue::LinkOnceLinkage:
+      case GlobalValue::WeakLinkage:
+        if (Subtarget->isTargetDarwin()) {
+          O << "\t.globl " << name << "\n"
+            << "\t.weak_definition " << name << "\n";
+          SwitchToDataSection(".section __DATA,__const_coal,coalesced", I);
+        } else if (Subtarget->isTargetCygwin()) {
+          std::string SectionName(".section\t.data$linkonce." +
+                                  name +
+                                  ",\"aw\"");
+          SwitchToDataSection(SectionName.c_str(), I);
+          O << "\t.globl " << name << "\n"
+            << "\t.linkonce same_size\n";
         } else {
-          assert(!Subtarget->isTargetDarwin());
-          SectionName += ",\"aw\",@progbits";
+          std::string SectionName("\t.section\t.llvm.linkonce.d." +
+                                  name +
+                                  ",\"aw\",@progbits");
+          SwitchToDataSection(SectionName.c_str(), I);
+          O << "\t.weak " << name << "\n";
         }
+        break;
+      case GlobalValue::AppendingLinkage:
+        // FIXME: appending linkage variables should go into a section of
+        // their name or something.  For now, just emit them as external.
+      case GlobalValue::DLLExportLinkage:
+        DLLExportedGVs.insert(Mang->makeNameProper(I->getName(),""));
+        // FALL THROUGH
+      case GlobalValue::ExternalLinkage:
+        // If external or appending, declare as a global symbol
+        O << "\t.globl " << name << "\n";
+        // FALL THROUGH
+      case GlobalValue::InternalLinkage: {
+        if (I->isConstant()) {
+          const ConstantArray *CVA = dyn_cast<ConstantArray>(C);
+          if (TAI->getCStringSection() && CVA && CVA->isCString()) {
+            SwitchToDataSection(TAI->getCStringSection(), I);
+            break;
+          }
+        }
+        // FIXME: special handling for ".ctors" & ".dtors" sections
+        if (I->hasSection() &&
+            (I->getSection() == ".ctors" ||
+             I->getSection() == ".dtors")) {
+          std::string SectionName = ".section " + I->getSection();
+          
+          if (Subtarget->isTargetCygwin()) {
+            SectionName += ",\"aw\"";
+          } else {
+            assert(!Subtarget->isTargetDarwin());
+            SectionName += ",\"aw\",@progbits";
+          }
 
-        SwitchToDataSection(SectionName.c_str());
-      } else {
-        if (C->isNullValue() && !NoZerosInBSS && TAI->getBSSSection())
-          SwitchToDataSection(TAI->getBSSSection(), I);
-        else
+          SwitchToDataSection(SectionName.c_str());
+        } else {
           SwitchToDataSection(TAI->getDataSection(), I);
+        }
+        
+        break;
       }
-      
-      break;
-    }
-    default:
-      assert(0 && "Unknown linkage type!");
-    }
+      default:
+        assert(0 && "Unknown linkage type!");
+      }
 
-    EmitAlignment(Align, I);
-    O << name << ":\t\t\t\t" << TAI->getCommentString() << " " << I->getName()
-      << "\n";
-    if (TAI->hasDotTypeDotSizeDirective())
-      O << "\t.size " << name << ", " << Size << "\n";
-    // If the initializer is a extern weak symbol, remember to emit the weak
-    // reference!
-    if (const GlobalValue *GV = dyn_cast<GlobalValue>(C))
-      if (GV->hasExternalWeakLinkage())
-        ExtWeakSymbols.insert(GV);
+      EmitAlignment(Align, I);
+      O << name << ":\t\t\t\t" << TAI->getCommentString() << " " << I->getName()
+        << "\n";
+      if (TAI->hasDotTypeDotSizeDirective())
+        O << "\t.size " << name << ", " << Size << "\n";
 
-    EmitGlobalConstant(C);
-    O << '\n';
+      EmitGlobalConstant(C);
+      O << '\n';
+    }
   }
   
   // Output linker support code for dllexported globals
@@ -297,7 +270,7 @@ bool X86SharedAsmPrinter::doFinalization(Module &M) {
          i != e; ++i) {
     O << "\t.ascii \" -export:" << *i << "\"\n";
   }    
-
+ 
   if (Subtarget->isTargetDarwin()) {
     SwitchToDataSection("");
 
@@ -334,19 +307,7 @@ bool X86SharedAsmPrinter::doFinalization(Module &M) {
     // linker can safely perform dead code stripping.  Since LLVM never
     // generates code that does this, it is always safe to set.
     O << "\t.subsections_via_symbols\n";
-  } else if (Subtarget->isTargetCygMing()) {
-    // Emit type information for external functions
-    for (std::set<std::string>::iterator i = FnStubs.begin(), e = FnStubs.end();
-         i != e; ++i) {
-      O << "\t.def\t " << *i
-        << ";\t.scl\t" << COFF::C_EXT
-        << ";\t.type\t" << (COFF::DT_FCN << COFF::N_BTSHFT)
-        << ";\t.endef\n";
-    }
-    
-    // Emit final debug information.
-    DW.EndModule();    
-  } else if (Subtarget->isTargetELF()) {
+  } else if (Subtarget->isTargetELF() || Subtarget->isTargetCygwin()) {
     // Emit final debug information.
     DW.EndModule();
   }

@@ -13,7 +13,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "asm-printer"
 #include "X86IntelAsmPrinter.h"
 #include "X86TargetAsmInfo.h"
 #include "X86.h"
@@ -24,10 +23,7 @@
 #include "llvm/Support/Mangler.h"
 #include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/ADT/Statistic.h"
 using namespace llvm;
-
-STATISTIC(EmittedInsts, "Number of machine instrs printed");
 
 std::string X86IntelAsmPrinter::getSectionForFunction(const Function &F) const {
   // Intel asm always emits functions to _text.
@@ -117,7 +113,7 @@ void X86IntelAsmPrinter::printOp(const MachineOperand &MO,
                                  const char *Modifier) {
   const MRegisterInfo &RI = *TM.getRegisterInfo();
   switch (MO.getType()) {
-  case MachineOperand::MO_Register: {      
+  case MachineOperand::MO_Register:
     if (MRegisterInfo::isPhysicalRegister(MO.getReg())) {
       unsigned Reg = MO.getReg();
       if (Modifier && strncmp(Modifier, "subreg", strlen("subreg")) == 0) {
@@ -130,20 +126,13 @@ void X86IntelAsmPrinter::printOp(const MachineOperand &MO,
     } else
       O << "reg" << MO.getReg();
     return;
-  }
+
   case MachineOperand::MO_Immediate:
     O << MO.getImmedValue();
     return;
   case MachineOperand::MO_MachineBasicBlock:
     printBasicBlockLabel(MO.getMachineBasicBlock());
     return;
-  case MachineOperand::MO_JumpTableIndex: {
-    bool isMemOp  = Modifier && !strcmp(Modifier, "mem");
-    if (!isMemOp) O << "OFFSET ";
-    O << TAI->getPrivateGlobalPrefix() << "JTI" << getFunctionNumber()
-      << "_" << MO.getJumpTableIndex();
-    return;
-  }    
   case MachineOperand::MO_ConstantPoolIndex: {
     bool isMemOp  = Modifier && !strcmp(Modifier, "mem");
     if (!isMemOp) O << "OFFSET ";
@@ -199,6 +188,14 @@ void X86IntelAsmPrinter::printMemReference(const MachineInstr *MI, unsigned Op,
   const MachineOperand &IndexReg = MI->getOperand(Op+2);
   const MachineOperand &DispSpec = MI->getOperand(Op+3);
 
+  if (BaseReg.isFrameIndex()) {
+    O << "[frame slot #" << BaseReg.getFrameIndex();
+    if (DispSpec.getImmedValue())
+      O << " + " << DispSpec.getImmedValue();
+    O << "]";
+    return;
+  }
+
   O << "[";
   bool NeedPlus = false;
   if (BaseReg.getReg()) {
@@ -214,8 +211,7 @@ void X86IntelAsmPrinter::printMemReference(const MachineInstr *MI, unsigned Op,
     NeedPlus = true;
   }
 
-  if (DispSpec.isGlobalAddress() || DispSpec.isConstantPoolIndex() ||
-      DispSpec.isJumpTableIndex()) {
+  if (DispSpec.isGlobalAddress() || DispSpec.isConstantPoolIndex()) {
     if (NeedPlus)
       O << " + ";
     printOp(DispSpec, "mem");
@@ -347,7 +343,7 @@ bool X86IntelAsmPrinter::doInitialization(Module &M) {
 
   // Emit declarations for external functions.
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
-    if (I->isDeclaration()) {
+    if (I->isExternal()) {
       std::string Name = Mang->getValueName(I);
       X86SharedAsmPrinter::decorateName(Name, I);
 
@@ -362,7 +358,7 @@ bool X86IntelAsmPrinter::doInitialization(Module &M) {
   // external globals to have type byte, and if that's good enough for VC++...
   for (Module::const_global_iterator I = M.global_begin(), E = M.global_end();
        I != E; ++I) {
-    if (I->isDeclaration()) {
+    if (I->isExternal()) {
       std::string Name = Mang->getValueName(I);
 
       O << "\textern " ;
@@ -382,7 +378,7 @@ bool X86IntelAsmPrinter::doFinalization(Module &M) {
   // Print out module-level global variables here.
   for (Module::const_global_iterator I = M.global_begin(), E = M.global_end();
        I != E; ++I) {
-    if (I->isDeclaration()) continue;   // External global require no code
+    if (I->isExternal()) continue;   // External global require no code
     
     // Check to see if this is a special global used by LLVM, if so, emit it.
     if (EmitSpecialLLVMGlobal(I))

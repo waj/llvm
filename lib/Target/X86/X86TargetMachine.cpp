@@ -21,6 +21,7 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetMachineRegistry.h"
 #include "llvm/Transforms/Scalar.h"
+#include <iostream>
 using namespace llvm;
 
 /// X86TargetMachineModule - Note that this is used on hosts that cannot link
@@ -80,11 +81,6 @@ unsigned X86_64TargetMachine::getModuleMatchQuality(const Module &M) {
       TT[3] == '_' && TT[4] == '6' && TT[5] == '4' && TT[6] == '-')
     return 20;
 
-  // We strongly match "amd64-*".
-  if (TT.size() >= 6 && TT[0] == 'a' && TT[1] == 'm' && TT[2] == 'd' &&
-      TT[3] == '6' && TT[4] == '4' && TT[5] == '-')
-    return 20;
-  
   if (M.getEndianness()  == Module::LittleEndian &&
       M.getPointerSize() == Module::Pointer64)
     return 10;                                   // Weak match
@@ -109,16 +105,16 @@ X86_64TargetMachine::X86_64TargetMachine(const Module &M, const std::string &FS)
 X86TargetMachine::X86TargetMachine(const Module &M, const std::string &FS, bool is64Bit)
   : Subtarget(M, FS, is64Bit),
     DataLayout(Subtarget.is64Bit() ?
-               std::string("e-p:64:64-d:32:64-l:32:64") :
-               std::string("e-p:32:32-d:32:64-l:32:64")),
+               std::string("e-p:64:64-d:32-l:32") :
+               std::string("e-p:32:32-d:32-l:32")),
     FrameInfo(TargetFrameInfo::StackGrowsDown,
               Subtarget.getStackAlignment(), Subtarget.is64Bit() ? -8 : -4),
     InstrInfo(*this), JITInfo(*this), TLInfo(*this) {
   if (getRelocationModel() == Reloc::Default)
-    if (Subtarget.isTargetDarwin() || Subtarget.isTargetCygMing())
+    if (Subtarget.isTargetDarwin())
       setRelocationModel(Reloc::DynamicNoPIC);
     else
-      setRelocationModel(Reloc::Static);
+      setRelocationModel(Reloc::PIC_);
   if (Subtarget.is64Bit()) {
     // No DynamicNoPIC support under X86-64.
     if (getRelocationModel() == Reloc::DynamicNoPIC)
@@ -127,19 +123,6 @@ X86TargetMachine::X86TargetMachine(const Module &M, const std::string &FS, bool 
     if (getCodeModel() == CodeModel::Default)
       setCodeModel(CodeModel::Small);
   }
-
-  if (Subtarget.isTargetCygMing())
-    Subtarget.setPICStyle(PICStyle::WinPIC);
-  else if (Subtarget.isTargetDarwin())
-    if (Subtarget.is64Bit())
-      Subtarget.setPICStyle(PICStyle::RIPRel);
-    else
-      Subtarget.setPICStyle(PICStyle::Stub);
-  else if (Subtarget.isTargetELF())
-    if (Subtarget.is64Bit())
-      Subtarget.setPICStyle(PICStyle::RIPRel);
-    else
-      Subtarget.setPICStyle(PICStyle::GOT);
 }
 
 //===----------------------------------------------------------------------===//
@@ -176,12 +159,7 @@ bool X86TargetMachine::addCodeEmitter(FunctionPassManager &PM, bool Fast,
                                       MachineCodeEmitter &MCE) {
   // FIXME: Move this to TargetJITInfo!
   setRelocationModel(Reloc::Static);
-  Subtarget.setPICStyle(PICStyle::None);
   
-  // JIT cannot ensure globals are placed in the lower 4G of address.
-  if (Subtarget.is64Bit())
-    setCodeModel(CodeModel::Large);
-
   PM.add(createX86CodeEmitterPass(*this, MCE));
   return false;
 }

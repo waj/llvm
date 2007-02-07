@@ -15,24 +15,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "ipconstprop"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CallSite.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/ADT/Statistic.h"
 using namespace llvm;
 
-STATISTIC(NumArgumentsProped, "Number of args turned into constants");
-STATISTIC(NumReturnValProped, "Number of return values turned into constants");
-
 namespace {
+  Statistic<> NumArgumentsProped("ipconstprop",
+                                 "Number of args turned into constants");
+  Statistic<> NumReturnValProped("ipconstprop",
+                              "Number of return values turned into constants");
+
   /// IPCP - The interprocedural constant propagation pass
   ///
-  struct VISIBILITY_HIDDEN IPCP : public ModulePass {
+  struct IPCP : public ModulePass {
     bool runOnModule(Module &M);
   private:
     bool PropagateConstantsIntoArguments(Function &F);
@@ -52,7 +52,7 @@ bool IPCP::runOnModule(Module &M) {
   while (LocalChange) {
     LocalChange = false;
     for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
-      if (!I->isDeclaration()) {
+      if (!I->isExternal()) {
         // Delete any klingons.
         I->removeDeadConstantUsers();
         if (I->hasInternalLinkage())

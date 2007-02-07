@@ -1,5 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -globalopt -instcombine | \
-; RUN:    llvm-dis | grep 'ret i1 true'
+; RUN: llvm-as < %s | opt -globalopt -instcombine | llvm-dis | grep 'ret bool true'
 
 ;; check that global opt turns integers that only hold 0 or 1 into bools.
 

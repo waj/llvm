@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -mem2reg
+; RUN: llvm-as < %s | opt -mem2reg
 
 implementation   ; Functions:
 

@@ -1,5 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | \
-; RUN:   grep 'and i32 %Y, 8'
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep 'and int %Y, 8'
 
 int %test1(ubyte %X) {
         %Y = cast ubyte %X to int

@@ -88,13 +88,12 @@ struct InlineAsmDescriptor {
 //
 struct ValID {
   enum {
-    LocalID, GlobalID, LocalName, GlobalName,
-    ConstSIntVal, ConstUIntVal, ConstFPVal, ConstNullVal,
+    NumberVal, NameVal, ConstSIntVal, ConstUIntVal, ConstFPVal, ConstNullVal,
     ConstUndefVal, ConstZeroVal, ConstantVal, InlineAsmVal
   } Type;
 
   union {
-    unsigned Num;         // If it's a numeric reference like %1234
+    int      Num;         // If it's a numeric reference
     char    *Name;        // If it's a named reference.  Memory must be free'd.
     int64_t  ConstPool64; // Constant pool reference.  This is the value
     uint64_t UConstPool64;// Unsigned constant pool reference.
@@ -103,19 +102,14 @@ struct ValID {
     InlineAsmDescriptor *IAD;
   };
 
-  static ValID createLocalID(unsigned Num) {
-    ValID D; D.Type = LocalID; D.Num = Num; return D;
+  static ValID create(int Num) {
+    ValID D; D.Type = NumberVal; D.Num = Num; return D;
   }
-  static ValID createGlobalID(unsigned Num) {
-    ValID D; D.Type = GlobalID; D.Num = Num; return D;
+
+  static ValID create(char *Name) {
+    ValID D; D.Type = NameVal; D.Name = Name; return D;
   }
-  static ValID createLocalName(char *Name) {
-    ValID D; D.Type = LocalName; D.Name = Name; return D;
-  }
-  static ValID createGlobalName(char *Name) {
-    ValID D; D.Type = GlobalName; D.Name = Name; return D;
-  }
-  
+
   static ValID create(int64_t Val) {
     ValID D; D.Type = ConstSIntVal; D.ConstPool64 = Val; return D;
   }
@@ -154,14 +148,14 @@ struct ValID {
   }
 
   inline void destroy() const {
-    if (Type == LocalName || Type == GlobalName)
+    if (Type == NameVal)
       free(Name);    // Free this strdup'd memory.
     else if (Type == InlineAsmVal)
       delete IAD;
   }
 
   inline ValID copy() const {
-    if (Type != LocalName && Type != GlobalName) return *this;
+    if (Type != NameVal) return *this;
     ValID Result = *this;
     Result.Name = strdup(Name);
     return Result;
@@ -169,10 +163,8 @@ struct ValID {
 
   inline std::string getName() const {
     switch (Type) {
-    case LocalID       : return '%' + utostr(Num);
-    case GlobalID      : return '@' + utostr(Num);
-    case LocalName     : return Name;
-    case GlobalName    : return Name;
+    case NumberVal     : return std::string("#") + itostr(Num);
+    case NameVal       : return Name;
     case ConstFPVal    : return ftostr(ConstPoolFP);
     case ConstNullVal  : return "null";
     case ConstUndefVal : return "undef";
@@ -180,8 +172,8 @@ struct ValID {
     case ConstUIntVal  :
     case ConstSIntVal  : return std::string("%") + itostr(ConstPool64);
     case ConstantVal:
-      if (ConstantValue == ConstantInt::getTrue()) return "true";
-      if (ConstantValue == ConstantInt::getFalse()) return "false";
+      if (ConstantValue == ConstantBool::getTrue()) return "true";
+      if (ConstantValue == ConstantBool::getFalse()) return "false";
       return "<constant expression>";
     default:
       assert(0 && "Unknown value!");
@@ -193,10 +185,8 @@ struct ValID {
   bool operator<(const ValID &V) const {
     if (Type != V.Type) return Type < V.Type;
     switch (Type) {
-    case LocalID:
-    case GlobalID:      return Num < V.Num;
-    case LocalName:
-    case GlobalName:    return strcmp(Name, V.Name) < 0;
+    case NumberVal:     return Num < V.Num;
+    case NameVal:       return strcmp(Name, V.Name) < 0;
     case ConstSIntVal:  return ConstPool64  < V.ConstPool64;
     case ConstUIntVal:  return UConstPool64 < V.UConstPool64;
     case ConstFPVal:    return ConstPoolFP  < V.ConstPoolFP;
@@ -209,29 +199,22 @@ struct ValID {
   }
 };
 
-struct TypeWithAttrs {
-  llvm::PATypeHolder *Ty;
-  FunctionType::ParameterAttributes Attrs;
-};
-
-typedef std::vector<TypeWithAttrs> TypeWithAttrsList; 
-
-struct ArgListEntry {
-  FunctionType::ParameterAttributes Attrs;
-  llvm::PATypeHolder *Ty;
-  char *Name;
-};
-
-typedef std::vector<struct ArgListEntry> ArgListType;
-
-struct ValueRefListEntry {
-  Value *Val;
-  FunctionType::ParameterAttributes Attrs;
-};
-
-typedef std::vector<ValueRefListEntry> ValueRefList;
-
-
 } // End llvm namespace
+
+// This structure is used to keep track of obsolete opcodes. The lexer will
+// retain the ability to parse obsolete opcode mnemonics. In this case it will
+// set "obsolete" to true and the opcode will be the replacement opcode. For
+// example if "rem" is encountered then opcode will be set to "urem" and the
+// "obsolete" flag will be true. If the opcode is not obsolete then "obsolete"
+// will be false. 
+template <class Enum> 
+struct OpcodeInfo {
+  Enum opcode;
+  bool obsolete;
+};
+typedef OpcodeInfo<llvm::Instruction::BinaryOps>  BinaryOpInfo;
+typedef OpcodeInfo<llvm::Instruction::TermOps>    TermOpInfo;
+typedef OpcodeInfo<llvm::Instruction::MemoryOps>  MemOpInfo;
+typedef OpcodeInfo<llvm::Instruction::OtherOps>   OtherOpInfo;
 
 #endif

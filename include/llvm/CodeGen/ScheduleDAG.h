@@ -16,13 +16,13 @@
 #define LLVM_CODEGEN_SCHEDULEDAG_H
 
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallSet.h"
+
+#include <set>
 
 namespace llvm {
   struct InstrStage;
   class MachineConstantPool;
-  class MachineModuleInfo;
+  class MachineDebugInfo;
   class MachineInstr;
   class MRegisterInfo;
   class SelectionDAG;
@@ -154,7 +154,7 @@ namespace llvm {
   public:
     virtual ~SchedulingPriorityQueue() {}
   
-    virtual void initNodes(DenseMap<SDNode*, SUnit*> &SUMap,
+    virtual void initNodes(std::map<SDNode*, SUnit*> &SUMap,
                            std::vector<SUnit> &SUnits) = 0;
     virtual void releaseState() = 0;
   
@@ -181,9 +181,9 @@ namespace llvm {
     MachineConstantPool *ConstPool;       // Target constant pool
     std::vector<SUnit*> Sequence;         // The schedule. Null SUnit*'s
                                           // represent noop instructions.
-    DenseMap<SDNode*, SUnit*> SUnitMap;   // SDNode to SUnit mapping (n -> 1).
+    std::map<SDNode*, SUnit*> SUnitMap;   // SDNode to SUnit mapping (n -> 1).
     std::vector<SUnit> SUnits;            // The scheduling units.
-    SmallSet<SDNode*, 16> CommuteSet;     // Nodes the should be commuted.
+    std::set<SDNode*> CommuteSet;         // Nodes the should be commuted.
 
     ScheduleDAG(SelectionDAG &dag, MachineBasicBlock *bb,
                 const TargetMachine &tm)
@@ -240,7 +240,7 @@ namespace llvm {
     /// VRBaseMap contains, for each already emitted node, the first virtual
     /// register number for the results of the node.
     ///
-    void EmitNode(SDNode *Node, DenseMap<SDNode*, unsigned> &VRBaseMap);
+    void EmitNode(SDNode *Node, std::map<SDNode*, unsigned> &VRBaseMap);
     
     /// EmitNoop - Emit a noop instruction.
     ///
@@ -257,7 +257,7 @@ namespace llvm {
   private:
     void AddOperand(MachineInstr *MI, SDOperand Op, unsigned IIOpNum,
                     const TargetInstrDescriptor *II,
-                    DenseMap<SDNode*, unsigned> &VRBaseMap);
+                    std::map<SDNode*, unsigned> &VRBaseMap);
   };
 
   /// createBFS_DAGScheduler - This creates a simple breadth first instruction

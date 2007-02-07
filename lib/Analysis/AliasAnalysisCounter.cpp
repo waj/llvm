@@ -17,8 +17,7 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/Streams.h"
+#include <iostream>
 using namespace llvm;
 
 namespace {
@@ -27,8 +26,7 @@ namespace {
   cl::opt<bool>
   PrintAllFailures("count-aa-print-all-failed-queries", cl::ReallyHidden);
 
-  class VISIBILITY_HIDDEN AliasAnalysisCounter 
-      : public ModulePass, public AliasAnalysis {
+  class AliasAnalysisCounter : public ModulePass, public AliasAnalysis {
     unsigned No, May, Must;
     unsigned NoMR, JustRef, JustMod, MR;
     const char *Name;
@@ -40,33 +38,37 @@ namespace {
     }
 
     void printLine(const char *Desc, unsigned Val, unsigned Sum) {
-      cerr <<  "  " << Val << " " << Desc << " responses ("
-           << Val*100/Sum << "%)\n";
+      std::cerr <<  "  " << Val << " " << Desc << " responses ("
+                << Val*100/Sum << "%)\n";
     }
     ~AliasAnalysisCounter() {
       unsigned AASum = No+May+Must;
       unsigned MRSum = NoMR+JustRef+JustMod+MR;
       if (AASum + MRSum) { // Print a report if any counted queries occurred...
-        cerr << "\n===== Alias Analysis Counter Report =====\n"
-             << "  Analysis counted: " << Name << "\n"
-             << "  " << AASum << " Total Alias Queries Performed\n";
+        std::cerr
+          << "\n===== Alias Analysis Counter Report =====\n"
+          << "  Analysis counted: " << Name << "\n"
+          << "  " << AASum << " Total Alias Queries Performed\n";
         if (AASum) {
           printLine("no alias",     No, AASum);
           printLine("may alias",   May, AASum);
           printLine("must alias", Must, AASum);
-          cerr << "  Alias Analysis Counter Summary: " << No*100/AASum << "%/"
-               << May*100/AASum << "%/" << Must*100/AASum<<"%\n\n";
+          std::cerr
+            << "  Alias Analysis Counter Summary: " << No*100/AASum << "%/"
+            << May*100/AASum << "%/" << Must*100/AASum<<"%\n\n";
         }
 
-        cerr << "  " << MRSum    << " Total Mod/Ref Queries Performed\n";
+        std::cerr
+          << "  " << MRSum    << " Total Mod/Ref Queries Performed\n";
         if (MRSum) {
           printLine("no mod/ref",    NoMR, MRSum);
           printLine("ref",        JustRef, MRSum);
           printLine("mod",        JustMod, MRSum);
           printLine("mod/ref",         MR, MRSum);
-          cerr << "  Mod/Ref Analysis Counter Summary: " <<NoMR*100/MRSum<< "%/"
-               << JustRef*100/MRSum << "%/" << JustMod*100/MRSum << "%/"
-               << MR*100/MRSum <<"%\n\n";
+          std::cerr
+            << "  Mod/Ref Analysis Counter Summary: " << NoMR*100/MRSum<< "%/"
+            << JustRef*100/MRSum << "%/" << JustMod*100/MRSum << "%/"
+            << MR*100/MRSum <<"%\n\n";
         }
       }
     }
@@ -130,11 +132,11 @@ AliasAnalysisCounter::alias(const Value *V1, unsigned V1Size,
   }
 
   if (PrintAll || (PrintAllFailures && R == MayAlias)) {
-    cerr << AliasString << ":\t";
-    cerr << "[" << V1Size << "B] ";
-    WriteAsOperand(*cerr.stream(), V1, true, M) << ", ";
-    cerr << "[" << V2Size << "B] ";
-    WriteAsOperand(*cerr.stream(), V2, true, M) << "\n";
+    std::cerr << AliasString << ":\t";
+    std::cerr << "[" << V1Size << "B] ";
+    WriteAsOperand(std::cerr, V1, true, true, M) << ", ";
+    std::cerr << "[" << V2Size << "B] ";
+    WriteAsOperand(std::cerr, V2, true, true, M) << "\n";
   }
 
   return R;
@@ -154,10 +156,10 @@ AliasAnalysisCounter::getModRefInfo(CallSite CS, Value *P, unsigned Size) {
   }
 
   if (PrintAll || (PrintAllFailures && R == ModRef)) {
-    cerr << MRString << ":  Ptr: ";
-    cerr << "[" << Size << "B] ";
-    WriteAsOperand(*cerr.stream(), P, true, M);
-    cerr << "\t<->" << *CS.getInstruction();
+    std::cerr << MRString << ":  Ptr: ";
+    std::cerr << "[" << Size << "B] ";
+    WriteAsOperand(std::cerr, P, true, true, M);
+    std::cerr << "\t<->" << *CS.getInstruction();
   }
   return R;
 }

@@ -12,35 +12,29 @@
 // constant, which MAY wrap around the end of the numeric range.  To do this, it
 // keeps track of a [lower, upper) bound, which specifies an interval just like
 // STL iterators.  When used with boolean values, the following are important
-// ranges: :
+// ranges (other integral ranges use min/max values for special range values):
 //
 //  [F, F) = {}     = Empty set
 //  [T, F) = {T}
 //  [F, T) = {F}
 //  [T, T) = {F, T} = Full set
 //
-// The other integral ranges use min/max values for special range values. For
-// example, for 8-bit types, it uses:
-// [0, 0)     = {}       = Empty set
-// [255, 255) = {0..255} = Full Set
-//
-// Note that ConstantRange always keeps unsigned values.
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_SUPPORT_CONSTANT_RANGE_H
 #define LLVM_SUPPORT_CONSTANT_RANGE_H
 
 #include "llvm/Support/DataTypes.h"
-#include "llvm/Support/Streams.h"
 #include <iosfwd>
 
 namespace llvm {
 class Constant;
+class ConstantIntegral;
 class ConstantInt;
 class Type;
 
 class ConstantRange {
-  ConstantInt *Lower, *Upper;
+  ConstantIntegral *Lower, *Upper;
  public:
   /// Initialize a full (the default) or empty set for the specified type.
   ///
@@ -56,19 +50,17 @@ class ConstantRange {
   ///
   ConstantRange(Constant *Lower, Constant *Upper);
 
-  /// Initialize a set of values that all satisfy the predicate with C. The
-  /// predicate should be either an ICmpInst::Predicate or FCmpInst::Predicate
-  /// value.
-  /// @brief Get a range for a relation with a constant integral.
-  ConstantRange(unsigned short predicate, ConstantInt *C);
+  /// Initialize a set of values that all satisfy the condition with C.
+  ///
+  ConstantRange(unsigned SetCCOpcode, ConstantIntegral *C);
 
   /// getLower - Return the lower value for this range...
   ///
-  ConstantInt *getLower() const { return Lower; }
+  ConstantIntegral *getLower() const { return Lower; }
 
   /// getUpper - Return the upper value for this range...
   ///
-  ConstantInt *getUpper() const { return Upper; }
+  ConstantIntegral *getUpper() const { return Upper; }
 
   /// getType - Return the LLVM data type of this range.
   ///
@@ -86,18 +78,16 @@ class ConstantRange {
   /// isWrappedSet - Return true if this set wraps around the top of the range,
   /// for example: [100, 8)
   ///
-  bool isWrappedSet(bool isSigned) const;
+  bool isWrappedSet() const;
 
   /// contains - Return true if the specified value is in the set.
-  /// The isSigned parameter indicates whether the comparisons should be
-  /// performed as if the values are signed or not.
   ///
-  bool contains(ConstantInt *Val, bool isSigned) const;
+  bool contains(ConstantInt *Val) const;
 
   /// getSingleElement - If this set contains a single element, return it,
   /// otherwise return null.
   ///
-  ConstantInt *getSingleElement() const;
+  ConstantIntegral *getSingleElement() const;
 
   /// isSingleElement - Return true if this set contains exactly one member.
   ///
@@ -126,7 +116,7 @@ class ConstantRange {
   /// one of the sets but not the other.  For example: [100, 8) intersect [3,
   /// 120) yields [3, 120)
   ///
-  ConstantRange intersectWith(const ConstantRange &CR, bool isSigned) const;
+  ConstantRange intersectWith(const ConstantRange &CR) const;
 
   /// union - Return the range that results from the union of this range with
   /// another range.  The resultant range is guaranteed to include the elements
@@ -134,7 +124,7 @@ class ConstantRange {
   /// [3, 15), which includes 9, 10, and 11, which were not included in either
   /// set before.
   ///
-  ConstantRange unionWith(const ConstantRange &CR, bool isSigned) const;
+  ConstantRange unionWith(const ConstantRange &CR) const;
 
   /// zeroExtend - Return a new range in the specified integer type, which must
   /// be strictly larger than the current type.  The returned range will
@@ -151,7 +141,6 @@ class ConstantRange {
   /// print - Print out the bounds to a stream...
   ///
   void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
 
   /// dump - Allow printing from a debugger easily...
   ///

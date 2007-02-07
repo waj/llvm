@@ -1,6 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | \
-; RUN:   opt -globalsmodref-aa -load-vn -gcse -instcombine | llvm-dis | \
-; RUN:   grep 'ret i32 0'
+; RUN: llvm-as < %s | opt -globalsmodref-aa -load-vn -gcse -instcombine | llvm-dis | grep 'ret int 0'
 %G = internal global int* null
 
 implementation

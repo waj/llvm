@@ -62,12 +62,7 @@ ArchiveMember::ArchiveMember(Archive* PAR)
 // different file, presumably as an update to the member. It also makes sure
 // the flags are reset correctly.
 bool ArchiveMember::replaceWith(const sys::Path& newFile, std::string* ErrMsg) {
-  if (!newFile.exists()) {
-    if (ErrMsg) 
-      *ErrMsg = "Can not replace an archive member with a non-existent file";
-    return true;
-  }
-
+  assert(newFile.exists() && "Can't replace with a non-existent file");
   data = 0;
   path = newFile;
 
@@ -138,10 +133,10 @@ bool ArchiveMember::replaceWith(const sys::Path& newFile, std::string* ErrMsg) {
 // Archive constructor - this is the only constructor that gets used for the
 // Archive class. Everything else (default,copy) is deprecated. This just
 // initializes and maps the file into memory, if requested.
-Archive::Archive(const sys::Path& filename, BCDecompressor_t *BCDC)
+Archive::Archive(const sys::Path& filename)
   : archPath(filename), members(), mapfile(0), base(0), symTab(), strtab(),
-    symTabSize(0), firstFileOffset(0), modules(), foreignST(0), 
-    Decompressor(BCDC) {
+    symTabSize(0), firstFileOffset(0), modules(), foreignST(0)
+{
 }
 
 bool

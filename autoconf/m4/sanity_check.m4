@@ -9,13 +9,11 @@ dnl   $4 - set to 1 to make errors only a warning
 AC_DEFUN([CHECK_PROGRAM_SANITY],
 [
 AC_MSG_CHECKING([sanity for program ]$1)
-sanity="0"
 sanity_path=`which $1 2>/dev/null`
 if test "$?" -eq 0 -a -x "$sanity_path" ; then
   sanity=`$1 $2 2>&1 | grep "$3"`
   if test -z "$sanity" ; then
     AC_MSG_RESULT([no])
-    sanity="0"
     if test "$4" -eq 1 ; then
       AC_MSG_WARN([Program ]$1[ failed to pass sanity check.])
     else
@@ -23,7 +21,6 @@ if test "$?" -eq 0 -a -x "$sanity_path" ; then
     fi
   else
     AC_MSG_RESULT([yes])
-    sanity="1"
   fi
 else
   AC_MSG_RESULT([not found])

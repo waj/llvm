@@ -114,7 +114,7 @@ private:
   ///
   unsigned NumBuckets;
   
-  /// NumNodes - Number of nodes in the folding set. Growth occurs when NumNodes
+  /// NumNodes - Number of nodes in the folding set.  Growth occurs when NumNodes
   /// is greater than twice the number of buckets.
   unsigned NumNodes;
   
@@ -217,15 +217,14 @@ protected:
 typedef FoldingSetImpl::Node FoldingSetNode;
 typedef FoldingSetImpl::NodeID FoldingSetNodeID;
 
-//===----------------------------------------------------------------------===//
+//===--------------------------------------------------------------------===//
 /// FoldingSet - This template class is used to instantiate a specialized
 /// implementation of the folding set to the node class T.  T must be a 
 /// subclass of FoldingSetNode and implement a Profile function.
 ///
 template<class T> class FoldingSet : public FoldingSetImpl {
 private:
-  /// GetNodeProfile - Each instantiatation of the FoldingSet needs to provide a
-  /// way to convert nodes into a unique specifier.
+  /// GetNodeProfile - Each instantiatation of the FoldingSet 
   virtual void GetNodeProfile(NodeID &ID, Node *N) const {
     T *TN = static_cast<T *>(N);
     TN->Profile(ID);
@@ -247,7 +246,8 @@ public:
   /// return it.  If not, return the insertion token that will make insertion
   /// faster.
   T *FindNodeOrInsertPos(const FoldingSetNodeID &ID, void *&InsertPos) {
-    return static_cast<T *>(FoldingSetImpl::FindNodeOrInsertPos(ID, InsertPos));
+    return static_cast<T *>(FoldingSetImpl::FindNodeOrInsertPos(ID,
+                                                                InsertPos));
   }
 };
 

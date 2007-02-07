@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -inline -disable-output -print
+; RUN: llvm-as < %s | opt -inline -disable-output -print
 
 int %func(int %i) {
 	ret int %i

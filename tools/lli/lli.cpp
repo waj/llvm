@@ -22,8 +22,6 @@
 #include "llvm/ExecutionEngine/Interpreter.h"
 #include "llvm/ExecutionEngine/GenericValue.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compressor.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/PluginLoader.h"
 #include "llvm/System/Process.h"
 #include "llvm/System/Signals.h"
@@ -58,7 +56,6 @@ namespace {
 // main Driver function
 //
 int main(int argc, char **argv, char * const *envp) {
-  atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   try {
     cl::ParseCommandLineOptions(argc, argv,
                                 " llvm interpreter & dynamic compiler\n");
@@ -71,9 +68,7 @@ int main(int argc, char **argv, char * const *envp) {
     // Load the bytecode...
     std::string ErrorMsg;
     ModuleProvider *MP = 0;
-    MP = getBytecodeModuleProvider(InputFile, 
-                                   Compressor::decompressToNewBuffer,
-                                   &ErrorMsg);
+    MP = getBytecodeModuleProvider(InputFile, &ErrorMsg);
     if (!MP) {
       std::cerr << "Error loading program '" << InputFile << "': "
                 << ErrorMsg << "\n";
@@ -106,7 +101,7 @@ int main(int argc, char **argv, char * const *envp) {
     // using the contents of Args to determine argc & argv, and the contents of
     // EnvVars to determine envp.
     //
-    Function *Fn = MP->getModule()->getFunction("main");
+    Function *Fn = MP->getModule()->getMainFunction();
     if (!Fn) {
       std::cerr << "'main' function not found in module.\n";
       return -1;
@@ -123,20 +118,18 @@ int main(int argc, char **argv, char * const *envp) {
     
     // If the program didn't explicitly call exit, call exit now, for the
     // program. This ensures that any atexit handlers get called correctly.
-    Constant *Exit = MP->getModule()->getOrInsertFunction("exit", Type::VoidTy,
-                                                          Type::Int32Ty, NULL);
-    if (Function *ExitF = dyn_cast<Function>(Exit)) {
-      std::vector<GenericValue> Args;
-      GenericValue ResultGV;
-      ResultGV.Int32Val = Result;
-      Args.push_back(ResultGV);
-      EE->runFunction(ExitF, Args);
-      std::cerr << "ERROR: exit(" << Result << ") returned!\n";
-      abort();
-    } else {
-      std::cerr << "ERROR: exit defined with wrong prototype!\n";
-      abort();
-    }
+    Function *Exit = MP->getModule()->getOrInsertFunction("exit", Type::VoidTy,
+                                                          Type::IntTy,
+                                                          (Type *)0);
+
+    std::vector<GenericValue> Args;
+    GenericValue ResultGV;
+    ResultGV.IntVal = Result;
+    Args.push_back(ResultGV);
+    EE->runFunction(Exit, Args);
+
+    std::cerr << "ERROR: exit(" << Result << ") returned!\n";
+    abort();
   } catch (const std::string& msg) {
     std::cerr << argv[0] << ": " << msg << "\n";
   } catch (...) {

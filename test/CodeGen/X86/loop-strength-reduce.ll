@@ -1,13 +1,13 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=x86 | grep 'A(' | wc -l | grep 1
+; RUN: llvm-as < %s | llc -march=x86 | grep 'A(' | wc -l | grep 1
 ;
 ; Make sure the common loop invariant _A(reg) is hoisted up to preheader.
 
 %A = internal global [16 x [16 x int]] zeroinitializer, align 32
 
-void %test(int %row, int %N.in) {
+void %test(int %row, int %N) {
 entry:
-	%N = cast int %N.in to uint
-	%tmp5 = setgt int %N.in, 0
+	%N = cast int %N to uint
+	%tmp5 = setgt int %N, 0
 	br bool %tmp5, label %cond_true, label %return
 
 cond_true:

@@ -15,21 +15,19 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "globaldce"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Constants.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Support/Compiler.h"
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumFunctions, "Number of functions removed");
-STATISTIC(NumVariables, "Number of global variables removed");
-
 namespace {
-  struct VISIBILITY_HIDDEN GlobalDCE : public ModulePass {
+  Statistic<> NumFunctions("globaldce","Number of functions removed");
+  Statistic<> NumVariables("globaldce","Number of global variables removed");
+
+  struct GlobalDCE : public ModulePass {
     // run - Do the GlobalDCE pass on the specified module, optionally updating
     // the specified callgraph to reflect the changes.
     //
@@ -58,7 +56,7 @@ bool GlobalDCE::runOnModule(Module &M) {
     Changed |= RemoveUnusedGlobalValue(*I);
     // Functions with external linkage are needed if they have a body
     if ((!I->hasInternalLinkage() && !I->hasLinkOnceLinkage()) &&
-        !I->isDeclaration())
+        !I->isExternal())
       GlobalIsNeeded(I);
   }
 
@@ -67,7 +65,7 @@ bool GlobalDCE::runOnModule(Module &M) {
     // Externally visible & appending globals are needed, if they have an
     // initializer.
     if ((!I->hasInternalLinkage() && !I->hasLinkOnceLinkage()) &&
-        !I->isDeclaration())
+        !I->isExternal())
       GlobalIsNeeded(I);
   }
 
@@ -90,7 +88,7 @@ bool GlobalDCE::runOnModule(Module &M) {
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
     if (!AliveGlobals.count(I)) {
       DeadFunctions.push_back(I);         // Keep track of dead globals
-      if (!I->isDeclaration())
+      if (!I->isExternal())
         I->deleteBody();
     }
 

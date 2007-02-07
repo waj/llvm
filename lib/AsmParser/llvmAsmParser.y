@@ -17,19 +17,15 @@
 #include "llvm/InlineAsm.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
-#include "llvm/ValueSymbolTable.h"
+#include "llvm/SymbolTable.h"
+#include "llvm/Assembly/AutoUpgrade.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Streams.h"
 #include <algorithm>
+#include <iostream>
 #include <list>
 #include <utility>
-#ifndef NDEBUG
-#define YYDEBUG 1
-#endif
 
 // The following is a gross hack. In order to rid the libAsmParser library of
 // exceptions, we have to have a way of getting the yyparse function to go into
@@ -52,11 +48,6 @@ int yyparse();
 
 namespace llvm {
   std::string CurFilename;
-#if YYDEBUG
-static cl::opt<bool>
-Debug("debug-yacc", cl::desc("Print yacc debug state changes"), 
-      cl::Hidden, cl::init(false));
-#endif
 }
 using namespace llvm;
 
@@ -67,13 +58,16 @@ static Module *ParserResult;
 //
 //#define DEBUG_UPREFS 1
 #ifdef DEBUG_UPREFS
-#define UR_OUT(X) cerr << X
+#define UR_OUT(X) std::cerr << X
 #else
 #define UR_OUT(X)
 #endif
 
 #define YYERROR_VERBOSE 1
 
+static bool ObsoleteVarArgs;
+static bool NewVarArgs;
+static BasicBlock *CurBB;
 static GlobalVariable *CurGV;
 
 
@@ -81,7 +75,6 @@ static GlobalVariable *CurGV;
 // destroyed when the function is completed.
 //
 typedef std::vector<Value *> ValueList;           // Numbered defs
-
 static void 
 ResolveDefinitions(std::map<const Type *,ValueList> &LateResolvers,
                    std::map<const Type *,ValueList> *FutureLateResolvers = 0);
@@ -131,6 +124,11 @@ static struct PerModuleInfo {
       return;
     }
 
+    // Look for intrinsic functions and CallInst that need to be upgraded
+    for (Module::iterator FI = CurrentModule->begin(),
+         FE = CurrentModule->end(); FI != FE; )
+      UpgradeCallsToIntrinsic(FI++);
+
     Values.clear();         // Clear out function local definitions
     Types.clear();
     CurrentModule = 0;
@@ -150,58 +148,6 @@ static struct PerModuleInfo {
     }
     return Ret;
   }
-
-  bool TypeIsUnresolved(PATypeHolder* PATy) {
-    // If it isn't abstract, its resolved
-    const Type* Ty = PATy->get();
-    if (!Ty->isAbstract())
-      return false;
-    // Traverse the type looking for abstract types. If it isn't abstract then
-    // we don't need to traverse that leg of the type. 
-    std::vector<const Type*> WorkList, SeenList;
-    WorkList.push_back(Ty);
-    while (!WorkList.empty()) {
-      const Type* Ty = WorkList.back();
-      SeenList.push_back(Ty);
-      WorkList.pop_back();
-      if (const OpaqueType* OpTy = dyn_cast<OpaqueType>(Ty)) {
-        // Check to see if this is an unresolved type
-        std::map<ValID, PATypeHolder>::iterator I = LateResolveTypes.begin();
-        std::map<ValID, PATypeHolder>::iterator E = LateResolveTypes.end();
-        for ( ; I != E; ++I) {
-          if (I->second.get() == OpTy)
-            return true;
-        }
-      } else if (const SequentialType* SeqTy = dyn_cast<SequentialType>(Ty)) {
-        const Type* TheTy = SeqTy->getElementType();
-        if (TheTy->isAbstract() && TheTy != Ty) {
-          std::vector<const Type*>::iterator I = SeenList.begin(), 
-                                             E = SeenList.end();
-          for ( ; I != E; ++I)
-            if (*I == TheTy)
-              break;
-          if (I == E)
-            WorkList.push_back(TheTy);
-        }
-      } else if (const StructType* StrTy = dyn_cast<StructType>(Ty)) {
-        for (unsigned i = 0; i < StrTy->getNumElements(); ++i) {
-          const Type* TheTy = StrTy->getElementType(i);
-          if (TheTy->isAbstract() && TheTy != Ty) {
-            std::vector<const Type*>::iterator I = SeenList.begin(), 
-                                               E = SeenList.end();
-            for ( ; I != E; ++I)
-              if (*I == TheTy)
-                break;
-            if (I == E)
-              WorkList.push_back(TheTy);
-          }
-        }
-      }
-    }
-    return false;
-  }
-
-
 } CurModule;
 
 static struct PerFunctionInfo {
@@ -209,9 +155,8 @@ static struct PerFunctionInfo {
 
   std::map<const Type*, ValueList> Values; // Keep track of #'d definitions
   std::map<const Type*, ValueList> LateResolveValues;
-  bool isDeclare;                   // Is this function a forward declararation?
+  bool isDeclare;                    // Is this function a forward declararation?
   GlobalValue::LinkageTypes Linkage; // Linkage for forward declaration.
-  GlobalValue::VisibilityTypes Visibility;
 
   /// BBForwardRefs - When we see forward references to basic blocks, keep
   /// track of them here.
@@ -222,8 +167,7 @@ static struct PerFunctionInfo {
   inline PerFunctionInfo() {
     CurrentFunction = 0;
     isDeclare = false;
-    Linkage = GlobalValue::ExternalLinkage;
-    Visibility = GlobalValue::DefaultVisibility;
+    Linkage = GlobalValue::ExternalLinkage;    
   }
 
   inline void FunctionStart(Function *M) {
@@ -248,7 +192,6 @@ static struct PerFunctionInfo {
     CurrentFunction = 0;
     isDeclare = false;
     Linkage = GlobalValue::ExternalLinkage;
-    Visibility = GlobalValue::DefaultVisibility;
   }
 } CurFun;  // Info for the current function...
 
@@ -271,19 +214,19 @@ static int InsertValue(Value *V,
 
 static const Type *getTypeVal(const ValID &D, bool DoNotImprovise = false) {
   switch (D.Type) {
-  case ValID::LocalID:               // Is it a numbered definition?
+  case ValID::NumberVal:               // Is it a numbered definition?
     // Module constants occupy the lowest numbered slots...
-    if (D.Num < CurModule.Types.size())
-      return CurModule.Types[D.Num];
+    if ((unsigned)D.Num < CurModule.Types.size())
+      return CurModule.Types[(unsigned)D.Num];
     break;
-  case ValID::LocalName:                 // Is it a named definition?
+  case ValID::NameVal:                 // Is it a named definition?
     if (const Type *N = CurModule.CurrentModule->getTypeByName(D.Name)) {
       D.destroy();  // Free old strdup'd memory...
       return N;
     }
     break;
   default:
-    GenerateError("Internal parser error: Invalid symbol type reference");
+    GenerateError("Internal parser error: Invalid symbol type reference!");
     return 0;
   }
 
@@ -295,11 +238,11 @@ static const Type *getTypeVal(const ValID &D, bool DoNotImprovise = false) {
 
 
   if (inFunctionScope()) {
-    if (D.Type == ValID::LocalName) {
+    if (D.Type == ValID::NameVal) {
       GenerateError("Reference to an undefined type: '" + D.getName() + "'");
       return 0;
     } else {
-      GenerateError("Reference to an undefined type: #" + utostr(D.Num));
+      GenerateError("Reference to an undefined type: #" + itostr(D.Num));
       return 0;
     }
   }
@@ -313,6 +256,13 @@ static const Type *getTypeVal(const ValID &D, bool DoNotImprovise = false) {
   return Typ;
  }
 
+static Value *lookupInSymbolTable(const Type *Ty, const std::string &Name) {
+  SymbolTable &SymTab =
+    inFunctionScope() ? CurFun.CurrentFunction->getSymbolTable() :
+                        CurModule.CurrentModule->getSymbolTable();
+  return SymTab.lookup(Ty, Name);
+}
+
 // getValNonImprovising - Look up the value specified by the provided type and
 // the provided ValID.  If the value exists and has already been defined, return
 // it.  Otherwise return null.
@@ -325,49 +275,30 @@ static Value *getValNonImprovising(const Type *Ty, const ValID &D) {
   }
 
   switch (D.Type) {
-  case ValID::LocalID: {                 // Is it a numbered definition?
-    // Module constants occupy the lowest numbered slots.
-    std::map<const Type*,ValueList>::iterator VI = CurFun.Values.find(Ty);
-    // Make sure that our type is within bounds.
-    if (VI == CurFun.Values.end()) return 0;
+  case ValID::NumberVal: {                 // Is it a numbered definition?
+    unsigned Num = (unsigned)D.Num;
 
-    // Check that the number is within bounds.
-    if (D.Num >= VI->second.size()) return 0;
-
-    return VI->second[D.Num];
-  }
-  case ValID::GlobalID: {                 // Is it a numbered definition?
-    unsigned Num = D.Num;
-    
     // Module constants occupy the lowest numbered slots...
     std::map<const Type*,ValueList>::iterator VI = CurModule.Values.find(Ty);
-    if (VI == CurModule.Values.end()) 
-      return 0;
-    if (D.Num >= VI->second.size()) 
-      return 0;
+    if (VI != CurModule.Values.end()) {
+      if (Num < VI->second.size())
+        return VI->second[Num];
+      Num -= VI->second.size();
+    }
+
+    // Make sure that our type is within bounds
+    VI = CurFun.Values.find(Ty);
+    if (VI == CurFun.Values.end()) return 0;
+
+    // Check that the number is within bounds...
+    if (VI->second.size() <= Num) return 0;
+
     return VI->second[Num];
   }
-    
-  case ValID::LocalName: {                // Is it a named definition?
-    if (!inFunctionScope()) 
-      return 0;
-    ValueSymbolTable &SymTab = CurFun.CurrentFunction->getValueSymbolTable();
-    Value *N = SymTab.lookup(D.Name);
-    if (N == 0) 
-      return 0;
-    if (N->getType() != Ty)
-      return 0;
-    
-    D.destroy();  // Free old strdup'd memory...
-    return N;
-  }
-  case ValID::GlobalName: {                // Is it a named definition?
-    ValueSymbolTable &SymTab = CurModule.CurrentModule->getValueSymbolTable();
-    Value *N = SymTab.lookup(D.Name);
-    if (N == 0) 
-      return 0;
-    if (N->getType() != Ty)
-      return 0;
+
+  case ValID::NameVal: {                // Is it a named definition?
+    Value *N = lookupInSymbolTable(Ty, std::string(D.Name));
+    if (N == 0) return 0;
 
     D.destroy();  // Free old strdup'd memory...
     return N;
@@ -379,7 +310,7 @@ static Value *getValNonImprovising(const Type *Ty, const ValID &D) {
     if (!ConstantInt::isValueValidForType(Ty, D.ConstPool64)) {
       GenerateError("Signed integral constant '" +
                      itostr(D.ConstPool64) + "' is invalid for type '" +
-                     Ty->getDescription() + "'");
+                     Ty->getDescription() + "'!");
       return 0;
     }
     return ConstantInt::get(Ty, D.ConstPool64);
@@ -388,7 +319,7 @@ static Value *getValNonImprovising(const Type *Ty, const ValID &D) {
     if (!ConstantInt::isValueValidForType(Ty, D.UConstPool64)) {
       if (!ConstantInt::isValueValidForType(Ty, D.ConstPool64)) {
         GenerateError("Integral constant '" + utostr(D.UConstPool64) +
-                       "' is invalid or out of range");
+                       "' is invalid or out of range!");
         return 0;
       } else {     // This is really a signed reference.  Transmogrify.
         return ConstantInt::get(Ty, D.ConstPool64);
@@ -399,14 +330,14 @@ static Value *getValNonImprovising(const Type *Ty, const ValID &D) {
 
   case ValID::ConstFPVal:        // Is it a floating point const pool reference?
     if (!ConstantFP::isValueValidForType(Ty, D.ConstPoolFP)) {
-      GenerateError("FP constant invalid for type");
+      GenerateError("FP constant invalid for type!!");
       return 0;
     }
     return ConstantFP::get(Ty, D.ConstPoolFP);
 
   case ValID::ConstNullVal:      // Is it a null value?
     if (!isa<PointerType>(Ty)) {
-      GenerateError("Cannot create a a non pointer null");
+      GenerateError("Cannot create a a non pointer null!");
       return 0;
     }
     return ConstantPointerNull::get(cast<PointerType>(Ty));
@@ -419,7 +350,7 @@ static Value *getValNonImprovising(const Type *Ty, const ValID &D) {
     
   case ValID::ConstantVal:       // Fully resolved constant?
     if (D.ConstantValue->getType() != Ty) {
-      GenerateError("Constant expression type different from required type");
+      GenerateError("Constant expression type different from required type!");
       return 0;
     }
     return D.ConstantValue;
@@ -429,7 +360,7 @@ static Value *getValNonImprovising(const Type *Ty, const ValID &D) {
     const FunctionType *FTy =
       PTy ? dyn_cast<FunctionType>(PTy->getElementType()) : 0;
     if (!FTy || !InlineAsm::Verify(FTy, D.IAD->Constraints)) {
-      GenerateError("Invalid type for asm constraint string");
+      GenerateError("Invalid type for asm constraint string!");
       return 0;
     }
     InlineAsm *IA = InlineAsm::get(FTy, D.IAD->AsmString, D.IAD->Constraints,
@@ -464,7 +395,7 @@ static Value *getVal(const Type *Ty, const ValID &ID) {
   if (TriggerError) return 0;
 
   if (!Ty->isFirstClassType() && !isa<OpaqueType>(Ty)) {
-    GenerateError("Invalid use of a composite type");
+    GenerateError("Invalid use of a composite type!");
     return 0;
   }
 
@@ -501,15 +432,15 @@ static BasicBlock *getBBVal(const ValID &ID, bool isDefinition = false) {
   default: 
     GenerateError("Illegal label reference " + ID.getName());
     return 0;
-  case ValID::LocalID:                // Is it a numbered definition?
-    if (ID.Num >= CurFun.NumberedBlocks.size())
+  case ValID::NumberVal:                // Is it a numbered definition?
+    if (unsigned(ID.Num) >= CurFun.NumberedBlocks.size())
       CurFun.NumberedBlocks.resize(ID.Num+1);
     BB = CurFun.NumberedBlocks[ID.Num];
     break;
-  case ValID::LocalName:                  // Is it a named definition?
+  case ValID::NameVal:                  // Is it a named definition?
     Name = ID.Name;
-    Value *N = CurFun.CurrentFunction->getValueSymbolTable().lookup(Name);
-    if (N && N->getType()->getTypeID() == Type::LabelTyID)
+    if (Value *N = CurFun.CurrentFunction->
+                   getSymbolTable().lookup(Type::LabelTy, Name))
       BB = cast<BasicBlock>(N);
     break;
   }
@@ -531,7 +462,7 @@ static BasicBlock *getBBVal(const ValID &ID, bool isDefinition = false) {
 
   // Otherwise this block has not been seen before.
   BB = new BasicBlock("", CurFun.CurrentFunction);
-  if (ID.Type == ValID::LocalName) {
+  if (ID.Type == ValID::NameVal) {
     BB->setName(ID.Name);
   } else {
     CurFun.NumberedBlocks[ID.Num] = BB;
@@ -598,7 +529,7 @@ ResolveDefinitions(std::map<const Type*,ValueList> &LateResolvers,
         // resolver table
         InsertValue(V, *FutureLateResolvers);
       } else {
-        if (DID.Type == ValID::LocalName || DID.Type == ValID::GlobalName) {
+        if (DID.Type == ValID::NameVal) {
           GenerateError("Reference to an invalid definition: '" +DID.getName()+
                          "' of type '" + V->getType()->getDescription() + "'",
                          PHI->second.second);
@@ -623,8 +554,8 @@ ResolveDefinitions(std::map<const Type*,ValueList> &LateResolvers,
 //
 static void ResolveTypeTo(char *Name, const Type *ToTy) {
   ValID D;
-  if (Name) D = ValID::createLocalName(Name);
-  else      D = ValID::createLocalID(CurModule.Types.size());
+  if (Name) D = ValID::create(Name);
+  else      D = ValID::create((int)CurModule.Types.size());
 
   std::map<ValID, PATypeHolder>::iterator I =
     CurModule.LateResolveTypes.find(D);
@@ -639,37 +570,36 @@ static void ResolveTypeTo(char *Name, const Type *ToTy) {
 // assumed to be a malloc'd string buffer, and is free'd by this function.
 //
 static void setValueName(Value *V, char *NameStr) {
-  if (!NameStr) return;
-  std::string Name(NameStr);      // Copy string
-  free(NameStr);                  // Free old string
+  if (NameStr) {
+    std::string Name(NameStr);      // Copy string
+    free(NameStr);                  // Free old string
 
-  if (V->getType() == Type::VoidTy) {
-    GenerateError("Can't assign name '" + Name+"' to value with void type");
-    return;
+    if (V->getType() == Type::VoidTy) {
+      GenerateError("Can't assign name '" + Name+"' to value with void type!");
+      return;
+    }
+
+    assert(inFunctionScope() && "Must be in function scope!");
+    SymbolTable &ST = CurFun.CurrentFunction->getSymbolTable();
+    if (ST.lookup(V->getType(), Name)) {
+      GenerateError("Redefinition of value named '" + Name + "' in the '" +
+                     V->getType()->getDescription() + "' type plane!");
+      return;
+    }
+
+    // Set the name.
+    V->setName(Name);
   }
-
-  assert(inFunctionScope() && "Must be in function scope!");
-  ValueSymbolTable &ST = CurFun.CurrentFunction->getValueSymbolTable();
-  if (ST.lookup(Name)) {
-    GenerateError("Redefinition of value '" + Name + "' of type '" +
-                   V->getType()->getDescription() + "'");
-    return;
-  }
-
-  // Set the name.
-  V->setName(Name);
 }
 
 /// ParseGlobalVariable - Handle parsing of a global.  If Initializer is null,
 /// this is a declaration, otherwise it is a definition.
 static GlobalVariable *
-ParseGlobalVariable(char *NameStr,
-                    GlobalValue::LinkageTypes Linkage,
-                    GlobalValue::VisibilityTypes Visibility,
+ParseGlobalVariable(char *NameStr,GlobalValue::LinkageTypes Linkage,
                     bool isConstantGlobal, const Type *Ty,
                     Constant *Initializer) {
   if (isa<FunctionType>(Ty)) {
-    GenerateError("Cannot declare global vars of function type");
+    GenerateError("Cannot declare global vars of function type!");
     return 0;
   }
 
@@ -685,9 +615,9 @@ ParseGlobalVariable(char *NameStr,
   // object.
   ValID ID;
   if (!Name.empty()) {
-    ID = ValID::createGlobalName((char*)Name.c_str());
+    ID = ValID::create((char*)Name.c_str());
   } else {
-    ID = ValID::createGlobalID(CurModule.Values[PTy].size());
+    ID = ValID::create((int)CurModule.Values[PTy].size());
   }
 
   if (GlobalValue *FWGV = CurModule.GetForwardRefForGlobal(PTy, ID)) {
@@ -698,34 +628,46 @@ ParseGlobalVariable(char *NameStr,
     CurModule.CurrentModule->getGlobalList().push_back(GV);
     GV->setInitializer(Initializer);
     GV->setLinkage(Linkage);
-    GV->setVisibility(Visibility);
     GV->setConstant(isConstantGlobal);
     InsertValue(GV, CurModule.Values);
     return GV;
   }
 
-  // If this global has a name
+  // If this global has a name, check to see if there is already a definition
+  // of this global in the module.  If so, merge as appropriate.  Note that
+  // this is really just a hack around problems in the CFE.  :(
   if (!Name.empty()) {
-    // if the global we're parsing has an initializer (is a definition) and
-    // has external linkage.
-    if (Initializer && Linkage != GlobalValue::InternalLinkage)
-      // If there is already a global with external linkage with this name
-      if (CurModule.CurrentModule->getGlobalVariable(Name, false)) {
-        // If we allow this GVar to get created, it will be renamed in the
-        // symbol table because it conflicts with an existing GVar. We can't
-        // allow redefinition of GVars whose linking indicates that their name
-        // must stay the same. Issue the error.
-        GenerateError("Redefinition of global variable named '" + Name +
-                       "' of type '" + Ty->getDescription() + "'");
-        return 0;
+    // We are a simple redefinition of a value, check to see if it is defined
+    // the same as the old one.
+    if (GlobalVariable *EGV =
+                CurModule.CurrentModule->getGlobalVariable(Name, Ty)) {
+      // We are allowed to redefine a global variable in two circumstances:
+      // 1. If at least one of the globals is uninitialized or
+      // 2. If both initializers have the same value.
+      //
+      if (!EGV->hasInitializer() || !Initializer ||
+          EGV->getInitializer() == Initializer) {
+
+        // Make sure the existing global version gets the initializer!  Make
+        // sure that it also gets marked const if the new version is.
+        if (Initializer && !EGV->hasInitializer())
+          EGV->setInitializer(Initializer);
+        if (isConstantGlobal)
+          EGV->setConstant(true);
+        EGV->setLinkage(Linkage);
+        return EGV;
       }
+
+      GenerateError("Redefinition of global variable named '" + Name +
+                     "' in the '" + Ty->getDescription() + "' type plane!");
+      return 0;
+    }
   }
 
   // Otherwise there is no existing GV to use, create one now.
   GlobalVariable *GV =
     new GlobalVariable(Ty, isConstantGlobal, Linkage, Initializer, Name,
                        CurModule.CurrentModule);
-  GV->setVisibility(Visibility);
   InsertValue(GV, CurModule.Values);
   return GV;
 }
@@ -746,7 +688,7 @@ static bool setTypeName(const Type *T, char *NameStr) {
 
   // We don't allow assigning names to void type
   if (T == Type::VoidTy) {
-    GenerateError("Can't assign name '" + Name + "' to the void type");
+    GenerateError("Can't assign name '" + Name + "' to the void type!");
     return false;
   }
 
@@ -755,7 +697,7 @@ static bool setTypeName(const Type *T, char *NameStr) {
 
   if (AlreadyExists) {   // Inserting a name that is already defined???
     const Type *Existing = CurModule.CurrentModule->getTypeByName(Name);
-    assert(Existing && "Conflict but no matching type?!");
+    assert(Existing && "Conflict but no matching type?");
 
     // There is only one case where this is allowed: when we are refining an
     // opaque type.  In this case, Existing will be an opaque type.
@@ -772,8 +714,8 @@ static bool setTypeName(const Type *T, char *NameStr) {
     if (Existing == T) return true;  // Yes, it's equal.
 
     // Any other kind of (non-equivalent) redefinition is an error.
-    GenerateError("Redefinition of type named '" + Name + "' of type '" +
-                   T->getDescription() + "'");
+    GenerateError("Redefinition of type named '" + Name + "' in the '" +
+                   T->getDescription() + "' type plane!");
   }
 
   return false;
@@ -871,12 +813,186 @@ static PATypeHolder HandleUpRefs(const Type *ty) {
   return Ty;
 }
 
+/// This function is used to obtain the correct opcode for an instruction when 
+/// an obsolete opcode is encountered. The OI parameter (OpcodeInfo) has both 
+/// an opcode and an "obsolete" flag. These are generated by the lexer and 
+/// the "obsolete" member will be true when the lexer encounters the token for
+/// an obsolete opcode. For example, "div" was replaced by [usf]div but we need
+/// to maintain backwards compatibility for asm files that still have the "div"
+/// instruction. This function handles converting div -> [usf]div appropriately.
+/// @brief Convert obsolete opcodes to new values
+static void 
+sanitizeOpCode(OpcodeInfo<Instruction::BinaryOps> &OI, const PATypeHolder& PATy)
+{
+  // If its not obsolete, don't do anything
+  if (!OI.obsolete) 
+    return;
+
+  // If its a packed type we want to use the element type
+  const Type* Ty = PATy;
+  if (const PackedType* PTy = dyn_cast<PackedType>(Ty))
+    Ty = PTy->getElementType();
+
+  // Depending on the opcode ..
+  switch (OI.opcode) {
+    default:
+      GenerateError("Invalid obsolete opCode (check Lexer.l)");
+      break;
+    case Instruction::UDiv:
+      // Handle cases where the opcode needs to change
+      if (Ty->isFloatingPoint()) 
+        OI.opcode = Instruction::FDiv;
+      else if (Ty->isSigned())
+        OI.opcode = Instruction::SDiv;
+      break;
+    case Instruction::URem:
+      if (Ty->isFloatingPoint()) 
+        OI.opcode = Instruction::FRem;
+      else if (Ty->isSigned())
+        OI.opcode = Instruction::SRem;
+      break;
+  }
+  // Its not obsolete any more, we fixed it.
+  OI.obsolete = false;
+}
+  
+// common code from the two 'RunVMAsmParser' functions
+static Module* RunParser(Module * M) {
+
+  llvmAsmlineno = 1;      // Reset the current line number...
+  ObsoleteVarArgs = false;
+  NewVarArgs = false;
+  CurModule.CurrentModule = M;
+
+  // Check to make sure the parser succeeded
+  if (yyparse()) {
+    if (ParserResult)
+      delete ParserResult;
+    return 0;
+  }
+
+  // Check to make sure that parsing produced a result
+  if (!ParserResult)
+    return 0;
+
+  // Reset ParserResult variable while saving its value for the result.
+  Module *Result = ParserResult;
+  ParserResult = 0;
+
+  //Not all functions use vaarg, so make a second check for ObsoleteVarArgs
+  {
+    Function* F;
+    if ((F = Result->getNamedFunction("llvm.va_start"))
+        && F->getFunctionType()->getNumParams() == 0)
+      ObsoleteVarArgs = true;
+    if((F = Result->getNamedFunction("llvm.va_copy"))
+       && F->getFunctionType()->getNumParams() == 1)
+      ObsoleteVarArgs = true;
+  }
+
+  if (ObsoleteVarArgs && NewVarArgs) {
+    GenerateError(
+      "This file is corrupt: it uses both new and old style varargs");
+    return 0;
+  }
+
+  if(ObsoleteVarArgs) {
+    if(Function* F = Result->getNamedFunction("llvm.va_start")) {
+      if (F->arg_size() != 0) {
+        GenerateError("Obsolete va_start takes 0 argument!");
+        return 0;
+      }
+      
+      //foo = va_start()
+      // ->
+      //bar = alloca typeof(foo)
+      //va_start(bar)
+      //foo = load bar
+
+      const Type* RetTy = Type::getPrimitiveType(Type::VoidTyID);
+      const Type* ArgTy = F->getFunctionType()->getReturnType();
+      const Type* ArgTyPtr = PointerType::get(ArgTy);
+      Function* NF = Result->getOrInsertFunction("llvm.va_start", 
+                                                 RetTy, ArgTyPtr, (Type *)0);
+
+      while (!F->use_empty()) {
+        CallInst* CI = cast<CallInst>(F->use_back());
+        AllocaInst* bar = new AllocaInst(ArgTy, 0, "vastart.fix.1", CI);
+        new CallInst(NF, bar, "", CI);
+        Value* foo = new LoadInst(bar, "vastart.fix.2", CI);
+        CI->replaceAllUsesWith(foo);
+        CI->getParent()->getInstList().erase(CI);
+      }
+      Result->getFunctionList().erase(F);
+    }
+    
+    if(Function* F = Result->getNamedFunction("llvm.va_end")) {
+      if(F->arg_size() != 1) {
+        GenerateError("Obsolete va_end takes 1 argument!");
+        return 0;
+      }
+
+      //vaend foo
+      // ->
+      //bar = alloca 1 of typeof(foo)
+      //vaend bar
+      const Type* RetTy = Type::getPrimitiveType(Type::VoidTyID);
+      const Type* ArgTy = F->getFunctionType()->getParamType(0);
+      const Type* ArgTyPtr = PointerType::get(ArgTy);
+      Function* NF = Result->getOrInsertFunction("llvm.va_end", 
+                                                 RetTy, ArgTyPtr, (Type *)0);
+
+      while (!F->use_empty()) {
+        CallInst* CI = cast<CallInst>(F->use_back());
+        AllocaInst* bar = new AllocaInst(ArgTy, 0, "vaend.fix.1", CI);
+        new StoreInst(CI->getOperand(1), bar, CI);
+        new CallInst(NF, bar, "", CI);
+        CI->getParent()->getInstList().erase(CI);
+      }
+      Result->getFunctionList().erase(F);
+    }
+
+    if(Function* F = Result->getNamedFunction("llvm.va_copy")) {
+      if(F->arg_size() != 1) {
+        GenerateError("Obsolete va_copy takes 1 argument!");
+        return 0;
+      }
+      //foo = vacopy(bar)
+      // ->
+      //a = alloca 1 of typeof(foo)
+      //b = alloca 1 of typeof(foo)
+      //store bar -> b
+      //vacopy(a, b)
+      //foo = load a
+      
+      const Type* RetTy = Type::getPrimitiveType(Type::VoidTyID);
+      const Type* ArgTy = F->getFunctionType()->getReturnType();
+      const Type* ArgTyPtr = PointerType::get(ArgTy);
+      Function* NF = Result->getOrInsertFunction("llvm.va_copy", 
+                                                 RetTy, ArgTyPtr, ArgTyPtr,
+                                                 (Type *)0);
+
+      while (!F->use_empty()) {
+        CallInst* CI = cast<CallInst>(F->use_back());
+        AllocaInst* a = new AllocaInst(ArgTy, 0, "vacopy.fix.1", CI);
+        AllocaInst* b = new AllocaInst(ArgTy, 0, "vacopy.fix.2", CI);
+        new StoreInst(CI->getOperand(1), b, CI);
+        new CallInst(NF, a, b, "", CI);
+        Value* foo = new LoadInst(a, "vacopy.fix.3", CI);
+        CI->replaceAllUsesWith(foo);
+        CI->getParent()->getInstList().erase(CI);
+      }
+      Result->getFunctionList().erase(F);
+    }
+  }
+
+  return Result;
+}
+
 //===----------------------------------------------------------------------===//
 //            RunVMAsmParser - Define an interface to this parser
 //===----------------------------------------------------------------------===//
 //
-static Module* RunParser(Module * M);
-
 Module *llvm::RunVMAsmParser(const std::string &Filename, FILE *F) {
   set_scan_file(F);
 
@@ -900,21 +1016,19 @@ Module *llvm::RunVMAsmParser(const char * AsmString, Module * M) {
 %union {
   llvm::Module                           *ModuleVal;
   llvm::Function                         *FunctionVal;
+  std::pair<llvm::PATypeHolder*, char*>  *ArgVal;
   llvm::BasicBlock                       *BasicBlockVal;
   llvm::TerminatorInst                   *TermInstVal;
   llvm::Instruction                      *InstVal;
   llvm::Constant                         *ConstVal;
 
   const llvm::Type                       *PrimType;
-  std::list<llvm::PATypeHolder>          *TypeList;
   llvm::PATypeHolder                     *TypeVal;
   llvm::Value                            *ValueVal;
-  std::vector<llvm::Value*>              *ValueList;
-  llvm::ArgListType                      *ArgList;
-  llvm::TypeWithAttrs                     TypeWithAttrs;
-  llvm::TypeWithAttrsList                *TypeWithAttrsList;
-  llvm::ValueRefList                     *ValueRefList;
 
+  std::vector<std::pair<llvm::PATypeHolder*,char*> > *ArgList;
+  std::vector<llvm::Value*>              *ValueList;
+  std::list<llvm::PATypeHolder>          *TypeList;
   // Represent the RHS of PHI node
   std::list<std::pair<llvm::Value*,
                       llvm::BasicBlock*> > *PHIList;
@@ -922,8 +1036,6 @@ Module *llvm::RunVMAsmParser(const char * AsmString, Module * M) {
   std::vector<llvm::Constant*>           *ConstVector;
 
   llvm::GlobalValue::LinkageTypes         Linkage;
-  llvm::GlobalValue::VisibilityTypes      Visibility;
-  llvm::FunctionType::ParameterAttributes ParamAttrs;
   int64_t                           SInt64Val;
   uint64_t                          UInt64Val;
   int                               SIntVal;
@@ -934,16 +1046,14 @@ Module *llvm::RunVMAsmParser(const char * AsmString, Module * M) {
   char                             *StrVal;   // This memory is strdup'd!
   llvm::ValID                       ValIDVal; // strdup'd memory maybe!
 
-  llvm::Instruction::BinaryOps      BinaryOpVal;
-  llvm::Instruction::TermOps        TermOpVal;
-  llvm::Instruction::MemoryOps      MemOpVal;
-  llvm::Instruction::CastOps        CastOpVal;
-  llvm::Instruction::OtherOps       OtherOpVal;
-  llvm::ICmpInst::Predicate         IPredicate;
-  llvm::FCmpInst::Predicate         FPredicate;
+  BinaryOpInfo                      BinaryOpVal;
+  TermOpInfo                        TermOpVal;
+  MemOpInfo                         MemOpVal;
+  OtherOpInfo                       OtherOpVal;
+  llvm::Module::Endianness          Endianness;
 }
 
-%type <ModuleVal>     Module 
+%type <ModuleVal>     Module FunctionList
 %type <FunctionVal>   Function FunctionProto FunctionHeader BasicBlockList
 %type <BasicBlockVal> BasicBlock InstructionList
 %type <TermInstVal>   BBTerminatorInst
@@ -951,20 +1061,18 @@ Module *llvm::RunVMAsmParser(const char * AsmString, Module * M) {
 %type <ConstVal>      ConstVal ConstExpr
 %type <ConstVector>   ConstVector
 %type <ArgList>       ArgList ArgListH
+%type <ArgVal>        ArgVal
 %type <PHIList>       PHIList
-%type <ValueRefList>  ValueRefList      // For call param lists & GEP indices
-%type <ValueList>     IndexList         // For GEP indices
-%type <TypeList>      TypeListI 
-%type <TypeWithAttrsList> ArgTypeList ArgTypeListI
-%type <TypeWithAttrs> ArgType
+%type <ValueList>     ValueRefList ValueRefListE  // For call param lists
+%type <ValueList>     IndexList                   // For GEP derived indices
+%type <TypeList>      TypeListI ArgTypeListI
 %type <JumpTable>     JumpTable
 %type <BoolVal>       GlobalType                  // GLOBAL or CONSTANT?
 %type <BoolVal>       OptVolatile                 // 'volatile' or not
 %type <BoolVal>       OptTailCall                 // TAIL CALL or plain CALL.
 %type <BoolVal>       OptSideEffect               // 'sideeffect' or not.
-%type <Linkage>       GVInternalLinkage GVExternalLinkage
-%type <Linkage>       FunctionDefineLinkage FunctionDeclareLinkage
-%type <Visibility>    GVVisibilityStyle
+%type <Linkage>       OptLinkage
+%type <Endianness>    BigOrLittle
 
 // ValueRef - Unresolved reference to a definition or BB
 %type <ValIDVal>      ValueRef ConstValueRef SymbolicValueRef
@@ -976,110 +1084,93 @@ Module *llvm::RunVMAsmParser(const char * AsmString, Module * M) {
 
 // EUINT64VAL - A positive number within uns. long long range
 %token <UInt64Val> EUINT64VAL
+%type  <SInt64Val> EINT64VAL
 
-%token  <UIntVal>   LOCALVAL_ID GLOBALVAL_ID  // %123 @123
+%token  <SIntVal>   SINTVAL   // Signed 32 bit ints...
+%token  <UIntVal>   UINTVAL   // Unsigned 32 bit ints...
+%type   <SIntVal>   INTVAL
 %token  <FPVal>     FPVAL     // Float or Double constant
 
 // Built in types...
-%type  <TypeVal> Types ResultTypes
-%type  <PrimType> IntType FPType PrimType           // Classifications
-%token <PrimType> VOID INTTYPE 
-%token <PrimType> FLOAT DOUBLE LABEL
-%token TYPE
+%type  <TypeVal> Types TypesV UpRTypes UpRTypesV
+%type  <PrimType> SIntType UIntType IntType FPType PrimType   // Classifications
+%token <PrimType> VOID BOOL SBYTE UBYTE SHORT USHORT INT UINT LONG ULONG
+%token <PrimType> FLOAT DOUBLE TYPE LABEL
 
-%token<StrVal> LOCALVAR GLOBALVAR LABELSTR STRINGCONSTANT ATSTRINGCONSTANT
-%type <StrVal> LocalName OptLocalName OptLocalAssign
-%type <StrVal> GlobalName OptGlobalAssign
-%type <UIntVal> OptAlign OptCAlign
+%token <StrVal> VAR_ID LABELSTR STRINGCONSTANT
+%type  <StrVal> Name OptName OptAssign
+%type  <UIntVal> OptAlign OptCAlign
 %type <StrVal> OptSection SectionString
 
 %token IMPLEMENTATION ZEROINITIALIZER TRUETOK FALSETOK BEGINTOK ENDTOK
-%token DECLARE DEFINE GLOBAL CONSTANT SECTION VOLATILE
-%token TO DOTDOTDOT NULL_TOK UNDEF INTERNAL LINKONCE WEAK APPENDING
+%token DECLARE GLOBAL CONSTANT SECTION VOLATILE
+%token TO DOTDOTDOT NULL_TOK UNDEF CONST INTERNAL LINKONCE WEAK APPENDING
 %token DLLIMPORT DLLEXPORT EXTERN_WEAK
-%token OPAQUE EXTERNAL TARGET TRIPLE ALIGN
+%token OPAQUE NOT EXTERNAL TARGET TRIPLE ENDIAN POINTERSIZE LITTLE BIG ALIGN
 %token DEPLIBS CALL TAIL ASM_TOK MODULE SIDEEFFECT
-%token CC_TOK CCC_TOK FASTCC_TOK COLDCC_TOK X86_STDCALLCC_TOK X86_FASTCALLCC_TOK
+%token CC_TOK CCC_TOK CSRETCC_TOK FASTCC_TOK COLDCC_TOK
+%token X86_STDCALLCC_TOK X86_FASTCALLCC_TOK
 %token DATALAYOUT
 %type <UIntVal> OptCallingConv
-%type <ParamAttrs> OptParamAttrs ParamAttr 
-%type <ParamAttrs> OptFuncAttrs  FuncAttr
 
 // Basic Block Terminating Operators
 %token <TermOpVal> RET BR SWITCH INVOKE UNWIND UNREACHABLE
 
 // Binary Operators
-%type  <BinaryOpVal> ArithmeticOps LogicalOps // Binops Subcatagories
+%type  <BinaryOpVal> ArithmeticOps LogicalOps SetCondOps // Binops Subcatagories
 %token <BinaryOpVal> ADD SUB MUL UDIV SDIV FDIV UREM SREM FREM AND OR XOR
-%token <BinaryOpVal> SHL LSHR ASHR
-
-%token <OtherOpVal> ICMP FCMP
-%type  <IPredicate> IPredicates
-%type  <FPredicate> FPredicates
-%token  EQ NE SLT SGT SLE SGE ULT UGT ULE UGE 
-%token  OEQ ONE OLT OGT OLE OGE ORD UNO UEQ UNE
+%token <BinaryOpVal> SETLE SETGE SETLT SETGT SETEQ SETNE  // Binary Comparators
 
 // Memory Instructions
 %token <MemOpVal> MALLOC ALLOCA FREE LOAD STORE GETELEMENTPTR
 
-// Cast Operators
-%type <CastOpVal> CastOps
-%token <CastOpVal> TRUNC ZEXT SEXT FPTRUNC FPEXT BITCAST
-%token <CastOpVal> UITOFP SITOFP FPTOUI FPTOSI INTTOPTR PTRTOINT
-
 // Other Operators
-%token <OtherOpVal> PHI_TOK SELECT VAARG
+%type  <OtherOpVal> ShiftOps
+%token <OtherOpVal> PHI_TOK CAST SELECT SHL SHR VAARG
 %token <OtherOpVal> EXTRACTELEMENT INSERTELEMENT SHUFFLEVECTOR
+%token VAARG_old VANEXT_old //OBSOLETE
 
-// Function Attributes
-%token NORETURN INREG SRET
-
-// Visibility Styles
-%token DEFAULT HIDDEN
 
 %start Module
 %%
 
+// Handle constant integer size restriction and conversion...
+//
+INTVAL : SINTVAL;
+INTVAL : UINTVAL {
+  if ($1 > (uint32_t)INT32_MAX)     // Outside of my range!
+    GEN_ERROR("Value too large for type!");
+  $$ = (int32_t)$1;
+  CHECK_FOR_ERROR
+};
+
+
+EINT64VAL : ESINT64VAL;      // These have same type and can't cause problems...
+EINT64VAL : EUINT64VAL {
+  if ($1 > (uint64_t)INT64_MAX)     // Outside of my range!
+    GEN_ERROR("Value too large for type!");
+  $$ = (int64_t)$1;
+  CHECK_FOR_ERROR
+};
 
 // Operations that are notably excluded from this list include:
 // RET, BR, & SWITCH because they end basic blocks and are treated specially.
 //
 ArithmeticOps: ADD | SUB | MUL | UDIV | SDIV | FDIV | UREM | SREM | FREM;
-LogicalOps   : SHL | LSHR | ASHR | AND | OR | XOR;
-CastOps      : TRUNC | ZEXT | SEXT | FPTRUNC | FPEXT | BITCAST | 
-               UITOFP | SITOFP | FPTOUI | FPTOSI | INTTOPTR | PTRTOINT;
+LogicalOps   : AND | OR | XOR;
+SetCondOps   : SETLE | SETGE | SETLT | SETGT | SETEQ | SETNE;
 
-IPredicates  
-  : EQ   { $$ = ICmpInst::ICMP_EQ; }  | NE   { $$ = ICmpInst::ICMP_NE; }
-  | SLT  { $$ = ICmpInst::ICMP_SLT; } | SGT  { $$ = ICmpInst::ICMP_SGT; }
-  | SLE  { $$ = ICmpInst::ICMP_SLE; } | SGE  { $$ = ICmpInst::ICMP_SGE; }
-  | ULT  { $$ = ICmpInst::ICMP_ULT; } | UGT  { $$ = ICmpInst::ICMP_UGT; }
-  | ULE  { $$ = ICmpInst::ICMP_ULE; } | UGE  { $$ = ICmpInst::ICMP_UGE; } 
-  ;
-
-FPredicates  
-  : OEQ  { $$ = FCmpInst::FCMP_OEQ; } | ONE  { $$ = FCmpInst::FCMP_ONE; }
-  | OLT  { $$ = FCmpInst::FCMP_OLT; } | OGT  { $$ = FCmpInst::FCMP_OGT; }
-  | OLE  { $$ = FCmpInst::FCMP_OLE; } | OGE  { $$ = FCmpInst::FCMP_OGE; }
-  | ORD  { $$ = FCmpInst::FCMP_ORD; } | UNO  { $$ = FCmpInst::FCMP_UNO; }
-  | UEQ  { $$ = FCmpInst::FCMP_UEQ; } | UNE  { $$ = FCmpInst::FCMP_UNE; }
-  | ULT  { $$ = FCmpInst::FCMP_ULT; } | UGT  { $$ = FCmpInst::FCMP_UGT; }
-  | ULE  { $$ = FCmpInst::FCMP_ULE; } | UGE  { $$ = FCmpInst::FCMP_UGE; }
-  | TRUETOK { $$ = FCmpInst::FCMP_TRUE; }
-  | FALSETOK { $$ = FCmpInst::FCMP_FALSE; }
-  ;
+ShiftOps  : SHL | SHR;
 
 // These are some types that allow classification if we only want a particular 
 // thing... for example, only a signed, unsigned, or integral type.
-IntType :  INTTYPE;
+SIntType :  LONG |  INT |  SHORT | SBYTE;
+UIntType : ULONG | UINT | USHORT | UBYTE;
+IntType  : SIntType | UIntType;
 FPType   : FLOAT | DOUBLE;
 
-LocalName : LOCALVAR | STRINGCONSTANT;
-OptLocalName : LocalName | /*empty*/ { $$ = 0; };
-
-/// OptLocalAssign - Value producing statements have an optional assignment
-/// component.
-OptLocalAssign : LocalName '=' {
+// OptAssign - Value producing statements have an optional assignment component
+OptAssign : Name '=' {
     $$ = $1;
     CHECK_FOR_ERROR
   }
@@ -1088,84 +1179,28 @@ OptLocalAssign : LocalName '=' {
     CHECK_FOR_ERROR
   };
 
-GlobalName : GLOBALVAR | ATSTRINGCONSTANT;
-
-OptGlobalAssign : GlobalName '=' {
-    $$ = $1;
-    CHECK_FOR_ERROR
-  }
-  | /*empty*/ {
-    $$ = 0;
-    CHECK_FOR_ERROR
-  };
-
-GVInternalLinkage 
-  : INTERNAL    { $$ = GlobalValue::InternalLinkage; } 
-  | WEAK        { $$ = GlobalValue::WeakLinkage; } 
-  | LINKONCE    { $$ = GlobalValue::LinkOnceLinkage; }
-  | APPENDING   { $$ = GlobalValue::AppendingLinkage; }
-  | DLLEXPORT   { $$ = GlobalValue::DLLExportLinkage; } 
-  ;
-
-GVExternalLinkage
-  : DLLIMPORT   { $$ = GlobalValue::DLLImportLinkage; }
-  | EXTERN_WEAK { $$ = GlobalValue::ExternalWeakLinkage; }
-  | EXTERNAL    { $$ = GlobalValue::ExternalLinkage; }
-  ;
-
-GVVisibilityStyle
-  : /*empty*/ { $$ = GlobalValue::DefaultVisibility; }
-  | HIDDEN    { $$ = GlobalValue::HiddenVisibility;  }
-  ;
-
-FunctionDeclareLinkage
-  : /*empty*/   { $$ = GlobalValue::ExternalLinkage; }
-  | DLLIMPORT   { $$ = GlobalValue::DLLImportLinkage; } 
-  | EXTERN_WEAK { $$ = GlobalValue::ExternalWeakLinkage; }
-  ;
-  
-FunctionDefineLinkage 
-  : /*empty*/   { $$ = GlobalValue::ExternalLinkage; }
-  | INTERNAL    { $$ = GlobalValue::InternalLinkage; }
-  | LINKONCE    { $$ = GlobalValue::LinkOnceLinkage; }
-  | WEAK        { $$ = GlobalValue::WeakLinkage; }
-  | DLLEXPORT   { $$ = GlobalValue::DLLExportLinkage; } 
-  ; 
+OptLinkage : INTERNAL    { $$ = GlobalValue::InternalLinkage; } |
+             LINKONCE    { $$ = GlobalValue::LinkOnceLinkage; } |
+             WEAK        { $$ = GlobalValue::WeakLinkage; } |
+             APPENDING   { $$ = GlobalValue::AppendingLinkage; } |
+             DLLIMPORT   { $$ = GlobalValue::DLLImportLinkage; } |
+             DLLEXPORT   { $$ = GlobalValue::DLLExportLinkage; } |
+             EXTERN_WEAK { $$ = GlobalValue::ExternalWeakLinkage; } |
+             /*empty*/   { $$ = GlobalValue::ExternalLinkage; };
 
 OptCallingConv : /*empty*/          { $$ = CallingConv::C; } |
                  CCC_TOK            { $$ = CallingConv::C; } |
+                 CSRETCC_TOK        { $$ = CallingConv::CSRet; } |
                  FASTCC_TOK         { $$ = CallingConv::Fast; } |
                  COLDCC_TOK         { $$ = CallingConv::Cold; } |
                  X86_STDCALLCC_TOK  { $$ = CallingConv::X86_StdCall; } |
                  X86_FASTCALLCC_TOK { $$ = CallingConv::X86_FastCall; } |
                  CC_TOK EUINT64VAL  {
                    if ((unsigned)$2 != $2)
-                     GEN_ERROR("Calling conv too large");
+                     GEN_ERROR("Calling conv too large!");
                    $$ = $2;
                   CHECK_FOR_ERROR
                  };
-
-ParamAttr     : ZEXT  { $$ = FunctionType::ZExtAttribute;      }
-              | SEXT  { $$ = FunctionType::SExtAttribute;      }
-              | INREG { $$ = FunctionType::InRegAttribute;     }
-              | SRET  { $$ = FunctionType::StructRetAttribute; }
-              ;
-
-OptParamAttrs : /* empty */  { $$ = FunctionType::NoAttributeSet; }
-              | OptParamAttrs ParamAttr {
-                $$ = FunctionType::ParameterAttributes($1 | $2);
-              }
-              ;
-
-FuncAttr      : NORETURN { $$ = FunctionType::NoReturnAttribute; }
-              | ParamAttr
-              ;
-
-OptFuncAttrs  : /* empty */ { $$ = FunctionType::NoAttributeSet; }
-              | OptFuncAttrs FuncAttr {
-                $$ = FunctionType::ParameterAttributes($1 | $2);
-              }
-              ;
 
 // OptAlign/OptCAlign - An optional alignment, and an optional alignment with
 // a comma before it.
@@ -1173,14 +1208,14 @@ OptAlign : /*empty*/        { $$ = 0; } |
            ALIGN EUINT64VAL {
   $$ = $2;
   if ($$ != 0 && !isPowerOf2_32($$))
-    GEN_ERROR("Alignment must be a power of two");
+    GEN_ERROR("Alignment must be a power of two!");
   CHECK_FOR_ERROR
 };
 OptCAlign : /*empty*/            { $$ = 0; } |
             ',' ALIGN EUINT64VAL {
   $$ = $3;
   if ($$ != 0 && !isPowerOf2_32($$))
-    GEN_ERROR("Alignment must be a power of two");
+    GEN_ERROR("Alignment must be a power of two!");
   CHECK_FOR_ERROR
 };
 
@@ -1188,7 +1223,7 @@ OptCAlign : /*empty*/            { $$ = 0; } |
 SectionString : SECTION STRINGCONSTANT {
   for (unsigned i = 0, e = strlen($2); i != e; ++i)
     if ($2[i] == '"' || $2[i] == '\\')
-      GEN_ERROR("Invalid character in section name");
+      GEN_ERROR("Invalid character in section name!");
   $$ = $2;
   CHECK_FOR_ERROR
 };
@@ -1208,97 +1243,83 @@ GlobalVarAttribute : SectionString {
   } 
   | ALIGN EUINT64VAL {
     if ($2 != 0 && !isPowerOf2_32($2))
-      GEN_ERROR("Alignment must be a power of two");
+      GEN_ERROR("Alignment must be a power of two!");
     CurGV->setAlignment($2);
     CHECK_FOR_ERROR
   };
 
 //===----------------------------------------------------------------------===//
 // Types includes all predefined types... except void, because it can only be
-// used in specific contexts (function returning void for example).  
+// used in specific contexts (function returning void for example).  To have
+// access to it, a user must explicitly use TypesV.
+//
+
+// TypesV includes all of 'Types', but it also includes the void type.
+TypesV    : Types    | VOID { $$ = new PATypeHolder($1); };
+UpRTypesV : UpRTypes | VOID { $$ = new PATypeHolder($1); };
+
+Types     : UpRTypes {
+    if (!UpRefs.empty())
+      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
+    $$ = $1;
+    CHECK_FOR_ERROR
+  };
+
 
 // Derived types are added later...
 //
-PrimType : INTTYPE | FLOAT | DOUBLE | LABEL ;
-
-Types 
-  : OPAQUE {
+PrimType : BOOL | SBYTE | UBYTE | SHORT  | USHORT | INT   | UINT ;
+PrimType : LONG | ULONG | FLOAT | DOUBLE | TYPE   | LABEL;
+UpRTypes : OPAQUE {
     $$ = new PATypeHolder(OpaqueType::get());
     CHECK_FOR_ERROR
   }
   | PrimType {
     $$ = new PATypeHolder($1);
     CHECK_FOR_ERROR
-  }
-  | Types '*' {                             // Pointer type?
-    if (*$1 == Type::LabelTy)
-      GEN_ERROR("Cannot form a pointer to a basic block");
-    $$ = new PATypeHolder(HandleUpRefs(PointerType::get(*$1)));
-    delete $1;
-    CHECK_FOR_ERROR
-  }
-  | SymbolicValueRef {            // Named types are also simple types...
-    const Type* tmp = getTypeVal($1);
-    CHECK_FOR_ERROR
-    $$ = new PATypeHolder(tmp);
-  }
-  | '\\' EUINT64VAL {                   // Type UpReference
-    if ($2 > (uint64_t)~0U) GEN_ERROR("Value out of range");
+  };
+UpRTypes : SymbolicValueRef {            // Named types are also simple types...
+  const Type* tmp = getTypeVal($1);
+  CHECK_FOR_ERROR
+  $$ = new PATypeHolder(tmp);
+};
+
+// Include derived types in the Types production.
+//
+UpRTypes : '\\' EUINT64VAL {                   // Type UpReference
+    if ($2 > (uint64_t)~0U) GEN_ERROR("Value out of range!");
     OpaqueType *OT = OpaqueType::get();        // Use temporary placeholder
     UpRefs.push_back(UpRefRecord((unsigned)$2, OT));  // Add to vector...
     $$ = new PATypeHolder(OT);
     UR_OUT("New Upreference!\n");
     CHECK_FOR_ERROR
   }
-  | Types '(' ArgTypeListI ')' OptFuncAttrs {
+  | UpRTypesV '(' ArgTypeListI ')' {           // Function derived type?
     std::vector<const Type*> Params;
-    std::vector<FunctionType::ParameterAttributes> Attrs;
-    Attrs.push_back($5);
-    for (TypeWithAttrsList::iterator I=$3->begin(), E=$3->end(); I != E; ++I) {
-      Params.push_back(I->Ty->get());
-      if (I->Ty->get() != Type::VoidTy)
-        Attrs.push_back(I->Attrs);
-    }
+    for (std::list<llvm::PATypeHolder>::iterator I = $3->begin(),
+           E = $3->end(); I != E; ++I)
+      Params.push_back(*I);
     bool isVarArg = Params.size() && Params.back() == Type::VoidTy;
     if (isVarArg) Params.pop_back();
 
-    FunctionType *FT = FunctionType::get(*$1, Params, isVarArg, Attrs);
-    delete $3;   // Delete the argument list
-    delete $1;   // Delete the return type handle
-    $$ = new PATypeHolder(HandleUpRefs(FT)); 
-    CHECK_FOR_ERROR
-  }
-  | VOID '(' ArgTypeListI ')' OptFuncAttrs {
-    std::vector<const Type*> Params;
-    std::vector<FunctionType::ParameterAttributes> Attrs;
-    Attrs.push_back($5);
-    for (TypeWithAttrsList::iterator I=$3->begin(), E=$3->end(); I != E; ++I) {
-      Params.push_back(I->Ty->get());
-      if (I->Ty->get() != Type::VoidTy)
-        Attrs.push_back(I->Attrs);
-    }
-    bool isVarArg = Params.size() && Params.back() == Type::VoidTy;
-    if (isVarArg) Params.pop_back();
-
-    FunctionType *FT = FunctionType::get($1, Params, isVarArg, Attrs);
+    $$ = new PATypeHolder(HandleUpRefs(FunctionType::get(*$1,Params,isVarArg)));
     delete $3;      // Delete the argument list
-    $$ = new PATypeHolder(HandleUpRefs(FT)); 
+    delete $1;      // Delete the return type handle
     CHECK_FOR_ERROR
   }
-
-  | '[' EUINT64VAL 'x' Types ']' {          // Sized array type?
+  | '[' EUINT64VAL 'x' UpRTypes ']' {          // Sized array type?
     $$ = new PATypeHolder(HandleUpRefs(ArrayType::get(*$4, (unsigned)$2)));
     delete $4;
     CHECK_FOR_ERROR
   }
-  | '<' EUINT64VAL 'x' Types '>' {          // Packed array type?
+  | '<' EUINT64VAL 'x' UpRTypes '>' {          // Packed array type?
      const llvm::Type* ElemTy = $4->get();
      if ((unsigned)$2 != $2)
         GEN_ERROR("Unsigned result not equal to signed result");
-     if (!ElemTy->isFloatingPoint() && !ElemTy->isInteger())
-        GEN_ERROR("Element type of a PackedType must be primitive");
+     if (!ElemTy->isPrimitiveType())
+        GEN_ERROR("Elemental type of a PackedType must be primitive");
      if (!isPowerOf2_32($2))
-       GEN_ERROR("Vector length should be a power of 2");
+       GEN_ERROR("Vector length should be a power of 2!");
      $$ = new PATypeHolder(HandleUpRefs(PackedType::get(*$4, (unsigned)$2)));
      delete $4;
      CHECK_FOR_ERROR
@@ -1317,84 +1338,39 @@ Types
     $$ = new PATypeHolder(StructType::get(std::vector<const Type*>()));
     CHECK_FOR_ERROR
   }
-  | '<' '{' TypeListI '}' '>' {
-    std::vector<const Type*> Elements;
-    for (std::list<llvm::PATypeHolder>::iterator I = $3->begin(),
-           E = $3->end(); I != E; ++I)
-      Elements.push_back(*I);
-
-    $$ = new PATypeHolder(HandleUpRefs(StructType::get(Elements, true)));
-    delete $3;
-    CHECK_FOR_ERROR
-  }
-  | '<' '{' '}' '>' {                         // Empty structure type?
-    $$ = new PATypeHolder(StructType::get(std::vector<const Type*>(), true));
-    CHECK_FOR_ERROR
-  }
-  ;
-
-ArgType 
-  : Types OptParamAttrs { 
-    $$.Ty = $1; 
-    $$.Attrs = $2; 
-  }
-  ;
-
-ResultTypes
-  : Types {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
-    if (!(*$1)->isFirstClassType())
-      GEN_ERROR("LLVM functions cannot return aggregate types");
-    $$ = $1;
-  }
-  | VOID {
-    $$ = new PATypeHolder(Type::VoidTy);
-  }
-  ;
-
-ArgTypeList : ArgType {
-    $$ = new TypeWithAttrsList();
-    $$->push_back($1);
-    CHECK_FOR_ERROR
-  }
-  | ArgTypeList ',' ArgType {
-    ($$=$1)->push_back($3);
-    CHECK_FOR_ERROR
-  }
-  ;
-
-ArgTypeListI 
-  : ArgTypeList
-  | ArgTypeList ',' DOTDOTDOT {
-    $$=$1;
-    TypeWithAttrs TWA; TWA.Attrs = FunctionType::NoAttributeSet;
-    TWA.Ty = new PATypeHolder(Type::VoidTy);
-    $$->push_back(TWA);
-    CHECK_FOR_ERROR
-  }
-  | DOTDOTDOT {
-    $$ = new TypeWithAttrsList;
-    TypeWithAttrs TWA; TWA.Attrs = FunctionType::NoAttributeSet;
-    TWA.Ty = new PATypeHolder(Type::VoidTy);
-    $$->push_back(TWA);
-    CHECK_FOR_ERROR
-  }
-  | /*empty*/ {
-    $$ = new TypeWithAttrsList();
+  | UpRTypes '*' {                             // Pointer type?
+    if (*$1 == Type::LabelTy)
+      GEN_ERROR("Cannot form a pointer to a basic block");
+    $$ = new PATypeHolder(HandleUpRefs(PointerType::get(*$1)));
+    delete $1;
     CHECK_FOR_ERROR
   };
 
 // TypeList - Used for struct declarations and as a basis for function type 
 // declaration type lists
 //
-TypeListI : Types {
+TypeListI : UpRTypes {
     $$ = new std::list<PATypeHolder>();
     $$->push_back(*$1); delete $1;
     CHECK_FOR_ERROR
   }
-  | TypeListI ',' Types {
+  | TypeListI ',' UpRTypes {
     ($$=$1)->push_back(*$3); delete $3;
+    CHECK_FOR_ERROR
+  };
+
+// ArgTypeList - List of types for a function type declaration...
+ArgTypeListI : TypeListI
+  | TypeListI ',' DOTDOTDOT {
+    ($$=$1)->push_back(Type::VoidTy);
+    CHECK_FOR_ERROR
+  }
+  | DOTDOTDOT {
+    ($$ = new std::list<PATypeHolder>())->push_back(Type::VoidTy);
+    CHECK_FOR_ERROR
+  }
+  | /*empty*/ {
+    $$ = new std::list<PATypeHolder>();
     CHECK_FOR_ERROR
   };
 
@@ -1405,12 +1381,10 @@ TypeListI : Types {
 // ResolvedVal, ValueRef and ConstValueRef productions.
 //
 ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     const ArrayType *ATy = dyn_cast<ArrayType>($1->get());
     if (ATy == 0)
       GEN_ERROR("Cannot make array constant with type: '" + 
-                     (*$1)->getDescription() + "'");
+                     (*$1)->getDescription() + "'!");
     const Type *ETy = ATy->getElementType();
     int NumElements = ATy->getNumElements();
 
@@ -1418,7 +1392,7 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     if (NumElements != -1 && NumElements != (int)$3->size())
       GEN_ERROR("Type mismatch: constant sized array initialized with " +
                      utostr($3->size()) +  " arguments, but has size of " + 
-                     itostr(NumElements) + "");
+                     itostr(NumElements) + "!");
 
     // Verify all elements are correct type!
     for (unsigned i = 0; i < $3->size(); i++) {
@@ -1433,28 +1407,24 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     CHECK_FOR_ERROR
   }
   | Types '[' ']' {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     const ArrayType *ATy = dyn_cast<ArrayType>($1->get());
     if (ATy == 0)
       GEN_ERROR("Cannot make array constant with type: '" + 
-                     (*$1)->getDescription() + "'");
+                     (*$1)->getDescription() + "'!");
 
     int NumElements = ATy->getNumElements();
     if (NumElements != -1 && NumElements != 0) 
       GEN_ERROR("Type mismatch: constant sized array initialized with 0"
-                     " arguments, but has size of " + itostr(NumElements) +"");
+                     " arguments, but has size of " + itostr(NumElements) +"!");
     $$ = ConstantArray::get(ATy, std::vector<Constant*>());
     delete $1;
     CHECK_FOR_ERROR
   }
   | Types 'c' STRINGCONSTANT {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     const ArrayType *ATy = dyn_cast<ArrayType>($1->get());
     if (ATy == 0)
       GEN_ERROR("Cannot make array constant with type: '" + 
-                     (*$1)->getDescription() + "'");
+                     (*$1)->getDescription() + "'!");
 
     int NumElements = ATy->getNumElements();
     const Type *ETy = ATy->getElementType();
@@ -1462,15 +1432,18 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     if (NumElements != -1 && NumElements != (EndStr-$3))
       GEN_ERROR("Can't build string constant of size " + 
                      itostr((int)(EndStr-$3)) +
-                     " when array has size " + itostr(NumElements) + "");
+                     " when array has size " + itostr(NumElements) + "!");
     std::vector<Constant*> Vals;
-    if (ETy == Type::Int8Ty) {
+    if (ETy == Type::SByteTy) {
+      for (signed char *C = (signed char *)$3; C != (signed char *)EndStr; ++C)
+        Vals.push_back(ConstantInt::get(ETy, *C));
+    } else if (ETy == Type::UByteTy) {
       for (unsigned char *C = (unsigned char *)$3; 
-        C != (unsigned char*)EndStr; ++C)
-      Vals.push_back(ConstantInt::get(ETy, *C));
+           C != (unsigned char*)EndStr; ++C)
+        Vals.push_back(ConstantInt::get(ETy, *C));
     } else {
       free($3);
-      GEN_ERROR("Cannot build string arrays of non byte sized elements");
+      GEN_ERROR("Cannot build string arrays of non byte sized elements!");
     }
     free($3);
     $$ = ConstantArray::get(ATy, Vals);
@@ -1478,12 +1451,10 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     CHECK_FOR_ERROR
   }
   | Types '<' ConstVector '>' { // Nonempty unsized arr
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     const PackedType *PTy = dyn_cast<PackedType>($1->get());
     if (PTy == 0)
       GEN_ERROR("Cannot make packed constant with type: '" + 
-                     (*$1)->getDescription() + "'");
+                     (*$1)->getDescription() + "'!");
     const Type *ETy = PTy->getElementType();
     int NumElements = PTy->getNumElements();
 
@@ -1491,7 +1462,7 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     if (NumElements != -1 && NumElements != (int)$3->size())
       GEN_ERROR("Type mismatch: constant sized packed initialized with " +
                      utostr($3->size()) +  " arguments, but has size of " + 
-                     itostr(NumElements) + "");
+                     itostr(NumElements) + "!");
 
     // Verify all elements are correct type!
     for (unsigned i = 0; i < $3->size(); i++) {
@@ -1509,10 +1480,10 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     const StructType *STy = dyn_cast<StructType>($1->get());
     if (STy == 0)
       GEN_ERROR("Cannot make struct constant with type: '" + 
-                     (*$1)->getDescription() + "'");
+                     (*$1)->getDescription() + "'!");
 
     if ($3->size() != STy->getNumContainedTypes())
-      GEN_ERROR("Illegal number of initializers for structure type");
+      GEN_ERROR("Illegal number of initializers for structure type!");
 
     // Check to ensure that constants are compatible with the type initializer!
     for (unsigned i = 0, e = $3->size(); i != e; ++i)
@@ -1520,104 +1491,44 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
         GEN_ERROR("Expected type '" +
                        STy->getElementType(i)->getDescription() +
                        "' for element #" + utostr(i) +
-                       " of structure initializer");
-
-    // Check to ensure that Type is not packed
-    if (STy->isPacked())
-      GEN_ERROR("Unpacked Initializer to packed type '" + STy->getDescription() + "'");
+                       " of structure initializer!");
 
     $$ = ConstantStruct::get(STy, *$3);
     delete $1; delete $3;
     CHECK_FOR_ERROR
   }
   | Types '{' '}' {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     const StructType *STy = dyn_cast<StructType>($1->get());
     if (STy == 0)
       GEN_ERROR("Cannot make struct constant with type: '" + 
-                     (*$1)->getDescription() + "'");
+                     (*$1)->getDescription() + "'!");
 
     if (STy->getNumContainedTypes() != 0)
-      GEN_ERROR("Illegal number of initializers for structure type");
-
-    // Check to ensure that Type is not packed
-    if (STy->isPacked())
-      GEN_ERROR("Unpacked Initializer to packed type '" + STy->getDescription() + "'");
-
-    $$ = ConstantStruct::get(STy, std::vector<Constant*>());
-    delete $1;
-    CHECK_FOR_ERROR
-  }
-  | Types '<' '{' ConstVector '}' '>' {
-    const StructType *STy = dyn_cast<StructType>($1->get());
-    if (STy == 0)
-      GEN_ERROR("Cannot make struct constant with type: '" + 
-                     (*$1)->getDescription() + "'");
-
-    if ($4->size() != STy->getNumContainedTypes())
-      GEN_ERROR("Illegal number of initializers for structure type");
-
-    // Check to ensure that constants are compatible with the type initializer!
-    for (unsigned i = 0, e = $4->size(); i != e; ++i)
-      if ((*$4)[i]->getType() != STy->getElementType(i))
-        GEN_ERROR("Expected type '" +
-                       STy->getElementType(i)->getDescription() +
-                       "' for element #" + utostr(i) +
-                       " of structure initializer");
-
-    // Check to ensure that Type is packed
-    if (!STy->isPacked())
-      GEN_ERROR("Packed Initializer to unpacked type '" + STy->getDescription() + "'");
-
-    $$ = ConstantStruct::get(STy, *$4);
-    delete $1; delete $4;
-    CHECK_FOR_ERROR
-  }
-  | Types '<' '{' '}' '>' {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
-    const StructType *STy = dyn_cast<StructType>($1->get());
-    if (STy == 0)
-      GEN_ERROR("Cannot make struct constant with type: '" + 
-                     (*$1)->getDescription() + "'");
-
-    if (STy->getNumContainedTypes() != 0)
-      GEN_ERROR("Illegal number of initializers for structure type");
-
-    // Check to ensure that Type is packed
-    if (!STy->isPacked())
-      GEN_ERROR("Packed Initializer to unpacked type '" + STy->getDescription() + "'");
+      GEN_ERROR("Illegal number of initializers for structure type!");
 
     $$ = ConstantStruct::get(STy, std::vector<Constant*>());
     delete $1;
     CHECK_FOR_ERROR
   }
   | Types NULL_TOK {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     const PointerType *PTy = dyn_cast<PointerType>($1->get());
     if (PTy == 0)
       GEN_ERROR("Cannot make null pointer constant with type: '" + 
-                     (*$1)->getDescription() + "'");
+                     (*$1)->getDescription() + "'!");
 
     $$ = ConstantPointerNull::get(PTy);
     delete $1;
     CHECK_FOR_ERROR
   }
   | Types UNDEF {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     $$ = UndefValue::get($1->get());
     delete $1;
     CHECK_FOR_ERROR
   }
   | Types SymbolicValueRef {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     const PointerType *Ty = dyn_cast<PointerType>($1->get());
     if (Ty == 0)
-      GEN_ERROR("Global const reference must be a pointer type");
+      GEN_ERROR("Global const reference must be a pointer type!");
 
     // ConstExprs can exist in the body of a function, thus creating
     // GlobalValues whenever they refer to a variable.  Because we are in
@@ -1651,10 +1562,7 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
         $2.destroy();
       } else {
         std::string Name;
-        if ($2.Type == ValID::GlobalName)
-          Name = $2.Name;
-        else if ($2.Type != ValID::GlobalID)
-          GEN_ERROR("Invalid reference to global");
+        if ($2.Type == ValID::NameVal) Name = $2.Name;
 
         // Create the forward referenced global.
         GlobalValue *GV;
@@ -1679,138 +1587,167 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     CHECK_FOR_ERROR
   }
   | Types ConstExpr {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     if ($1->get() != $2->getType())
-      GEN_ERROR("Mismatched types for constant expression: " + 
-        (*$1)->getDescription() + " and " + $2->getType()->getDescription());
+      GEN_ERROR("Mismatched types for constant expression!");
     $$ = $2;
     delete $1;
     CHECK_FOR_ERROR
   }
   | Types ZEROINITIALIZER {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     const Type *Ty = $1->get();
     if (isa<FunctionType>(Ty) || Ty == Type::LabelTy || isa<OpaqueType>(Ty))
-      GEN_ERROR("Cannot create a null initialized value of this type");
+      GEN_ERROR("Cannot create a null initialized value of this type!");
     $$ = Constant::getNullValue(Ty);
     delete $1;
     CHECK_FOR_ERROR
-  }
-  | IntType ESINT64VAL {      // integral constants
+  };
+
+ConstVal : SIntType EINT64VAL {      // integral constants
     if (!ConstantInt::isValueValidForType($1, $2))
-      GEN_ERROR("Constant value doesn't fit in type");
+      GEN_ERROR("Constant value doesn't fit in type!");
     $$ = ConstantInt::get($1, $2);
     CHECK_FOR_ERROR
   }
-  | IntType EUINT64VAL {      // integral constants
+  | UIntType EUINT64VAL {            // integral constants
     if (!ConstantInt::isValueValidForType($1, $2))
-      GEN_ERROR("Constant value doesn't fit in type");
+      GEN_ERROR("Constant value doesn't fit in type!");
     $$ = ConstantInt::get($1, $2);
     CHECK_FOR_ERROR
   }
-  | INTTYPE TRUETOK {                      // Boolean constants
-    assert(cast<IntegerType>($1)->getBitWidth() == 1 && "Not Bool?");
-    $$ = ConstantInt::getTrue();
+  | BOOL TRUETOK {                      // Boolean constants
+    $$ = ConstantBool::getTrue();
     CHECK_FOR_ERROR
   }
-  | INTTYPE FALSETOK {                     // Boolean constants
-    assert(cast<IntegerType>($1)->getBitWidth() == 1 && "Not Bool?");
-    $$ = ConstantInt::getFalse();
+  | BOOL FALSETOK {                     // Boolean constants
+    $$ = ConstantBool::getFalse();
     CHECK_FOR_ERROR
   }
   | FPType FPVAL {                   // Float & Double constants
     if (!ConstantFP::isValueValidForType($1, $2))
-      GEN_ERROR("Floating point constant invalid for type");
+      GEN_ERROR("Floating point constant invalid for type!!");
     $$ = ConstantFP::get($1, $2);
     CHECK_FOR_ERROR
   };
 
 
-ConstExpr: CastOps '(' ConstVal TO Types ')' {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$5)->getDescription());
-    Constant *Val = $3;
-    const Type *DestTy = $5->get();
-    if (!CastInst::castIsValid($1, $3, DestTy))
-      GEN_ERROR("invalid cast opcode for cast from '" +
-                Val->getType()->getDescription() + "' to '" +
-                DestTy->getDescription() + "'"); 
-    $$ = ConstantExpr::getCast($1, $3, DestTy);
+ConstExpr: CAST '(' ConstVal TO Types ')' {
+    if (!$3->getType()->isFirstClassType())
+      GEN_ERROR("cast constant expression from a non-primitive type: '" +
+                     $3->getType()->getDescription() + "'!");
+    if (!$5->get()->isFirstClassType())
+      GEN_ERROR("cast constant expression to a non-primitive type: '" +
+                     $5->get()->getDescription() + "'!");
+    $$ = ConstantExpr::getCast($3, $5->get());
     delete $5;
+    CHECK_FOR_ERROR
   }
   | GETELEMENTPTR '(' ConstVal IndexList ')' {
     if (!isa<PointerType>($3->getType()))
-      GEN_ERROR("GetElementPtr requires a pointer operand");
+      GEN_ERROR("GetElementPtr requires a pointer operand!");
+
+    // LLVM 1.2 and earlier used ubyte struct indices.  Convert any ubyte struct
+    // indices to uint struct indices for compatibility.
+    generic_gep_type_iterator<std::vector<Value*>::iterator>
+      GTI = gep_type_begin($3->getType(), $4->begin(), $4->end()),
+      GTE = gep_type_end($3->getType(), $4->begin(), $4->end());
+    for (unsigned i = 0, e = $4->size(); i != e && GTI != GTE; ++i, ++GTI)
+      if (isa<StructType>(*GTI))        // Only change struct indices
+        if (ConstantInt *CUI = dyn_cast<ConstantInt>((*$4)[i]))
+          if (CUI->getType() == Type::UByteTy)
+            (*$4)[i] = ConstantExpr::getCast(CUI, Type::UIntTy);
 
     const Type *IdxTy =
       GetElementPtrInst::getIndexedType($3->getType(), *$4, true);
     if (!IdxTy)
-      GEN_ERROR("Index list invalid for constant getelementptr");
+      GEN_ERROR("Index list invalid for constant getelementptr!");
 
-    SmallVector<Constant*, 8> IdxVec;
+    std::vector<Constant*> IdxVec;
     for (unsigned i = 0, e = $4->size(); i != e; ++i)
       if (Constant *C = dyn_cast<Constant>((*$4)[i]))
         IdxVec.push_back(C);
       else
-        GEN_ERROR("Indices to constant getelementptr must be constants");
+        GEN_ERROR("Indices to constant getelementptr must be constants!");
 
     delete $4;
 
-    $$ = ConstantExpr::getGetElementPtr($3, &IdxVec[0], IdxVec.size());
+    $$ = ConstantExpr::getGetElementPtr($3, IdxVec);
     CHECK_FOR_ERROR
   }
   | SELECT '(' ConstVal ',' ConstVal ',' ConstVal ')' {
-    if ($3->getType() != Type::Int1Ty)
-      GEN_ERROR("Select condition must be of boolean type");
+    if ($3->getType() != Type::BoolTy)
+      GEN_ERROR("Select condition must be of boolean type!");
     if ($5->getType() != $7->getType())
-      GEN_ERROR("Select operand types must match");
+      GEN_ERROR("Select operand types must match!");
     $$ = ConstantExpr::getSelect($3, $5, $7);
     CHECK_FOR_ERROR
   }
   | ArithmeticOps '(' ConstVal ',' ConstVal ')' {
     if ($3->getType() != $5->getType())
-      GEN_ERROR("Binary operator types must match");
+      GEN_ERROR("Binary operator types must match!");
+    // First, make sure we're dealing with the right opcode by upgrading from
+    // obsolete versions.
+    sanitizeOpCode($1,$3->getType());
     CHECK_FOR_ERROR;
-    $$ = ConstantExpr::get($1, $3, $5);
+
+    // HACK: llvm 1.3 and earlier used to emit invalid pointer constant exprs.
+    // To retain backward compatibility with these early compilers, we emit a
+    // cast to the appropriate integer type automatically if we are in the
+    // broken case.  See PR424 for more information.
+    if (!isa<PointerType>($3->getType())) {
+      $$ = ConstantExpr::get($1.opcode, $3, $5);
+    } else {
+      const Type *IntPtrTy = 0;
+      switch (CurModule.CurrentModule->getPointerSize()) {
+      case Module::Pointer32: IntPtrTy = Type::IntTy; break;
+      case Module::Pointer64: IntPtrTy = Type::LongTy; break;
+      default: GEN_ERROR("invalid pointer binary constant expr!");
+      }
+      $$ = ConstantExpr::get($1.opcode, ConstantExpr::getCast($3, IntPtrTy),
+                             ConstantExpr::getCast($5, IntPtrTy));
+      $$ = ConstantExpr::getCast($$, $3->getType());
+    }
+    CHECK_FOR_ERROR
   }
   | LogicalOps '(' ConstVal ',' ConstVal ')' {
     if ($3->getType() != $5->getType())
-      GEN_ERROR("Logical operator types must match");
-    if (!$3->getType()->isInteger()) {
-      if (Instruction::isShift($1) || !isa<PackedType>($3->getType()) || 
-          !cast<PackedType>($3->getType())->getElementType()->isInteger())
-        GEN_ERROR("Logical operator requires integral operands");
+      GEN_ERROR("Logical operator types must match!");
+    if (!$3->getType()->isIntegral()) {
+      if (!isa<PackedType>($3->getType()) || 
+          !cast<PackedType>($3->getType())->getElementType()->isIntegral())
+        GEN_ERROR("Logical operator requires integral operands!");
     }
-    $$ = ConstantExpr::get($1, $3, $5);
+    $$ = ConstantExpr::get($1.opcode, $3, $5);
     CHECK_FOR_ERROR
   }
-  | ICMP IPredicates '(' ConstVal ',' ConstVal ')' {
-    if ($4->getType() != $6->getType())
-      GEN_ERROR("icmp operand types must match");
-    $$ = ConstantExpr::getICmp($2, $4, $6);
+  | SetCondOps '(' ConstVal ',' ConstVal ')' {
+    if ($3->getType() != $5->getType())
+      GEN_ERROR("setcc operand types must match!");
+    $$ = ConstantExpr::get($1.opcode, $3, $5);
+    CHECK_FOR_ERROR
   }
-  | FCMP FPredicates '(' ConstVal ',' ConstVal ')' {
-    if ($4->getType() != $6->getType())
-      GEN_ERROR("fcmp operand types must match");
-    $$ = ConstantExpr::getFCmp($2, $4, $6);
+  | ShiftOps '(' ConstVal ',' ConstVal ')' {
+    if ($5->getType() != Type::UByteTy)
+      GEN_ERROR("Shift count for shift constant must be unsigned byte!");
+    if (!$3->getType()->isInteger())
+      GEN_ERROR("Shift constant expression requires integer operand!");
+    $$ = ConstantExpr::get($1.opcode, $3, $5);
+    CHECK_FOR_ERROR
   }
   | EXTRACTELEMENT '(' ConstVal ',' ConstVal ')' {
     if (!ExtractElementInst::isValidOperands($3, $5))
-      GEN_ERROR("Invalid extractelement operands");
+      GEN_ERROR("Invalid extractelement operands!");
     $$ = ConstantExpr::getExtractElement($3, $5);
     CHECK_FOR_ERROR
   }
   | INSERTELEMENT '(' ConstVal ',' ConstVal ',' ConstVal ')' {
     if (!InsertElementInst::isValidOperands($3, $5, $7))
-      GEN_ERROR("Invalid insertelement operands");
+      GEN_ERROR("Invalid insertelement operands!");
     $$ = ConstantExpr::getInsertElement($3, $5, $7);
     CHECK_FOR_ERROR
   }
   | SHUFFLEVECTOR '(' ConstVal ',' ConstVal ',' ConstVal ')' {
     if (!ShuffleVectorInst::isValidOperands($3, $5, $7))
-      GEN_ERROR("Invalid shufflevector operands");
+      GEN_ERROR("Invalid shufflevector operands!");
     $$ = ConstantExpr::getShuffleVector($3, $5, $7);
     CHECK_FOR_ERROR
   };
@@ -1839,50 +1776,47 @@ GlobalType : GLOBAL { $$ = false; } | CONSTANT { $$ = true; };
 // Module rule: Capture the result of parsing the whole file into a result
 // variable...
 //
-Module 
-  : DefinitionList {
-    $$ = ParserResult = CurModule.CurrentModule;
-    CurModule.ModuleDone();
-    CHECK_FOR_ERROR;
-  }
-  | /*empty*/ {
-    $$ = ParserResult = CurModule.CurrentModule;
-    CurModule.ModuleDone();
-    CHECK_FOR_ERROR;
-  }
-  ;
+Module : FunctionList {
+  $$ = ParserResult = $1;
+  CurModule.ModuleDone();
+  CHECK_FOR_ERROR;
+};
 
-DefinitionList
-  : Definition
-  | DefinitionList Definition
-  ;
-
-Definition 
-  : DEFINE { CurFun.isDeclare = false; } Function {
+// FunctionList - A list of functions, preceeded by a constant pool.
+//
+FunctionList : FunctionList Function {
+    $$ = $1;
     CurFun.FunctionDone();
     CHECK_FOR_ERROR
-  }
-  | DECLARE { CurFun.isDeclare = true; } FunctionProto {
+  } 
+  | FunctionList FunctionProto {
+    $$ = $1;
     CHECK_FOR_ERROR
   }
-  | MODULE ASM_TOK AsmBlock {
+  | FunctionList MODULE ASM_TOK AsmBlock {
+    $$ = $1;
     CHECK_FOR_ERROR
   }  
-  | IMPLEMENTATION {
+  | FunctionList IMPLEMENTATION {
+    $$ = $1;
+    CHECK_FOR_ERROR
+  }
+  | ConstPool {
+    $$ = CurModule.CurrentModule;
     // Emit an error if there are any unresolved types left.
     if (!CurModule.LateResolveTypes.empty()) {
       const ValID &DID = CurModule.LateResolveTypes.begin()->first;
-      if (DID.Type == ValID::LocalName) {
+      if (DID.Type == ValID::NameVal) {
         GEN_ERROR("Reference to an undefined type: '"+DID.getName() + "'");
       } else {
         GEN_ERROR("Reference to an undefined type: #" + itostr(DID.Num));
       }
     }
     CHECK_FOR_ERROR
-  }
-  | OptLocalAssign TYPE Types {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$3)->getDescription());
+  };
+
+// ConstPool - Constants with optional names assigned to them.
+ConstPool : ConstPool OptAssign TYPE TypesV {
     // Eagerly resolve types.  This is not an optimization, this is a
     // requirement that is due to the fact that we could have this:
     //
@@ -1892,64 +1826,65 @@ Definition
     // If types are not resolved eagerly, then the two types will not be
     // determined to be the same type!
     //
-    ResolveTypeTo($1, *$3);
+    ResolveTypeTo($2, *$4);
 
-    if (!setTypeName(*$3, $1) && !$1) {
+    if (!setTypeName(*$4, $2) && !$2) {
       CHECK_FOR_ERROR
       // If this is a named type that is not a redefinition, add it to the slot
       // table.
-      CurModule.Types.push_back(*$3);
+      CurModule.Types.push_back(*$4);
     }
 
-    delete $3;
+    delete $4;
     CHECK_FOR_ERROR
   }
-  | OptLocalAssign TYPE VOID {
-    ResolveTypeTo($1, $3);
-
-    if (!setTypeName($3, $1) && !$1) {
-      CHECK_FOR_ERROR
-      // If this is a named type that is not a redefinition, add it to the slot
-      // table.
-      CurModule.Types.push_back($3);
-    }
+  | ConstPool FunctionProto {       // Function prototypes can be in const pool
     CHECK_FOR_ERROR
   }
-  | OptGlobalAssign GVVisibilityStyle GlobalType ConstVal { 
-    /* "Externally Visible" Linkage */
-    if ($4 == 0) 
-      GEN_ERROR("Global value initializer is not a constant");
-    CurGV = ParseGlobalVariable($1, GlobalValue::ExternalLinkage,
-                                $2, $3, $4->getType(), $4);
+  | ConstPool MODULE ASM_TOK AsmBlock {  // Asm blocks can be in the const pool
     CHECK_FOR_ERROR
-  } GlobalVarAttributes {
-    CurGV = 0;
   }
-  | OptGlobalAssign GVInternalLinkage GVVisibilityStyle GlobalType ConstVal {
+  | ConstPool OptAssign OptLinkage GlobalType ConstVal {
     if ($5 == 0) 
-      GEN_ERROR("Global value initializer is not a constant");
-    CurGV = ParseGlobalVariable($1, $2, $3, $4, $5->getType(), $5);
+      GEN_ERROR("Global value initializer is not a constant!");
+    CurGV = ParseGlobalVariable($2, $3, $4, $5->getType(), $5);
     CHECK_FOR_ERROR
   } GlobalVarAttributes {
     CurGV = 0;
   }
-  | OptGlobalAssign GVExternalLinkage GVVisibilityStyle GlobalType Types {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$5)->getDescription());
-    CurGV = ParseGlobalVariable($1, $2, $3, $4, *$5, 0);
+  | ConstPool OptAssign EXTERNAL GlobalType Types {
+    CurGV = ParseGlobalVariable($2, GlobalValue::ExternalLinkage, $4, *$5, 0);
     CHECK_FOR_ERROR
     delete $5;
   } GlobalVarAttributes {
     CurGV = 0;
     CHECK_FOR_ERROR
   }
-  | TARGET TargetDefinition { 
+  | ConstPool OptAssign DLLIMPORT GlobalType Types {
+    CurGV = ParseGlobalVariable($2, GlobalValue::DLLImportLinkage, $4, *$5, 0);
+    CHECK_FOR_ERROR
+    delete $5;
+  } GlobalVarAttributes {
+    CurGV = 0;
     CHECK_FOR_ERROR
   }
-  | DEPLIBS '=' LibrariesDefinition {
+  | ConstPool OptAssign EXTERN_WEAK GlobalType Types {
+    CurGV = 
+      ParseGlobalVariable($2, GlobalValue::ExternalWeakLinkage, $4, *$5, 0);
+    CHECK_FOR_ERROR
+    delete $5;
+  } GlobalVarAttributes {
+    CurGV = 0;
     CHECK_FOR_ERROR
   }
-  ;
+  | ConstPool TARGET TargetDefinition { 
+    CHECK_FOR_ERROR
+  }
+  | ConstPool DEPLIBS '=' LibrariesDefinition {
+    CHECK_FOR_ERROR
+  }
+  | /* empty: end of list */ { 
+  };
 
 
 AsmBlock : STRINGCONSTANT {
@@ -1965,7 +1900,23 @@ AsmBlock : STRINGCONSTANT {
   CHECK_FOR_ERROR
 };
 
-TargetDefinition : TRIPLE '=' STRINGCONSTANT {
+BigOrLittle : BIG    { $$ = Module::BigEndian; };
+BigOrLittle : LITTLE { $$ = Module::LittleEndian; };
+
+TargetDefinition : ENDIAN '=' BigOrLittle {
+    CurModule.CurrentModule->setEndianness($3);
+    CHECK_FOR_ERROR
+  }
+  | POINTERSIZE '=' EUINT64VAL {
+    if ($3 == 32)
+      CurModule.CurrentModule->setPointerSize(Module::Pointer32);
+    else if ($3 == 64)
+      CurModule.CurrentModule->setPointerSize(Module::Pointer64);
+    else
+      GEN_ERROR("Invalid pointer size: '" + utostr($3) + "'!");
+    CHECK_FOR_ERROR
+  }
+  | TRIPLE '=' STRINGCONSTANT {
     CurModule.CurrentModule->setTargetTriple($3);
     free($3);
   }
@@ -1995,24 +1946,26 @@ LibList : LibList ',' STRINGCONSTANT {
 //                       Rules to match Function Headers
 //===----------------------------------------------------------------------===//
 
-ArgListH : ArgListH ',' Types OptParamAttrs OptLocalName {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$3)->getDescription());
-    if (*$3 == Type::VoidTy)
-      GEN_ERROR("void typed arguments are invalid");
-    ArgListEntry E; E.Attrs = $4; E.Ty = $3; E.Name = $5;
+Name : VAR_ID | STRINGCONSTANT;
+OptName : Name | /*empty*/ { $$ = 0; };
+
+ArgVal : Types OptName {
+  if (*$1 == Type::VoidTy)
+    GEN_ERROR("void typed arguments are invalid!");
+  $$ = new std::pair<PATypeHolder*, char*>($1, $2);
+  CHECK_FOR_ERROR
+};
+
+ArgListH : ArgListH ',' ArgVal {
     $$ = $1;
-    $1->push_back(E);
+    $1->push_back(*$3);
+    delete $3;
     CHECK_FOR_ERROR
   }
-  | Types OptParamAttrs OptLocalName {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
-    if (*$1 == Type::VoidTy)
-      GEN_ERROR("void typed arguments are invalid");
-    ArgListEntry E; E.Attrs = $2; E.Ty = $1; E.Name = $3;
-    $$ = new ArgListType;
-    $$->push_back(E);
+  | ArgVal {
+    $$ = new std::vector<std::pair<PATypeHolder*,char*> >();
+    $$->push_back(*$1);
+    delete $1;
     CHECK_FOR_ERROR
   };
 
@@ -2022,20 +1975,13 @@ ArgList : ArgListH {
   }
   | ArgListH ',' DOTDOTDOT {
     $$ = $1;
-    struct ArgListEntry E;
-    E.Ty = new PATypeHolder(Type::VoidTy);
-    E.Name = 0;
-    E.Attrs = FunctionType::NoAttributeSet;
-    $$->push_back(E);
+    $$->push_back(std::pair<PATypeHolder*,
+                            char*>(new PATypeHolder(Type::VoidTy), 0));
     CHECK_FOR_ERROR
   }
   | DOTDOTDOT {
-    $$ = new ArgListType;
-    struct ArgListEntry E;
-    E.Ty = new PATypeHolder(Type::VoidTy);
-    E.Name = 0;
-    E.Attrs = FunctionType::NoAttributeSet;
-    $$->push_back(E);
+    $$ = new std::vector<std::pair<PATypeHolder*,char*> >();
+    $$->push_back(std::make_pair(new PATypeHolder(Type::VoidTy), (char*)0));
     CHECK_FOR_ERROR
   }
   | /* empty */ {
@@ -2043,44 +1989,34 @@ ArgList : ArgListH {
     CHECK_FOR_ERROR
   };
 
-FunctionHeaderH : OptCallingConv ResultTypes GlobalName '(' ArgList ')' 
-                  OptFuncAttrs OptSection OptAlign {
+FunctionHeaderH : OptCallingConv TypesV Name '(' ArgList ')' 
+                  OptSection OptAlign {
   UnEscapeLexed($3);
   std::string FunctionName($3);
   free($3);  // Free strdup'd memory!
   
-  // Check the function result for abstractness if this is a define. We should
-  // have no abstract types at this point
-  if (!CurFun.isDeclare && CurModule.TypeIsUnresolved($2))
-    GEN_ERROR("Reference to abstract result: "+ $2->get()->getDescription());
+  if (!(*$2)->isFirstClassType() && *$2 != Type::VoidTy)
+    GEN_ERROR("LLVM functions cannot return aggregate types!");
 
   std::vector<const Type*> ParamTypeList;
-  std::vector<FunctionType::ParameterAttributes> ParamAttrs;
-  ParamAttrs.push_back($7);
   if ($5) {   // If there are arguments...
-    for (ArgListType::iterator I = $5->begin(); I != $5->end(); ++I) {
-      const Type* Ty = I->Ty->get();
-      if (!CurFun.isDeclare && CurModule.TypeIsUnresolved(I->Ty))
-        GEN_ERROR("Reference to abstract argument: " + Ty->getDescription());
-      ParamTypeList.push_back(Ty);
-      if (Ty != Type::VoidTy)
-        ParamAttrs.push_back(I->Attrs);
-    }
+    for (std::vector<std::pair<PATypeHolder*,char*> >::iterator I = $5->begin();
+         I != $5->end(); ++I)
+      ParamTypeList.push_back(I->first->get());
   }
 
   bool isVarArg = ParamTypeList.size() && ParamTypeList.back() == Type::VoidTy;
   if (isVarArg) ParamTypeList.pop_back();
 
-  FunctionType *FT = FunctionType::get(*$2, ParamTypeList, isVarArg,
-                                       ParamAttrs);
+  const FunctionType *FT = FunctionType::get(*$2, ParamTypeList, isVarArg);
   const PointerType *PFT = PointerType::get(FT);
   delete $2;
 
   ValID ID;
   if (!FunctionName.empty()) {
-    ID = ValID::createGlobalName((char*)FunctionName.c_str());
+    ID = ValID::create((char*)FunctionName.c_str());
   } else {
-    ID = ValID::createGlobalID(CurModule.Values[PFT].size());
+    ID = ValID::create((int)CurModule.Values[PFT].size());
   }
 
   Function *Fn = 0;
@@ -2092,21 +2028,17 @@ FunctionHeaderH : OptCallingConv ResultTypes GlobalName '(' ArgList ')'
     CurModule.CurrentModule->getFunctionList().remove(Fn);
     CurModule.CurrentModule->getFunctionList().push_back(Fn);
   } else if (!FunctionName.empty() &&     // Merge with an earlier prototype?
-             (Fn = CurModule.CurrentModule->getFunction(FunctionName))) {
-    if (Fn->getFunctionType() != FT ) {
-      // The existing function doesn't have the same type. This is an overload
-      // error.
-      GEN_ERROR("Overload of function '" + FunctionName + "' not permitted.");
-    } else if (!CurFun.isDeclare && !Fn->isDeclaration()) {
-      // Neither the existing or the current function is a declaration and they
-      // have the same name and same type. Clearly this is a redefinition.
-      GEN_ERROR("Redefinition of function '" + FunctionName + "'");
-    } if (Fn->isDeclaration()) {
-      // Make sure to strip off any argument names so we can't get conflicts.
+             (Fn = CurModule.CurrentModule->getFunction(FunctionName, FT))) {
+    // If this is the case, either we need to be a forward decl, or it needs 
+    // to be.
+    if (!CurFun.isDeclare && !Fn->isExternal())
+      GEN_ERROR("Redefinition of function '" + FunctionName + "'!");
+    
+    // Make sure to strip off any argument names so we can't get conflicts.
+    if (Fn->isExternal())
       for (Function::arg_iterator AI = Fn->arg_begin(), AE = Fn->arg_end();
            AI != AE; ++AI)
         AI->setName("");
-    }
   } else  {  // Not already defined?
     Fn = new Function(FT, GlobalValue::ExternalLinkage, FunctionName,
                       CurModule.CurrentModule);
@@ -2121,33 +2053,30 @@ FunctionHeaderH : OptCallingConv ResultTypes GlobalName '(' ArgList ')'
     // correctly handle cases, when pointer to function is passed as argument to
     // another function.
     Fn->setLinkage(CurFun.Linkage);
-    Fn->setVisibility(CurFun.Visibility);
   }
   Fn->setCallingConv($1);
-  Fn->setAlignment($9);
-  if ($8) {
-    Fn->setSection($8);
-    free($8);
+  Fn->setAlignment($8);
+  if ($7) {
+    Fn->setSection($7);
+    free($7);
   }
 
   // Add all of the arguments we parsed to the function...
   if ($5) {                     // Is null if empty...
     if (isVarArg) {  // Nuke the last entry
-      assert($5->back().Ty->get() == Type::VoidTy && $5->back().Name == 0 &&
+      assert($5->back().first->get() == Type::VoidTy && $5->back().second == 0&&
              "Not a varargs marker!");
-      delete $5->back().Ty;
+      delete $5->back().first;
       $5->pop_back();  // Delete the last entry
     }
     Function::arg_iterator ArgIt = Fn->arg_begin();
-    Function::arg_iterator ArgEnd = Fn->arg_end();
-    unsigned Idx = 1;
-    for (ArgListType::iterator I = $5->begin(); 
-         I != $5->end() && ArgIt != ArgEnd; ++I, ++ArgIt) {
-      delete I->Ty;                          // Delete the typeholder...
-      setValueName(ArgIt, I->Name);          // Insert arg into symtab...
+    for (std::vector<std::pair<PATypeHolder*,char*> >::iterator I = $5->begin();
+         I != $5->end(); ++I, ++ArgIt) {
+      delete I->first;                          // Delete the typeholder...
+
+      setValueName(ArgIt, I->second);           // Insert arg into symtab...
       CHECK_FOR_ERROR
       InsertValue(ArgIt);
-      Idx++;
     }
 
     delete $5;                     // We're now done with the argument list
@@ -2157,13 +2086,12 @@ FunctionHeaderH : OptCallingConv ResultTypes GlobalName '(' ArgList ')'
 
 BEGIN : BEGINTOK | '{';                // Allow BEGIN or '{' to start a function
 
-FunctionHeader : FunctionDefineLinkage GVVisibilityStyle FunctionHeaderH BEGIN {
+FunctionHeader : OptLinkage FunctionHeaderH BEGIN {
   $$ = CurFun.CurrentFunction;
 
   // Make sure that we keep track of the linkage type even if there was a
   // previous "declare".
   $$->setLinkage($1);
-  $$->setVisibility($2);
 };
 
 END : ENDTOK | '}';                    // Allow end of '}' to end a function
@@ -2173,9 +2101,11 @@ Function : BasicBlockList END {
   CHECK_FOR_ERROR
 };
 
-FunctionProto : FunctionDeclareLinkage GVVisibilityStyle FunctionHeaderH {
-    CurFun.CurrentFunction->setLinkage($1);
-    CurFun.CurrentFunction->setVisibility($2);
+FnDeclareLinkage: /*default*/ |
+                  DLLIMPORT   { CurFun.Linkage = GlobalValue::DLLImportLinkage; } |
+                  EXTERN_WEAK { CurFun.Linkage = GlobalValue::DLLImportLinkage; };
+  
+FunctionProto : DECLARE { CurFun.isDeclare = true; } FnDeclareLinkage FunctionHeaderH {
     $$ = CurFun.CurrentFunction;
     CurFun.FunctionDone();
     CHECK_FOR_ERROR
@@ -2207,11 +2137,11 @@ ConstValueRef : ESINT64VAL {    // A reference to a direct constant
     CHECK_FOR_ERROR
   }
   | TRUETOK {
-    $$ = ValID::create(ConstantInt::getTrue());
+    $$ = ValID::create(ConstantBool::getTrue());
     CHECK_FOR_ERROR
   } 
   | FALSETOK {
-    $$ = ValID::create(ConstantInt::getFalse());
+    $$ = ValID::create(ConstantBool::getFalse());
     CHECK_FOR_ERROR
   }
   | NULL_TOK {
@@ -2269,20 +2199,12 @@ ConstValueRef : ESINT64VAL {    // A reference to a direct constant
 // SymbolicValueRef - Reference to one of two ways of symbolically refering to
 // another value.
 //
-SymbolicValueRef : LOCALVAL_ID {  // Is it an integer reference...?
-    $$ = ValID::createLocalID($1);
+SymbolicValueRef : INTVAL {  // Is it an integer reference...?
+    $$ = ValID::create($1);
     CHECK_FOR_ERROR
   }
-  | GLOBALVAL_ID {
-    $$ = ValID::createGlobalID($1);
-    CHECK_FOR_ERROR
-  }
-  | LocalName {                   // Is it a named reference...?
-    $$ = ValID::createLocalName($1);
-    CHECK_FOR_ERROR
-  }
-  | GlobalName {                   // Is it a named reference...?
-    $$ = ValID::createGlobalName($1);
+  | Name {                   // Is it a named reference...?
+    $$ = ValID::create($1);
     CHECK_FOR_ERROR
   };
 
@@ -2294,13 +2216,9 @@ ValueRef : SymbolicValueRef | ConstValueRef;
 // type immediately preceeds the value reference, and allows complex constant
 // pool references (for things like: 'ret [2 x int] [ int 12, int 42]')
 ResolvedVal : Types ValueRef {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
-    $$ = getVal(*$1, $2); 
-    delete $1;
+    $$ = getVal(*$1, $2); delete $1;
     CHECK_FOR_ERROR
-  }
-  ;
+  };
 
 BasicBlockList : BasicBlockList BasicBlock {
     $$ = $1;
@@ -2315,10 +2233,11 @@ BasicBlockList : BasicBlockList BasicBlock {
 // Basic blocks are terminated by branching instructions: 
 // br, br/cc, switch, ret
 //
-BasicBlock : InstructionList OptLocalAssign BBTerminatorInst  {
+BasicBlock : InstructionList OptAssign BBTerminatorInst  {
     setValueName($3, $2);
     CHECK_FOR_ERROR
     InsertValue($3);
+
     $1->getInstList().push_back($3);
     InsertValue($1);
     $$ = $1;
@@ -2326,16 +2245,12 @@ BasicBlock : InstructionList OptLocalAssign BBTerminatorInst  {
   };
 
 InstructionList : InstructionList Inst {
-    if (CastInst *CI1 = dyn_cast<CastInst>($2))
-      if (CastInst *CI2 = dyn_cast<CastInst>(CI1->getOperand(0)))
-        if (CI2->getParent() == 0)
-          $1->getInstList().push_back(CI2);
     $1->getInstList().push_back($2);
     $$ = $1;
     CHECK_FOR_ERROR
   }
   | /* empty */ {
-    $$ = getBBVal(ValID::createLocalID(CurFun.NextBBNum++), true);
+    $$ = CurBB = getBBVal(ValID::create((int)CurFun.NextBBNum++), true);
     CHECK_FOR_ERROR
 
     // Make sure to move the basic block to the correct location in the
@@ -2347,7 +2262,7 @@ InstructionList : InstructionList Inst {
     CHECK_FOR_ERROR
   }
   | LABELSTR {
-    $$ = getBBVal(ValID::createLocalName($1), true);
+    $$ = CurBB = getBBVal(ValID::create($1), true);
     CHECK_FOR_ERROR
 
     // Make sure to move the basic block to the correct location in the
@@ -2372,13 +2287,12 @@ BBTerminatorInst : RET ResolvedVal {              // Return with a result...
     CHECK_FOR_ERROR
     $$ = new BranchInst(tmpBB);
   }                                                  // Conditional Branch...
-  | BR INTTYPE ValueRef ',' LABEL ValueRef ',' LABEL ValueRef {  
-    assert(cast<IntegerType>($2)->getBitWidth() == 1 && "Not Bool?");
+  | BR BOOL ValueRef ',' LABEL ValueRef ',' LABEL ValueRef {  
     BasicBlock* tmpBBA = getBBVal($6);
     CHECK_FOR_ERROR
     BasicBlock* tmpBBB = getBBVal($9);
     CHECK_FOR_ERROR
-    Value* tmpVal = getVal(Type::Int1Ty, $3);
+    Value* tmpVal = getVal(Type::BoolTy, $3);
     CHECK_FOR_ERROR
     $$ = new BranchInst(tmpBBA, tmpBBB, tmpVal);
   }
@@ -2396,7 +2310,7 @@ BBTerminatorInst : RET ResolvedVal {              // Return with a result...
       if (ConstantInt *CI = dyn_cast<ConstantInt>(I->first))
           S->addCase(CI, I->second);
       else
-        GEN_ERROR("Switch case is constant, but not a simple integer");
+        GEN_ERROR("Switch case is constant, but not a simple integer!");
     }
     delete $8;
     CHECK_FOR_ERROR
@@ -2410,70 +2324,59 @@ BBTerminatorInst : RET ResolvedVal {              // Return with a result...
     $$ = S;
     CHECK_FOR_ERROR
   }
-  | INVOKE OptCallingConv ResultTypes ValueRef '(' ValueRefList ')' OptFuncAttrs
+  | INVOKE OptCallingConv TypesV ValueRef '(' ValueRefListE ')'
     TO LABEL ValueRef UNWIND LABEL ValueRef {
+    const PointerType *PFTy;
+    const FunctionType *Ty;
 
-    // Handle the short syntax
-    const PointerType *PFTy = 0;
-    const FunctionType *Ty = 0;
     if (!(PFTy = dyn_cast<PointerType>($3->get())) ||
         !(Ty = dyn_cast<FunctionType>(PFTy->getElementType()))) {
       // Pull out the types of all of the arguments...
       std::vector<const Type*> ParamTypes;
-      FunctionType::ParamAttrsList ParamAttrs;
-      ParamAttrs.push_back($8);
-      for (ValueRefList::iterator I = $6->begin(), E = $6->end(); I != E; ++I) {
-        const Type *Ty = I->Val->getType();
-        if (Ty == Type::VoidTy)
-          GEN_ERROR("Short call syntax cannot be used with varargs");
-        ParamTypes.push_back(Ty);
-        ParamAttrs.push_back(I->Attrs);
+      if ($6) {
+        for (std::vector<Value*>::iterator I = $6->begin(), E = $6->end();
+             I != E; ++I)
+          ParamTypes.push_back((*I)->getType());
       }
 
-      Ty = FunctionType::get($3->get(), ParamTypes, false, ParamAttrs);
+      bool isVarArg = ParamTypes.size() && ParamTypes.back() == Type::VoidTy;
+      if (isVarArg) ParamTypes.pop_back();
+
+      Ty = FunctionType::get($3->get(), ParamTypes, isVarArg);
       PFTy = PointerType::get(Ty);
     }
 
     Value *V = getVal(PFTy, $4);   // Get the function we're calling...
     CHECK_FOR_ERROR
-    BasicBlock *Normal = getBBVal($11);
+    BasicBlock *Normal = getBBVal($10);
     CHECK_FOR_ERROR
-    BasicBlock *Except = getBBVal($14);
+    BasicBlock *Except = getBBVal($13);
     CHECK_FOR_ERROR
 
-    // Check the arguments
-    ValueList Args;
-    if ($6->empty()) {                                   // Has no arguments?
-      // Make sure no arguments is a good thing!
-      if (Ty->getNumParams() != 0)
-        GEN_ERROR("No arguments passed to a function that "
-                       "expects arguments");
+    // Create the call node...
+    if (!$6) {                                   // Has no arguments?
+      $$ = new InvokeInst(V, Normal, Except, std::vector<Value*>());
     } else {                                     // Has arguments?
       // Loop through FunctionType's arguments and ensure they are specified
       // correctly!
+      //
       FunctionType::param_iterator I = Ty->param_begin();
       FunctionType::param_iterator E = Ty->param_end();
-      ValueRefList::iterator ArgI = $6->begin(), ArgE = $6->end();
+      std::vector<Value*>::iterator ArgI = $6->begin(), ArgE = $6->end();
 
-      for (; ArgI != ArgE && I != E; ++ArgI, ++I) {
-        if (ArgI->Val->getType() != *I)
-          GEN_ERROR("Parameter " + ArgI->Val->getName()+ " is not of type '" +
-                         (*I)->getDescription() + "'");
-        Args.push_back(ArgI->Val);
-      }
+      for (; ArgI != ArgE && I != E; ++ArgI, ++I)
+        if ((*ArgI)->getType() != *I)
+          GEN_ERROR("Parameter " +(*ArgI)->getName()+ " is not of type '" +
+                         (*I)->getDescription() + "'!");
 
-      if (Ty->isVarArg()) {
-        if (I == E)
-          for (; ArgI != ArgE; ++ArgI)
-            Args.push_back(ArgI->Val); // push the remaining varargs
-      } else if (I != E || ArgI != ArgE)
-        GEN_ERROR("Invalid number of parameters detected");
+      if (I != E || (ArgI != ArgE && !Ty->isVarArg()))
+        GEN_ERROR("Invalid number of parameters detected!");
+
+      $$ = new InvokeInst(V, Normal, Except, *$6);
     }
-
-    // Create the InvokeInst
-    InvokeInst *II = new InvokeInst(V, Normal, Except, Args);
-    II->setCallingConv($2);
-    $$ = II;
+    cast<InvokeInst>($$)->setCallingConv($2);
+  
+    delete $3;
     delete $6;
     CHECK_FOR_ERROR
   }
@@ -2493,7 +2396,7 @@ JumpTable : JumpTable IntType ConstValueRef ',' LABEL ValueRef {
     Constant *V = cast<Constant>(getValNonImprovising($2, $3));
     CHECK_FOR_ERROR
     if (V == 0)
-      GEN_ERROR("May only switch on a constant pool value");
+      GEN_ERROR("May only switch on a constant pool value!");
 
     BasicBlock* tmpBB = getBBVal($6);
     CHECK_FOR_ERROR
@@ -2505,26 +2408,23 @@ JumpTable : JumpTable IntType ConstValueRef ',' LABEL ValueRef {
     CHECK_FOR_ERROR
 
     if (V == 0)
-      GEN_ERROR("May only switch on a constant pool value");
+      GEN_ERROR("May only switch on a constant pool value!");
 
     BasicBlock* tmpBB = getBBVal($5);
     CHECK_FOR_ERROR
     $$->push_back(std::make_pair(V, tmpBB)); 
   };
 
-Inst : OptLocalAssign InstVal {
-    // Is this definition named?? if so, assign the name...
-    setValueName($2, $1);
-    CHECK_FOR_ERROR
-    InsertValue($2);
-    $$ = $2;
-    CHECK_FOR_ERROR
-  };
-
+Inst : OptAssign InstVal {
+  // Is this definition named?? if so, assign the name...
+  setValueName($2, $1);
+  CHECK_FOR_ERROR
+  InsertValue($2);
+  $$ = $2;
+  CHECK_FOR_ERROR
+};
 
 PHIList : Types '[' ValueRef ',' ValueRef ']' {    // Used for PHI nodes
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
     $$ = new std::list<std::pair<Value*, BasicBlock*> >();
     Value* tmpVal = getVal(*$1, $3);
     CHECK_FOR_ERROR
@@ -2543,32 +2443,18 @@ PHIList : Types '[' ValueRef ',' ValueRef ']' {    // Used for PHI nodes
   };
 
 
-ValueRefList : Types ValueRef OptParamAttrs {    
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
-    // Used for call and invoke instructions
-    $$ = new ValueRefList();
-    ValueRefListEntry E; E.Attrs = $3; E.Val = getVal($1->get(), $2);
-    $$->push_back(E);
+ValueRefList : ResolvedVal {    // Used for call statements, and memory insts...
+    $$ = new std::vector<Value*>();
+    $$->push_back($1);
   }
-  | ValueRefList ',' Types ValueRef OptParamAttrs {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$3)->getDescription());
+  | ValueRefList ',' ResolvedVal {
     $$ = $1;
-    ValueRefListEntry E; E.Attrs = $5; E.Val = getVal($3->get(), $4);
-    $$->push_back(E);
+    $1->push_back($3);
     CHECK_FOR_ERROR
-  }
-  | /*empty*/ { $$ = new ValueRefList(); };
+  };
 
-IndexList       // Used for gep instructions and constant expressions
-  : /*empty*/ { $$ = new std::vector<Value*>(); }
-  | IndexList ',' ResolvedVal {
-    $$ = $1;
-    $$->push_back($3);
-    CHECK_FOR_ERROR
-  }
-  ;
+// ValueRefListE - Just like ValueRefList, except that it may also be empty!
+ValueRefListE : ValueRefList | /*empty*/ { $$ = 0; };
 
 OptTailCall : TAIL CALL {
     $$ = true;
@@ -2580,195 +2466,246 @@ OptTailCall : TAIL CALL {
   };
 
 InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
     if (!(*$2)->isInteger() && !(*$2)->isFloatingPoint() && 
         !isa<PackedType>((*$2).get()))
       GEN_ERROR(
-        "Arithmetic operator requires integer, FP, or packed operands");
+        "Arithmetic operator requires integer, FP, or packed operands!");
     if (isa<PackedType>((*$2).get()) && 
-        ($1 == Instruction::URem || 
-         $1 == Instruction::SRem ||
-         $1 == Instruction::FRem))
-      GEN_ERROR("Remainder not supported on packed types");
+        ($1.opcode == Instruction::URem || 
+         $1.opcode == Instruction::SRem ||
+         $1.opcode == Instruction::FRem))
+      GEN_ERROR("U/S/FRem not supported on packed types!");
+    // Upgrade the opcode from obsolete versions before we do anything with it.
+    sanitizeOpCode($1,*$2);
+    CHECK_FOR_ERROR;
     Value* val1 = getVal(*$2, $3); 
     CHECK_FOR_ERROR
     Value* val2 = getVal(*$2, $5);
     CHECK_FOR_ERROR
-    $$ = BinaryOperator::create($1, val1, val2);
+    $$ = BinaryOperator::create($1.opcode, val1, val2);
     if ($$ == 0)
-      GEN_ERROR("binary operator returned null");
+      GEN_ERROR("binary operator returned null!");
     delete $2;
   }
   | LogicalOps Types ValueRef ',' ValueRef {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
-    if (!(*$2)->isInteger()) {
-      if (Instruction::isShift($1) || !isa<PackedType>($2->get()) ||
-          !cast<PackedType>($2->get())->getElementType()->isInteger())
-        GEN_ERROR("Logical operator requires integral operands");
+    if (!(*$2)->isIntegral()) {
+      if (!isa<PackedType>($2->get()) ||
+          !cast<PackedType>($2->get())->getElementType()->isIntegral())
+        GEN_ERROR("Logical operator requires integral operands!");
     }
     Value* tmpVal1 = getVal(*$2, $3);
     CHECK_FOR_ERROR
     Value* tmpVal2 = getVal(*$2, $5);
     CHECK_FOR_ERROR
-    $$ = BinaryOperator::create($1, tmpVal1, tmpVal2);
+    $$ = BinaryOperator::create($1.opcode, tmpVal1, tmpVal2);
     if ($$ == 0)
-      GEN_ERROR("binary operator returned null");
+      GEN_ERROR("binary operator returned null!");
     delete $2;
   }
-  | ICMP IPredicates Types ValueRef ',' ValueRef  {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$3)->getDescription());
-    if (isa<PackedType>((*$3).get()))
-      GEN_ERROR("Packed types not supported by icmp instruction");
-    Value* tmpVal1 = getVal(*$3, $4);
+  | SetCondOps Types ValueRef ',' ValueRef {
+    if(isa<PackedType>((*$2).get())) {
+      GEN_ERROR(
+        "PackedTypes currently not supported in setcc instructions!");
+    }
+    Value* tmpVal1 = getVal(*$2, $3);
     CHECK_FOR_ERROR
-    Value* tmpVal2 = getVal(*$3, $6);
+    Value* tmpVal2 = getVal(*$2, $5);
     CHECK_FOR_ERROR
-    $$ = CmpInst::create($1, $2, tmpVal1, tmpVal2);
+    $$ = new SetCondInst($1.opcode, tmpVal1, tmpVal2);
     if ($$ == 0)
-      GEN_ERROR("icmp operator returned null");
+      GEN_ERROR("binary operator returned null!");
+    delete $2;
   }
-  | FCMP FPredicates Types ValueRef ',' ValueRef  {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$3)->getDescription());
-    if (isa<PackedType>((*$3).get()))
-      GEN_ERROR("Packed types not supported by fcmp instruction");
-    Value* tmpVal1 = getVal(*$3, $4);
-    CHECK_FOR_ERROR
-    Value* tmpVal2 = getVal(*$3, $6);
-    CHECK_FOR_ERROR
-    $$ = CmpInst::create($1, $2, tmpVal1, tmpVal2);
+  | NOT ResolvedVal {
+    std::cerr << "WARNING: Use of eliminated 'not' instruction:"
+              << " Replacing with 'xor'.\n";
+
+    Value *Ones = ConstantIntegral::getAllOnesValue($2->getType());
+    if (Ones == 0)
+      GEN_ERROR("Expected integral type for not instruction!");
+
+    $$ = BinaryOperator::create(Instruction::Xor, $2, Ones);
     if ($$ == 0)
-      GEN_ERROR("fcmp operator returned null");
+      GEN_ERROR("Could not create a xor instruction!");
+    CHECK_FOR_ERROR
   }
-  | CastOps ResolvedVal TO Types {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$4)->getDescription());
-    Value* Val = $2;
-    const Type* DestTy = $4->get();
-    if (!CastInst::castIsValid($1, Val, DestTy))
-      GEN_ERROR("invalid cast opcode for cast from '" +
-                Val->getType()->getDescription() + "' to '" +
-                DestTy->getDescription() + "'"); 
-    $$ = CastInst::create($1, Val, DestTy);
+  | ShiftOps ResolvedVal ',' ResolvedVal {
+    if ($4->getType() != Type::UByteTy)
+      GEN_ERROR("Shift amount must be ubyte!");
+    if (!$2->getType()->isInteger())
+      GEN_ERROR("Shift constant expression requires integer operand!");
+    $$ = new ShiftInst($1.opcode, $2, $4);
+    CHECK_FOR_ERROR
+  }
+  | CAST ResolvedVal TO Types {
+    if (!$4->get()->isFirstClassType())
+      GEN_ERROR("cast instruction to a non-primitive type: '" +
+                     $4->get()->getDescription() + "'!");
+    $$ = new CastInst($2, *$4);
     delete $4;
+    CHECK_FOR_ERROR
   }
   | SELECT ResolvedVal ',' ResolvedVal ',' ResolvedVal {
-    if ($2->getType() != Type::Int1Ty)
-      GEN_ERROR("select condition must be boolean");
+    if ($2->getType() != Type::BoolTy)
+      GEN_ERROR("select condition must be boolean!");
     if ($4->getType() != $6->getType())
-      GEN_ERROR("select value types should match");
+      GEN_ERROR("select value types should match!");
     $$ = new SelectInst($2, $4, $6);
     CHECK_FOR_ERROR
   }
   | VAARG ResolvedVal ',' Types {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$4)->getDescription());
+    NewVarArgs = true;
     $$ = new VAArgInst($2, *$4);
+    delete $4;
+    CHECK_FOR_ERROR
+  }
+  | VAARG_old ResolvedVal ',' Types {
+    ObsoleteVarArgs = true;
+    const Type* ArgTy = $2->getType();
+    Function* NF = CurModule.CurrentModule->
+      getOrInsertFunction("llvm.va_copy", ArgTy, ArgTy, (Type *)0);
+
+    //b = vaarg a, t -> 
+    //foo = alloca 1 of t
+    //bar = vacopy a 
+    //store bar -> foo
+    //b = vaarg foo, t
+    AllocaInst* foo = new AllocaInst(ArgTy, 0, "vaarg.fix");
+    CurBB->getInstList().push_back(foo);
+    CallInst* bar = new CallInst(NF, $2);
+    CurBB->getInstList().push_back(bar);
+    CurBB->getInstList().push_back(new StoreInst(bar, foo));
+    $$ = new VAArgInst(foo, *$4);
+    delete $4;
+    CHECK_FOR_ERROR
+  }
+  | VANEXT_old ResolvedVal ',' Types {
+    ObsoleteVarArgs = true;
+    const Type* ArgTy = $2->getType();
+    Function* NF = CurModule.CurrentModule->
+      getOrInsertFunction("llvm.va_copy", ArgTy, ArgTy, (Type *)0);
+
+    //b = vanext a, t ->
+    //foo = alloca 1 of t
+    //bar = vacopy a
+    //store bar -> foo
+    //tmp = vaarg foo, t
+    //b = load foo
+    AllocaInst* foo = new AllocaInst(ArgTy, 0, "vanext.fix");
+    CurBB->getInstList().push_back(foo);
+    CallInst* bar = new CallInst(NF, $2);
+    CurBB->getInstList().push_back(bar);
+    CurBB->getInstList().push_back(new StoreInst(bar, foo));
+    Instruction* tmp = new VAArgInst(foo, *$4);
+    CurBB->getInstList().push_back(tmp);
+    $$ = new LoadInst(foo);
     delete $4;
     CHECK_FOR_ERROR
   }
   | EXTRACTELEMENT ResolvedVal ',' ResolvedVal {
     if (!ExtractElementInst::isValidOperands($2, $4))
-      GEN_ERROR("Invalid extractelement operands");
+      GEN_ERROR("Invalid extractelement operands!");
     $$ = new ExtractElementInst($2, $4);
     CHECK_FOR_ERROR
   }
   | INSERTELEMENT ResolvedVal ',' ResolvedVal ',' ResolvedVal {
     if (!InsertElementInst::isValidOperands($2, $4, $6))
-      GEN_ERROR("Invalid insertelement operands");
+      GEN_ERROR("Invalid insertelement operands!");
     $$ = new InsertElementInst($2, $4, $6);
     CHECK_FOR_ERROR
   }
   | SHUFFLEVECTOR ResolvedVal ',' ResolvedVal ',' ResolvedVal {
     if (!ShuffleVectorInst::isValidOperands($2, $4, $6))
-      GEN_ERROR("Invalid shufflevector operands");
+      GEN_ERROR("Invalid shufflevector operands!");
     $$ = new ShuffleVectorInst($2, $4, $6);
     CHECK_FOR_ERROR
   }
   | PHI_TOK PHIList {
     const Type *Ty = $2->front().first->getType();
     if (!Ty->isFirstClassType())
-      GEN_ERROR("PHI node operands must be of first class type");
+      GEN_ERROR("PHI node operands must be of first class type!");
     $$ = new PHINode(Ty);
     ((PHINode*)$$)->reserveOperandSpace($2->size());
     while ($2->begin() != $2->end()) {
       if ($2->front().first->getType() != Ty) 
-        GEN_ERROR("All elements of a PHI node must be of the same type");
+        GEN_ERROR("All elements of a PHI node must be of the same type!");
       cast<PHINode>($$)->addIncoming($2->front().first, $2->front().second);
       $2->pop_front();
     }
     delete $2;  // Free the list...
     CHECK_FOR_ERROR
   }
-  | OptTailCall OptCallingConv ResultTypes ValueRef '(' ValueRefList ')' 
-    OptFuncAttrs {
+  | OptTailCall OptCallingConv TypesV ValueRef '(' ValueRefListE ')'  {
+    const PointerType *PFTy;
+    const FunctionType *Ty;
 
-    // Handle the short syntax
-    const PointerType *PFTy = 0;
-    const FunctionType *Ty = 0;
     if (!(PFTy = dyn_cast<PointerType>($3->get())) ||
         !(Ty = dyn_cast<FunctionType>(PFTy->getElementType()))) {
       // Pull out the types of all of the arguments...
       std::vector<const Type*> ParamTypes;
-      FunctionType::ParamAttrsList ParamAttrs;
-      ParamAttrs.push_back($8);
-      for (ValueRefList::iterator I = $6->begin(), E = $6->end(); I != E; ++I) {
-        const Type *Ty = I->Val->getType();
-        if (Ty == Type::VoidTy)
-          GEN_ERROR("Short call syntax cannot be used with varargs");
-        ParamTypes.push_back(Ty);
-        ParamAttrs.push_back(I->Attrs);
+      if ($6) {
+        for (std::vector<Value*>::iterator I = $6->begin(), E = $6->end();
+             I != E; ++I)
+          ParamTypes.push_back((*I)->getType());
       }
 
-      Ty = FunctionType::get($3->get(), ParamTypes, false, ParamAttrs);
+      bool isVarArg = ParamTypes.size() && ParamTypes.back() == Type::VoidTy;
+      if (isVarArg) ParamTypes.pop_back();
+
+      if (!(*$3)->isFirstClassType() && *$3 != Type::VoidTy)
+        GEN_ERROR("LLVM functions cannot return aggregate types!");
+
+      Ty = FunctionType::get($3->get(), ParamTypes, isVarArg);
       PFTy = PointerType::get(Ty);
     }
 
     Value *V = getVal(PFTy, $4);   // Get the function we're calling...
     CHECK_FOR_ERROR
 
-    // Check the arguments 
-    ValueList Args;
-    if ($6->empty()) {                                   // Has no arguments?
+    // Create the call node...
+    if (!$6) {                                   // Has no arguments?
       // Make sure no arguments is a good thing!
       if (Ty->getNumParams() != 0)
         GEN_ERROR("No arguments passed to a function that "
-                       "expects arguments");
+                       "expects arguments!");
+
+      $$ = new CallInst(V, std::vector<Value*>());
     } else {                                     // Has arguments?
       // Loop through FunctionType's arguments and ensure they are specified
       // correctly!
       //
       FunctionType::param_iterator I = Ty->param_begin();
       FunctionType::param_iterator E = Ty->param_end();
-      ValueRefList::iterator ArgI = $6->begin(), ArgE = $6->end();
+      std::vector<Value*>::iterator ArgI = $6->begin(), ArgE = $6->end();
 
-      for (; ArgI != ArgE && I != E; ++ArgI, ++I) {
-        if (ArgI->Val->getType() != *I)
-          GEN_ERROR("Parameter " + ArgI->Val->getName()+ " is not of type '" +
-                         (*I)->getDescription() + "'");
-        Args.push_back(ArgI->Val);
-      }
-      if (Ty->isVarArg()) {
-        if (I == E)
-          for (; ArgI != ArgE; ++ArgI)
-            Args.push_back(ArgI->Val); // push the remaining varargs
-      } else if (I != E || ArgI != ArgE)
-        GEN_ERROR("Invalid number of parameters detected");
+      for (; ArgI != ArgE && I != E; ++ArgI, ++I)
+        if ((*ArgI)->getType() != *I)
+          GEN_ERROR("Parameter " +(*ArgI)->getName()+ " is not of type '" +
+                         (*I)->getDescription() + "'!");
+
+      if (I != E || (ArgI != ArgE && !Ty->isVarArg()))
+        GEN_ERROR("Invalid number of parameters detected!");
+
+      $$ = new CallInst(V, *$6);
     }
-    // Create the call node
-    CallInst *CI = new CallInst(V, Args);
-    CI->setTailCall($1);
-    CI->setCallingConv($2);
-    $$ = CI;
-    delete $6;
+    cast<CallInst>($$)->setTailCall($1);
+    cast<CallInst>($$)->setCallingConv($2);
     delete $3;
+    delete $6;
     CHECK_FOR_ERROR
   }
   | MemoryInst {
     $$ = $1;
+    CHECK_FOR_ERROR
+  };
+
+
+// IndexList - List of indices for GEP based instructions...
+IndexList : ',' ValueRefList { 
+    $$ = $2; 
+    CHECK_FOR_ERROR
+  } | /* empty */ { 
+    $$ = new std::vector<Value*>(); 
     CHECK_FOR_ERROR
   };
 
@@ -2784,30 +2721,22 @@ OptVolatile : VOLATILE {
 
 
 MemoryInst : MALLOC Types OptCAlign {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
     $$ = new MallocInst(*$2, 0, $3);
     delete $2;
     CHECK_FOR_ERROR
   }
-  | MALLOC Types ',' INTTYPE ValueRef OptCAlign {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
+  | MALLOC Types ',' UINT ValueRef OptCAlign {
     Value* tmpVal = getVal($4, $5);
     CHECK_FOR_ERROR
     $$ = new MallocInst(*$2, tmpVal, $6);
     delete $2;
   }
   | ALLOCA Types OptCAlign {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
     $$ = new AllocaInst(*$2, 0, $3);
     delete $2;
     CHECK_FOR_ERROR
   }
-  | ALLOCA Types ',' INTTYPE ValueRef OptCAlign {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
+  | ALLOCA Types ',' UINT ValueRef OptCAlign {
     Value* tmpVal = getVal($4, $5);
     CHECK_FOR_ERROR
     $$ = new AllocaInst(*$2, tmpVal, $6);
@@ -2816,14 +2745,12 @@ MemoryInst : MALLOC Types OptCAlign {
   | FREE ResolvedVal {
     if (!isa<PointerType>($2->getType()))
       GEN_ERROR("Trying to free nonpointer type " + 
-                     $2->getType()->getDescription() + "");
+                     $2->getType()->getDescription() + "!");
     $$ = new FreeInst($2);
     CHECK_FOR_ERROR
   }
 
   | OptVolatile LOAD Types ValueRef {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$3)->getDescription());
     if (!isa<PointerType>($3->get()))
       GEN_ERROR("Can't load from nonpointer type: " +
                      (*$3)->getDescription());
@@ -2836,8 +2763,6 @@ MemoryInst : MALLOC Types OptCAlign {
     delete $3;
   }
   | OptVolatile STORE ResolvedVal ',' Types ValueRef {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$5)->getDescription());
     const PointerType *PT = dyn_cast<PointerType>($5->get());
     if (!PT)
       GEN_ERROR("Can't store to a nonpointer type: " +
@@ -2845,7 +2770,7 @@ MemoryInst : MALLOC Types OptCAlign {
     const Type *ElTy = PT->getElementType();
     if (ElTy != $3->getType())
       GEN_ERROR("Can't store '" + $3->getType()->getDescription() +
-                     "' into space of type '" + ElTy->getDescription() + "'");
+                     "' into space of type '" + ElTy->getDescription() + "'!");
 
     Value* tmpVal = getVal(*$5, $6);
     CHECK_FOR_ERROR
@@ -2853,14 +2778,23 @@ MemoryInst : MALLOC Types OptCAlign {
     delete $5;
   }
   | GETELEMENTPTR Types ValueRef IndexList {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
     if (!isa<PointerType>($2->get()))
-      GEN_ERROR("getelementptr insn requires pointer operand");
+      GEN_ERROR("getelementptr insn requires pointer operand!");
+
+    // LLVM 1.2 and earlier used ubyte struct indices.  Convert any ubyte struct
+    // indices to uint struct indices for compatibility.
+    generic_gep_type_iterator<std::vector<Value*>::iterator>
+      GTI = gep_type_begin($2->get(), $4->begin(), $4->end()),
+      GTE = gep_type_end($2->get(), $4->begin(), $4->end());
+    for (unsigned i = 0, e = $4->size(); i != e && GTI != GTE; ++i, ++GTI)
+      if (isa<StructType>(*GTI))        // Only change struct indices
+        if (ConstantInt *CUI = dyn_cast<ConstantInt>((*$4)[i]))
+          if (CUI->getType() == Type::UByteTy)
+            (*$4)[i] = ConstantExpr::getCast(CUI, Type::UIntTy);
 
     if (!GetElementPtrInst::getIndexedType(*$2, *$4, true))
       GEN_ERROR("Invalid getelementptr indices for type '" +
-                     (*$2)->getDescription()+ "'");
+                     (*$2)->getDescription()+ "'!");
     Value* tmpVal = getVal(*$2, $3);
     CHECK_FOR_ERROR
     $$ = new GetElementPtrInst(tmpVal, *$4);
@@ -2870,33 +2804,6 @@ MemoryInst : MALLOC Types OptCAlign {
 
 
 %%
-
-// common code from the two 'RunVMAsmParser' functions
-static Module* RunParser(Module * M) {
-
-  llvmAsmlineno = 1;      // Reset the current line number...
-  CurModule.CurrentModule = M;
-#if YYDEBUG
-  yydebug = Debug;
-#endif
-
-  // Check to make sure the parser succeeded
-  if (yyparse()) {
-    if (ParserResult)
-      delete ParserResult;
-    return 0;
-  }
-
-  // Check to make sure that parsing produced a result
-  if (!ParserResult)
-    return 0;
-
-  // Reset ParserResult variable while saving its value for the result.
-  Module *Result = ParserResult;
-  ParserResult = 0;
-
-  return Result;
-}
 
 void llvm::GenerateError(const std::string &message, int LineNo) {
   if (LineNo == -1) LineNo = llvmAsmlineno;
@@ -2910,10 +2817,11 @@ int yyerror(const char *ErrorMsg) {
   std::string where 
     = std::string((CurFilename == "-") ? std::string("<stdin>") : CurFilename)
                   + ":" + utostr((unsigned) llvmAsmlineno) + ": ";
-  std::string errMsg = where + "error: " + std::string(ErrorMsg);
-  if (yychar != YYEMPTY && yychar != 0)
-    errMsg += " while reading token: '" + std::string(llvmAsmtext, llvmAsmleng)+
-              "'";
+  std::string errMsg = std::string(ErrorMsg) + "\n" + where + " while reading ";
+  if (yychar == YYEMPTY || yychar == 0)
+    errMsg += "end-of-file.";
+  else
+    errMsg += "token: '" + std::string(llvmAsmtext, llvmAsmleng) + "'";
   GenerateError(errMsg);
   return 0;
 }

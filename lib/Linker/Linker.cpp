@@ -15,8 +15,8 @@
 #include "llvm/Module.h"
 #include "llvm/Bytecode/Reader.h"
 #include "llvm/Config/config.h"
-#include "llvm/Support/Streams.h"
-#include "llvm/Support/Compressor.h"
+#include <iostream>
+
 using namespace llvm;
 
 Linker::Linker(const std::string& progname, const std::string& modname, unsigned flags)
@@ -45,23 +45,26 @@ Linker::~Linker() {
 bool
 Linker::error(const std::string& message) {
   Error = message;
-  if (!(Flags&QuietErrors))
-    cerr << ProgramName << ": error: " << message << "\n";
+  if (!(Flags&QuietErrors)) {
+    std::cerr << ProgramName << ": error: " << message << "\n";
+  }
   return true;
 }
 
 bool
 Linker::warning(const std::string& message) {
   Error = message;
-  if (!(Flags&QuietErrors))
-    cerr << ProgramName << ": warning: " << message << "\n";
+  if (!(Flags&QuietErrors)) {
+    std::cerr << ProgramName << ": warning: " << message << "\n";
+  }
   return false;
 }
 
 void
 Linker::verbose(const std::string& message) {
-  if (Flags&Verbose)
-    cerr << "  " << message << "\n";
+  if (Flags&Verbose) {
+    std::cerr << "  " << message << "\n";
+  }
 }
 
 void
@@ -100,9 +103,7 @@ Linker::releaseModule() {
 std::auto_ptr<Module>
 Linker::LoadObject(const sys::Path &FN) {
   std::string ParseErrorMessage;
-  Module *Result = ParseBytecodeFile(FN.toString(), 
-                                     Compressor::decompressToNewBuffer,
-                                     &ParseErrorMessage);
+  Module *Result = ParseBytecodeFile(FN.toString(), &ParseErrorMessage);
   if (Result)
     return std::auto_ptr<Module>(Result);
   Error = "Bytecode file '" + FN.toString() + "' could not be loaded";

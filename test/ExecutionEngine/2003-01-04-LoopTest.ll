@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as -o %t.bc -f
+; RUN: llvm-as -f %s -o %t.bc
 ; RUN: lli %t.bc > /dev/null
 
 implementation

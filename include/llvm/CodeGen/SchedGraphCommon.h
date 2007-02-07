@@ -17,7 +17,6 @@
 
 #include "llvm/Value.h"
 #include "llvm/ADT/iterator"
-#include "llvm/Support/Streams.h"
 #include <vector>
 
 namespace llvm {
@@ -71,7 +70,6 @@ public:
 
   // Debugging support
   virtual void print(std::ostream &os) const = 0;
-  void print(std::ostream *os) const { if (os) print(*os); }
 
 protected:
   friend class SchedGraphCommon;
@@ -99,6 +97,9 @@ inline std::ostream &operator<<(std::ostream &os,
   node.print(os);
   return os;
 }
+
+
+
 
 //
 // SchedGraphEdge - Edge class to represent dependencies
@@ -182,7 +183,6 @@ public:
 public:
   // Debugging support
   void print(std::ostream &os) const;
-  void print(std::ostream *os) const { if (os) print(*os); }
   void dump(int indent=0) const;
 
 private:

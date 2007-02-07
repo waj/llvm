@@ -55,7 +55,6 @@
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/InstIterator.h"
 #include "llvm/Support/InstVisitor.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -63,17 +62,23 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
 #include <set>
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(NumIters            , "Number of iterations to reach convergence");
-STATISTIC(NumConstraints      , "Number of constraints");
-STATISTIC(NumNodes            , "Number of nodes");
-STATISTIC(NumEscapingFunctions, "Number of internal functions that escape");
-STATISTIC(NumIndirectCallees  , "Number of indirect callees found");
-
 namespace {
-  class VISIBILITY_HIDDEN Andersens : public ModulePass, public AliasAnalysis,
-                                      private InstVisitor<Andersens> {
+  Statistic<>
+  NumIters("anders-aa", "Number of iterations to reach convergence");
+  Statistic<>
+  NumConstraints("anders-aa", "Number of constraints");
+  Statistic<>
+  NumNodes("anders-aa", "Number of nodes");
+  Statistic<>
+  NumEscapingFunctions("anders-aa", "Number of internal functions that escape");
+  Statistic<>
+  NumIndirectCallees("anders-aa", "Number of indirect callees found");
+
+  class Andersens : public ModulePass, public AliasAnalysis,
+                    private InstVisitor<Andersens> {
     /// Node class - This class is used to represent a memory object in the
     /// program, and is the primitive used to build the points-to graph.
     class Node {
@@ -326,8 +331,7 @@ namespace {
     void visitGetElementPtrInst(GetElementPtrInst &GEP);
     void visitPHINode(PHINode &PN);
     void visitCastInst(CastInst &CI);
-    void visitICmpInst(ICmpInst &ICI) {} // NOOP!
-    void visitFCmpInst(FCmpInst &ICI) {} // NOOP!
+    void visitSetCondInst(SetCondInst &SCI) {} // NOOP!
     void visitSelectInst(SelectInst &SI);
     void visitVAArg(VAArgInst &I);
     void visitInstruction(Instruction &I);
@@ -368,7 +372,7 @@ Andersens::getModRefInfo(CallSite CS, Value *P, unsigned Size) {
   // program and modify stuff.  We ignore this technical niggle for now.  This
   // is, after all, a "research quality" implementation of Andersen's analysis.
   if (Function *F = CS.getCalledFunction())
-    if (F->isDeclaration()) {
+    if (F->isExternal()) {
       Node *N1 = getNode(P);
 
       if (N1->begin() == N1->end())
@@ -525,12 +529,13 @@ Andersens::Node *Andersens::getNodeForConstantPointer(Constant *C) {
     switch (CE->getOpcode()) {
     case Instruction::GetElementPtr:
       return getNodeForConstantPointer(CE->getOperand(0));
-    case Instruction::IntToPtr:
-      return &GraphNodes[UniversalSet];
-    case Instruction::BitCast:
-      return getNodeForConstantPointer(CE->getOperand(0));
+    case Instruction::Cast:
+      if (isa<PointerType>(CE->getOperand(0)->getType()))
+        return getNodeForConstantPointer(CE->getOperand(0));
+      else
+        return &GraphNodes[UniversalSet];
     default:
-      cerr << "Constant Expr not yet handled: " << *CE << "\n";
+      std::cerr << "Constant Expr not yet handled: " << *CE << "\n";
       assert(0);
     }
   } else {
@@ -552,12 +557,13 @@ Andersens::Node *Andersens::getNodeForConstantPointerTarget(Constant *C) {
     switch (CE->getOpcode()) {
     case Instruction::GetElementPtr:
       return getNodeForConstantPointerTarget(CE->getOperand(0));
-    case Instruction::IntToPtr:
-      return &GraphNodes[UniversalSet];
-    case Instruction::BitCast:
-      return getNodeForConstantPointerTarget(CE->getOperand(0));
+    case Instruction::Cast:
+      if (isa<PointerType>(CE->getOperand(0)->getType()))
+        return getNodeForConstantPointerTarget(CE->getOperand(0));
+      else
+        return &GraphNodes[UniversalSet];
     default:
-      cerr << "Constant Expr not yet handled: " << *CE << "\n";
+      std::cerr << "Constant Expr not yet handled: " << *CE << "\n";
       assert(0);
     }
   } else {
@@ -600,7 +606,7 @@ void Andersens::AddConstraintsForNonInternalLinkage(Function *F) {
 /// constraints and return true.  If this is a call to an unknown function,
 /// return false.
 bool Andersens::AddConstraintsForExternalCall(CallSite CS, Function *F) {
-  assert(F->isDeclaration() && "Not an external function!");
+  assert(F->isExternal() && "Not an external function!");
 
   // These functions don't induce any points-to constraints.
   if (F->getName() == "atoi" || F->getName() == "atof" ||
@@ -725,7 +731,7 @@ void Andersens::CollectConstraints(Module &M) {
     if (!F->hasInternalLinkage())
       AddConstraintsForNonInternalLinkage(F);
 
-    if (!F->isDeclaration()) {
+    if (!F->isExternal()) {
       // Scan the function body, creating a memory object for each heap/stack
       // allocation in the body of the function and a node to represent all
       // pointer values defined by instructions and used as operands.
@@ -777,12 +783,12 @@ void Andersens::visitInstruction(Instruction &I) {
   case Instruction::Unwind:
   case Instruction::Unreachable:
   case Instruction::Free:
-  case Instruction::ICmp:
-  case Instruction::FCmp:
+  case Instruction::Shl:
+  case Instruction::Shr:
     return;
   default:
     // Is this something we aren't handling yet?
-    cerr << "Unknown instruction: " << I;
+    std::cerr << "Unknown instruction: " << I;
     abort();
   }
 }
@@ -881,7 +887,7 @@ void Andersens::visitVAArg(VAArgInst &I) {
 void Andersens::AddConstraintsForCall(CallSite CS, Function *F) {
   // If this is a call to an external function, handle it directly to get some
   // taste of context sensitivity.
-  if (F->isDeclaration() && AddConstraintsForExternalCall(CS, F))
+  if (F->isExternal() && AddConstraintsForExternalCall(CS, F))
     return;
 
   if (isa<PointerType>(CS.getType())) {
@@ -1029,7 +1035,7 @@ void Andersens::SolveConstraints() {
   while (Changed) {
     Changed = false;
     ++NumIters;
-    DOUT << "Starting iteration #" << Iteration++ << "!\n";
+    DEBUG(std::cerr << "Starting iteration #" << Iteration++ << "!\n");
 
     // Loop over all of the constraints, applying them in turn.
     for (unsigned i = 0, e = Constraints.size(); i != e; ++i) {
@@ -1062,7 +1068,8 @@ void Andersens::SolveConstraints() {
             // We found a function that is just now escaping.  Mark it as if it
             // didn't have internal linkage.
             AddConstraintsForNonInternalLinkage(F);
-            DOUT << "Found escaping internal function: " << F->getName() <<"\n";
+            DEBUG(std::cerr << "Found escaping internal function: "
+                            << F->getName() << "\n");
             ++NumEscapingFunctions;
           }
 
@@ -1080,9 +1087,9 @@ void Andersens::SolveConstraints() {
             if (IP == KnownCallees.end() || *IP != F) {
               // Add the constraints for the call now.
               AddConstraintsForCall(CS, F);
-              DOUT << "Found actual callee '"
-                   << F->getName() << "' for call: "
-                   << *CS.getInstruction() << "\n";
+              DEBUG(std::cerr << "Found actual callee '"
+                              << F->getName() << "' for call: "
+                              << *CS.getInstruction() << "\n");
               ++NumIndirectCallees;
               KnownCallees.insert(IP, F);
             }
@@ -1100,13 +1107,13 @@ void Andersens::SolveConstraints() {
 
 void Andersens::PrintNode(Node *N) {
   if (N == &GraphNodes[UniversalSet]) {
-    cerr << "<universal>";
+    std::cerr << "<universal>";
     return;
   } else if (N == &GraphNodes[NullPtr]) {
-    cerr << "<nullptr>";
+    std::cerr << "<nullptr>";
     return;
   } else if (N == &GraphNodes[NullObject]) {
-    cerr << "<null>";
+    std::cerr << "<null>";
     return;
   }
 
@@ -1115,56 +1122,56 @@ void Andersens::PrintNode(Node *N) {
   if (Function *F = dyn_cast<Function>(V)) {
     if (isa<PointerType>(F->getFunctionType()->getReturnType()) &&
         N == getReturnNode(F)) {
-      cerr << F->getName() << ":retval";
+      std::cerr << F->getName() << ":retval";
       return;
     } else if (F->getFunctionType()->isVarArg() && N == getVarargNode(F)) {
-      cerr << F->getName() << ":vararg";
+      std::cerr << F->getName() << ":vararg";
       return;
     }
   }
 
   if (Instruction *I = dyn_cast<Instruction>(V))
-    cerr << I->getParent()->getParent()->getName() << ":";
+    std::cerr << I->getParent()->getParent()->getName() << ":";
   else if (Argument *Arg = dyn_cast<Argument>(V))
-    cerr << Arg->getParent()->getName() << ":";
+    std::cerr << Arg->getParent()->getName() << ":";
 
   if (V->hasName())
-    cerr << V->getName();
+    std::cerr << V->getName();
   else
-    cerr << "(unnamed)";
+    std::cerr << "(unnamed)";
 
   if (isa<GlobalValue>(V) || isa<AllocationInst>(V))
     if (N == getObject(V))
-      cerr << "<mem>";
+      std::cerr << "<mem>";
 }
 
 void Andersens::PrintConstraints() {
-  cerr << "Constraints:\n";
+  std::cerr << "Constraints:\n";
   for (unsigned i = 0, e = Constraints.size(); i != e; ++i) {
-    cerr << "  #" << i << ":  ";
+    std::cerr << "  #" << i << ":  ";
     Constraint &C = Constraints[i];
     if (C.Type == Constraint::Store)
-      cerr << "*";
+      std::cerr << "*";
     PrintNode(C.Dest);
-    cerr << " = ";
+    std::cerr << " = ";
     if (C.Type == Constraint::Load)
-      cerr << "*";
+      std::cerr << "*";
     PrintNode(C.Src);
-    cerr << "\n";
+    std::cerr << "\n";
   }
 }
 
 void Andersens::PrintPointsToGraph() {
-  cerr << "Points-to graph:\n";
+  std::cerr << "Points-to graph:\n";
   for (unsigned i = 0, e = GraphNodes.size(); i != e; ++i) {
     Node *N = &GraphNodes[i];
-    cerr << "[" << (N->end() - N->begin()) << "] ";
+    std::cerr << "[" << (N->end() - N->begin()) << "] ";
     PrintNode(N);
-    cerr << "\t--> ";
+    std::cerr << "\t--> ";
     for (Node::iterator I = N->begin(), E = N->end(); I != E; ++I) {
-      if (I != N->begin()) cerr << ", ";
+      if (I != N->begin()) std::cerr << ", ";
       PrintNode(*I);
     }
-    cerr << "\n";
+    std::cerr << "\n";
   }
 }

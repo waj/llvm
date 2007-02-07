@@ -19,7 +19,6 @@
 #include "Record.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/Streams.h"
 #include <set>
 using namespace llvm;
 
@@ -285,15 +284,15 @@ void RegisterInfoEmitter::run(std::ostream &OS) {
     for (unsigned j = 0, e = LI.size(); j != e; ++j) {
       Record *Reg = LI[j];
       if (RegisterAliases[R].count(Reg))
-        cerr << "Warning: register alias between " << getQualifiedName(R)
-             << " and " << getQualifiedName(Reg)
-             << " specified multiple times!\n";
+        std::cerr << "Warning: register alias between " << getQualifiedName(R)
+                  << " and " << getQualifiedName(Reg)
+                  << " specified multiple times!\n";
       RegisterAliases[R].insert(Reg);
 
       if (RegisterAliases[Reg].count(R))
-        cerr << "Warning: register alias between " << getQualifiedName(R)
-             << " and " << getQualifiedName(Reg)
-             << " specified multiple times!\n";
+        std::cerr << "Warning: register alias between " << getQualifiedName(R)
+                  << " and " << getQualifiedName(Reg)
+                  << " specified multiple times!\n";
       RegisterAliases[Reg].insert(R);
     }
   }

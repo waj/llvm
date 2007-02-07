@@ -69,16 +69,14 @@ public:
                                   unsigned OpNum,
                                   int FrameIndex) const;
 
-  /// getCalleeSavedRegs - Return a null-terminated list of all of the
+  /// getCalleeSaveRegs - Return a null-terminated list of all of the
   /// callee-save registers on this target.
-  const unsigned *getCalleeSavedRegs() const;
+  const unsigned *getCalleeSaveRegs() const;
 
-  /// getCalleeSavedRegClasses - Return a null-terminated list of the preferred
+  /// getCalleeSaveRegClasses - Return a null-terminated list of the preferred
   /// register classes to spill each callee-saved register with.  The order and
-  /// length of this list match the getCalleeSavedRegs() list.
-  const TargetRegisterClass* const* getCalleeSavedRegClasses() const;
-
-  bool hasFP(const MachineFunction &MF) const;
+  /// length of this list match the getCalleeSaveRegs() list.
+  const TargetRegisterClass* const* getCalleeSaveRegClasses() const;
 
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,
@@ -94,7 +92,6 @@ public:
   // Debug information queries.
   unsigned getRARegister() const;
   unsigned getFrameRegister(MachineFunction &MF) const;
-  void getInitialFrameState(std::vector<MachineMove> &Moves) const;
 };
 
 // getX86SubSuperRegister - X86 utility function. It returns the sub or super

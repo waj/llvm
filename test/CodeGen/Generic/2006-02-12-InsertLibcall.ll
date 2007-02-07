@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc
+; RUN: llvm-as < %s | llc
 %G = external global int
 
 void %encode_one_frame(long %tmp.2i) {

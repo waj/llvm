@@ -27,7 +27,7 @@ namespace llvm {
   /// rewrite expressions in canonical form.
   ///
   /// Clients should create an instance of this class when rewriting is needed,
-  /// and destroy it when finished to allow the release of the associated 
+  /// and destroying it when finished to allow the release of the associated
   /// memory.
   struct SCEVExpander : public SCEVVisitor<SCEVExpander, Value*> {
     ScalarEvolution &SE;
@@ -60,7 +60,8 @@ namespace llvm {
     /// loop (inserting one if there is none).  A canonical induction variable
     /// starts at zero and steps by one on each iteration.
     Value *getOrInsertCanonicalInductionVariable(const Loop *L, const Type *Ty){
-      assert(Ty->isInteger() && "Can only insert integer induction variables!");
+      assert((Ty->isInteger() || Ty->isFloatingPoint()) &&
+             "Can only insert integer or floating point induction variables!");
       SCEVHandle H = SCEVAddRecExpr::get(SCEVUnknown::getIntegerSCEV(0, Ty),
                                          SCEVUnknown::getIntegerSCEV(1, Ty), L);
       return expand(H);
@@ -87,8 +88,7 @@ namespace llvm {
 
     /// InsertCastOfTo - Insert a cast of V to the specified type, doing what
     /// we can to share the casts.
-    static Value *InsertCastOfTo(Instruction::CastOps opcode, Value *V, 
-                                 const Type *Ty);
+    static Value *InsertCastOfTo(Value *V, const Type *Ty);
     
   protected:
     Value *expand(SCEV *S) {
@@ -104,20 +104,8 @@ namespace llvm {
 
     Value *expandInTy(SCEV *S, const Type *Ty) {
       Value *V = expand(S);
-      if (Ty && V->getType() != Ty) {
-        if (isa<PointerType>(Ty) && V->getType()->isInteger())
-          return InsertCastOfTo(Instruction::IntToPtr, V, Ty);
-        else if (Ty->isInteger() && isa<PointerType>(V->getType()))
-          return InsertCastOfTo(Instruction::PtrToInt, V, Ty);
-        else if (Ty->getPrimitiveSizeInBits() == 
-                 V->getType()->getPrimitiveSizeInBits())
-          return InsertCastOfTo(Instruction::BitCast, V, Ty);
-        else if (Ty->getPrimitiveSizeInBits() > 
-                 V->getType()->getPrimitiveSizeInBits())
-          return InsertCastOfTo(Instruction::ZExt, V, Ty);
-        else
-          return InsertCastOfTo(Instruction::Trunc, V, Ty);
-      }
+      if (Ty && V->getType() != Ty)
+        return InsertCastOfTo(V, Ty);
       return V;
     }
 
@@ -127,12 +115,12 @@ namespace llvm {
 
     Value *visitTruncateExpr(SCEVTruncateExpr *S) {
       Value *V = expand(S->getOperand());
-      return CastInst::createTruncOrBitCast(V, S->getType(), "tmp.", InsertPt);
+      return new CastInst(V, S->getType(), "tmp.", InsertPt);
     }
 
     Value *visitZeroExtendExpr(SCEVZeroExtendExpr *S) {
-      Value *V = expandInTy(S->getOperand(), S->getType());
-      return CastInst::createZExtOrBitCast(V, S->getType(), "tmp.", InsertPt);
+      Value *V = expandInTy(S->getOperand(),S->getType()->getUnsignedVersion());
+      return new CastInst(V, S->getType(), "tmp.", InsertPt);
     }
 
     Value *visitAddExpr(SCEVAddExpr *S) {

@@ -21,105 +21,6 @@
 #include "llvm/Support/MathExtras.h"
 using namespace llvm;
 
-/// InitLibcallNames - Set default libcall names.
-///
-static void InitLibcallNames(const char **Names) {
-  Names[RTLIB::SHL_I32] = "__ashlsi3";
-  Names[RTLIB::SHL_I64] = "__ashldi3";
-  Names[RTLIB::SRL_I32] = "__lshrsi3";
-  Names[RTLIB::SRL_I64] = "__lshrdi3";
-  Names[RTLIB::SRA_I32] = "__ashrsi3";
-  Names[RTLIB::SRA_I64] = "__ashrdi3";
-  Names[RTLIB::MUL_I32] = "__mulsi3";
-  Names[RTLIB::MUL_I64] = "__muldi3";
-  Names[RTLIB::SDIV_I32] = "__divsi3";
-  Names[RTLIB::SDIV_I64] = "__divdi3";
-  Names[RTLIB::UDIV_I32] = "__udivsi3";
-  Names[RTLIB::UDIV_I64] = "__udivdi3";
-  Names[RTLIB::SREM_I32] = "__modsi3";
-  Names[RTLIB::SREM_I64] = "__moddi3";
-  Names[RTLIB::UREM_I32] = "__umodsi3";
-  Names[RTLIB::UREM_I64] = "__umoddi3";
-  Names[RTLIB::NEG_I32] = "__negsi2";
-  Names[RTLIB::NEG_I64] = "__negdi2";
-  Names[RTLIB::ADD_F32] = "__addsf3";
-  Names[RTLIB::ADD_F64] = "__adddf3";
-  Names[RTLIB::SUB_F32] = "__subsf3";
-  Names[RTLIB::SUB_F64] = "__subdf3";
-  Names[RTLIB::MUL_F32] = "__mulsf3";
-  Names[RTLIB::MUL_F64] = "__muldf3";
-  Names[RTLIB::DIV_F32] = "__divsf3";
-  Names[RTLIB::DIV_F64] = "__divdf3";
-  Names[RTLIB::REM_F32] = "fmodf";
-  Names[RTLIB::REM_F64] = "fmod";
-  Names[RTLIB::NEG_F32] = "__negsf2";
-  Names[RTLIB::NEG_F64] = "__negdf2";
-  Names[RTLIB::POWI_F32] = "__powisf2";
-  Names[RTLIB::POWI_F64] = "__powidf2";
-  Names[RTLIB::SQRT_F32] = "sqrtf";
-  Names[RTLIB::SQRT_F64] = "sqrt";
-  Names[RTLIB::SIN_F32] = "sinf";
-  Names[RTLIB::SIN_F64] = "sin";
-  Names[RTLIB::COS_F32] = "cosf";
-  Names[RTLIB::COS_F64] = "cos";
-  Names[RTLIB::FPEXT_F32_F64] = "__extendsfdf2";
-  Names[RTLIB::FPROUND_F64_F32] = "__truncdfsf2";
-  Names[RTLIB::FPTOSINT_F32_I32] = "__fixsfsi";
-  Names[RTLIB::FPTOSINT_F32_I64] = "__fixsfdi";
-  Names[RTLIB::FPTOSINT_F64_I32] = "__fixdfsi";
-  Names[RTLIB::FPTOSINT_F64_I64] = "__fixdfdi";
-  Names[RTLIB::FPTOUINT_F32_I32] = "__fixunssfsi";
-  Names[RTLIB::FPTOUINT_F32_I64] = "__fixunssfdi";
-  Names[RTLIB::FPTOUINT_F64_I32] = "__fixunsdfsi";
-  Names[RTLIB::FPTOUINT_F64_I64] = "__fixunsdfdi";
-  Names[RTLIB::SINTTOFP_I32_F32] = "__floatsisf";
-  Names[RTLIB::SINTTOFP_I32_F64] = "__floatsidf";
-  Names[RTLIB::SINTTOFP_I64_F32] = "__floatdisf";
-  Names[RTLIB::SINTTOFP_I64_F64] = "__floatdidf";
-  Names[RTLIB::UINTTOFP_I32_F32] = "__floatunsisf";
-  Names[RTLIB::UINTTOFP_I32_F64] = "__floatunsidf";
-  Names[RTLIB::UINTTOFP_I64_F32] = "__floatundisf";
-  Names[RTLIB::UINTTOFP_I64_F64] = "__floatundidf";
-  Names[RTLIB::OEQ_F32] = "__eqsf2";
-  Names[RTLIB::OEQ_F64] = "__eqdf2";
-  Names[RTLIB::UNE_F32] = "__nesf2";
-  Names[RTLIB::UNE_F64] = "__nedf2";
-  Names[RTLIB::OGE_F32] = "__gesf2";
-  Names[RTLIB::OGE_F64] = "__gedf2";
-  Names[RTLIB::OLT_F32] = "__ltsf2";
-  Names[RTLIB::OLT_F64] = "__ltdf2";
-  Names[RTLIB::OLE_F32] = "__lesf2";
-  Names[RTLIB::OLE_F64] = "__ledf2";
-  Names[RTLIB::OGT_F32] = "__gtsf2";
-  Names[RTLIB::OGT_F64] = "__gtdf2";
-  Names[RTLIB::UO_F32] = "__unordsf2";
-  Names[RTLIB::UO_F64] = "__unorddf2";
-  Names[RTLIB::O_F32] = "__unordsf2";
-  Names[RTLIB::O_F64] = "__unorddf2";
-}
-
-/// InitCmpLibcallCCs - Set default comparison libcall CC.
-///
-static void InitCmpLibcallCCs(ISD::CondCode *CCs) {
-  memset(CCs, ISD::SETCC_INVALID, sizeof(ISD::CondCode)*RTLIB::UNKNOWN_LIBCALL);
-  CCs[RTLIB::OEQ_F32] = ISD::SETEQ;
-  CCs[RTLIB::OEQ_F64] = ISD::SETEQ;
-  CCs[RTLIB::UNE_F32] = ISD::SETNE;
-  CCs[RTLIB::UNE_F64] = ISD::SETNE;
-  CCs[RTLIB::OGE_F32] = ISD::SETGE;
-  CCs[RTLIB::OGE_F64] = ISD::SETGE;
-  CCs[RTLIB::OLT_F32] = ISD::SETLT;
-  CCs[RTLIB::OLT_F64] = ISD::SETLT;
-  CCs[RTLIB::OLE_F32] = ISD::SETLE;
-  CCs[RTLIB::OLE_F64] = ISD::SETLE;
-  CCs[RTLIB::OGT_F32] = ISD::SETGT;
-  CCs[RTLIB::OGT_F64] = ISD::SETGT;
-  CCs[RTLIB::UO_F32] = ISD::SETNE;
-  CCs[RTLIB::UO_F64] = ISD::SETNE;
-  CCs[RTLIB::O_F32] = ISD::SETEQ;
-  CCs[RTLIB::O_F64] = ISD::SETEQ;
-}
-
 TargetLowering::TargetLowering(TargetMachine &tm)
   : TM(tm), TD(TM.getTargetData()) {
   assert(ISD::BUILTIN_OP_END <= 156 &&
@@ -128,14 +29,6 @@ TargetLowering::TargetLowering(TargetMachine &tm)
   memset(OpActions, 0, sizeof(OpActions));
   memset(LoadXActions, 0, sizeof(LoadXActions));
   memset(&StoreXActions, 0, sizeof(StoreXActions));
-  // Initialize all indexed load / store to expand.
-  for (unsigned VT = 0; VT != (unsigned)MVT::LAST_VALUETYPE; ++VT) {
-    for (unsigned IM = (unsigned)ISD::PRE_INC;
-         IM != (unsigned)ISD::LAST_INDEXED_MODE; ++IM) {
-      setIndexedLoadAction(IM, (MVT::ValueType)VT, Expand);
-      setIndexedStoreAction(IM, (MVT::ValueType)VT, Expand);
-    }
-  }
 
   IsLittleEndian = TD->isLittleEndian();
   UsesGlobalOffsetTable = false;
@@ -146,17 +39,13 @@ TargetLowering::TargetLowering(TargetMachine &tm)
          sizeof(TargetDAGCombineArray)/sizeof(TargetDAGCombineArray[0]));
   maxStoresPerMemset = maxStoresPerMemcpy = maxStoresPerMemmove = 8;
   allowUnalignedMemoryAccesses = false;
-  UseUnderscoreSetJmp = false;
-  UseUnderscoreLongJmp = false;
+  UseUnderscoreSetJmpLongJmp = false;
   IntDivIsCheap = false;
   Pow2DivIsCheap = false;
   StackPointerRegisterToSaveRestore = 0;
   SchedPreferenceInfo = SchedulingForLatency;
   JumpBufSize = 0;
   JumpBufAlignment = 0;
-
-  InitLibcallNames(LibcallRoutineNames);
-  InitCmpLibcallCCs(CmpLibcallCCs);
 }
 
 TargetLowering::~TargetLowering() {}
@@ -189,17 +78,10 @@ static void SetValueTypeAction(MVT::ValueType VT,
     assert(VT < PromoteTo && "Must promote to a larger type!");
     TransformToType[VT] = PromoteTo;
   } else if (Action == TargetLowering::Expand) {
-    // f32 and f64 is each expanded to corresponding integer type of same size.
-    if (VT == MVT::f32)
-      TransformToType[VT] = MVT::i32;
-    else if (VT == MVT::f64)
-      TransformToType[VT] = MVT::i64;
-    else {
-      assert((VT == MVT::Vector || MVT::isInteger(VT)) && VT > MVT::i8 &&
-             "Cannot expand this type: target must support SOME integer reg!");
-      // Expand to the next smaller integer type!
-      TransformToType[VT] = (MVT::ValueType)(VT-1);
-    }
+    assert((VT == MVT::Vector || MVT::isInteger(VT)) && VT > MVT::i8 &&
+           "Cannot expand this type: target must support SOME integer reg!");
+    // Expand to the next smaller integer type!
+    TransformToType[VT] = (MVT::ValueType)(VT-1);
   }
 }
 
@@ -239,27 +121,12 @@ void TargetLowering::computeRegisterProperties() {
     else
       TransformToType[(MVT::ValueType)IntReg] = (MVT::ValueType)IntReg;
 
-  // If the target does not have native F64 support, expand it to I64. We will
-  // be generating soft float library calls. If the target does not have native
-  // support for F32, promote it to F64 if it is legal. Otherwise, expand it to
-  // I32.
-  if (isTypeLegal(MVT::f64))
-    TransformToType[MVT::f64] = MVT::f64;  
-  else {
-    NumElementsForVT[MVT::f64] = NumElementsForVT[MVT::i64];
-    SetValueTypeAction(MVT::f64, Expand, *this, TransformToType,
-                       ValueTypeActions);
-  }
-  if (isTypeLegal(MVT::f32))
+  // If the target does not have native support for F32, promote it to F64.
+  if (!isTypeLegal(MVT::f32))
+    SetValueTypeAction(MVT::f32, Promote, *this,
+                       TransformToType, ValueTypeActions);
+  else
     TransformToType[MVT::f32] = MVT::f32;
-  else if (isTypeLegal(MVT::f64))
-    SetValueTypeAction(MVT::f32, Promote, *this, TransformToType,
-                       ValueTypeActions);
-  else {
-    NumElementsForVT[MVT::f32] = NumElementsForVT[MVT::i32];
-    SetValueTypeAction(MVT::f32, Expand, *this, TransformToType,
-                       ValueTypeActions);
-  }
   
   // Set MVT::Vector to always be Expanded
   SetValueTypeAction(MVT::Vector, Expand, *this, TransformToType, 
@@ -272,6 +139,9 @@ void TargetLowering::computeRegisterProperties() {
     if (isTypeLegal((MVT::ValueType)i))
       TransformToType[i] = (MVT::ValueType)i;
   }
+
+  assert(isTypeLegal(MVT::f64) && "Target does not support FP?");
+  TransformToType[MVT::f64] = MVT::f64;
 }
 
 const char *TargetLowering::getTargetNodeName(unsigned Opcode) const {
@@ -485,20 +355,20 @@ bool TargetLowering::SimplifyDemandedBits(SDOperand Op, uint64_t DemandedMask,
       return TLO.CombineTo(Op, Op.getOperand(0));
     if ((DemandedMask & KnownZero2) == DemandedMask)
       return TLO.CombineTo(Op, Op.getOperand(1));
-      
-    // If all of the unknown bits are known to be zero on one side or the other
-    // (but not both) turn this into an *inclusive* or.
-    //    e.g. (A & C1)^(B & C2) -> (A & C1)|(B & C2) iff C1&C2 == 0
-    if ((DemandedMask & ~KnownZero & ~KnownZero2) == 0)
-      return TLO.CombineTo(Op, TLO.DAG.getNode(ISD::OR, Op.getValueType(),
-                                               Op.getOperand(0),
-                                               Op.getOperand(1)));
     
     // Output known-0 bits are known if clear or set in both the LHS & RHS.
     KnownZeroOut = (KnownZero & KnownZero2) | (KnownOne & KnownOne2);
     // Output known-1 are known to be set if set in only one of the LHS, RHS.
     KnownOneOut = (KnownZero & KnownOne2) | (KnownOne & KnownZero2);
     
+    // If all of the unknown bits are known to be zero on one side or the other
+    // (but not both) turn this into an *inclusive* or.
+    //    e.g. (A & C1)^(B & C2) -> (A & C1)|(B & C2) iff C1&C2 == 0
+    if (uint64_t UnknownBits = DemandedMask & ~(KnownZeroOut|KnownOneOut))
+      if ((UnknownBits & (KnownZero|KnownZero2)) == UnknownBits)
+        return TLO.CombineTo(Op, TLO.DAG.getNode(ISD::OR, Op.getValueType(),
+                                                 Op.getOperand(0),
+                                                 Op.getOperand(1)));
     // If all of the demanded bits on one side are known, and all of the set
     // bits on that side are also known to be set on the other side, turn this
     // into an AND, as we know the bits will be cleared.
@@ -715,7 +585,7 @@ bool TargetLowering::SimplifyDemandedBits(SDOperand Op, uint64_t DemandedMask,
     
     // If none of the top bits are demanded, convert this into an any_extend.
     if (NewBits == 0)
-      return TLO.CombineTo(Op,TLO.DAG.getNode(ISD::ANY_EXTEND,Op.getValueType(),
+      return TLO.CombineTo(Op, TLO.DAG.getNode(ISD::ANY_EXTEND,Op.getValueType(),
                                            Op.getOperand(0)));
     
     // Since some of the sign extended bits are demanded, we know that the sign
@@ -1764,26 +1634,5 @@ SDOperand TargetLowering::BuildUDIV(SDNode *N, SelectionDAG &DAG,
       Created->push_back(NPQ.Val);
     return DAG.getNode(ISD::SRL, VT, NPQ, 
                        DAG.getConstant(magics.s-1, getShiftAmountTy()));
-  }
-}
-
-MVT::ValueType TargetLowering::getValueType(const Type *Ty) const {
-  switch (Ty->getTypeID()) {
-  default: assert(0 && "Unknown type!");
-  case Type::VoidTyID:    return MVT::isVoid;
-  case Type::IntegerTyID:
-    switch (cast<IntegerType>(Ty)->getBitWidth()) {
-      default: assert(0 && "Invalid width for value type");
-      case 1:    return MVT::i1;
-      case 8:    return MVT::i8;
-      case 16:   return MVT::i16;
-      case 32:   return MVT::i32;
-      case 64:   return MVT::i64;
-    }
-    break;
-  case Type::FloatTyID:   return MVT::f32;
-  case Type::DoubleTyID:  return MVT::f64;
-  case Type::PointerTyID: return PointerTy;
-  case Type::PackedTyID:  return MVT::Vector;
   }
 }

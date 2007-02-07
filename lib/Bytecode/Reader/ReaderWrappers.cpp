@@ -21,7 +21,9 @@
 #include "llvm/System/MappedFile.h"
 #include "llvm/System/Program.h"
 #include <cerrno>
+#include <iostream>
 #include <memory>
+
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -34,15 +36,13 @@ namespace {
   class BytecodeFileReader : public BytecodeReader {
   private:
     std::string fileName;
-    BCDecompressor_t *Decompressor;
     sys::MappedFile mapFile;
 
     BytecodeFileReader(const BytecodeFileReader&); // Do not implement
     void operator=(const BytecodeFileReader &BFR); // Do not implement
 
   public:
-    BytecodeFileReader(const std::string &Filename, BCDecompressor_t *BCDC,
-                       llvm::BytecodeHandler* H=0);
+    BytecodeFileReader(const std::string &Filename, llvm::BytecodeHandler* H=0);
     bool read(std::string* ErrMsg);
     
     void freeState() {
@@ -53,9 +53,8 @@ namespace {
 }
 
 BytecodeFileReader::BytecodeFileReader(const std::string &Filename,
-                                       BCDecompressor_t *BCDC,
                                        llvm::BytecodeHandler* H)
-  : BytecodeReader(H), fileName(Filename), Decompressor(BCDC) {
+  : BytecodeReader(H), fileName(Filename) {
 }
 
 bool BytecodeFileReader::read(std::string* ErrMsg) {
@@ -66,8 +65,7 @@ bool BytecodeFileReader::read(std::string* ErrMsg) {
     return true;
   }
   unsigned char* buffer = reinterpret_cast<unsigned char*>(mapFile.base());
-  return ParseBytecode(buffer, mapFile.size(), fileName,
-                       Decompressor, ErrMsg);
+  return ParseBytecode(buffer, mapFile.size(), fileName, ErrMsg);
 }
 
 //===----------------------------------------------------------------------===//
@@ -83,7 +81,6 @@ namespace {
     const unsigned char *Buf;
     unsigned Length;
     std::string ModuleID;
-    BCDecompressor_t *Decompressor;
     bool MustDelete;
 
     BytecodeBufferReader(const BytecodeBufferReader&); // Do not implement
@@ -91,7 +88,7 @@ namespace {
 
   public:
     BytecodeBufferReader(const unsigned char *Buf, unsigned Length,
-                         const std::string &ModuleID, BCDecompressor_t *BCDC,
+                         const std::string &ModuleID,
                          llvm::BytecodeHandler* Handler = 0);
     ~BytecodeBufferReader();
 
@@ -103,10 +100,9 @@ namespace {
 BytecodeBufferReader::BytecodeBufferReader(const unsigned char *buf,
                                            unsigned len,
                                            const std::string &modID,
-                                           BCDecompressor_t *BCDC,
                                            llvm::BytecodeHandler *H)
   : BytecodeReader(H), Buffer(0), Buf(buf), Length(len), ModuleID(modID)
-  , Decompressor(BCDC), MustDelete(false) {
+  , MustDelete(false) {
 }
 
 BytecodeBufferReader::~BytecodeBufferReader() {
@@ -128,7 +124,7 @@ BytecodeBufferReader::read(std::string* ErrMsg) {
     ParseBegin = Buffer = Buf;
     MustDelete = false;
   }
-  if (ParseBytecode(ParseBegin, Length, ModuleID, Decompressor, ErrMsg)) {
+  if (ParseBytecode(ParseBegin, Length, ModuleID, ErrMsg)) {
     if (MustDelete) delete [] Buffer;
     return true;
   }
@@ -145,31 +141,32 @@ namespace {
   class BytecodeStdinReader : public BytecodeReader {
   private:
     std::vector<unsigned char> FileData;
-    BCDecompressor_t *Decompressor;
     unsigned char *FileBuf;
 
     BytecodeStdinReader(const BytecodeStdinReader&); // Do not implement
     void operator=(const BytecodeStdinReader &BFR);  // Do not implement
 
   public:
-    BytecodeStdinReader(BCDecompressor_t *BCDC, llvm::BytecodeHandler* H = 0);
+    BytecodeStdinReader( llvm::BytecodeHandler* H = 0 );
     bool read(std::string* ErrMsg);
   };
 }
 
-BytecodeStdinReader::BytecodeStdinReader(BCDecompressor_t *BCDC,
-                                         BytecodeHandler* H)
-  : BytecodeReader(H), Decompressor(BCDC) {
+BytecodeStdinReader::BytecodeStdinReader( BytecodeHandler* H )
+  : BytecodeReader(H)
+{
 }
 
-bool BytecodeStdinReader::read(std::string* ErrMsg) {
+bool
+BytecodeStdinReader::read(std::string* ErrMsg)
+{
   sys::Program::ChangeStdinToBinary();
   char Buffer[4096*4];
 
   // Read in all of the data from stdin, we cannot mmap stdin...
-  while (cin.stream()->good()) {
-    cin.stream()->read(Buffer, 4096*4);
-    int BlockSize = cin.stream()->gcount();
+  while (std::cin.good()) {
+    std::cin.read(Buffer, 4096*4);
+    int BlockSize = std::cin.gcount();
     if (0 >= BlockSize)
       break;
     FileData.insert(FileData.end(), Buffer, Buffer+BlockSize);
@@ -182,9 +179,109 @@ bool BytecodeStdinReader::read(std::string* ErrMsg) {
   }
 
   FileBuf = &FileData[0];
-  if (ParseBytecode(FileBuf, FileData.size(), "<stdin>", Decompressor, ErrMsg))
+  if (ParseBytecode(FileBuf, FileData.size(), "<stdin>", ErrMsg))
     return true;
   return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Varargs transmogrification code...
+//
+
+// CheckVarargs - This is used to automatically translate old-style varargs to
+// new style varargs for backwards compatibility.
+static ModuleProvider* CheckVarargs(ModuleProvider* MP) {
+  Module* M = MP->getModule();
+
+  // check to see if va_start takes arguements...
+  Function* F = M->getNamedFunction("llvm.va_start");
+  if(F == 0) return MP; //No varargs use, just return.
+
+  if (F->getFunctionType()->getNumParams() == 1)
+    return MP; // Modern varargs processing, just return.
+
+  // If we get to this point, we know that we have an old-style module.
+  // Materialize the whole thing to perform the rewriting.
+  if (MP->materializeModule() == 0)
+    return 0;
+
+  if(Function* F = M->getNamedFunction("llvm.va_start")) {
+    assert(F->arg_size() == 0 && "Obsolete va_start takes 0 argument!");
+
+    //foo = va_start()
+    // ->
+    //bar = alloca typeof(foo)
+    //va_start(bar)
+    //foo = load bar
+
+    const Type* RetTy = Type::getPrimitiveType(Type::VoidTyID);
+    const Type* ArgTy = F->getFunctionType()->getReturnType();
+    const Type* ArgTyPtr = PointerType::get(ArgTy);
+    Function* NF = M->getOrInsertFunction("llvm.va_start",
+                                          RetTy, ArgTyPtr, (Type *)0);
+
+    for(Value::use_iterator I = F->use_begin(), E = F->use_end(); I != E;)
+      if (CallInst* CI = dyn_cast<CallInst>(*I++)) {
+        AllocaInst* bar = new AllocaInst(ArgTy, 0, "vastart.fix.1", CI);
+        new CallInst(NF, bar, "", CI);
+        Value* foo = new LoadInst(bar, "vastart.fix.2", CI);
+        CI->replaceAllUsesWith(foo);
+        CI->getParent()->getInstList().erase(CI);
+      }
+    F->setName("");
+  }
+
+  if(Function* F = M->getNamedFunction("llvm.va_end")) {
+    assert(F->arg_size() == 1 && "Obsolete va_end takes 1 argument!");
+    //vaend foo
+    // ->
+    //bar = alloca 1 of typeof(foo)
+    //vaend bar
+    const Type* RetTy = Type::getPrimitiveType(Type::VoidTyID);
+    const Type* ArgTy = F->getFunctionType()->getParamType(0);
+    const Type* ArgTyPtr = PointerType::get(ArgTy);
+    Function* NF = M->getOrInsertFunction("llvm.va_end",
+                                          RetTy, ArgTyPtr, (Type *)0);
+
+    for(Value::use_iterator I = F->use_begin(), E = F->use_end(); I != E;)
+      if (CallInst* CI = dyn_cast<CallInst>(*I++)) {
+        AllocaInst* bar = new AllocaInst(ArgTy, 0, "vaend.fix.1", CI);
+        new StoreInst(CI->getOperand(1), bar, CI);
+        new CallInst(NF, bar, "", CI);
+        CI->getParent()->getInstList().erase(CI);
+      }
+    F->setName("");
+  }
+
+  if(Function* F = M->getNamedFunction("llvm.va_copy")) {
+    assert(F->arg_size() == 1 && "Obsolete va_copy takes 1 argument!");
+    //foo = vacopy(bar)
+    // ->
+    //a = alloca 1 of typeof(foo)
+    //b = alloca 1 of typeof(foo)
+    //store bar -> b
+    //vacopy(a, b)
+    //foo = load a
+
+    const Type* RetTy = Type::getPrimitiveType(Type::VoidTyID);
+    const Type* ArgTy = F->getFunctionType()->getReturnType();
+    const Type* ArgTyPtr = PointerType::get(ArgTy);
+    Function* NF = M->getOrInsertFunction("llvm.va_copy",
+                                          RetTy, ArgTyPtr, ArgTyPtr, (Type *)0);
+
+    for(Value::use_iterator I = F->use_begin(), E = F->use_end(); I != E;)
+      if (CallInst* CI = dyn_cast<CallInst>(*I++)) {
+        AllocaInst* a = new AllocaInst(ArgTy, 0, "vacopy.fix.1", CI);
+        AllocaInst* b = new AllocaInst(ArgTy, 0, "vacopy.fix.2", CI);
+        new StoreInst(CI->getOperand(1), b, CI);
+        new CallInst(NF, a, b, "", CI);
+        Value* foo = new LoadInst(a, "vacopy.fix.3", CI);
+        CI->replaceAllUsesWith(foo);
+        CI->getParent()->getInstList().erase(CI);
+      }
+    F->setName("");
+  }
+  return MP;
 }
 
 //===----------------------------------------------------------------------===//
@@ -197,26 +294,24 @@ ModuleProvider*
 llvm::getBytecodeBufferModuleProvider(const unsigned char *Buffer,
                                       unsigned Length,
                                       const std::string &ModuleID,
-                                      BCDecompressor_t *BCDC,
                                       std::string *ErrMsg, 
                                       BytecodeHandler *H) {
-  BytecodeBufferReader *rdr = 
-    new BytecodeBufferReader(Buffer, Length, ModuleID, BCDC, H);
+  BytecodeBufferReader* rdr = 
+    new BytecodeBufferReader(Buffer, Length, ModuleID, H);
   if (rdr->read(ErrMsg))
     return 0;
-  return rdr;
+  return CheckVarargs(rdr);
 }
 
 /// ParseBytecodeBuffer - Parse a given bytecode buffer
 ///
 Module *llvm::ParseBytecodeBuffer(const unsigned char *Buffer, unsigned Length,
                                   const std::string &ModuleID,
-                                  BCDecompressor_t *BCDC,
                                   std::string *ErrMsg) {
   ModuleProvider *MP = 
-    getBytecodeBufferModuleProvider(Buffer, Length, ModuleID, BCDC, ErrMsg, 0);
+    getBytecodeBufferModuleProvider(Buffer, Length, ModuleID, ErrMsg, 0);
   if (!MP) return 0;
-  Module *M = MP->releaseModule(ErrMsg);
+  Module *M = MP->releaseModule();
   delete MP;
   return M;
 }
@@ -225,32 +320,30 @@ Module *llvm::ParseBytecodeBuffer(const unsigned char *Buffer, unsigned Length,
 ///
 ModuleProvider *
 llvm::getBytecodeModuleProvider(const std::string &Filename,
-                                BCDecompressor_t *BCDC,
                                 std::string* ErrMsg,
                                 BytecodeHandler* H) {
   // Read from a file
   if (Filename != std::string("-")) {
-    BytecodeFileReader *rdr = new BytecodeFileReader(Filename, BCDC, H);
+    BytecodeFileReader* rdr = new BytecodeFileReader(Filename, H);
     if (rdr->read(ErrMsg))
       return 0;
-    return rdr;
+    return CheckVarargs(rdr);
   }
 
   // Read from stdin
-  BytecodeStdinReader *rdr = new BytecodeStdinReader(BCDC, H);
+  BytecodeStdinReader* rdr = new BytecodeStdinReader(H);
   if (rdr->read(ErrMsg))
     return 0;
-  return rdr;
+  return CheckVarargs(rdr);
 }
 
 /// ParseBytecodeFile - Parse the given bytecode file
 ///
 Module *llvm::ParseBytecodeFile(const std::string &Filename,
-                                BCDecompressor_t *BCDC,
                                 std::string *ErrMsg) {
-  ModuleProvider* MP = getBytecodeModuleProvider(Filename, BCDC, ErrMsg);
+  ModuleProvider* MP = getBytecodeModuleProvider(Filename, ErrMsg);
   if (!MP) return 0;
-  Module *M = MP->releaseModule(ErrMsg);
+  Module *M = MP->releaseModule();
   delete MP;
   return M;
 }
@@ -259,28 +352,45 @@ Module *llvm::ParseBytecodeFile(const std::string &Filename,
 Module* llvm::AnalyzeBytecodeFile(
   const std::string &Filename,  ///< File to analyze
   BytecodeAnalysis& bca,        ///< Statistical output
-  BCDecompressor_t *BCDC,
   std::string *ErrMsg,          ///< Error output
   std::ostream* output          ///< Dump output
 ) {
   BytecodeHandler* AH = createBytecodeAnalyzerHandler(bca,output);
-  ModuleProvider* MP = getBytecodeModuleProvider(Filename, BCDC, ErrMsg, AH);
+  ModuleProvider* MP = getBytecodeModuleProvider(Filename, ErrMsg, AH);
   if (!MP) return 0;
-  Module *M = MP->releaseModule(ErrMsg);
+  Module *M = MP->releaseModule();
+  delete MP;
+  return M;
+}
+
+// AnalyzeBytecodeBuffer - analyze a buffer
+Module* llvm::AnalyzeBytecodeBuffer(
+  const unsigned char* Buffer, ///< Pointer to start of bytecode buffer
+  unsigned Length,             ///< Size of the bytecode buffer
+  const std::string& ModuleID, ///< Identifier for the module
+  BytecodeAnalysis& bca,       ///< The results of the analysis
+  std::string* ErrMsg,         ///< Errors, if any.
+  std::ostream* output         ///< Dump output, if any
+)
+{
+  BytecodeHandler* hdlr = createBytecodeAnalyzerHandler(bca, output);
+  ModuleProvider* MP = 
+    getBytecodeBufferModuleProvider(Buffer, Length, ModuleID, ErrMsg, hdlr);
+  if (!MP) return 0;
+  Module *M = MP->releaseModule();
   delete MP;
   return M;
 }
 
 bool llvm::GetBytecodeDependentLibraries(const std::string &fname,
                                          Module::LibraryListType& deplibs,
-                                         BCDecompressor_t *BCDC,
                                          std::string* ErrMsg) {
-  ModuleProvider* MP = getBytecodeModuleProvider(fname, BCDC, ErrMsg);
+  ModuleProvider* MP = getBytecodeModuleProvider(fname, ErrMsg);
   if (!MP) {
     deplibs.clear();
     return true;
   }
-  Module* M = MP->releaseModule(ErrMsg);
+  Module* M = MP->releaseModule();
   deplibs = M->getLibraries();
   delete M;
   delete MP;
@@ -290,13 +400,13 @@ bool llvm::GetBytecodeDependentLibraries(const std::string &fname,
 static void getSymbols(Module*M, std::vector<std::string>& symbols) {
   // Loop over global variables
   for (Module::global_iterator GI = M->global_begin(), GE=M->global_end(); GI != GE; ++GI)
-    if (!GI->isDeclaration() && !GI->hasInternalLinkage())
+    if (!GI->isExternal() && !GI->hasInternalLinkage())
       if (!GI->getName().empty())
         symbols.push_back(GI->getName());
 
   // Loop over functions.
   for (Module::iterator FI = M->begin(), FE = M->end(); FI != FE; ++FI)
-    if (!FI->isDeclaration() && !FI->hasInternalLinkage())
+    if (!FI->isExternal() && !FI->hasInternalLinkage())
       if (!FI->getName().empty())
         symbols.push_back(FI->getName());
 }
@@ -304,9 +414,8 @@ static void getSymbols(Module*M, std::vector<std::string>& symbols) {
 // Get just the externally visible defined symbols from the bytecode
 bool llvm::GetBytecodeSymbols(const sys::Path& fName,
                               std::vector<std::string>& symbols,
-                               BCDecompressor_t *BCDC,
                               std::string* ErrMsg) {
-  ModuleProvider *MP = getBytecodeModuleProvider(fName.toString(), BCDC,ErrMsg);
+  ModuleProvider *MP = getBytecodeModuleProvider(fName.toString(), ErrMsg);
   if (!MP)
     return true;
 
@@ -329,11 +438,10 @@ ModuleProvider*
 llvm::GetBytecodeSymbols(const unsigned char*Buffer, unsigned Length,
                          const std::string& ModuleID,
                          std::vector<std::string>& symbols,
-                          BCDecompressor_t *BCDC,
                          std::string* ErrMsg) {
   // Get the module provider
   ModuleProvider* MP = 
-    getBytecodeBufferModuleProvider(Buffer, Length, ModuleID, BCDC, ErrMsg, 0);
+    getBytecodeBufferModuleProvider(Buffer, Length, ModuleID, ErrMsg, 0);
   if (!MP)
     return 0;
 

@@ -20,17 +20,9 @@ namespace llvm {
 
   // Forward declaration.
   class PPCTargetMachine;
-  
-  struct PPCTargetAsmInfo : public TargetAsmInfo {
-    PPCTargetAsmInfo(const PPCTargetMachine &TM);
-  };
 
-  struct DarwinTargetAsmInfo : public PPCTargetAsmInfo {
+  struct DarwinTargetAsmInfo : public TargetAsmInfo {
     DarwinTargetAsmInfo(const PPCTargetMachine &TM);
-  };
-
-  struct LinuxTargetAsmInfo : public PPCTargetAsmInfo {
-    LinuxTargetAsmInfo(const PPCTargetMachine &TM);
   };
 
 } // namespace llvm

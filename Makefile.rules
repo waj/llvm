@@ -85,7 +85,7 @@ preconditions: $(PreConditions)
 #------------------------------------------------------------------------
 $(filter-out clean clean-local,$(UserTargets)):: $(BUILT_SOURCES)
 
-clean-all-local::
+clean-local::
 ifneq ($(strip $(BUILT_SOURCES)),)
 	-$(Verb) $(RM) -f $(BUILT_SOURCES)
 endif
@@ -255,11 +255,6 @@ else
   C.Flags   += -D_DEBUG
 endif
 
-ifeq ($(ENABLE_PIC),1)
-  CXX.Flags += -fPIC
-  C.Flags   += -fPIC
-endif
-
 CXX.Flags     += $(CXXFLAGS) -Woverloaded-virtual
 C.Flags       += $(CFLAGS)
 CPP.BaseFlags += $(CPPFLAGS)
@@ -269,16 +264,8 @@ LibTool.Flags := --tag=CXX
 
 # Make Floating point IEEE compliant on Alpha.
 ifeq ($(ARCH),Alpha)
-  CXX.Flags     += -mieee
-  CPP.BaseFlags += -mieee
-ifeq ($(ENABLE_PIC),0)
-  CXX.Flags     += -fPIC
-  CPP.BaseFlags += -fPIC
-endif
-endif
-
-ifeq ($(ARCH),Alpha)
-  LD.Flags += -Wl,--no-relax
+  CXX.Flags     += -mieee -fPIC
+  CPP.BaseFlags += -mieee -fPIC
 endif
 
 #--------------------------------------------------------------------
@@ -333,20 +320,9 @@ endif
 ifndef LBUGPOINT
 LBUGPOINT := $(LLVMToolDir)/bugpoint$(EXEEXT)
 endif
-ifndef LUPGRADE
-LUPGRADE := $(LLVMToolDir)/llvm-upgrade$(EXEEXT)
-endif
-ifeq ($(LLVMGCC_MAJVERS),3)
-UPGRADE_MSG = $(Echo) "Upgrading $(1) assembly to latest."
-UPGRADE_LL  = $(Verb)$(LUPGRADE) $(1) -o $(1).up.tmp -f ; $(MV) $(1).up.tmp $(1)
+
 LLVMGCCWITHPATH  := PATH="$(LLVMToolDir):$(PATH)" $(LLVMGCC)
 LLVMGXXWITHPATH  := PATH="$(LLVMToolDir):$(PATH)" $(LLVMGXX)
-else
-UPGRADE_MSG =
-UPGRADE_LL  =
-LLVMGCCWITHPATH  := $(LLVMGCC)
-LLVMGXXWITHPATH  := $(LLVMGXX)
-endif
 
 #--------------------------------------------------------------------
 # Adjust to user's request
@@ -590,7 +566,7 @@ $(ParallelTargets) :
 	  $(MKDIR) $(@D); \
 	  $(CP) $(PROJ_SRC_DIR)/$(@D)/Makefile $(@D)/Makefile; \
 	fi; \
-	$(MAKE) -C $(@D) $(subst $(@D)/.make,,$@)
+	$(MAKE) -C $(@D) $(subst $(@D)/.make,,$@) ;
 endif
 
 #---------------------------------------------------------
@@ -625,12 +601,6 @@ endif
 #---------------------------------------------------------
 ifdef CONFIG_FILES
 
-ifdef NO_INSTALL
-install-local::
-	$(Echo) Install circumvented with NO_INSTALL
-uninstall-local::
-	$(Echo) UnInstall circumvented with NO_INSTALL
-else
 install-local:: $(PROJ_etcdir) $(CONFIG_FILES)
 	$(Echo) Installing Configuration Files To $(PROJ_etcdir)
 	$(Verb)for file in $(CONFIG_FILES); do \
@@ -648,7 +618,6 @@ uninstall-local::
 	$(Verb)for file in $(CONFIG_FILES); do \
 	  $(RM) -f $(PROJ_etcdir)/$${file} ; \
 	done
-endif
 
 endif
 
@@ -688,8 +657,8 @@ $(LLVM_CONFIG):
         
 $(ToolDir)/$(strip $(TOOLNAME))$(EXEEXT): $(LLVM_CONFIG)
 
-ProjLibsOptions += $(shell $(LLVM_CONFIG) --libs     $(LINK_COMPONENTS))
-ProjLibsPaths   += $(LLVM_CONFIG) \
+ProjLibsOptions = $(shell $(LLVM_CONFIG) --libs     $(LINK_COMPONENTS))
+ProjLibsPaths   = $(LLVM_CONFIG) \
                   $(shell $(LLVM_CONFIG) --libfiles $(LINK_COMPONENTS))
 endif
 endif
@@ -736,12 +705,6 @@ else
 ModuleDestDir := $(PROJ_libdir)
 endif
 
-ifdef NO_INSTALL
-install-local::
-	$(Echo) Install circumvented with NO_INSTALL
-uninstall-local::
-	$(Echo) Uninstall circumvented with NO_INSTALL
-else
 DestModule := $(ModuleDestDir)/$(MODULE_NAME).bc
 
 install-module:: $(DestModule)
@@ -754,7 +717,6 @@ $(DestModule): $(ModuleDestDir) $(Module)
 uninstall-local::
 	$(Echo) Uninstalling $(BuildMode) Bytecode Module $(DestModule)
 	-$(Verb) $(RM) -f $(DestModule)
-endif
 
 endif
 endif
@@ -785,7 +747,7 @@ all-local:: $(LibName.LA)
 
 ifdef LINK_LIBS_IN_SHARED
 ifdef LOADABLE_MODULE
-SharedLibKindMessage := "Loadable Module"
+SharedLibKindMessage := "Lodable Module"
 else
 SharedLibKindMessage := "Shared Library"
 endif
@@ -807,12 +769,6 @@ ifneq ($(strip $(LibName.LA)),)
 	-$(Verb) $(RM) -f $(LibName.LA)
 endif
 
-ifdef NO_INSTALL
-install-local::
-	$(Echo) Install circumvented with NO_INSTALL
-uninstall-local::
-	$(Echo) Uninstall circumvented with NO_INSTALL
-else
 DestSharedLib = $(PROJ_libdir)/lib$(LIBRARYNAME)$(SHLIBEXT)
 
 install-local:: $(DestSharedLib)
@@ -825,7 +781,7 @@ $(DestSharedLib): $(PROJ_libdir) $(LibName.LA)
 uninstall-local:: 
 	$(Echo) Uninstalling $(BuildMode) Shared Library $(DestSharedLib)
 	-$(Verb) $(RM) -f $(PROJ_libdir)/lib$(LIBRARYNAME).*
-endif
+
 endif
 
 #---------------------------------------------------------
@@ -876,12 +832,6 @@ DestBytecodeLib = $(BytecodeDestDir)/lib$(LIBRARYNAME).a
 
 install-bytecode-local:: $(DestBytecodeLib)
 
-ifdef NO_INSTALL
-install-local::
-	$(Echo) Install circumvented with NO_INSTALL
-uninstall-local::
-	$(Echo) Uninstall circumvented with NO_INSTALL
-else
 install-local:: $(DestBytecodeLib)
 
 $(DestBytecodeLib): $(BytecodeDestDir) $(LibName.BCA) 
@@ -891,7 +841,7 @@ $(DestBytecodeLib): $(BytecodeDestDir) $(LibName.BCA)
 uninstall-local::
 	$(Echo) Uninstalling $(BuildMode) Bytecode Archive $(DestBytecodeLib)
 	-$(Verb) $(RM) -f $(DestBytecodeLib)
-endif
+
 endif
 endif
 
@@ -921,12 +871,6 @@ ifneq ($(strip $(LibName.O)),)
 	-$(Verb) $(RM) -f $(LibName.O)
 endif
 
-ifdef NO_INSTALL
-install-local::
-	$(Echo) Install circumvented with NO_INSTALL
-uninstall-local::
-	$(Echo) Uninstall circumvented with NO_INSTALL
-else
 DestRelinkedLib = $(PROJ_libdir)/$(LIBRARYNAME).o
 
 install-local:: $(DestRelinkedLib)
@@ -938,7 +882,7 @@ $(DestRelinkedLib): $(PROJ_libdir) $(LibName.O)
 uninstall-local::
 	$(Echo) Uninstalling $(BuildMode) Object Library $(DestRelinkedLib)
 	-$(Verb) $(RM) -f $(DestRelinkedLib)
-endif
+
 endif
 
 #---------------------------------------------------------
@@ -961,12 +905,6 @@ ifneq ($(strip $(LibName.A)),)
 	-$(Verb) $(RM) -f $(LibName.A)
 endif
 
-ifdef NO_INSTALL
-install-local::
-	$(Echo) Install circumvented with NO_INSTALL
-uninstall-local::
-	$(Echo) Uninstall circumvented with NO_INSTALL
-else
 DestArchiveLib := $(PROJ_libdir)/lib$(LIBRARYNAME).a
 
 install-local:: $(DestArchiveLib)
@@ -979,7 +917,7 @@ $(DestArchiveLib): $(PROJ_libdir) $(LibName.A)
 uninstall-local::
 	$(Echo) Uninstalling $(BuildMode) Archive Library $(DestArchiveLib)
 	-$(Verb) $(RM) -f $(DestArchiveLib)
-endif
+
 endif
 
 # endif LIBRARYNAME
@@ -1023,12 +961,6 @@ $(ToolBuildPath): $(ObjectsO) $(ProjLibsPaths) $(LLVMLibsPaths)
 	$(Echo) ======= Finished Linking $(BuildMode) Executable $(TOOLNAME) \
           $(StripWarnMsg) 
 
-ifdef NO_INSTALL
-install-local::
-	$(Echo) Install circumvented with NO_INSTALL
-uninstall-local::
-	$(Echo) Uninstall circumvented with NO_INSTALL
-else
 DestTool = $(PROJ_bindir)/$(TOOLNAME)
 
 install-local:: $(DestTool)
@@ -1040,7 +972,7 @@ $(DestTool): $(PROJ_bindir) $(ToolBuildPath)
 uninstall-local::
 	$(Echo) Uninstalling $(BuildMode) $(DestTool)
 	-$(Verb) $(RM) -f $(DestTool)
-endif
+
 endif
 
 ###############################################################################
@@ -1090,32 +1022,26 @@ $(ObjDir)/%.lo $(ObjDir)/%.o: %.c $(ObjDir)/.dir $(BUILT_SOURCES)
 # Create .bc files in the ObjDir directory from .cpp .cc and .c files...
 #---------------------------------------------------------
 
-$(ObjDir)/%.ll: %.cpp $(ObjDir)/.dir $(BUILT_SOURCES) $(LLVMGXX)
+$(ObjDir)/%.ll: %.cpp $(ObjDir)/.dir $(BUILT_SOURCES)
 	$(Echo) "Compiling $*.cpp for $(BuildMode) build (bytecode)"
 	$(Verb) if $(BCCompile.CXX) -MD -MT $@ -MP -MF "$(ObjDir)/$*.BCCXXd" \
                               $< -o $@ -S -emit-llvm ; \
 	then $(MV) -f "$(ObjDir)/$*.BCCXXd" "$(ObjDir)/$*.d"; \
 	else $(RM) -f "$(ObjDir)/$*.BCCXXd"; exit 1; fi
-	$(call UPGRADE_MSG,$@) 
-	$(call UPGRADE_LL,$@)
 
-$(ObjDir)/%.ll: %.cc $(ObjDir)/.dir $(BUILT_SOURCES) $(LLVMGXX)
+$(ObjDir)/%.ll: %.cc $(ObjDir)/.dir $(BUILT_SOURCES)
 	$(Echo) "Compiling $*.cc for $(BuildMode) build (bytecode)"
 	$(Verb) if $(BCCompile.CXX) -MD -MT $@ -MP -MF "$(ObjDir)/$*.BCCXXd" \
                               $< -o $@ -S -emit-llvm ; \
 	then $(MV) -f "$(ObjDir)/$*.BCCXXd" "$(ObjDir)/$*.d"; \
 	else $(RM) -f "$(ObjDir)/$*.BCCXXd"; exit 1; fi
-	$(call UPGRADE_MSG,$@) 
-	$(call UPGRADE_LL,$@)
 
-$(ObjDir)/%.ll: %.c $(ObjDir)/.dir $(BUILT_SOURCES) $(LLVMGCC)
+$(ObjDir)/%.ll: %.c $(ObjDir)/.dir $(BUILT_SOURCES)
 	$(Echo) "Compiling $*.c for $(BuildMode) build (bytecode)"
 	$(Verb) if $(BCCompile.C) -MD -MT $@ -MP -MF "$(ObjDir)/$*.BCCd" \
                             $< -o $@ -S -emit-llvm ; \
 	then $(MV) -f "$(ObjDir)/$*.BCCd" "$(ObjDir)/$*.d"; \
 	else $(RM) -f "$(ObjDir)/$*.BCCd"; exit 1; fi
-	$(call UPGRADE_MSG,$@) 
-	$(call UPGRADE_LL,$@)
 
 # Provide alternate rule sets if dependencies are disabled
 else
@@ -1132,23 +1058,17 @@ $(ObjDir)/%.lo $(ObjDir)/%.o: %.c $(ObjDir)/.dir $(BUILT_SOURCES)
 	$(Echo) "Compiling $*.c for $(BuildMode) build" $(PIC_FLAG)
 	$(MAYBE_PIC_Compile.C) $< -o $@ 
 
-$(ObjDir)/%.ll: %.cpp $(ObjDir)/.dir $(BUILT_SOURCES) $(LLVMGXX)
+$(ObjDir)/%.ll: %.cpp $(ObjDir)/.dir $(BUILT_SOURCES)
 	$(Echo) "Compiling $*.cpp for $(BuildMode) build (bytecode)"
 	$(BCCompile.CXX) $< -o $@ -S -emit-llvm
-	$(call UPGRADE_MSG,$@) 
-	$(call UPGRADE_LL,$@)
 
-$(ObjDir)/%.ll: %.cc $(ObjDir)/.dir $(BUILT_SOURCES) $(LLVMGXX)
+$(ObjDir)/%.ll: %.cc $(ObjDir)/.dir $(BUILT_SOURCES)
 	$(Echo) "Compiling $*.cc for $(BuildMode) build (bytecode)"
 	$(BCCompile.CXX) $< -o $@ -S -emit-llvm
-	$(call UPGRADE_MSG,$@) 
-	$(call UPGRADE_LL,$@)
 
-$(ObjDir)/%.ll: %.c $(ObjDir)/.dir $(BUILT_SOURCES) $(LLVMGCC)
+$(ObjDir)/%.ll: %.c $(ObjDir)/.dir $(BUILT_SOURCES)
 	$(Echo) "Compiling $*.c for $(BuildMode) build (bytecode)"
 	$(BCCompile.C) $< -o $@ -S -emit-llvm
-	$(call UPGRADE_MSG,@) 
-	$(call UPGRADE_LL,@)
 
 endif
 
@@ -1162,7 +1082,7 @@ $(BuildMode)/%.ii: %.cc $(ObjDir)/.dir $(BUILT_SOURCES)
 	$(Echo) "Compiling $*.cc for $(BuildMode) build to .ii file"
 	$(Verb) $(Preprocess.CXX) $< -o $@
 
-$(BuildMode)/%.i: %.c $(ObjDir)/.dir $(BUILT_SOURCES)
+ $(BuildMode)/%.i: %.c $(ObjDir)/.dir $(BUILT_SOURCES)
 	$(Echo) "Compiling $*.c for $(BuildMode) build to .i file"
 	$(Verb) $(Preprocess.C) $< -o $@
 
@@ -1675,12 +1595,6 @@ ifeq ($(LEVEL),.)
 #------------------------------------------------------------------------
 # Install support for the project's include files:
 #------------------------------------------------------------------------
-ifdef NO_INSTALL
-install-local::
-	$(Echo) Install circumvented with NO_INSTALL
-uninstall-local::
-	$(Echo) Uninstall circumvented with NO_INSTALL
-else
 install-local::
 	$(Echo) Installing include files
 	$(Verb) $(MKDIR) $(PROJ_includedir)
@@ -1717,7 +1631,7 @@ uninstall-local::
 	    $(RM) -f `find . -path '*/Internal' -prune -o '(' -type f -name '*.in' \
       -print ')' | sed 's#\.in$$##;s#^#$(PROJ_includedir)/#'` ; \
 	fi
-endif
+
 endif
 
 #------------------------------------------------------------------------

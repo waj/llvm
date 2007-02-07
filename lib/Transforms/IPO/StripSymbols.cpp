@@ -28,13 +28,11 @@
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
-#include "llvm/ValueSymbolTable.h"
-#include "llvm/TypeSymbolTable.h"
-#include "llvm/Support/Compiler.h"
+#include "llvm/SymbolTable.h"
 using namespace llvm;
 
 namespace {
-  class VISIBILITY_HIDDEN StripSymbols : public ModulePass {
+  class StripSymbols : public ModulePass {
     bool OnlyDebugInfo;
   public:
     StripSymbols(bool ODI = false) : OnlyDebugInfo(ODI) {}
@@ -73,27 +71,6 @@ static void RemoveDeadConstant(Constant *C) {
   }
 }
 
-// Strip the symbol table of its names.
-//
-static void StripSymtab(ValueSymbolTable &ST) {
-  for (ValueSymbolTable::iterator VI = ST.begin(), VE = ST.end(); VI != VE; ) {
-    Value *V = VI->second;
-    ++VI;
-    if (!isa<GlobalValue>(V) || cast<GlobalValue>(V)->hasInternalLinkage()) {
-      // Set name to "", removing from symbol table!
-      V->setName("");
-    }
-  }
-}
-
-// Strip the symbol table of its names.
-static void StripTypeSymtab(TypeSymbolTable &ST) {
-  for (TypeSymbolTable::iterator TI = ST.begin(), E = ST.end(); TI != E; )
-    ST.remove(TI++);
-}
-
-
-
 bool StripSymbols::runOnModule(Module &M) {
   // If we're not just stripping debug info, strip all symbols from the
   // functions and the names from any internal globals.
@@ -106,21 +83,23 @@ bool StripSymbols::runOnModule(Module &M) {
     for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I) {
       if (I->hasInternalLinkage())
         I->setName("");     // Internal symbols can't participate in linkage
-      StripSymtab(I->getValueSymbolTable());
+      I->getSymbolTable().strip();
     }
     
     // Remove all names from types.
-    StripTypeSymtab(M.getTypeSymbolTable());
+    SymbolTable &SymTab = M.getSymbolTable();
+    while (SymTab.type_begin() != SymTab.type_end())
+      SymTab.remove(SymTab.type_begin());
   }
 
   // Strip debug info in the module if it exists.  To do this, we remove
   // llvm.dbg.func.start, llvm.dbg.stoppoint, and llvm.dbg.region.end calls, and
   // any globals they point to if now dead.
-  Function *FuncStart = M.getFunction("llvm.dbg.func.start");
-  Function *StopPoint = M.getFunction("llvm.dbg.stoppoint");
-  Function *RegionStart = M.getFunction("llvm.dbg.region.start");
-  Function *RegionEnd = M.getFunction("llvm.dbg.region.end");
-  Function *Declare = M.getFunction("llvm.dbg.declare");
+  Function *FuncStart = M.getNamedFunction("llvm.dbg.func.start");
+  Function *StopPoint = M.getNamedFunction("llvm.dbg.stoppoint");
+  Function *RegionStart = M.getNamedFunction("llvm.dbg.region.start");
+  Function *RegionEnd = M.getNamedFunction("llvm.dbg.region.end");
+  Function *Declare = M.getNamedFunction("llvm.dbg.declare");
   if (!FuncStart && !StopPoint && !RegionStart && !RegionEnd && !Declare)
     return true;
 

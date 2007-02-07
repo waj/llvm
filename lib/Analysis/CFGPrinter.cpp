@@ -23,10 +23,8 @@
 #include "llvm/Analysis/CFGPrinter.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Config/config.h"
-#include <iosfwd>
 #include <sstream>
 #include <fstream>
 using namespace llvm;
@@ -51,12 +49,12 @@ struct DOTGraphTraits<const Function*> : public DefaultDOTGraphTraits {
 
     std::ostringstream Out;
     if (CFGOnly) {
-      WriteAsOperand(Out, Node, false);
+      WriteAsOperand(Out, Node, false, true);
       return Out.str();
     }
 
     if (Node->getName().empty()) {
-      WriteAsOperand(Out, Node, false);
+      WriteAsOperand(Out, Node, false, true);
       Out << ":";
     }
 
@@ -90,17 +88,17 @@ struct DOTGraphTraits<const Function*> : public DefaultDOTGraphTraits {
 }
 
 namespace {
-  struct VISIBILITY_HIDDEN CFGPrinter : public FunctionPass {
+  struct CFGPrinter : public FunctionPass {
     virtual bool runOnFunction(Function &F) {
       std::string Filename = "cfg." + F.getName() + ".dot";
-      cerr << "Writing '" << Filename << "'...";
+      std::cerr << "Writing '" << Filename << "'...";
       std::ofstream File(Filename.c_str());
 
       if (File.good())
         WriteGraph(File, (const Function*)&F);
       else
-        cerr << "  error opening file for writing!";
-      cerr << "\n";
+        std::cerr << "  error opening file for writing!";
+      std::cerr << "\n";
       return false;
     }
 
@@ -114,7 +112,7 @@ namespace {
   RegisterPass<CFGPrinter> P1("print-cfg",
                               "Print CFG of function to 'dot' file");
 
-  struct VISIBILITY_HIDDEN CFGOnlyPrinter : public CFGPrinter {
+  struct CFGOnlyPrinter : public CFGPrinter {
     virtual bool runOnFunction(Function &F) {
       bool OldCFGOnly = CFGOnly;
       CFGOnly = true;

@@ -87,15 +87,13 @@ void SubtargetEmitter::FeatureKeyValues(std::ostream &OS) {
      << "static llvm::SubtargetFeatureKV FeatureKV[] = {\n";
   
   // For each feature
-  for (unsigned i = 0, N = FeatureList.size(); i < N; ++i) {
+  for (unsigned i = 0, N = FeatureList.size(); i < N;) {
     // Next feature
     Record *Feature = FeatureList[i];
 
     std::string Name = Feature->getName();
     std::string CommandLineName = Feature->getValueAsString("Name");
     std::string Desc = Feature->getValueAsString("Desc");
-    
-    if (CommandLineName.empty()) continue;
     
     // Emit as { "feature", "decription", feactureEnum }
     OS << "  { "
@@ -105,7 +103,7 @@ void SubtargetEmitter::FeatureKeyValues(std::ostream &OS) {
        << " }";
     
     // Depending on 'if more in the list' emit comma
-    if ((i + 1) < N) OS << ",";
+    if (++i < N) OS << ",";
     
     OS << "\n";
   }

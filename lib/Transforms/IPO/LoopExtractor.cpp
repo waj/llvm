@@ -14,26 +14,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "loop-extract"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/LoopInfo.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/FunctionUtils.h"
 #include "llvm/ADT/Statistic.h"
 using namespace llvm;
 
-STATISTIC(NumExtracted, "Number of loops extracted");
-
 namespace {
+  Statistic<> NumExtracted("loop-extract", "Number of loops extracted");
+
   // FIXME: This is not a function pass, but the PassManager doesn't allow
   // Module passes to require FunctionPasses, so we can't get loop info if we're
   // not a function pass.
-  struct VISIBILITY_HIDDEN LoopExtractor : public FunctionPass {
+  struct LoopExtractor : public FunctionPass {
     unsigned NumLoops;
 
     LoopExtractor(unsigned numLoops = ~0) : NumLoops(numLoops) {}
@@ -168,8 +166,7 @@ bool BlockExtractorPass::runOnModule(Module &M) {
     Function *F = BB->getParent();
 
     // Map the corresponding function in this module.
-    Function *MF = M.getFunction(F->getName());
-    assert(MF->getFunctionType() == F->getFunctionType() && "Wrong function?");
+    Function *MF = M.getFunction(F->getName(), F->getFunctionType());
 
     // Figure out which index the basic block is in its function.
     Function::iterator BBI = MF->begin();

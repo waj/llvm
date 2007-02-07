@@ -1,6 +1,6 @@
 ; The %A getelementptr instruction should be eliminated here
 
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | grep -v '%B' | not grep getelementptr
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep -v '%B' | not grep getelementptr
 
 %Global = constant [10 x sbyte] c"helloworld"
 
@@ -23,7 +23,7 @@ int* %foo3(int * %I) { ; Test that two array indexing geps fold
 
 int* %foo4({int} *%I) { ; Test that two getelementptr insts fold
 	%A = getelementptr {int}* %I, long 1
-	%B = getelementptr {int}* %A, long 0, uint 0
+	%B = getelementptr {int}* %A, long 0, ubyte 0
 	ret int* %B
 }
 

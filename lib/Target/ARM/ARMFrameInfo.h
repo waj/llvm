@@ -17,15 +17,17 @@
 
 #include "ARM.h"
 #include "llvm/Target/TargetFrameInfo.h"
-#include "ARMSubtarget.h"
+#include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
 
-class ARMFrameInfo : public TargetFrameInfo {
+class ARMFrameInfo: public TargetFrameInfo {
+
 public:
-  ARMFrameInfo(const ARMSubtarget &ST)
-    : TargetFrameInfo(StackGrowsDown, ST.getStackAlignment(), 0) {
+  ARMFrameInfo()
+    : TargetFrameInfo(TargetFrameInfo::StackGrowsDown, 8, 0) {
   }
+
 };
 
 } // End llvm namespace

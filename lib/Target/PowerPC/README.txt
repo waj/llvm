@@ -9,64 +9,6 @@ TODO:
 Support 'update' load/store instructions.  These are cracked on the G5, but are
 still a codesize win.
 
-With preinc enabled, this:
-
-long *%test4(long *%X, long *%dest) {
-        %Y = getelementptr long* %X, int 4
-        %A = load long* %Y
-        store long %A, long* %dest
-        ret long* %Y
-}
-
-compiles to:
-
-_test4:
-        mr r2, r3
-        lwzu r5, 32(r2)
-        lwz r3, 36(r3)
-        stw r5, 0(r4)
-        stw r3, 4(r4)
-        mr r3, r2
-        blr 
-
-with -sched=list-burr, I get:
-
-_test4:
-        lwz r2, 36(r3)
-        lwzu r5, 32(r3)
-        stw r2, 4(r4)
-        stw r5, 0(r4)
-        blr 
-
-===-------------------------------------------------------------------------===
-
-We compile the hottest inner loop of viterbi to:
-
-        li r6, 0
-        b LBB1_84       ;bb432.i
-LBB1_83:        ;bb420.i
-        lbzx r8, r5, r7
-        addi r6, r7, 1
-        stbx r8, r4, r7
-LBB1_84:        ;bb432.i
-        mr r7, r6
-        cmplwi cr0, r7, 143
-        bne cr0, LBB1_83        ;bb420.i
-
-The CBE manages to produce:
-
-	li r0, 143
-	mtctr r0
-loop:
-	lbzx r2, r2, r11
-	stbx r0, r2, r9
-	addi r2, r2, 1
-	bdz later
-	b loop
-
-This could be much better (bdnz instead of bdz) but it still beats us.  If we
-produced this with bdnz, the loop would be a single dispatch group.
-
 ===-------------------------------------------------------------------------===
 
 Compile:
@@ -85,6 +27,11 @@ _foo:
         blr
 
 This is effectively a simple form of predication.
+
+===-------------------------------------------------------------------------===
+
+Teach the .td file to pattern match PPC::BR_COND to appropriate bc variant, so
+we don't have to always run the branch selector for small functions.
 
 ===-------------------------------------------------------------------------===
 
@@ -277,16 +224,18 @@ bool %test(ulong %x) {
 into "if x.high == 0", not:
 
 _test:
-        cntlzw r2, r3
-        xori r3, r3, 1
-        cmplwi cr0, r3, 0
+        addi r2, r3, -1
+        cntlzw r2, r2
+        cntlzw r3, r3
         srwi r2, r2, 5
+        srwi r4, r3, 5
         li r3, 0
-        beq cr0, LBB1_2 ;entry
-LBB1_1: ;entry
-        mr r3, r2
-LBB1_2: ;entry
-        blr 
+        cmpwi cr0, r2, 0
+        bne cr0, LBB1_2 ; 
+LBB1_1:
+        or r3, r4, r4
+LBB1_2:
+        blr
 
 noticed in 2005-05-11-Popcount-ffs-fls.c.
 
@@ -485,23 +434,23 @@ sounds like we need to get the 64-bit register classes going.
 
 ===-------------------------------------------------------------------------===
 
-%struct.B = type { i8, [3 x i8] }
+%struct.B = type { ubyte, [3 x ubyte] }
 
-define void @bar(%struct.B* %b) {
+void %foo(%struct.B* %b) {
 entry:
-        %tmp = bitcast %struct.B* %b to i32*              ; <uint*> [#uses=1]
-        %tmp = load i32* %tmp          ; <uint> [#uses=1]
-        %tmp3 = bitcast %struct.B* %b to i32*             ; <uint*> [#uses=1]
-        %tmp4 = load i32* %tmp3                ; <uint> [#uses=1]
-        %tmp8 = bitcast %struct.B* %b to i32*             ; <uint*> [#uses=2]
-        %tmp9 = load i32* %tmp8                ; <uint> [#uses=1]
-        %tmp4.mask17 = shl i32 %tmp4, i8 1          ; <uint> [#uses=1]
-        %tmp1415 = and i32 %tmp4.mask17, 2147483648            ; <uint> [#uses=1]
-        %tmp.masked = and i32 %tmp, 2147483648         ; <uint> [#uses=1]
-        %tmp11 = or i32 %tmp1415, %tmp.masked          ; <uint> [#uses=1]
-        %tmp12 = and i32 %tmp9, 2147483647             ; <uint> [#uses=1]
-        %tmp13 = or i32 %tmp12, %tmp11         ; <uint> [#uses=1]
-        store i32 %tmp13, i32* %tmp8
+        %tmp = cast %struct.B* %b to uint*              ; <uint*> [#uses=1]
+        %tmp = load uint* %tmp          ; <uint> [#uses=1]
+        %tmp3 = cast %struct.B* %b to uint*             ; <uint*> [#uses=1]
+        %tmp4 = load uint* %tmp3                ; <uint> [#uses=1]
+        %tmp8 = cast %struct.B* %b to uint*             ; <uint*> [#uses=2]
+        %tmp9 = load uint* %tmp8                ; <uint> [#uses=1]
+        %tmp4.mask17 = shl uint %tmp4, ubyte 1          ; <uint> [#uses=1]
+        %tmp1415 = and uint %tmp4.mask17, 2147483648            ; <uint> [#uses=1]
+        %tmp.masked = and uint %tmp, 2147483648         ; <uint> [#uses=1]
+        %tmp11 = or uint %tmp1415, %tmp.masked          ; <uint> [#uses=1]
+        %tmp12 = and uint %tmp9, 2147483647             ; <uint> [#uses=1]
+        %tmp13 = or uint %tmp12, %tmp11         ; <uint> [#uses=1]
+        store uint %tmp13, uint* %tmp8
         ret void
 }
 
@@ -550,75 +499,3 @@ _test6:
         or r3,r3,r0
         blr
 
-
-===-------------------------------------------------------------------------===
-
-Consider a function like this:
-
-float foo(float X) { return X + 1234.4123f; }
-
-The FP constant ends up in the constant pool, so we need to get the LR register.
- This ends up producing code like this:
-
-_foo:
-.LBB_foo_0:     ; entry
-        mflr r11
-***     stw r11, 8(r1)
-        bl "L00000$pb"
-"L00000$pb":
-        mflr r2
-        addis r2, r2, ha16(.CPI_foo_0-"L00000$pb")
-        lfs f0, lo16(.CPI_foo_0-"L00000$pb")(r2)
-        fadds f1, f1, f0
-***     lwz r11, 8(r1)
-        mtlr r11
-        blr
-
-This is functional, but there is no reason to spill the LR register all the way
-to the stack (the two marked instrs): spilling it to a GPR is quite enough.
-
-Implementing this will require some codegen improvements.  Nate writes:
-
-"So basically what we need to support the "no stack frame save and restore" is a
-generalization of the LR optimization to "callee-save regs".
-
-Currently, we have LR marked as a callee-save reg.  The register allocator sees
-that it's callee save, and spills it directly to the stack.
-
-Ideally, something like this would happen:
-
-LR would be in a separate register class from the GPRs. The class of LR would be
-marked "unspillable".  When the register allocator came across an unspillable
-reg, it would ask "what is the best class to copy this into that I *can* spill"
-If it gets a class back, which it will in this case (the gprs), it grabs a free
-register of that class.  If it is then later necessary to spill that reg, so be
-it.
-
-===-------------------------------------------------------------------------===
-
-We compile this:
-int test(_Bool X) {
-  return X ? 524288 : 0;
-}
-
-to: 
-_test:
-        cmplwi cr0, r3, 0
-        lis r2, 8
-        li r3, 0
-        beq cr0, LBB1_2 ;entry
-LBB1_1: ;entry
-        mr r3, r2
-LBB1_2: ;entry
-        blr 
-
-instead of:
-_test:
-        addic r2,r3,-1
-        subfe r0,r2,r3
-        slwi r3,r0,19
-        blr
-
-This sort of thing occurs a lot due to globalopt.
-
-===-------------------------------------------------------------------------===

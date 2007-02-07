@@ -14,20 +14,18 @@
 #ifndef LLVM_CODEGEN_MACHOWRITER_H
 #define LLVM_CODEGEN_MACHOWRITER_H
 
-#include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineRelocation.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetMachOWriterInfo.h"
+#include <list>
 
 namespace llvm {
   class GlobalVariable;
   class Mangler;
   class MachineCodeEmitter;
   class MachOCodeEmitter;
-  class OutputBuffer;
 
   /// MachOSym - This struct contains information about each symbol that is
   /// added to logical symbol table for the module.  This is eventually
@@ -73,8 +71,7 @@ namespace llvm {
            N_WEAK_DEF      = 0x0080  // coalesced symbol is a weak definition
     };
     
-    MachOSym(const GlobalValue *gv, std::string name, uint8_t sect,
-             TargetMachine &TM);
+    MachOSym(const GlobalValue *gv, std::string name, uint8_t sect);
   };
       
   /// MachOWriter - This class implements the common target-independent code for
@@ -87,13 +84,11 @@ namespace llvm {
     MachineCodeEmitter &getMachineCodeEmitter() const {
       return *(MachineCodeEmitter*)MCE;
     }
-    virtual ~MachOWriter();
 
-    virtual const char *getPassName() const {
-      return "Mach-O Writer";
-    }
+    ~MachOWriter();
 
     typedef std::vector<unsigned char> DataBuffer;
+
   protected:
     MachOWriter(std::ostream &O, TargetMachine &TM);
 
@@ -131,6 +126,8 @@ namespace llvm {
     /// specific architecture type/subtype pair that is emitted to the file.
     struct MachOHeader {
       uint32_t  magic;      // mach magic number identifier
+      uint32_t  cputype;    // cpu specifier
+      uint32_t  cpusubtype; // machine specifier
       uint32_t  filetype;   // type of file
       uint32_t  ncmds;      // number of load commands
       uint32_t  sizeofcmds; // the size of all the load commands
@@ -141,6 +138,25 @@ namespace llvm {
       /// up for emission to the file.
       DataBuffer HeaderData;
 
+      // Constants for the cputype field
+      // see <mach/machine.h>
+      enum { CPU_TYPE_I386      = 7,
+             CPU_TYPE_X86_64    = 7 | 0x1000000,
+             CPU_TYPE_ARM       = 12,
+             CPU_TYPE_SPARC     = 14,
+             CPU_TYPE_POWERPC   = 18,
+             CPU_TYPE_POWERPC64 = 18 | 0x1000000
+      };
+      
+      // Constants for the cpusubtype field
+      // see <mach/machine.h>
+      enum { CPU_SUBTYPE_I386_ALL    = 3,
+             CPU_SUBTYPE_X86_64_ALL  = 3,
+             CPU_SUBTYPE_ARM_ALL     = 0,
+             CPU_SUBTYPE_SPARC_ALL   = 0,
+             CPU_SUBTYPE_POWERPC_ALL = 0
+      };
+             
       // Constants for the filetype field
       // see <mach-o/loader.h> for additional info on the various types
       enum { MH_OBJECT     = 1, // relocatable object file
@@ -208,8 +224,8 @@ namespace llvm {
                 // stack execution privilege.  Only used in MH_EXECUTE filetype
       };
 
-      MachOHeader() : magic(0), filetype(0), ncmds(0), sizeofcmds(0), flags(0),
-                      reserved(0) { }
+      MachOHeader() : magic(0), cputype(0), cpusubtype(0), filetype(0),
+                      ncmds(0), sizeofcmds(0), flags(0), reserved(0) { }
       
       /// cmdSize - This routine returns the size of the MachOSection as written
       /// to disk, depending on whether the destination is a 64 bit Mach-O file.
@@ -251,31 +267,13 @@ namespace llvm {
       uint32_t    nsects;   // number of sections in this segment
       uint32_t    flags;    // flags
       
-      // The following constants are getting pulled in by one of the
-      // system headers, which creates a neat clash with the enum.
-#if !defined(VM_PROT_NONE)
-#define VM_PROT_NONE		0x00
-#endif
-#if !defined(VM_PROT_READ)
-#define VM_PROT_READ		0x01
-#endif
-#if !defined(VM_PROT_WRITE)
-#define VM_PROT_WRITE		0x02
-#endif
-#if !defined(VM_PROT_EXECUTE)
-#define VM_PROT_EXECUTE		0x04
-#endif
-#if !defined(VM_PROT_ALL)
-#define VM_PROT_ALL		0x07
-#endif
-
       // Constants for the vm protection fields
       // see <mach-o/vm_prot.h>
-      enum { SEG_VM_PROT_NONE     = VM_PROT_NONE, 
-             SEG_VM_PROT_READ     = VM_PROT_READ, // read permission
-             SEG_VM_PROT_WRITE    = VM_PROT_WRITE, // write permission
-             SEG_VM_PROT_EXECUTE  = VM_PROT_EXECUTE,
-             SEG_VM_PROT_ALL      = VM_PROT_ALL
+      enum { VM_PROT_NONE    = 0x00, 
+             VM_PROT_READ    = 0x01, // read permission
+             VM_PROT_WRITE   = 0x02, // write permission
+             VM_PROT_EXECUTE = 0x04, // execute permission,
+             VM_PROT_ALL     = 0x07
       };
       
       // Constants for the cmd field
@@ -297,6 +295,28 @@ namespace llvm {
         : cmd(is64Bit ? LC_SEGMENT_64 : LC_SEGMENT), cmdsize(0), segname(seg),
           vmaddr(0), vmsize(0), fileoff(0), filesize(0), maxprot(VM_PROT_ALL),
           initprot(VM_PROT_ALL), nsects(0), flags(0) { }
+    };
+
+    /// MachORelocation - This struct contains information about each relocation
+    /// that needs to be emitted to the file.
+    /// see <mach-o/reloc.h>
+    struct MachORelocation {
+      uint32_t r_address;   // offset in the section to what is being  relocated
+      uint32_t r_symbolnum; // symbol index if r_extern == 1 else section index
+      bool     r_pcrel;     // was relocated pc-relative already
+      uint8_t  r_length;    // length = 2 ^ r_length
+      bool     r_extern;    // 
+      uint8_t  r_type;      // if not 0, machine-specific relocation type.
+      
+      uint32_t getPackedFields() { 
+        return (r_symbolnum << 8) | (r_pcrel << 7) | ((r_length & 3) << 5) |
+               (r_extern << 4) | (r_type & 15);
+      }
+      
+      MachORelocation(uint32_t addr, uint32_t index, bool pcrel, uint8_t len,
+                      bool ext, uint8_t type) : r_address(addr),
+        r_symbolnum(index), r_pcrel(pcrel), r_length(len), r_extern(ext),
+        r_type(type) {}
     };
 
     /// MachOSection - This struct contains information about each section in a 
@@ -415,35 +435,25 @@ namespace llvm {
     /// SectionList - This is the list of sections that we have emitted to the
     /// file.  Once the file has been completely built, the segment load command
     /// SectionCommands are constructed from this info.
-    std::vector<MachOSection*> SectionList;
+    std::list<MachOSection> SectionList;
 
     /// SectionLookup - This is a mapping from section name to SectionList entry
     std::map<std::string, MachOSection*> SectionLookup;
-    
-    /// GVSection - This is a mapping from a GlobalValue to a MachOSection,
-    /// to aid in emitting relocations.
-    std::map<GlobalValue*, MachOSection*> GVSection;
-
-    /// GVOffset - This is a mapping from a GlobalValue to an offset from the 
-    /// start of the section in which the GV resides, to aid in emitting
-    /// relocations.
-    std::map<GlobalValue*, intptr_t> GVOffset;
 
     /// getSection - Return the section with the specified name, creating a new
     /// section if one does not already exist.
-    MachOSection *getSection(const std::string &seg, const std::string &sect,
+    MachOSection &getSection(const std::string &seg, const std::string &sect,
                              unsigned Flags = 0) {
-      MachOSection *MOS = SectionLookup[seg+sect];
-      if (MOS) return MOS;
+      MachOSection *&SN = SectionLookup[seg+sect];
+      if (SN) return *SN;
 
-      MOS = new MachOSection(seg, sect);
-      SectionList.push_back(MOS);
-      MOS->Index = SectionList.size();
-      MOS->flags = MachOSection::S_REGULAR | Flags;
-      SectionLookup[seg+sect] = MOS;
-      return MOS;
+      SectionList.push_back(MachOSection(seg, sect));
+      SN = &SectionList.back();
+      SN->Index = SectionList.size();
+      SN->flags = MachOSection::S_REGULAR | Flags;
+      return *SN;
     }
-    MachOSection *getTextSection(bool isCode = true) {
+    MachOSection &getTextSection(bool isCode = true) {
       if (isCode)
         return getSection("__TEXT", "__text", 
                           MachOSection::S_ATTR_PURE_INSTRUCTIONS |
@@ -451,20 +461,15 @@ namespace llvm {
       else
         return getSection("__TEXT", "__text");
     }
-    MachOSection *getBSSSection() {
+    MachOSection &getBSSSection() {
       return getSection("__DATA", "__bss", MachOSection::S_ZEROFILL);
     }
-    MachOSection *getDataSection() {
+    MachOSection &getDataSection() {
       return getSection("__DATA", "__data");
     }
-    MachOSection *getConstSection(Constant *C) {
-      const ConstantArray *CVA = dyn_cast<ConstantArray>(C);
-      if (CVA && CVA->isCString())
-        return getSection("__TEXT", "__cstring", 
-                          MachOSection::S_CSTRING_LITERALS);
-      
-      const Type *Ty = C->getType();
-      if (Ty->isPrimitiveType() || Ty->isInteger()) {
+    MachOSection &getConstSection(const Type *Ty) {
+      // FIXME: support cstring literals and pointer literal
+      if (Ty->isPrimitiveType()) {
         unsigned Size = TM.getTargetData()->getTypeSize(Ty);
         switch(Size) {
         default: break; // Fall through to __TEXT,__const
@@ -481,7 +486,7 @@ namespace llvm {
       }
       return getSection("__TEXT", "__const");
     }
-    MachOSection *getJumpTableSection() {
+    MachOSection &getJumpTableSection() {
       if (TM.getRelocationModel() == Reloc::PIC_)
         return getTextSection(false);
       else
@@ -551,7 +556,6 @@ namespace llvm {
     MachODySymTab DySymTab;
 
     struct MachOSymCmp {
-      // FIXME: this does not appear to be sorting 'f' after 'F'
       bool operator()(const MachOSym &LHS, const MachOSym &RHS) {
         return LHS.GVName < RHS.GVName;
       }
@@ -589,35 +593,113 @@ namespace llvm {
     /// SymbolTable to aid in emitting the DYSYMTAB load command.
     std::vector<unsigned> DynamicSymbolTable;
     
-    static void InitMem(const Constant *C, void *Addr, intptr_t Offset,
-                        const TargetData *TD, 
-                        std::vector<MachineRelocation> &MRs);
+    // align - Emit padding into the file until the current output position is
+    // aligned to the specified power of two boundary.
+    static void align(DataBuffer &Output, unsigned Boundary) {
+      assert(Boundary && (Boundary & (Boundary-1)) == 0 &&
+             "Must align to 2^k boundary");
+      size_t Size = Output.size();
+      if (Size & (Boundary-1)) {
+        // Add padding to get alignment to the correct place.
+        size_t Pad = Boundary-(Size & (Boundary-1));
+        Output.resize(Size+Pad);
+      }
+    }
+
+    void outbyte(DataBuffer &Output, unsigned char X) {
+      Output.push_back(X);
+    }
+    void outhalf(DataBuffer &Output, unsigned short X) {
+      if (isLittleEndian) {
+        Output.push_back(X&255);
+        Output.push_back(X >> 8);
+      } else {
+        Output.push_back(X >> 8);
+        Output.push_back(X&255);
+      }
+    }
+    void outword(DataBuffer &Output, unsigned X) {
+      if (isLittleEndian) {
+        Output.push_back((X >>  0) & 255);
+        Output.push_back((X >>  8) & 255);
+        Output.push_back((X >> 16) & 255);
+        Output.push_back((X >> 24) & 255);
+      } else {
+        Output.push_back((X >> 24) & 255);
+        Output.push_back((X >> 16) & 255);
+        Output.push_back((X >>  8) & 255);
+        Output.push_back((X >>  0) & 255);
+      }
+    }
+    void outxword(DataBuffer &Output, uint64_t X) {
+      if (isLittleEndian) {
+        Output.push_back(unsigned(X >>  0) & 255);
+        Output.push_back(unsigned(X >>  8) & 255);
+        Output.push_back(unsigned(X >> 16) & 255);
+        Output.push_back(unsigned(X >> 24) & 255);
+        Output.push_back(unsigned(X >> 32) & 255);
+        Output.push_back(unsigned(X >> 40) & 255);
+        Output.push_back(unsigned(X >> 48) & 255);
+        Output.push_back(unsigned(X >> 56) & 255);
+      } else {
+        Output.push_back(unsigned(X >> 56) & 255);
+        Output.push_back(unsigned(X >> 48) & 255);
+        Output.push_back(unsigned(X >> 40) & 255);
+        Output.push_back(unsigned(X >> 32) & 255);
+        Output.push_back(unsigned(X >> 24) & 255);
+        Output.push_back(unsigned(X >> 16) & 255);
+        Output.push_back(unsigned(X >>  8) & 255);
+        Output.push_back(unsigned(X >>  0) & 255);
+      }
+    }
+    void outaddr32(DataBuffer &Output, unsigned X) {
+      outword(Output, X);
+    }
+    void outaddr64(DataBuffer &Output, uint64_t X) {
+      outxword(Output, X);
+    }
+    void outaddr(DataBuffer &Output, uint64_t X) {
+      if (!is64Bit)
+        outword(Output, (unsigned)X);
+      else
+        outxword(Output, X);
+    }
+    void outstring(DataBuffer &Output, std::string &S, unsigned Length) {
+      unsigned len_to_copy = S.length() < Length ? S.length() : Length;
+      unsigned len_to_fill = S.length() < Length ? Length-S.length() : 0;
+      
+      for (unsigned i = 0; i < len_to_copy; ++i)
+        outbyte(Output, S[i]);
+
+      for (unsigned i = 0; i < len_to_fill; ++i)
+        outbyte(Output, 0);
+      
+    }
+    void fixhalf(DataBuffer &Output, unsigned short X, unsigned Offset) {
+      unsigned char *P = &Output[Offset];
+      P[0] = (X >> (isLittleEndian ?  0 : 8)) & 255;
+      P[1] = (X >> (isLittleEndian ?  8 : 0)) & 255;
+    }
+    void fixword(DataBuffer &Output, unsigned X, unsigned Offset) {
+      unsigned char *P = &Output[Offset];
+      P[0] = (X >> (isLittleEndian ?  0 : 24)) & 255;
+      P[1] = (X >> (isLittleEndian ?  8 : 16)) & 255;
+      P[2] = (X >> (isLittleEndian ? 16 :  8)) & 255;
+      P[3] = (X >> (isLittleEndian ? 24 :  0)) & 255;
+    }
 
   private:
-    void AddSymbolToSection(MachOSection *MOS, GlobalVariable *GV);
+    void AddSymbolToSection(MachOSection &MOS, GlobalVariable *GV);
     void EmitGlobal(GlobalVariable *GV);
     void EmitHeaderAndLoadCommands();
     void EmitSections();
     void BufferSymbolAndStringTable();
-    void CalculateRelocations(MachOSection &MOS);
+    void CalculateRelocations(MachOSection &MOS, unsigned RelOffset);
 
-    MachineRelocation GetJTRelocation(unsigned Offset,
-                                      MachineBasicBlock *MBB) const {
-      return TM.getMachOWriterInfo()->GetJTRelocation(Offset, MBB);
-    }
-
-    /// GetTargetRelocation - Returns the number of relocations.
-    unsigned GetTargetRelocation(MachineRelocation &MR,
-                                 unsigned FromIdx,
-                                 unsigned ToAddr,
-                                 unsigned ToIndex,
-                                 OutputBuffer &RelocOut,
-                                 OutputBuffer &SecOut,
-                                 bool Scattered) {
-      return TM.getMachOWriterInfo()->GetTargetRelocation(MR, FromIdx, ToAddr,
-                                                          ToIndex, RelocOut,
-                                                          SecOut, Scattered);
-    }
+    virtual MachineRelocation GetJTRelocation(unsigned Offset,
+                                              MachineBasicBlock *MBB) = 0;
+    virtual void GetTargetRelocation(MachineRelocation &MR, MachOSection &MOS,
+                                     unsigned ToIndex) = 0;
   };
 }
 

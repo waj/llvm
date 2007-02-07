@@ -19,33 +19,14 @@
 #include "ARMGenRegisterInfo.h.inc"
 
 namespace llvm {
-  class TargetInstrInfo;
-  class ARMSubtarget;
-  class Type;
+
+class Type;
 
 struct ARMRegisterInfo : public ARMGenRegisterInfo {
-  const TargetInstrInfo &TII;
-  const ARMSubtarget &STI;
-private:
-  /// FramePtr - ARM physical register used as frame ptr.
-  unsigned FramePtr;
 
-public:
-  ARMRegisterInfo(const TargetInstrInfo &tii, const ARMSubtarget &STI);
-
-  /// getRegisterNumbering - Given the enum value for some register, e.g.
-  /// ARM::LR, return the number that it corresponds to (e.g. 14).
-  static unsigned getRegisterNumbering(unsigned RegEnum);
+  ARMRegisterInfo();
 
   /// Code Generation virtual methods...
-  bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                 MachineBasicBlock::iterator MI,
-                                 const std::vector<CalleeSavedInfo> &CSI) const;
-
-  bool restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                   MachineBasicBlock::iterator MI,
-                                 const std::vector<CalleeSavedInfo> &CSI) const;
-
   void storeRegToStackSlot(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator MBBI,
                            unsigned SrcReg, int FrameIndex,
@@ -60,14 +41,13 @@ public:
                     unsigned DestReg, unsigned SrcReg,
                     const TargetRegisterClass *RC) const;
 
-  MachineInstr* foldMemoryOperand(MachineInstr* MI, unsigned OpNum,
-                                  int FrameIndex) const;
+  virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
+                                          unsigned OpNum,
+                                          int FrameIndex) const;
 
-  const unsigned *getCalleeSavedRegs() const;
+  const unsigned *getCalleeSaveRegs() const;
 
-  const TargetRegisterClass* const* getCalleeSavedRegClasses() const;
-
-  bool hasFP(const MachineFunction &MF) const;
+  const TargetRegisterClass* const* getCalleeSaveRegClasses() const;
 
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,
@@ -75,7 +55,7 @@ public:
 
   void eliminateFrameIndex(MachineBasicBlock::iterator II) const;
 
-  void processFunctionBeforeCalleeSavedScan(MachineFunction &MF) const;
+  void processFunctionBeforeFrameFinalized(MachineFunction &MF) const;
 
   void emitPrologue(MachineFunction &MF) const;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;

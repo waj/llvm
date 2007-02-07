@@ -1,5 +1,4 @@
-; RUN: llvm-upgrade < %s > %t1.ll
-; RUN: bugpoint %t1.ll  -bugpoint-crashcalls
+; RUN: bugpoint %s  -bugpoint-crashcalls
 
 ; Test to make sure that arguments are removed from the function if they are unnecessary.
 

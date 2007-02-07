@@ -153,7 +153,6 @@ public:
   void initialize(Module &M);
 
   virtual void print(std::ostream &o, const Module *M) const;
-  void print(std::ostream *o, const Module *M) const { if (o) print(*o, M); }
   void dump() const;
   
   // stub - dummy function, just ignore it
@@ -200,7 +199,6 @@ public:
   ///
   void dump() const;
   void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
 
   //===---------------------------------------------------------------------
   // Methods to keep a call graph up to date with a function that has been

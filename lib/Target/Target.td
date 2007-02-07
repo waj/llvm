@@ -172,11 +172,7 @@ class Instruction {
   
   InstrItinClass Itinerary = NoItinerary;// Execution steps used for scheduling.
 
-  string Constraints = "";  // OperandConstraint, e.g. $src = $dst.
-  
-  /// DisableEncoding - List of operand names (e.g. "$op1,$op2") that should not
-  /// be encoded into the output machineinstr.
-  string DisableEncoding = "";
+  string Constraints = "";
 }
 
 /// Imp - Helper class for specifying the implicit uses/defs set for an
@@ -265,12 +261,6 @@ def INLINEASM : Instruction {
   let OperandList = (ops variable_ops);
   let AsmString = "";
   let Namespace = "TargetInstrInfo";
-}
-def LABEL : Instruction {
-  let OperandList = (ops i32imm:$id);
-  let AsmString = "";
-  let Namespace = "TargetInstrInfo";
-  let hasCtrlDep = 1;
 }
 
 //===----------------------------------------------------------------------===//

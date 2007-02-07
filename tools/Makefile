@@ -11,7 +11,7 @@ LEVEL := ..
 # Note .. the tools are organized in triples consisting of one large and two
 # small executables. This is done to minimize memory load in parallel builds.
 # Please retain this ordering.
-PARALLEL_DIRS := llvm-config llvm-upgrade \
+PARALLEL_DIRS := llvm-config \
                  opt llvm-as llvm-dis \
                  llc llvm-ranlib llvm-ar \
 		 lli llvm-link llvm-nm \
@@ -22,8 +22,8 @@ PARALLEL_DIRS := llvm-config llvm-upgrade \
 
 include $(LEVEL)/Makefile.config
 
-# Disable liblto on Windows until compatability is determined.
-ifneq ($(OS), MingW)
+# Disable liblto on non-darwin platforms right now until LLVM is built PIC.
+ifeq ($(OS), Darwin)
 PARALLEL_DIRS += lto
 endif
 

@@ -24,7 +24,6 @@
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Transforms/Instrumentation.h"
 using namespace llvm;
 
@@ -37,7 +36,7 @@ namespace {
     BLACK
   };
 
-  struct VISIBILITY_HIDDEN EmitFunctionTable : public ModulePass {
+  struct EmitFunctionTable : public ModulePass {
     bool runOnModule(Module &M);
   };
 
@@ -82,13 +81,13 @@ bool EmitFunctionTable::runOnModule(Module &M){
 
   unsigned int counter = 0;
   for(Module::iterator MI = M.begin(), ME = M.end(); MI != ME; ++MI)
-    if (!MI->isDeclaration()) {
+    if (!MI->isExternal()) {
       vType.push_back(MI->getType());
 
       //std::cerr<<MI;
 
       vConsts.push_back(MI);
-      sBCons.push_back(ConstantInt::get(Type::Int8Ty, hasBackEdge(MI)));
+      sBCons.push_back(ConstantInt::get(Type::SByteTy, hasBackEdge(MI)));
 
       counter++;
     }
@@ -101,7 +100,7 @@ bool EmitFunctionTable::runOnModule(Module &M){
                                           cstruct, "llvmFunctionTable");
   M.getGlobalList().push_back(gb);
 
-  Constant *constArray = ConstantArray::get(ArrayType::get(Type::Int8Ty,
+  Constant *constArray = ConstantArray::get(ArrayType::get(Type::SByteTy,
                                                                 sBCons.size()),
                                                  sBCons);
 
@@ -111,8 +110,8 @@ bool EmitFunctionTable::runOnModule(Module &M){
 
   M.getGlobalList().push_back(funcArray);
 
-  ConstantInt *cnst = ConstantInt::get(Type::Int32Ty, counter);
-  GlobalVariable *fnCount = new GlobalVariable(Type::Int32Ty, true,
+  ConstantInt *cnst = ConstantInt::get(Type::IntTy, counter);
+  GlobalVariable *fnCount = new GlobalVariable(Type::IntTy, true,
                                                GlobalValue::ExternalLinkage,
                                                cnst, "llvmFunctionCount");
   M.getGlobalList().push_back(fnCount);

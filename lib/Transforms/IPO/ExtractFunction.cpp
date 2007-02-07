@@ -11,31 +11,26 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Transforms/IPO.h"
-#include "llvm/Support/Compiler.h"
 using namespace llvm;
 
 namespace {
-  /// @brief A pass to extract specific functions and their dependencies.
-  class VISIBILITY_HIDDEN FunctionExtractorPass : public ModulePass {
+  class FunctionExtractorPass : public ModulePass {
     Function *Named;
     bool deleteFunc;
-    bool reLink;
   public:
     /// FunctionExtractorPass - If deleteFn is true, this pass deletes as the
     /// specified function. Otherwise, it deletes as much of the module as
     /// possible, except for the function specified.
     ///
-    FunctionExtractorPass(Function *F = 0, bool deleteFn = true,
-                          bool relinkCallees = false)
-      : Named(F), deleteFunc(deleteFn), reLink(relinkCallees) {}
+    FunctionExtractorPass(Function *F = 0, bool deleteFn = true)
+      : Named(F), deleteFunc(deleteFn) {}
 
     bool runOnModule(Module &M) {
       if (Named == 0) {
-        Named = M.getFunction("main");
+        Named = M.getMainFunction();
         if (Named == 0) return false;  // No function to extract
       }
       
@@ -46,26 +41,9 @@ namespace {
     }
 
     bool deleteFunction() {
-      // If we're in relinking mode, set linkage of all internal callees to
-      // external. This will allow us extract function, and then - link
-      // everything together
-      if (reLink) {
-        for (Function::iterator B = Named->begin(), BE = Named->end();
-             B != BE; ++B) {
-          for (BasicBlock::iterator I = B->begin(), E = B->end();
-               I != E; ++I) {
-            if (CallInst* callInst = dyn_cast<CallInst>(&*I)) {
-              Function* Callee = callInst->getCalledFunction();
-              if (Callee && Callee->hasInternalLinkage())
-                Callee->setLinkage(GlobalValue::ExternalLinkage);
-            }
-          }
-        }
-      }
-      
       Named->setLinkage(GlobalValue::ExternalLinkage);
       Named->deleteBody();
-      assert(Named->isDeclaration() && "This didn't make the function external!");
+      assert(Named->isExternal() && "This didn't make the function external!");
       return true;
     }
 
@@ -75,7 +53,7 @@ namespace {
 
       // Mark all global variables internal
       for (Module::global_iterator I = M.global_begin(), E = M.global_end(); I != E; ++I)
-        if (!I->isDeclaration()) {
+        if (!I->isExternal()) {
           I->setInitializer(0);  // Make all variables external
           I->setLinkage(GlobalValue::ExternalLinkage);
         }
@@ -92,7 +70,6 @@ namespace {
           Function *New = new Function(I->getFunctionType(),
                                        GlobalValue::ExternalLinkage,
                                        I->getName());
-          New->setCallingConv(I->getCallingConv());
           I->setName("");  // Remove Old name
 
           // If it's not the named function, delete the body of the function
@@ -135,7 +112,6 @@ namespace {
   RegisterPass<FunctionExtractorPass> X("extract", "Function Extractor");
 }
 
-ModulePass *llvm::createFunctionExtractionPass(Function *F, bool deleteFn,
-                                               bool relinkCallees) {
-  return new FunctionExtractorPass(F, deleteFn, relinkCallees);
+ModulePass *llvm::createFunctionExtractionPass(Function *F, bool deleteFn) {
+  return new FunctionExtractorPass(F, deleteFn);
 }

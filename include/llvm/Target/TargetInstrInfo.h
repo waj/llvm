@@ -15,7 +15,6 @@
 #define LLVM_TARGET_TARGETINSTRINFO_H
 
 #include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/Support/DataTypes.h"
 #include <vector>
 #include <cassert>
@@ -31,7 +30,6 @@ class Constant;
 class Function;
 class MachineCodeForInstruction;
 class TargetRegisterClass;
-class LiveVariables;
 
 //---------------------------------------------------------------------------
 // Data types used to define information about a single machine instruction
@@ -54,34 +52,37 @@ const unsigned M_DELAY_SLOT_FLAG       = 1 << 4;
 const unsigned M_LOAD_FLAG             = 1 << 5;
 const unsigned M_STORE_FLAG            = 1 << 6;
 
-// M_CONVERTIBLE_TO_3_ADDR - This is a 2-address instruction which can be
+// M_2_ADDR_FLAG - 3-addr instructions which really work like 2-addr ones.
+const unsigned M_2_ADDR_FLAG           = 1 << 7;
+
+// M_CONVERTIBLE_TO_3_ADDR - This is a M_2_ADDR_FLAG instruction which can be
 // changed into a 3-address instruction if the first two operands cannot be
 // assigned to the same register.  The target must implement the
 // TargetInstrInfo::convertToThreeAddress method for this instruction.
-const unsigned M_CONVERTIBLE_TO_3_ADDR = 1 << 7;
+const unsigned M_CONVERTIBLE_TO_3_ADDR = 1 << 8;
 
 // This M_COMMUTABLE - is a 2- or 3-address instruction (of the form X = op Y,
 // Z), which produces the same result if Y and Z are exchanged.
-const unsigned M_COMMUTABLE            = 1 << 8;
+const unsigned M_COMMUTABLE            = 1 << 9;
 
 // M_TERMINATOR_FLAG - Is this instruction part of the terminator for a basic
 // block?  Typically this is things like return and branch instructions.
 // Various passes use this to insert code into the bottom of a basic block, but
 // before control flow occurs.
-const unsigned M_TERMINATOR_FLAG       = 1 << 9;
+const unsigned M_TERMINATOR_FLAG       = 1 << 10;
 
 // M_USES_CUSTOM_DAG_SCHED_INSERTION - Set if this instruction requires custom
 // insertion support when the DAG scheduler is inserting it into a machine basic
 // block.
-const unsigned M_USES_CUSTOM_DAG_SCHED_INSERTION = 1 << 10;
+const unsigned M_USES_CUSTOM_DAG_SCHED_INSERTION = 1 << 11;
 
 // M_VARIABLE_OPS - Set if this instruction can have a variable number of extra
 // operands in addition to the minimum number operands specified.
-const unsigned M_VARIABLE_OPS = 1 << 11;
+const unsigned M_VARIABLE_OPS = 1 << 12;
 
 // M_PREDICATED - Set if this instruction has a predicate that controls its
 // execution.
-const unsigned M_PREDICATED = 1 << 12;
+const unsigned M_PREDICATED = 1 << 13;
 
 
 // Machine operand flags
@@ -93,12 +94,6 @@ const unsigned M_LOOK_UP_PTR_REG_CLASS = 1 << 0;
 /// operand that controls an M_PREDICATED instruction.
 const unsigned M_PREDICATE_OPERAND = 1 << 1;
 
-namespace TOI {
-  // Operand constraints: only "tied_to" for now.
-  enum OperandConstraint {
-    TIED_TO = 0  // Must be allocated the same register as.
-  };
-}
 
 /// TargetOperandInfo - This holds information about one operand of a machine
 /// instruction, indicating the register class for register operands, etc.
@@ -118,33 +113,14 @@ public:
 
 class TargetInstrDescriptor {
 public:
-  MachineOpCode   Opcode;        // The opcode.
-  unsigned short  numOperands;   // Num of args (may be more if variable_ops).
   const char *    Name;          // Assembly language mnemonic for the opcode.
+  unsigned        numOperands;   // Num of args (may be more if variable_ops).
   InstrSchedClass schedClass;    // enum  identifying instr sched class
   unsigned        Flags;         // flags identifying machine instr class
   unsigned        TSFlags;       // Target Specific Flag values
   const unsigned *ImplicitUses;  // Registers implicitly read by this instr
   const unsigned *ImplicitDefs;  // Registers implicitly defined by this instr
   const TargetOperandInfo *OpInfo; // 'numOperands' entries about operands.
-
-  /// getOperandConstraint - Returns the value of the specific constraint if
-  /// it is set. Returns -1 if it is not set.
-  int getOperandConstraint(unsigned OpNum,
-                           TOI::OperandConstraint Constraint) const {
-    assert((OpNum < numOperands || (Flags & M_VARIABLE_OPS)) &&
-           "Invalid operand # of TargetInstrInfo");
-    if (OpNum < numOperands &&
-        (OpInfo[OpNum].Constraints & (1 << Constraint))) {
-      unsigned Pos = 16 + Constraint * 4;
-      return (int)(OpInfo[OpNum].Constraints >> Pos) & 0xf;
-    }
-    return -1;
-  }
-
-  /// findTiedToSrcOperand - Returns the operand that is tied to the specified
-  /// dest operand. Returns -1 if there isn't one.
-  int findTiedToSrcOperand(unsigned OpNum) const;
 };
 
 
@@ -166,8 +142,7 @@ public:
   // Invariant opcodes: All instruction sets have these as their low opcodes.
   enum { 
     PHI = 0,
-    INLINEASM = 1,
-    LABEL = 2
+    INLINEASM = 1
   };
 
   unsigned getNumOpcodes() const { return NumOpcodes; }
@@ -209,6 +184,9 @@ public:
     return get(Opcode).Flags & M_RET_FLAG;
   }
 
+  bool isTwoAddrInstr(MachineOpCode Opcode) const {
+    return get(Opcode).Flags & M_2_ADDR_FLAG;
+  }
   bool isPredicated(MachineOpCode Opcode) const {
     return get(Opcode).Flags & M_PREDICATED;
   }
@@ -257,13 +235,35 @@ public:
     return get(Opcode).Flags & M_VARIABLE_OPS;
   }
 
+  // Operand constraints: only "tied_to" for now.
+  enum OperandConstraint {
+    TIED_TO = 0  // Must be allocated the same register as.
+  };
+
   /// getOperandConstraint - Returns the value of the specific constraint if
   /// it is set. Returns -1 if it is not set.
   int getOperandConstraint(MachineOpCode Opcode, unsigned OpNum,
-                           TOI::OperandConstraint Constraint) const {
-    return get(Opcode).getOperandConstraint(OpNum, Constraint);
+                           OperandConstraint Constraint) const {
+    assert(OpNum < get(Opcode).numOperands &&
+           "Invalid operand # of TargetInstrInfo");
+    if (get(Opcode).OpInfo[OpNum].Constraints & (1 << Constraint)) {
+      unsigned Pos = 16 + Constraint * 4;
+      return (int)(get(Opcode).OpInfo[OpNum].Constraints >> Pos) & 0xf;
+    }
+    return -1;
   }
 
+  /// findTiedToSrcOperand - Returns the operand that is tied to the specified
+  /// dest operand. Returns -1 if there isn't one.
+  int findTiedToSrcOperand(MachineOpCode Opcode, unsigned OpNum) const;
+
+  /// getDWARF_LABELOpcode - Return the opcode of the target's DWARF_LABEL
+  /// instruction if it has one.  This is used by codegen passes that update
+  /// DWARF line number info as they modify the code.
+  virtual unsigned getDWARF_LABELOpcode() const {
+    return 0;
+  }
+  
   /// Return true if the instruction is a register to register move
   /// and leave the source and dest operands in the passed parameters.
   virtual bool isMoveInstr(const MachineInstr& MI,
@@ -292,17 +292,15 @@ public:
 
   /// convertToThreeAddress - This method must be implemented by targets that
   /// set the M_CONVERTIBLE_TO_3_ADDR flag.  When this flag is set, the target
-  /// may be able to convert a two-address instruction into one or moretrue
-  /// three-address instructions on demand.  This allows the X86 target (for
+  /// may be able to convert a two-address instruction into a true
+  /// three-address instruction on demand.  This allows the X86 target (for
   /// example) to convert ADD and SHL instructions into LEA instructions if they
   /// would require register copies due to two-addressness.
   ///
   /// This method returns a null pointer if the transformation cannot be
-  /// performed, otherwise it returns the last new instruction.
+  /// performed, otherwise it returns the new instruction.
   ///
-  virtual MachineInstr *
-  convertToThreeAddress(MachineFunction::iterator &MFI,
-                   MachineBasicBlock::iterator &MBBI, LiveVariables &LV) const {
+  virtual MachineInstr *convertToThreeAddress(MachineInstr *TA) const {
     return 0;
   }
 

@@ -19,7 +19,6 @@
 #include "llvm/Analysis/ProfileInfoLoader.h"
 #include "llvm/Bytecode/Reader.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/System/Signals.h"
 #include <iostream>
 #include <iomanip>
@@ -108,16 +107,13 @@ namespace {
 
 
 int main(int argc, char **argv) {
-  llvm_shutdown_obj X;  // Call llvm_shutdown() on exit.
   try {
     cl::ParseCommandLineOptions(argc, argv, " llvm profile dump decoder\n");
     sys::PrintStackTraceOnErrorSignal();
 
     // Read in the bytecode file...
     std::string ErrorMessage;
-    Module *M = ParseBytecodeFile(BytecodeFile, 
-                                  Compressor::decompressToNewBuffer, 
-                                  &ErrorMessage);
+    Module *M = ParseBytecodeFile(BytecodeFile, &ErrorMessage);
     if (M == 0) {
       std::cerr << argv[0] << ": " << BytecodeFile << ": " 
         << ErrorMessage << "\n";

@@ -18,7 +18,6 @@
 #include "llvm/AbstractTypeUser.h"
 #include "llvm/Use.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/Streams.h"
 #include <string>
 
 namespace llvm {
@@ -31,8 +30,7 @@ class GlobalValue;
 class Function;
 class GlobalVariable;
 class InlineAsm;
-class ValueSymbolTable;
-class TypeSymbolTable;
+class SymbolTable;
 
 //===----------------------------------------------------------------------===//
 //                                 Value Class
@@ -49,7 +47,7 @@ class TypeSymbolTable;
 /// using this Value.
 /// @brief LLVM Value Representation
 class Value {
-  const unsigned short SubclassID;   // Subclass identifier (for isa/dyn_cast)
+  unsigned short SubclassID;         // Subclass identifier (for isa/dyn_cast)
 protected:
   /// SubclassData - This member is defined by this class, but is not used for
   /// anything.  Subclasses can use it to hold whatever state they find useful.
@@ -77,7 +75,6 @@ public:
   /// print - Implement operator<< on Value...
   ///
   virtual void print(std::ostream &O) const = 0;
-  void print(std::ostream *O) const { if (O) print(*O); }
 
   /// All values are typed, get the type of this value.
   ///
@@ -153,6 +150,7 @@ public:
     UndefValueVal,            // This is an instance of UndefValue
     ConstantExprVal,          // This is an instance of ConstantExpr
     ConstantAggregateZeroVal, // This is an instance of ConstantAggregateNull
+    ConstantBoolVal,          // This is an instance of ConstantBool
     ConstantIntVal,           // This is an instance of ConstantInt
     ConstantFPVal,            // This is an instance of ConstantFP
     ConstantArrayVal,         // This is an instance of ConstantArray
@@ -186,6 +184,11 @@ public:
   /// getRawType - This should only be used to implement the vmcore library.
   ///
   const Type *getRawType() const { return Ty.getRawType(); }
+
+private:
+  /// FIXME: this is a gross hack, needed by another gross hack.  Eliminate!
+  void setValueType(unsigned short VT) { SubclassID = VT; }
+  friend class Instruction;
 };
 
 inline std::ostream &operator<<(std::ostream &OS, const Value &V) {

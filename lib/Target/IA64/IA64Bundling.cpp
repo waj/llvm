@@ -20,21 +20,19 @@
 // 
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "ia64-codegen"
 #include "IA64.h"
-#include "IA64InstrInfo.h"
-#include "IA64TargetMachine.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/Debug.h"
 #include <set>
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(StopBitsAdded, "Number of stop bits added");
-
 namespace {
+  Statistic<> StopBitsAdded("ia64-codegen", "Number of stop bits added");
+
   struct IA64BundlingPass : public MachineFunctionPass {
     /// Target machine description which we query for reg. names, data
     /// layout, etc.
@@ -101,8 +99,7 @@ bool IA64BundlingPass::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     
     if(! (CurrentReads.empty() && CurrentWrites.empty()) ) {
       // there is a conflict, insert a stop and reset PendingRegWrites
-      CurrentInsn = BuildMI(MBB, CurrentInsn,
-                            TM.getInstrInfo()->get(IA64::STOP), 0);
+      CurrentInsn = BuildMI(MBB, CurrentInsn, IA64::STOP, 0);
       PendingRegWrites=OrigWrites; // carry over current writes to next insn
       Changed=true; StopBitsAdded++; // update stats      
     } else { // otherwise, track additional pending writes

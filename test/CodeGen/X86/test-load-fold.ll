@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc
+; RUN: llvm-as < %s | llc
 	%struct._obstack_chunk = type { sbyte*, %struct._obstack_chunk*, [4 x sbyte] }
 	%struct.obstack = type { int, %struct._obstack_chunk*, sbyte*, sbyte*, sbyte*, int, int, %struct._obstack_chunk* (...)*, void (...)*, sbyte*, ubyte }
 %stmt_obstack = external global %struct.obstack		; <%struct.obstack*> [#uses=1]

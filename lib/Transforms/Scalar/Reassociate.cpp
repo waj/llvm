@@ -29,20 +29,21 @@
 #include "llvm/Pass.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(NumLinear , "Number of insts linearized");
-STATISTIC(NumChanged, "Number of insts reassociated");
-STATISTIC(NumAnnihil, "Number of expr tree annihilated");
-STATISTIC(NumFactor , "Number of multiplies factored");
-
 namespace {
-  struct VISIBILITY_HIDDEN ValueEntry {
+  Statistic<> NumLinear ("reassociate","Number of insts linearized");
+  Statistic<> NumChanged("reassociate","Number of insts reassociated");
+  Statistic<> NumSwapped("reassociate","Number of insts with operands swapped");
+  Statistic<> NumAnnihil("reassociate","Number of expr tree annihilated");
+  Statistic<> NumFactor ("reassociate","Number of multiplies factored");
+
+  struct ValueEntry {
     unsigned Rank;
     Value *Op;
     ValueEntry(unsigned R, Value *O) : Rank(R), Op(O) {}
@@ -56,15 +57,15 @@ namespace {
 ///
 static void PrintOps(Instruction *I, const std::vector<ValueEntry> &Ops) {
   Module *M = I->getParent()->getParent()->getParent();
-  cerr << Instruction::getOpcodeName(I->getOpcode()) << " "
+  std::cerr << Instruction::getOpcodeName(I->getOpcode()) << " "
   << *Ops[0].Op->getType();
   for (unsigned i = 0, e = Ops.size(); i != e; ++i)
-    WriteAsOperand(*cerr.stream() << " ", Ops[i].Op, false, M)
+    WriteAsOperand(std::cerr << " ", Ops[i].Op, false, true, M)
       << "," << Ops[i].Rank;
 }
   
 namespace {  
-  class VISIBILITY_HIDDEN Reassociate : public FunctionPass {
+  class Reassociate : public FunctionPass {
     std::map<BasicBlock*, unsigned> RankMap;
     std::map<Value*, unsigned> ValueRankMap;
     bool MadeChange;
@@ -96,11 +97,10 @@ namespace {
 FunctionPass *llvm::createReassociatePass() { return new Reassociate(); }
 
 void Reassociate::RemoveDeadBinaryOp(Value *V) {
-  Instruction *Op = dyn_cast<Instruction>(V);
-  if (!Op || !isa<BinaryOperator>(Op) || !isa<CmpInst>(Op) || !Op->use_empty())
-    return;
+  BinaryOperator *BOp = dyn_cast<BinaryOperator>(V);
+  if (!BOp || !BOp->use_empty()) return;
   
-  Value *LHS = Op->getOperand(0), *RHS = Op->getOperand(1);
+  Value *LHS = BOp->getOperand(0), *RHS = BOp->getOperand(1);
   RemoveDeadBinaryOp(LHS);
   RemoveDeadBinaryOp(RHS);
 }
@@ -165,12 +165,12 @@ unsigned Reassociate::getRank(Value *V) {
 
   // If this is a not or neg instruction, do not count it for rank.  This
   // assures us that X and ~X will have the same rank.
-  if (!I->getType()->isInteger() ||
+  if (!I->getType()->isIntegral() ||
       (!BinaryOperator::isNot(I) && !BinaryOperator::isNeg(I)))
     ++Rank;
 
-  //DOUT << "Calculated Rank[" << V->getName() << "] = "
-  //     << Rank << "\n";
+  //DEBUG(std::cerr << "Calculated Rank[" << V->getName() << "] = "
+  //<< Rank << "\n");
 
   return CachedRank = Rank;
 }
@@ -187,7 +187,11 @@ static BinaryOperator *isReassociableOp(Value *V, unsigned Opcode) {
 /// LowerNegateToMultiply - Replace 0-X with X*-1.
 ///
 static Instruction *LowerNegateToMultiply(Instruction *Neg) {
-  Constant *Cst = ConstantInt::getAllOnesValue(Neg->getType());
+  Constant *Cst;
+  if (Neg->getType()->isFloatingPoint())
+    Cst = ConstantFP::get(Neg->getType(), -1);
+  else
+    Cst = ConstantInt::getAllOnesValue(Neg->getType());
 
   std::string NegName = Neg->getName(); Neg->setName("");
   Instruction *Res = BinaryOperator::createMul(Neg->getOperand(1), Cst, NegName,
@@ -208,7 +212,7 @@ void Reassociate::LinearizeExpr(BinaryOperator *I) {
          isReassociableOp(RHS, I->getOpcode()) &&
          "Not an expression that needs linearization?");
 
-  DOUT << "Linear" << *LHS << *RHS << *I;
+  DEBUG(std::cerr << "Linear" << *LHS << *RHS << *I);
 
   // Move the RHS instruction to live immediately before I, avoiding breaking
   // dominator properties.
@@ -221,7 +225,7 @@ void Reassociate::LinearizeExpr(BinaryOperator *I) {
 
   ++NumLinear;
   MadeChange = true;
-  DOUT << "Linearized: " << *I;
+  DEBUG(std::cerr << "Linearized: " << *I);
 
   // If D is part of this expression tree, tail recurse.
   if (isReassociableOp(I->getOperand(1), I->getOpcode()))
@@ -316,10 +320,10 @@ void Reassociate::RewriteExprTree(BinaryOperator *I,
     if (I->getOperand(0) != Ops[i].Op ||
         I->getOperand(1) != Ops[i+1].Op) {
       Value *OldLHS = I->getOperand(0);
-      DOUT << "RA: " << *I;
+      DEBUG(std::cerr << "RA: " << *I);
       I->setOperand(0, Ops[i].Op);
       I->setOperand(1, Ops[i+1].Op);
-      DOUT << "TO: " << *I;
+      DEBUG(std::cerr << "TO: " << *I);
       MadeChange = true;
       ++NumChanged;
       
@@ -332,9 +336,9 @@ void Reassociate::RewriteExprTree(BinaryOperator *I,
   assert(i+2 < Ops.size() && "Ops index out of range!");
 
   if (I->getOperand(1) != Ops[i].Op) {
-    DOUT << "RA: " << *I;
+    DEBUG(std::cerr << "RA: " << *I);
     I->setOperand(1, Ops[i].Op);
-    DOUT << "TO: " << *I;
+    DEBUG(std::cerr << "TO: " << *I);
     MadeChange = true;
     ++NumChanged;
   }
@@ -415,7 +419,7 @@ static Instruction *BreakUpSubtract(Instruction *Sub) {
   Sub->replaceAllUsesWith(New);
   Sub->eraseFromParent();
 
-  DOUT << "Negated: " << *New;
+  DEBUG(std::cerr << "Negated: " << *New);
   return New;
 }
 
@@ -534,7 +538,7 @@ Value *Reassociate::OptimizeExpression(BinaryOperator *I,
     }
 
   // Check for destructive annihilation due to a constant being used.
-  if (ConstantInt *CstVal = dyn_cast<ConstantInt>(Ops.back().Op))
+  if (ConstantIntegral *CstVal = dyn_cast<ConstantIntegral>(Ops.back().Op))
     switch (Opcode) {
     default: break;
     case Instruction::And:
@@ -588,7 +592,7 @@ Value *Reassociate::OptimizeExpression(BinaryOperator *I,
             return Constant::getNullValue(X->getType());
           } else if (Opcode == Instruction::Or) {   // ...|X|~X = -1
             ++NumAnnihil;
-            return ConstantInt::getAllOnesValue(X->getType());
+            return ConstantIntegral::getAllOnesValue(X->getType());
           }
         }
       }
@@ -658,38 +662,39 @@ Value *Reassociate::OptimizeExpression(BinaryOperator *I,
     std::map<Value*, unsigned> FactorOccurrences;
     unsigned MaxOcc = 0;
     Value *MaxOccVal = 0;
-    for (unsigned i = 0, e = Ops.size(); i != e; ++i) {
-      if (BinaryOperator *BOp = dyn_cast<BinaryOperator>(Ops[i].Op)) {
-        if (BOp->getOpcode() == Instruction::Mul && BOp->use_empty()) {
-          // Compute all of the factors of this added value.
-          std::vector<Value*> Factors;
-          FindSingleUseMultiplyFactors(BOp, Factors);
-          assert(Factors.size() > 1 && "Bad linearize!");
-
-          // Add one to FactorOccurrences for each unique factor in this op.
-          if (Factors.size() == 2) {
-            unsigned Occ = ++FactorOccurrences[Factors[0]];
-            if (Occ > MaxOcc) { MaxOcc = Occ; MaxOccVal = Factors[0]; }
-            if (Factors[0] != Factors[1]) {   // Don't double count A*A.
-              Occ = ++FactorOccurrences[Factors[1]];
-              if (Occ > MaxOcc) { MaxOcc = Occ; MaxOccVal = Factors[1]; }
-            }
-          } else {
-            std::set<Value*> Duplicates;
-            for (unsigned i = 0, e = Factors.size(); i != e; ++i) {
-              if (Duplicates.insert(Factors[i]).second) {
-                unsigned Occ = ++FactorOccurrences[Factors[i]];
-                if (Occ > MaxOcc) { MaxOcc = Occ; MaxOccVal = Factors[i]; }
+    if (!I->getType()->isFloatingPoint()) {
+      for (unsigned i = 0, e = Ops.size(); i != e; ++i) {
+        if (BinaryOperator *BOp = dyn_cast<BinaryOperator>(Ops[i].Op))
+          if (BOp->getOpcode() == Instruction::Mul && BOp->use_empty()) {
+            // Compute all of the factors of this added value.
+            std::vector<Value*> Factors;
+            FindSingleUseMultiplyFactors(BOp, Factors);
+            assert(Factors.size() > 1 && "Bad linearize!");
+            
+            // Add one to FactorOccurrences for each unique factor in this op.
+            if (Factors.size() == 2) {
+              unsigned Occ = ++FactorOccurrences[Factors[0]];
+              if (Occ > MaxOcc) { MaxOcc = Occ; MaxOccVal = Factors[0]; }
+              if (Factors[0] != Factors[1]) {   // Don't double count A*A.
+                Occ = ++FactorOccurrences[Factors[1]];
+                if (Occ > MaxOcc) { MaxOcc = Occ; MaxOccVal = Factors[1]; }
               }
+            } else {
+              std::set<Value*> Duplicates;
+              for (unsigned i = 0, e = Factors.size(); i != e; ++i)
+                if (Duplicates.insert(Factors[i]).second) {
+                  unsigned Occ = ++FactorOccurrences[Factors[i]];
+                  if (Occ > MaxOcc) { MaxOcc = Occ; MaxOccVal = Factors[i]; }
+                }
             }
           }
-        }
       }
     }
 
     // If any factor occurred more than one time, we can pull it out.
     if (MaxOcc > 1) {
-      DOUT << "\nFACTORING [" << MaxOcc << "]: " << *MaxOccVal << "\n";
+      DEBUG(std::cerr << "\nFACTORING [" << MaxOcc << "]: "
+                      << *MaxOccVal << "\n");
       
       // Create a new instruction that uses the MaxOccVal twice.  If we don't do
       // this, we could otherwise run into situations where removing a factor
@@ -753,7 +758,7 @@ void Reassociate::ReassociateBB(BasicBlock *BB) {
       }
 
     // Reject cases where it is pointless to do this.
-    if (!isa<BinaryOperator>(BI) || BI->getType()->isFloatingPoint() || 
+    if (!isa<BinaryOperator>(BI) || BI->getType()->isFloatingPoint() ||
         isa<PackedType>(BI->getType()))
       continue;  // Floating point ops are not associative.
 
@@ -802,7 +807,8 @@ void Reassociate::ReassociateExpression(BinaryOperator *I) {
   std::vector<ValueEntry> Ops;
   LinearizeExprTree(I, Ops);
   
-  DOUT << "RAIn:\t"; DEBUG(PrintOps(I, Ops)); DOUT << "\n";
+  DEBUG(std::cerr << "RAIn:\t"; PrintOps(I, Ops);
+        std::cerr << "\n");
   
   // Now that we have linearized the tree to a list and have gathered all of
   // the operands and their ranks, sort the operands by their rank.  Use a
@@ -817,7 +823,7 @@ void Reassociate::ReassociateExpression(BinaryOperator *I) {
   if (Value *V = OptimizeExpression(I, Ops)) {
     // This expression tree simplified to something that isn't a tree,
     // eliminate it.
-    DOUT << "Reassoc to scalar: " << *V << "\n";
+    DEBUG(std::cerr << "Reassoc to scalar: " << *V << "\n");
     I->replaceAllUsesWith(V);
     RemoveDeadBinaryOp(I);
     return;
@@ -835,7 +841,8 @@ void Reassociate::ReassociateExpression(BinaryOperator *I) {
     Ops.pop_back();
   }
   
-  DOUT << "RAOut:\t"; DEBUG(PrintOps(I, Ops)); DOUT << "\n";
+  DEBUG(std::cerr << "RAOut:\t"; PrintOps(I, Ops);
+        std::cerr << "\n");
   
   if (Ops.size() == 1) {
     // This expression tree simplified to something that isn't a tree,

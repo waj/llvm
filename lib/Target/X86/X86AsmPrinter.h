@@ -21,19 +21,28 @@
 #include "X86TargetMachine.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/DwarfWriter.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/Support/Compiler.h"
+#include "llvm/CodeGen/MachineDebugInfo.h"
+#include "llvm/ADT/Statistic.h"
 #include <set>
 
 
 namespace llvm {
+
+extern Statistic<> EmittedInsts;
+
+// FIXME: Move this to CodeGen/AsmPrinter.h
+namespace PICStyle {
+  enum X86AsmPICStyle {
+    Stub, GOT
+  };
+}
 
 struct VISIBILITY_HIDDEN X86SharedAsmPrinter : public AsmPrinter {
   DwarfWriter DW;
 
   X86SharedAsmPrinter(std::ostream &O, X86TargetMachine &TM,
                       const TargetAsmInfo *T)
-    : AsmPrinter(O, TM, T), DW(O, this, T) {
+    : AsmPrinter(O, TM, T), DW(O, this, T), X86PICStyle(PICStyle::GOT) {
     Subtarget = &TM.getSubtarget<X86Subtarget>();
   }
 
@@ -60,12 +69,14 @@ struct VISIBILITY_HIDDEN X86SharedAsmPrinter : public AsmPrinter {
     AU.setPreservesAll();
     if (Subtarget->isTargetDarwin() ||
         Subtarget->isTargetELF() ||
-        Subtarget->isTargetCygMing()) {
-      AU.addRequired<MachineModuleInfo>();
+        Subtarget->isTargetCygwin()) {
+      AU.addRequired<MachineDebugInfo>();
     }
     MachineFunctionPass::getAnalysisUsage(AU);
   }
 
+  PICStyle::X86AsmPICStyle X86PICStyle;
+  
   const X86Subtarget *Subtarget;
 
   // Necessary for Darwin to print out the apprioriate types of linker stubs
@@ -73,7 +84,7 @@ struct VISIBILITY_HIDDEN X86SharedAsmPrinter : public AsmPrinter {
 
   // Necessary for dllexport support
   std::set<std::string> DLLExportedFns, DLLExportedGVs;
-
+  
   inline static bool isScale(const MachineOperand &MO) {
     return MO.isImmediate() &&
           (MO.getImmedValue() == 1 || MO.getImmedValue() == 2 ||

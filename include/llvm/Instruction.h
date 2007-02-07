@@ -39,6 +39,12 @@ class Instruction : public User {
   friend class SymbolTableListTraits<Instruction, BasicBlock, Function,
                                      ilist_traits<Instruction> >;
   void setParent(BasicBlock *P);
+
+private:
+  // FIXME: This is a dirty hack.  Setcc instructions shouldn't encode the CC
+  // into the opcode field.  When they don't, this will be unneeded.
+  void setOpcode(unsigned NewOpcode);
+  friend class BinaryOperator;
 protected:
   Instruction(const Type *Ty, unsigned iType, Use *Ops, unsigned NumOps,
               const std::string &Name = "",
@@ -64,16 +70,6 @@ public:
   /// identical to the current one.  This means that all operands match and any
   /// extra information (e.g. load is volatile) agree.
   bool isIdenticalTo(Instruction *I) const;
-
-  /// This function determines if the specified instruction executes the same
-  /// operation as the current one. This means that the opcodes, type, operand
-  /// types and any other factors affecting the operation must be the same. This
-  /// is similar to isIdenticalTo except the operands themselves don't have to
-  /// be identical.
-  /// @returns true if the specified instruction is the same operation as
-  /// the current one.
-  /// @brief Determine if one instruction is the same operation as another.
-  bool isSameOperationAs(Instruction *I) const;
 
   /// use_back - Specialize the methods defined in Value, as we know that an
   /// instruction can only be used by other instructions.
@@ -129,37 +125,6 @@ public:
     return getOpcode() >= BinaryOpsBegin && getOpcode() < BinaryOpsEnd;
   }
 
-  /// @brief Determine if the Opcode is one of the shift instructions.
-  static inline bool isShift(unsigned Opcode) {
-    return Opcode >= Shl && Opcode <= AShr;
-  }
-
-  /// @brief Determine if the instruction's opcode is one of the shift 
-  /// instructions.
-  inline bool isShift() { return isShift(getOpcode()); }
-
-  /// isLogicalShift - Return true if this is a logical shift left or a logical
-  /// shift right.
-  inline bool isLogicalShift() {
-    return getOpcode() == Shl || getOpcode() == LShr;
-  }
-
-  /// isLogicalShift - Return true if this is a logical shift left or a logical
-  /// shift right.
-  inline bool isArithmeticShift() {
-    return getOpcode() == AShr;
-  }
-
-  /// @brief Determine if the OpCode is one of the CastInst instructions.
-  static inline bool isCast(unsigned OpCode) {
-    return OpCode >= CastOpsBegin && OpCode < CastOpsEnd;
-  }
-
-  /// @brief Determine if this is one of the CastInst instructions.
-  inline bool isCast() const {
-    return isCast(getOpcode());
-  }
-
   /// isAssociative - Return true if the instruction is associative:
   ///
   ///   Associative operators satisfy:  x op (y op z) === (x op y) op z
@@ -180,6 +145,12 @@ public:
   bool isCommutative() const { return isCommutative(getOpcode()); }
   static bool isCommutative(unsigned op);
 
+  /// isComparison - Return true if the instruction is a Set* instruction:
+  ///
+  bool isComparison() const { return isComparison(getOpcode()); }
+  static bool isComparison(unsigned op);
+
+
   /// isTrappingInstruction - Return true if the instruction may trap.
   ///
   bool isTrapping() const {
@@ -188,7 +159,6 @@ public:
   static bool isTrapping(unsigned op);
 
   virtual void print(std::ostream &OS) const { print(OS, 0); }
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
   void print(std::ostream &OS, AssemblyAnnotationWriter *AAW) const;
 
   /// Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -218,13 +188,6 @@ public:
 #define  FIRST_MEMORY_INST(N)             MemoryOpsBegin = N,
 #define HANDLE_MEMORY_INST(N, OPC, CLASS) OPC = N,
 #define   LAST_MEMORY_INST(N)             MemoryOpsEnd = N+1
-#include "llvm/Instruction.def"
-  };
-
-  enum CastOps {
-#define  FIRST_CAST_INST(N)             CastOpsBegin = N,
-#define HANDLE_CAST_INST(N, OPC, CLASS) OPC = N,
-#define   LAST_CAST_INST(N)             CastOpsEnd = N+1
 #include "llvm/Instruction.def"
   };
 

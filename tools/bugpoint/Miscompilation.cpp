@@ -33,11 +33,6 @@ namespace llvm {
 }
 
 namespace {
-  static llvm::cl::opt<bool> 
-    DisableLoopExtraction("disable-loop-extraction", 
-        cl::desc("Don't extract loops when searching for miscompilations"),
-        cl::init(false));
-
   class ReduceMiscompilingPasses : public ListReducer<const PassInfo*> {
     BugDriver &BD;
   public:
@@ -320,7 +315,7 @@ static bool ExtractLoops(BugDriver &BD,
     std::vector<std::pair<std::string, const FunctionType*> > MisCompFunctions;
     for (Module::iterator I = ToOptimizeLoopExtracted->begin(),
            E = ToOptimizeLoopExtracted->end(); I != E; ++I)
-      if (!I->isDeclaration())
+      if (!I->isExternal())
         MisCompFunctions.push_back(std::make_pair(I->getName(),
                                                   I->getFunctionType()));
 
@@ -341,11 +336,9 @@ static bool ExtractLoops(BugDriver &BD,
     // optimized and loop extracted module.
     MiscompiledFunctions.clear();
     for (unsigned i = 0, e = MisCompFunctions.size(); i != e; ++i) {
-      Function *NewF = ToNotOptimize->getFunction(MisCompFunctions[i].first);
-                                                  
+      Function *NewF = ToNotOptimize->getFunction(MisCompFunctions[i].first,
+                                                  MisCompFunctions[i].second);
       assert(NewF && "Function not found??");
-      assert(NewF->getFunctionType() == MisCompFunctions[i].second && 
-             "found wrong function type?");
       MiscompiledFunctions.push_back(NewF);
     }
 
@@ -462,7 +455,7 @@ static bool ExtractBlocks(BugDriver &BD,
   std::vector<std::pair<std::string, const FunctionType*> > MisCompFunctions;
   for (Module::iterator I = Extracted->begin(), E = Extracted->end();
        I != E; ++I)
-    if (!I->isDeclaration())
+    if (!I->isExternal())
       MisCompFunctions.push_back(std::make_pair(I->getName(),
                                                 I->getFunctionType()));
 
@@ -481,10 +474,9 @@ static bool ExtractBlocks(BugDriver &BD,
   MiscompiledFunctions.clear();
 
   for (unsigned i = 0, e = MisCompFunctions.size(); i != e; ++i) {
-    Function *NewF = ProgClone->getFunction(MisCompFunctions[i].first);
+    Function *NewF = ProgClone->getFunction(MisCompFunctions[i].first,
+                                            MisCompFunctions[i].second);
     assert(NewF && "Function not found??");
-    assert(NewF->getFunctionType() == MisCompFunctions[i].second && 
-           "Function has wrong type??");
     MiscompiledFunctions.push_back(NewF);
   }
 
@@ -505,7 +497,7 @@ DebugAMiscompilation(BugDriver &BD,
   std::vector<Function*> MiscompiledFunctions;
   Module *Prog = BD.getProgram();
   for (Module::iterator I = Prog->begin(), E = Prog->end(); I != E; ++I)
-    if (!I->isDeclaration())
+    if (!I->isExternal())
       MiscompiledFunctions.push_back(I);
 
   // Do the reduction...
@@ -520,8 +512,7 @@ DebugAMiscompilation(BugDriver &BD,
 
   // See if we can rip any loops out of the miscompiled functions and still
   // trigger the problem.
-
-  if (!BugpointIsInterrupted && !DisableLoopExtraction &&
+  if (!BugpointIsInterrupted && 
       ExtractLoops(BD, TestFn, MiscompiledFunctions)) {
     // Okay, we extracted some loops and the problem still appears.  See if we
     // can eliminate some of the created functions from being candidates.
@@ -639,8 +630,8 @@ static void CleanupAndPrepareModules(BugDriver &BD, Module *&Test,
   // First, if the main function is in the Safe module, we must add a stub to
   // the Test module to call into it.  Thus, we create a new function `main'
   // which just calls the old one.
-  if (Function *oldMain = Safe->getFunction("main"))
-    if (!oldMain->isDeclaration()) {
+  if (Function *oldMain = Safe->getNamedFunction("main"))
+    if (!oldMain->isExternal()) {
       // Rename it
       oldMain->setName("llvm_bugpoint_old_main");
       // Create a NEW `main' function with same type in the test module.
@@ -676,19 +667,19 @@ static void CleanupAndPrepareModules(BugDriver &BD, Module *&Test,
 
   // Add the resolver to the Safe module.
   // Prototype: void *getPointerToNamedFunction(const char* Name)
-  Constant *resolverFunc =
+  Function *resolverFunc =
     Safe->getOrInsertFunction("getPointerToNamedFunction",
-                              PointerType::get(Type::Int8Ty),
-                              PointerType::get(Type::Int8Ty), (Type *)0);
+                              PointerType::get(Type::SByteTy),
+                              PointerType::get(Type::SByteTy), (Type *)0);
 
   // Use the function we just added to get addresses of functions we need.
   for (Module::iterator F = Safe->begin(), E = Safe->end(); F != E; ++F) {
-    if (F->isDeclaration() && !F->use_empty() && &*F != resolverFunc &&
+    if (F->isExternal() && !F->use_empty() && &*F != resolverFunc &&
         F->getIntrinsicID() == 0 /* ignore intrinsics */) {
-      Function *TestFn = Test->getFunction(F->getName());
+      Function *TestFn = Test->getNamedFunction(F->getName());
 
       // Don't forward functions which are external in the test module too.
-      if (TestFn && !TestFn->isDeclaration()) {
+      if (TestFn && !TestFn->isExternal()) {
         // 1. Add a string constant with its name to the global file
         Constant *InitArray = ConstantArray::get(F->getName());
         GlobalVariable *funcName =
@@ -700,7 +691,7 @@ static void CleanupAndPrepareModules(BugDriver &BD, Module *&Test,
         // sbyte* so it matches the signature of the resolver function.
 
         // GetElementPtr *funcName, ulong 0, ulong 0
-        std::vector<Constant*> GEPargs(2,Constant::getNullValue(Type::Int32Ty));
+        std::vector<Constant*> GEPargs(2,Constant::getNullValue(Type::IntTy));
         Value *GEP =
           ConstantExpr::getGetElementPtr(funcName, GEPargs);
         std::vector<Value*> ResolverArgs;
@@ -727,8 +718,8 @@ static void CleanupAndPrepareModules(BugDriver &BD, Module *&Test,
 
           // Check to see if we already looked up the value.
           Value *CachedVal = new LoadInst(Cache, "fpcache", EntryBB);
-          Value *IsNull = new ICmpInst(ICmpInst::ICMP_EQ, CachedVal,
-                                       NullPtr, "isNull", EntryBB);
+          Value *IsNull = new SetCondInst(Instruction::SetEQ, CachedVal,
+                                          NullPtr, "isNull", EntryBB);
           new BranchInst(LookupBB, DoCallBB, IsNull, EntryBB);
 
           // Resolve the call to function F via the JIT API:
@@ -737,9 +728,9 @@ static void CleanupAndPrepareModules(BugDriver &BD, Module *&Test,
           CallInst *Resolver = new CallInst(resolverFunc, ResolverArgs,
                                             "resolver", LookupBB);
           // cast the result from the resolver to correctly-typed function
-          CastInst *CastedResolver = new BitCastInst(Resolver, 
-            PointerType::get(F->getFunctionType()), "resolverCast", LookupBB);
-
+          CastInst *CastedResolver =
+            new CastInst(Resolver, PointerType::get(F->getFunctionType()),
+                         "resolverCast", LookupBB);
           // Save the value in our cache.
           new StoreInst(CastedResolver, Cache, LookupBB);
           new BranchInst(DoCallBB, LookupBB);

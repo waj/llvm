@@ -43,7 +43,6 @@ namespace {
       (void) llvm::createAAEvalPass();
       (void) llvm::createAggressiveDCEPass();
       (void) llvm::createAliasAnalysisCounterPass();
-      (void) llvm::createAliasDebugger();
       (void) llvm::createAndersensPass();
       (void) llvm::createArgumentPromotionPass();
       (void) llvm::createBasicAliasAnalysisPass();
@@ -64,6 +63,7 @@ namespace {
       (void) llvm::createEmitFunctionTablePass();
       (void) llvm::createFunctionInliningPass();
       (void) llvm::createFunctionProfilerPass();
+      (void) llvm::createFunctionResolvingPass();
       (void) llvm::createGCSEPass();
       (void) llvm::createGlobalDCEPass();
       (void) llvm::createGlobalOptimizerPass();
@@ -95,6 +95,7 @@ namespace {
       (void) llvm::createDemoteRegisterToMemoryPass();
       (void) llvm::createPruneEHPass();
       (void) llvm::createRaiseAllocationsPass();
+      (void) llvm::createRaisePointerReferencesPass();
       (void) llvm::createReassociatePass();
       (void) llvm::createSCCPPass();
       (void) llvm::createScalarReplAggregatesPass();
@@ -104,6 +105,8 @@ namespace {
       (void) llvm::createTailCallEliminationPass();
       (void) llvm::createTailDuplicationPass();
       (void) llvm::createTraceBasicBlockPass();
+      (void) llvm::createTraceValuesPassForBasicBlocks();
+      (void) llvm::createTraceValuesPassForFunction();
       (void) llvm::createUnifyFunctionExitNodesPass();
       (void) llvm::createCondPropagationPass();
       (void) llvm::createNullProfilerRSPass();

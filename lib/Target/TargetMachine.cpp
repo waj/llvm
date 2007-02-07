@@ -27,9 +27,6 @@ namespace llvm {
   bool NoExcessFPPrecision;
   bool UnsafeFPMath;
   bool FiniteOnlyFPMathOption;
-  bool UseSoftFloat;
-  bool NoZerosInBSS;
-  bool ExceptionHandling;
   Reloc::Model RelocationModel;
   CodeModel::Model CMModel;
 }
@@ -58,22 +55,6 @@ namespace {
                cl::desc("Enable optimizations that assumes non- NaNs / +-Infs"),
                cl::location(FiniteOnlyFPMathOption),
                cl::init(false));
-  cl::opt<bool, true>
-  GenerateSoftFloatCalls("soft-float",
-               cl::desc("Generate software floating point library calls"),
-               cl::location(UseSoftFloat),
-               cl::init(false));
-  cl::opt<bool, true>
-  DontPlaceZerosInBSS("nozero-initialized-in-bss",
-               cl::desc("Don't place zero-initialized symbols into bss section"),
-               cl::location(NoZerosInBSS),
-               cl::init(false));
-  cl::opt<bool, true>
-  EnableExceptionHandling("enable-eh",
-               cl::desc("Exception handling should be emitted."),
-               cl::location(ExceptionHandling),
-               cl::init(false));
-
   cl::opt<llvm::Reloc::Model, true>
   DefRelocationModel(
     "relocation-model",

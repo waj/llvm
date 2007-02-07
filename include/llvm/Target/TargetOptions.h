@@ -48,22 +48,6 @@ namespace llvm {
   /// and results are never NaNs or +-Infs.
   extern bool FiniteOnlyFPMathOption;
   extern bool FiniteOnlyFPMath();
-  
-  /// UseSoftFloat - This flag is enabled when the -soft-float flag is specified
-  /// on the command line.  When this flag is on, the code generator will
-  /// generate libcalls to the software floating point library instead of
-  /// target FP instructions.
-  extern bool UseSoftFloat;
-
-  /// NoZerosInBSS - By default some codegens place zero-initialized data to
-  /// .bss section. This flag disables such behaviour (necessary, e.g. for
-  /// crt*.o compiling).
-  extern bool NoZerosInBSS;
-  
-  /// ExceptionHandling - This flag indicates that exception information should
-  /// be emitted.
-  extern bool ExceptionHandling;
-  
 } // End llvm namespace
 
 #endif

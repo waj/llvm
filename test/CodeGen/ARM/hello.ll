@@ -1,13 +1,13 @@
 ; RUN: llvm-as < %s | llc -march=arm &&
-; RUN: llvm-as < %s | llc -mtriple=arm-linux | grep mov | wc -l | grep 1 &&
-; RUN: llvm-as < %s | llc -mtriple=arm-linux --disable-fp-elim | grep mov | wc -l | grep 2
-; RUN: llvm-as < %s | llc -mtriple=arm-apple-darwin | grep mov | wc -l | grep 2
+; RUN: llvm-as < %s | llc -march=arm | grep mov | wc -l | grep 1
+%str = internal constant [12 x sbyte] c"Hello World\00"		; <[12 x sbyte]*> [#uses=1]
 
-@str = internal constant [12 x i8] c"Hello World\00"
+implementation   ; Functions:
 
-define i32 @main() {
-	%tmp = call i32 @puts( i8* getelementptr ([12 x i8]* @str, i32 0, i64 0) )		; <i32> [#uses=0]
-	ret i32 0
+int %main() {
+entry:
+	%tmp = call int %puts( sbyte* getelementptr ([12 x sbyte]* %str, int 0, uint 0) )		; <int> [#uses=0]
+	ret int 0
 }
 
-declare i32 @puts(i8*)
+declare int %puts(sbyte*)

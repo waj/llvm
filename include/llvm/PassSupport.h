@@ -38,19 +38,19 @@ class PassInfo {
   const char           *PassName;      // Nice name for Pass
   const char           *PassArgument;  // Command Line argument to run this pass
   const std::type_info &TypeInfo;      // type_info object for this Pass class
-  bool IsCFGOnlyPass;                  // Pass only looks at the CFG.
   bool IsAnalysisGroup;                // True if an analysis group.
   std::vector<const PassInfo*> ItfImpl;// Interfaces implemented by this pass
 
   Pass *(*NormalCtor)();               // No argument ctor
+  Pass *(*TargetCtor)(TargetMachine&);   // Ctor taking TargetMachine object...
 
 public:
   /// PassInfo ctor - Do not call this directly, this should only be invoked
   /// through RegisterPass.
   PassInfo(const char *name, const char *arg, const std::type_info &ti,
-           Pass *(*normal)() = 0, bool isCFGOnly = false)
-    : PassName(name), PassArgument(arg), TypeInfo(ti), 
-      IsCFGOnlyPass(isCFGOnly), IsAnalysisGroup(false), NormalCtor(normal) {
+           Pass *(*normal)() = 0, Pass *(*targetctor)(TargetMachine &) = 0)
+    : PassName(name), PassArgument(arg), TypeInfo(ti), IsAnalysisGroup(false),
+      NormalCtor(normal), TargetCtor(targetctor)  {
   }
 
   /// getPassName - Return the friendly name for the pass, never returns null
@@ -74,10 +74,6 @@ public:
   bool isAnalysisGroup() const { return IsAnalysisGroup; }
   void SetIsAnalysisGroup() { IsAnalysisGroup = true; }
 
-  /// isCFGOnlyPass - return true if this pass only looks at the CFG for the
-  /// function.
-  bool isCFGOnlyPass() const { return IsCFGOnlyPass; }
-  
   /// getNormalCtor - Return a pointer to a function, that when called, creates
   /// an instance of the pass and returns it.  This pointer may be null if there
   /// is no default constructor for the pass.
@@ -96,6 +92,14 @@ public:
     assert(NormalCtor &&
            "Cannot call createPass on PassInfo without default ctor!");
     return NormalCtor();
+  }
+
+  /// getTargetCtor - Return a pointer to a function that creates an instance of
+  /// the pass and returns it.  This returns a constructor for a version of the
+  /// pass that takes a TargetMachine object as a parameter.
+  ///
+  Pass *(*getTargetCtor() const)(TargetMachine &) {
+    return TargetCtor;
   }
 
   /// addInterfaceImplemented - This method is called when this pass is
@@ -130,7 +134,8 @@ public:
 /// must be called, create a global constructor function (which takes the
 /// arguments you need and returns a Pass*) and register your pass like this:
 ///
-/// static RegisterPass<PassClassName> tmp("passopt", "My Name");
+/// Pass *createMyPass(foo &opt) { return new MyPass(opt); }
+/// static RegisterPass<PassClassName> tmp("passopt", "My Name", createMyPass);
 ///
 struct RegisterPassBase {
   /// getPassInfo - Get the pass info for the registered class...
@@ -138,21 +143,33 @@ struct RegisterPassBase {
   const PassInfo *getPassInfo() const { return &PIObj; }
 
   RegisterPassBase(const char *Name, const char *Arg, const std::type_info &TI,
-                   Pass *(*NormalCtor)() = 0, bool CFGOnly = false)
-    : PIObj(Name, Arg, TI, NormalCtor, CFGOnly) {
+                   Pass *(*Normal)() = 0,
+                   Pass *(*TargetCtor)(TargetMachine &) = 0)
+    : PIObj(Name, Arg, TI, Normal, TargetCtor) {
     registerPass();
   }
   RegisterPassBase(const std::type_info &TI)
-    : PIObj("", "", TI) {
+    : PIObj("", "", TI, 0, 0) {
     // This ctor may only be used for analysis groups: it does not auto-register
     // the pass.
     PIObj.SetIsAnalysisGroup();
+  }
+  
+  ~RegisterPassBase() {   // Intentionally non-virtual.
+    // Analysis groups are registered/unregistered by their dtor.
+    if (!PIObj.isAnalysisGroup())
+      unregisterPass();
   }
 
 protected:
   PassInfo PIObj;       // The PassInfo object for this pass
   void registerPass();
   void unregisterPass();
+
+  /// setOnlyUsesCFG - Notice that this pass only depends on the CFG, so
+  /// transformations that do not modify the CFG do not invalidate this pass.
+  ///
+  void setOnlyUsesCFG();
 };
 
 template<typename PassName>
@@ -164,7 +181,30 @@ struct RegisterPass : public RegisterPassBase {
   // Register Pass using default constructor...
   RegisterPass(const char *PassArg, const char *Name, bool CFGOnly = false)
   : RegisterPassBase(Name, PassArg, typeid(PassName),
-                     callDefaultCtor<PassName>, CFGOnly) {
+                     callDefaultCtor<PassName>) {
+    if (CFGOnly) setOnlyUsesCFG();
+  }
+
+  // Register Pass using default constructor explicitly...
+  RegisterPass(const char *PassArg, const char *Name,
+               Pass *(*ctor)(), bool CFGOnly = false) 
+  : RegisterPassBase(Name, PassArg, typeid(PassName), ctor) {
+    if (CFGOnly) setOnlyUsesCFG();
+  }
+
+  // Register Pass using TargetMachine constructor...
+  RegisterPass(const char *PassArg, const char *Name, 
+               Pass *(*targetctor)(TargetMachine &), bool CFGOnly = false)
+  : RegisterPassBase(Name, PassArg, typeid(PassName), 0, targetctor) {
+    if (CFGOnly) setOnlyUsesCFG();
+  }
+
+  // Generic constructor version that has an unknown ctor type...
+  template<typename CtorType>
+  RegisterPass(const char *PassArg, const char *Name, CtorType *Fn,
+               bool CFGOnly = false)
+  : RegisterPassBase(Name, PassArg, typeid(PassName), 0) {
+    if (CFGOnly) setOnlyUsesCFG();
   }
 };
 
@@ -197,6 +237,8 @@ protected:
                  const std::type_info *Pass = 0,
                  bool isDefault = false);
   void setGroupName(const char *Name);
+public:
+  ~RegisterAGBase();
 };
 
 template<typename Interface, bool Default = false>
@@ -237,6 +279,7 @@ struct PassRegistrationListener {
   /// or removed from the current executable.
   ///
   virtual void passRegistered(const PassInfo *P) {}
+  virtual void passUnregistered(const PassInfo *P) {}
 
   /// enumeratePasses - Iterate over the registered passes, calling the
   /// passEnumerate callback on each PassInfo object.

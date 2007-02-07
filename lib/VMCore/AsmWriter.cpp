@@ -14,6 +14,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Assembly/CachedWriter.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Assembly/PrintModulePass.h"
 #include "llvm/Assembly/AsmAnnotationWriter.h"
@@ -24,13 +25,11 @@
 #include "llvm/Instruction.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
-#include "llvm/ValueSymbolTable.h"
-#include "llvm/TypeSymbolTable.h"
+#include "llvm/SymbolTable.h"
+#include "llvm/Support/CFG.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/CFG.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Streams.h"
 #include <algorithm>
 using namespace llvm;
 
@@ -49,12 +48,20 @@ public:
 
   /// @brief A mapping of Values to slot numbers
   typedef std::map<const Value*, unsigned> ValueMap;
+  typedef std::map<const Type*, unsigned> TypeMap;
 
   /// @brief A plane with next slot number and ValueMap
   struct ValuePlane {
     unsigned next_slot;        ///< The next slot number to use
     ValueMap map;              ///< The map of Value* -> unsigned
     ValuePlane() { next_slot = 0; } ///< Make sure we start at 0
+  };
+
+  struct TypePlane {
+    unsigned next_slot;
+    TypeMap map;
+    TypePlane() { next_slot = 0; }
+    void clear() { map.clear(); next_slot = 0; }
   };
 
   /// @brief The map of planes by Type
@@ -65,19 +72,24 @@ public:
 /// @{
 public:
   /// @brief Construct from a module
-  SlotMachine(const Module *M);
+  SlotMachine(const Module *M );
 
   /// @brief Construct from a function, starting out in incorp state.
-  SlotMachine(const Function *F);
+  SlotMachine(const Function *F );
 
 /// @}
 /// @name Accessors
 /// @{
 public:
   /// Return the slot number of the specified value in it's type
-  /// plane.  If something is not in the SlotMachine, return -1.
-  int getLocalSlot(const Value *V);
-  int getGlobalSlot(const GlobalValue *V);
+  /// plane.  Its an error to ask for something not in the SlotMachine.
+  /// Its an error to ask for a Type*
+  int getSlot(const Value *V);
+  int getSlot(const Type*Ty);
+
+  /// Determine if a Value has a slot or not
+  bool hasSlot(const Value* V);
+  bool hasSlot(const Type* Ty);
 
 /// @}
 /// @name Mutators
@@ -102,11 +114,17 @@ private:
   /// This function does the actual initialization.
   inline void initialize();
 
-  /// CreateModuleSlot - Insert the specified GlobalValue* into the slot table.
-  void CreateModuleSlot(const GlobalValue *V);
-  
-  /// CreateFunctionSlot - Insert the specified Value* into the slot table.
-  void CreateFunctionSlot(const Value *V);
+  /// Values can be crammed into here at will. If they haven't
+  /// been inserted already, they get inserted, otherwise they are ignored.
+  /// Either way, the slot number for the Value* is returned.
+  unsigned createSlot(const Value *V);
+  unsigned createSlot(const Type* Ty);
+
+  /// Insert a value into the value table. Return the slot number
+  /// that it now occupies.  BadThings(TM) will happen if you insert a
+  /// Value that's already been inserted.
+  unsigned insertValue( const Value *V );
+  unsigned insertValue( const Type* Ty);
 
   /// Add all of the module level global variables (and their initializers)
   /// and function declarations, but not the contents of those functions.
@@ -132,9 +150,11 @@ public:
 
   /// @brief The TypePlanes map for the module level data
   TypedPlanes mMap;
+  TypePlane mTypes;
 
   /// @brief The TypePlanes map for the function level data
   TypedPlanes fMap;
+  TypePlane fTypes;
 
 /// @}
 
@@ -148,7 +168,13 @@ static RegisterPass<PrintFunctionPass>
 Y("print","Print function to stderr");
 
 static void WriteAsOperandInternal(std::ostream &Out, const Value *V,
-                               std::map<const Type *, std::string> &TypeTable,
+                                   bool PrintName,
+                                 std::map<const Type *, std::string> &TypeTable,
+                                   SlotMachine *Machine);
+
+static void WriteAsOperandInternal(std::ostream &Out, const Type *T,
+                                   bool PrintName,
+                                 std::map<const Type *, std::string> &TypeTable,
                                    SlotMachine *Machine);
 
 static const Module *getModuleFromVal(const Value *V) {
@@ -179,47 +205,31 @@ static SlotMachine *createSlotMachine(const Value *V) {
   return 0;
 }
 
-/// NameNeedsQuotes - Return true if the specified llvm name should be wrapped
-/// with ""'s.
-static bool NameNeedsQuotes(const std::string &Name) {
-  if (Name[0] >= '0' && Name[0] <= '9') return true;
+// getLLVMName - Turn the specified string into an 'LLVM name', which is either
+// prefixed with % (if the string only contains simple characters) or is
+// surrounded with ""'s (if it has special chars in it).
+static std::string getLLVMName(const std::string &Name,
+                               bool prefixName = true) {
+  assert(!Name.empty() && "Cannot get empty name!");
+
+  // First character cannot start with a number...
+  if (Name[0] >= '0' && Name[0] <= '9')
+    return "\"" + Name + "\"";
+
   // Scan to see if we have any characters that are not on the "white list"
   for (unsigned i = 0, e = Name.size(); i != e; ++i) {
     char C = Name[i];
     assert(C != '"' && "Illegal character in LLVM value name!");
     if ((C < 'a' || C > 'z') && (C < 'A' || C > 'Z') && (C < '0' || C > '9') &&
         C != '-' && C != '.' && C != '_')
-      return true;
-  }
-  return false;
-}
-
-enum PrefixType {
-  GlobalPrefix,
-  LabelPrefix,
-  LocalPrefix
-};
-
-/// getLLVMName - Turn the specified string into an 'LLVM name', which is either
-/// prefixed with % (if the string only contains simple characters) or is
-/// surrounded with ""'s (if it has special chars in it).
-static std::string getLLVMName(const std::string &Name, PrefixType Prefix) {
-  assert(!Name.empty() && "Cannot get empty name!");
-
-  // First character cannot start with a number...
-  if (NameNeedsQuotes(Name)) {
-    if (Prefix == GlobalPrefix)
-      return "@\"" + Name + "\"";
-    return "\"" + Name + "\"";
+      return "\"" + Name + "\"";
   }
 
   // If we get here, then the identifier is legal to use as a "VarID".
-  switch (Prefix) {
-  default: assert(0 && "Bad prefix!");
-  case GlobalPrefix: return '@' + Name;
-  case LabelPrefix:  return Name;
-  case LocalPrefix:  return '%' + Name;
-  }      
+  if (prefixName)
+    return "%"+Name;
+  else
+    return Name;
 }
 
 
@@ -229,18 +239,17 @@ static std::string getLLVMName(const std::string &Name, PrefixType Prefix) {
 static void fillTypeNameTable(const Module *M,
                               std::map<const Type *, std::string> &TypeNames) {
   if (!M) return;
-  const TypeSymbolTable &ST = M->getTypeSymbolTable();
-  TypeSymbolTable::const_iterator TI = ST.begin();
-  for (; TI != ST.end(); ++TI) {
+  const SymbolTable &ST = M->getSymbolTable();
+  SymbolTable::type_const_iterator TI = ST.type_begin();
+  for (; TI != ST.type_end(); ++TI ) {
     // As a heuristic, don't insert pointer to primitive types, because
     // they are used too often to have a single useful name.
     //
     const Type *Ty = cast<Type>(TI->second);
     if (!isa<PointerType>(Ty) ||
         !cast<PointerType>(Ty)->getElementType()->isPrimitiveType() ||
-        !cast<PointerType>(Ty)->getElementType()->isInteger() ||
         isa<OpaqueType>(cast<PointerType>(Ty)->getElementType()))
-      TypeNames.insert(std::make_pair(Ty, getLLVMName(TI->first, LocalPrefix)));
+      TypeNames.insert(std::make_pair(Ty, getLLVMName(TI->first)));
   }
 }
 
@@ -250,7 +259,7 @@ static void calcTypeName(const Type *Ty,
                          std::vector<const Type *> &TypeStack,
                          std::map<const Type *, std::string> &TypeNames,
                          std::string & Result){
-  if (Ty->isInteger() || (Ty->isPrimitiveType() && !isa<OpaqueType>(Ty))) {
+  if (Ty->isPrimitiveType() && !isa<OpaqueType>(Ty)) {
     Result += Ty->getDescription();  // Base case
     return;
   }
@@ -282,42 +291,25 @@ static void calcTypeName(const Type *Ty,
   TypeStack.push_back(Ty);    // Recursive case: Add us to the stack..
 
   switch (Ty->getTypeID()) {
-  case Type::IntegerTyID: {
-    unsigned BitWidth = cast<IntegerType>(Ty)->getBitWidth();
-    Result += "i" + utostr(BitWidth);
-    break;
-  }
   case Type::FunctionTyID: {
     const FunctionType *FTy = cast<FunctionType>(Ty);
     calcTypeName(FTy->getReturnType(), TypeStack, TypeNames, Result);
     Result += " (";
-    unsigned Idx = 1;
     for (FunctionType::param_iterator I = FTy->param_begin(),
            E = FTy->param_end(); I != E; ++I) {
       if (I != FTy->param_begin())
         Result += ", ";
       calcTypeName(*I, TypeStack, TypeNames, Result);
-      if (FTy->getParamAttrs(Idx)) {
-        Result += + " ";
-        Result += FunctionType::getParamAttrsText(FTy->getParamAttrs(Idx));
-      }
-      Idx++;
     }
     if (FTy->isVarArg()) {
       if (FTy->getNumParams()) Result += ", ";
       Result += "...";
     }
     Result += ")";
-    if (FTy->getParamAttrs(0)) {
-      Result += " ";
-      Result += FunctionType::getParamAttrsText(FTy->getParamAttrs(0));
-    }
     break;
   }
   case Type::StructTyID: {
     const StructType *STy = cast<StructType>(Ty);
-    if (STy->isPacked())
-      Result += '<';
     Result += "{ ";
     for (StructType::element_iterator I = STy->element_begin(),
            E = STy->element_end(); I != E; ++I) {
@@ -326,8 +318,6 @@ static void calcTypeName(const Type *Ty,
       calcTypeName(*I, TypeStack, TypeNames, Result);
     }
     Result += " }";
-    if (STy->isPacked())
-      Result += '>';
     break;
   }
   case Type::PointerTyID:
@@ -354,10 +344,10 @@ static void calcTypeName(const Type *Ty,
     break;
   default:
     Result += "<unrecognized-type>";
-    break;
   }
 
   TypeStack.pop_back();       // Remove self from stack...
+  return;
 }
 
 
@@ -369,7 +359,7 @@ static std::ostream &printTypeInt(std::ostream &Out, const Type *Ty,
   // Primitive types always print out their description, regardless of whether
   // they have been named or not.
   //
-  if (Ty->isInteger() || (Ty->isPrimitiveType() && !isa<OpaqueType>(Ty)))
+  if (Ty->isPrimitiveType() && !isa<OpaqueType>(Ty))
     return Out << Ty->getDescription();
 
   // Check to see if the type is named.
@@ -396,14 +386,16 @@ std::ostream &llvm::WriteTypeSymbolic(std::ostream &Out, const Type *Ty,
                                       const Module *M) {
   Out << ' ';
 
-  // If they want us to print out a type, but there is no context, we can't
-  // print it symbolically.
-  if (!M)
+  // If they want us to print out a type, attempt to make it symbolic if there
+  // is a symbol table in the module...
+  if (M) {
+    std::map<const Type *, std::string> TypeNames;
+    fillTypeNameTable(M, TypeNames);
+
+    return printTypeInt(Out, Ty, TypeNames);
+  } else {
     return Out << Ty->getDescription();
-    
-  std::map<const Type *, std::string> TypeNames;
-  fillTypeNameTable(M, TypeNames);
-  return printTypeInt(Out, Ty, TypeNames);
+  }
 }
 
 // PrintEscapedString - Print each character of the specified string, escaping
@@ -421,50 +413,20 @@ static void PrintEscapedString(const std::string &Str, std::ostream &Out) {
   }
 }
 
-static const char *getPredicateText(unsigned predicate) {
-  const char * pred = "unknown";
-  switch (predicate) {
-    case FCmpInst::FCMP_FALSE: pred = "false"; break;
-    case FCmpInst::FCMP_OEQ:   pred = "oeq"; break;
-    case FCmpInst::FCMP_OGT:   pred = "ogt"; break;
-    case FCmpInst::FCMP_OGE:   pred = "oge"; break;
-    case FCmpInst::FCMP_OLT:   pred = "olt"; break;
-    case FCmpInst::FCMP_OLE:   pred = "ole"; break;
-    case FCmpInst::FCMP_ONE:   pred = "one"; break;
-    case FCmpInst::FCMP_ORD:   pred = "ord"; break;
-    case FCmpInst::FCMP_UNO:   pred = "uno"; break;
-    case FCmpInst::FCMP_UEQ:   pred = "ueq"; break;
-    case FCmpInst::FCMP_UGT:   pred = "ugt"; break;
-    case FCmpInst::FCMP_UGE:   pred = "uge"; break;
-    case FCmpInst::FCMP_ULT:   pred = "ult"; break;
-    case FCmpInst::FCMP_ULE:   pred = "ule"; break;
-    case FCmpInst::FCMP_UNE:   pred = "une"; break;
-    case FCmpInst::FCMP_TRUE:  pred = "true"; break;
-    case ICmpInst::ICMP_EQ:    pred = "eq"; break;
-    case ICmpInst::ICMP_NE:    pred = "ne"; break;
-    case ICmpInst::ICMP_SGT:   pred = "sgt"; break;
-    case ICmpInst::ICMP_SGE:   pred = "sge"; break;
-    case ICmpInst::ICMP_SLT:   pred = "slt"; break;
-    case ICmpInst::ICMP_SLE:   pred = "sle"; break;
-    case ICmpInst::ICMP_UGT:   pred = "ugt"; break;
-    case ICmpInst::ICMP_UGE:   pred = "uge"; break;
-    case ICmpInst::ICMP_ULT:   pred = "ult"; break;
-    case ICmpInst::ICMP_ULE:   pred = "ule"; break;
-  }
-  return pred;
-}
-
 /// @brief Internal constant writer.
 static void WriteConstantInt(std::ostream &Out, const Constant *CV,
+                             bool PrintName,
                              std::map<const Type *, std::string> &TypeTable,
                              SlotMachine *Machine) {
   const int IndentSize = 4;
   static std::string Indent = "\n";
-  if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
-    if (CI->getType() == Type::Int1Ty) 
-      Out << (CI->getZExtValue() ? "true" : "false");
-    else 
+  if (const ConstantBool *CB = dyn_cast<ConstantBool>(CV)) {
+    Out << (CB->getValue() ? "true" : "false");
+  } else if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
+    if (CI->getType()->isSigned())
       Out << CI->getSExtValue();
+    else
+      Out << CI->getZExtValue();
   } else if (const ConstantFP *CFP = dyn_cast<ConstantFP>(CV)) {
     // We would like to output the FP constant value in exponential notation,
     // but we cannot do this if doing so will lose precision.  Check here to
@@ -510,18 +472,17 @@ static void WriteConstantInt(std::ostream &Out, const Constant *CV,
         Out << ' ';
         printTypeInt(Out, ETy, TypeTable);
         WriteAsOperandInternal(Out, CA->getOperand(0),
-                               TypeTable, Machine);
+                               PrintName, TypeTable, Machine);
         for (unsigned i = 1, e = CA->getNumOperands(); i != e; ++i) {
           Out << ", ";
           printTypeInt(Out, ETy, TypeTable);
-          WriteAsOperandInternal(Out, CA->getOperand(i), TypeTable, Machine);
+          WriteAsOperandInternal(Out, CA->getOperand(i), PrintName,
+                                 TypeTable, Machine);
         }
       }
       Out << " ]";
     }
   } else if (const ConstantStruct *CS = dyn_cast<ConstantStruct>(CV)) {
-    if (CS->getType()->isPacked())
-      Out << '<';
     Out << '{';
     unsigned N = CS->getNumOperands();
     if (N) {
@@ -533,21 +494,21 @@ static void WriteConstantInt(std::ostream &Out, const Constant *CV,
       }
       printTypeInt(Out, CS->getOperand(0)->getType(), TypeTable);
 
-      WriteAsOperandInternal(Out, CS->getOperand(0), TypeTable, Machine);
+      WriteAsOperandInternal(Out, CS->getOperand(0),
+                             PrintName, TypeTable, Machine);
 
       for (unsigned i = 1; i < N; i++) {
         Out << ", ";
         if (N > 2) Out << Indent;
         printTypeInt(Out, CS->getOperand(i)->getType(), TypeTable);
 
-        WriteAsOperandInternal(Out, CS->getOperand(i), TypeTable, Machine);
+        WriteAsOperandInternal(Out, CS->getOperand(i),
+                               PrintName, TypeTable, Machine);
       }
       if (N > 2) Indent.resize(Indent.size() - IndentSize);
     }
  
     Out << " }";
-    if (CS->getType()->isPacked())
-      Out << '>';
   } else if (const ConstantPacked *CP = dyn_cast<ConstantPacked>(CV)) {
       const Type *ETy = CP->getType()->getElementType();
       assert(CP->getNumOperands() > 0 &&
@@ -555,11 +516,13 @@ static void WriteConstantInt(std::ostream &Out, const Constant *CV,
       Out << '<';
       Out << ' ';
       printTypeInt(Out, ETy, TypeTable);
-      WriteAsOperandInternal(Out, CP->getOperand(0), TypeTable, Machine);
+      WriteAsOperandInternal(Out, CP->getOperand(0),
+                             PrintName, TypeTable, Machine);
       for (unsigned i = 1, e = CP->getNumOperands(); i != e; ++i) {
           Out << ", ";
           printTypeInt(Out, ETy, TypeTable);
-          WriteAsOperandInternal(Out, CP->getOperand(i), TypeTable, Machine);
+          WriteAsOperandInternal(Out, CP->getOperand(i), PrintName,
+                                 TypeTable, Machine);
       }
       Out << " >";
   } else if (isa<ConstantPointerNull>(CV)) {
@@ -569,23 +532,19 @@ static void WriteConstantInt(std::ostream &Out, const Constant *CV,
     Out << "undef";
 
   } else if (const ConstantExpr *CE = dyn_cast<ConstantExpr>(CV)) {
-    Out << CE->getOpcodeName();
-    if (CE->isCompare())
-      Out << " " << getPredicateText(CE->getPredicate());
-    Out << " (";
+    Out << CE->getOpcodeName() << " (";
 
     for (User::const_op_iterator OI=CE->op_begin(); OI != CE->op_end(); ++OI) {
       printTypeInt(Out, (*OI)->getType(), TypeTable);
-      WriteAsOperandInternal(Out, *OI, TypeTable, Machine);
+      WriteAsOperandInternal(Out, *OI, PrintName, TypeTable, Machine);
       if (OI+1 != CE->op_end())
         Out << ", ";
     }
 
-    if (CE->isCast()) {
+    if (CE->getOpcode() == Instruction::Cast) {
       Out << " to ";
       printTypeInt(Out, CE->getType(), TypeTable);
     }
-
     Out << ')';
 
   } else {
@@ -599,16 +558,16 @@ static void WriteConstantInt(std::ostream &Out, const Constant *CV,
 /// the whole instruction that generated it.
 ///
 static void WriteAsOperandInternal(std::ostream &Out, const Value *V,
+                                   bool PrintName,
                                   std::map<const Type*, std::string> &TypeTable,
                                    SlotMachine *Machine) {
   Out << ' ';
-  if (V->hasName())
-    Out << getLLVMName(V->getName(),
-                       isa<GlobalValue>(V) ? GlobalPrefix : LocalPrefix);
+  if ((PrintName || isa<GlobalValue>(V)) && V->hasName())
+    Out << getLLVMName(V->getName());
   else {
     const Constant *CV = dyn_cast<Constant>(V);
     if (CV && !isa<GlobalValue>(CV)) {
-      WriteConstantInt(Out, CV, TypeTable, Machine);
+      WriteConstantInt(Out, CV, PrintName, TypeTable, Machine);
     } else if (const InlineAsm *IA = dyn_cast<InlineAsm>(V)) {
       Out << "asm ";
       if (IA->hasSideEffects())
@@ -619,31 +578,19 @@ static void WriteAsOperandInternal(std::ostream &Out, const Value *V,
       PrintEscapedString(IA->getConstraintString(), Out);
       Out << '"';
     } else {
-      char Prefix = '%';
       int Slot;
       if (Machine) {
-        if (const GlobalValue *GV = dyn_cast<GlobalValue>(V)) {
-          Slot = Machine->getGlobalSlot(GV);
-          Prefix = '@';
-        } else {
-          Slot = Machine->getLocalSlot(V);
-        }
+        Slot = Machine->getSlot(V);
       } else {
         Machine = createSlotMachine(V);
-        if (Machine) {
-          if (const GlobalValue *GV = dyn_cast<GlobalValue>(V)) {
-            Slot = Machine->getGlobalSlot(GV);
-            Prefix = '@';
-          } else {
-            Slot = Machine->getLocalSlot(V);
-          }
-        } else {
+        if (Machine)
+          Slot = Machine->getSlot(V);
+        else
           Slot = -1;
-        }
         delete Machine;
       }
       if (Slot != -1)
-        Out << Prefix << Slot;
+        Out << '%' << Slot;
       else
         Out << "<badref>";
     }
@@ -655,7 +602,8 @@ static void WriteAsOperandInternal(std::ostream &Out, const Value *V,
 /// the whole instruction that generated it.
 ///
 std::ostream &llvm::WriteAsOperand(std::ostream &Out, const Value *V,
-                                   bool PrintType, const Module *Context) {
+                                   bool PrintType, bool PrintName,
+                                   const Module *Context) {
   std::map<const Type *, std::string> TypeNames;
   if (Context == 0) Context = getModuleFromVal(V);
 
@@ -665,10 +613,51 @@ std::ostream &llvm::WriteAsOperand(std::ostream &Out, const Value *V,
   if (PrintType)
     printTypeInt(Out, V->getType(), TypeNames);
 
-  WriteAsOperandInternal(Out, V, TypeNames, 0);
+  WriteAsOperandInternal(Out, V, PrintName, TypeNames, 0);
   return Out;
 }
 
+/// WriteAsOperandInternal - Write the name of the specified value out to
+/// the specified ostream.  This can be useful when you just want to print
+/// int %reg126, not the whole instruction that generated it.
+///
+static void WriteAsOperandInternal(std::ostream &Out, const Type *T,
+                                   bool PrintName,
+                                  std::map<const Type*, std::string> &TypeTable,
+                                   SlotMachine *Machine) {
+  Out << ' ';
+  int Slot;
+  if (Machine) {
+    Slot = Machine->getSlot(T);
+    if (Slot != -1)
+      Out << '%' << Slot;
+    else
+      Out << "<badref>";
+  } else {
+    Out << T->getDescription();
+  }
+}
+
+/// WriteAsOperand - Write the name of the specified value out to the specified
+/// ostream.  This can be useful when you just want to print int %reg126, not
+/// the whole instruction that generated it.
+///
+std::ostream &llvm::WriteAsOperand(std::ostream &Out, const Type *Ty,
+                                   bool PrintType, bool PrintName,
+                                   const Module *Context) {
+  std::map<const Type *, std::string> TypeNames;
+  assert(Context != 0 && "Can't write types as operand without module context");
+
+  fillTypeNameTable(Context, TypeNames);
+
+  // if (PrintType)
+    // printTypeInt(Out, V->getType(), TypeNames);
+
+  printTypeInt(Out, Ty, TypeNames);
+
+  WriteAsOperandInternal(Out, Ty, PrintName, TypeNames, 0);
+  return Out;
+}
 
 namespace llvm {
 
@@ -694,18 +683,20 @@ public:
   inline void write(const Function *F)       { printFunction(F);    }
   inline void write(const BasicBlock *BB)    { printBasicBlock(BB); }
   inline void write(const Instruction *I)    { printInstruction(*I); }
+  inline void write(const Constant *CPV)     { printConstant(CPV);  }
   inline void write(const Type *Ty)          { printType(Ty);       }
 
-  void writeOperand(const Value *Op, bool PrintType);
+  void writeOperand(const Value *Op, bool PrintType, bool PrintName = true);
 
   const Module* getModule() { return TheModule; }
 
 private:
   void printModule(const Module *M);
-  void printTypeSymbolTable(const TypeSymbolTable &ST);
+  void printSymbolTable(const SymbolTable &ST);
+  void printConstant(const Constant *CPV);
   void printGlobal(const GlobalVariable *GV);
   void printFunction(const Function *F);
-  void printArgument(const Argument *FA, FunctionType::ParameterAttributes A);
+  void printArgument(const Argument *FA);
   void printBasicBlock(const BasicBlock *BB);
   void printInstruction(const Instruction &I);
 
@@ -731,32 +722,20 @@ private:
 /// without considering any symbolic types that we may have equal to it.
 ///
 std::ostream &AssemblyWriter::printTypeAtLeastOneLevel(const Type *Ty) {
-  if (const IntegerType *ITy = dyn_cast<IntegerType>(Ty))
-    Out << "i" << utostr(ITy->getBitWidth());
-  else if (const FunctionType *FTy = dyn_cast<FunctionType>(Ty)) {
-    printType(FTy->getReturnType());
-    Out << " (";
-    unsigned Idx = 1;
+  if (const FunctionType *FTy = dyn_cast<FunctionType>(Ty)) {
+    printType(FTy->getReturnType()) << " (";
     for (FunctionType::param_iterator I = FTy->param_begin(),
            E = FTy->param_end(); I != E; ++I) {
       if (I != FTy->param_begin())
         Out << ", ";
       printType(*I);
-      if (FTy->getParamAttrs(Idx)) {
-        Out << " " << FunctionType::getParamAttrsText(FTy->getParamAttrs(Idx));
-      }
-      Idx++;
     }
     if (FTy->isVarArg()) {
       if (FTy->getNumParams()) Out << ", ";
       Out << "...";
     }
     Out << ')';
-    if (FTy->getParamAttrs(0))
-      Out << ' ' << FunctionType::getParamAttrsText(FTy->getParamAttrs(0));
   } else if (const StructType *STy = dyn_cast<StructType>(Ty)) {
-    if (STy->isPacked())
-      Out << '<';
     Out << "{ ";
     for (StructType::element_iterator I = STy->element_begin(),
            E = STy->element_end(); I != E; ++I) {
@@ -765,8 +744,6 @@ std::ostream &AssemblyWriter::printTypeAtLeastOneLevel(const Type *Ty) {
       printType(*I);
     }
     Out << " }";
-    if (STy->isPacked())
-      Out << '>';
   } else if (const PointerType *PTy = dyn_cast<PointerType>(Ty)) {
     printType(PTy->getElementType()) << '*';
   } else if (const ArrayType *ATy = dyn_cast<ArrayType>(Ty)) {
@@ -787,12 +764,13 @@ std::ostream &AssemblyWriter::printTypeAtLeastOneLevel(const Type *Ty) {
 }
 
 
-void AssemblyWriter::writeOperand(const Value *Operand, bool PrintType) {
-  if (Operand == 0) {
-    Out << "<null operand!>";
-  } else {
+void AssemblyWriter::writeOperand(const Value *Operand, bool PrintType,
+                                  bool PrintName) {
+  if (Operand != 0) {
     if (PrintType) { Out << ' '; printType(Operand->getType()); }
-    WriteAsOperandInternal(Out, Operand, TypeNames, &Machine);
+    WriteAsOperandInternal(Out, Operand, PrintName, TypeNames, &Machine);
+  } else {
+    Out << "<null operand!>";
   }
 }
 
@@ -806,6 +784,17 @@ void AssemblyWriter::printModule(const Module *M) {
 
   if (!M->getDataLayout().empty())
     Out << "target datalayout = \"" << M->getDataLayout() << "\"\n";
+
+  switch (M->getEndianness()) {
+  case Module::LittleEndian: Out << "target endian = little\n"; break;
+  case Module::BigEndian:    Out << "target endian = big\n";    break;
+  case Module::AnyEndianness: break;
+  }
+  switch (M->getPointerSize()) {
+  case Module::Pointer32:    Out << "target pointersize = 32\n"; break;
+  case Module::Pointer64:    Out << "target pointersize = 64\n"; break;
+  case Module::AnyPointerSize: break;
+  }
   if (!M->getTargetTriple().empty())
     Out << "target triple = \"" << M->getTargetTriple() << "\"\n";
 
@@ -844,10 +833,9 @@ void AssemblyWriter::printModule(const Module *M) {
   }
 
   // Loop over the symbol table, emitting all named constants.
-  printTypeSymbolTable(M->getTypeSymbolTable());
+  printSymbolTable(M->getSymbolTable());
 
-  for (Module::const_global_iterator I = M->global_begin(), E = M->global_end();
-       I != E; ++I)
+  for (Module::const_global_iterator I = M->global_begin(), E = M->global_end(); I != E; ++I)
     printGlobal(I);
 
   Out << "\nimplementation   ; Functions:\n";
@@ -858,14 +846,15 @@ void AssemblyWriter::printModule(const Module *M) {
 }
 
 void AssemblyWriter::printGlobal(const GlobalVariable *GV) {
-  if (GV->hasName()) Out << getLLVMName(GV->getName(), GlobalPrefix) << " = ";
+  if (GV->hasName()) Out << getLLVMName(GV->getName()) << " = ";
 
   if (!GV->hasInitializer())
     switch (GV->getLinkage()) {
      case GlobalValue::DLLImportLinkage:   Out << "dllimport "; break;
      case GlobalValue::ExternalWeakLinkage: Out << "extern_weak "; break;
      default: Out << "external "; break;
-    } else {
+    }
+  else
     switch (GV->getLinkage()) {
     case GlobalValue::InternalLinkage:     Out << "internal "; break;
     case GlobalValue::LinkOnceLinkage:     Out << "linkonce "; break;
@@ -876,23 +865,17 @@ void AssemblyWriter::printGlobal(const GlobalVariable *GV) {
     case GlobalValue::ExternalWeakLinkage: Out << "extern_weak "; break;
     case GlobalValue::ExternalLinkage:     break;
     case GlobalValue::GhostLinkage:
-      cerr << "GhostLinkage not allowed in AsmWriter!\n";
+      std::cerr << "GhostLinkage not allowed in AsmWriter!\n";
       abort();
     }
-    switch (GV->getVisibility()) {
-    default: assert(0 && "Invalid visibility style!");
-    case GlobalValue::DefaultVisibility: break;
-    case GlobalValue::HiddenVisibility: Out << "hidden "; break;
-    }
-  }
-  
+
   Out << (GV->isConstant() ? "constant " : "global ");
   printType(GV->getType()->getElementType());
 
   if (GV->hasInitializer()) {
     Constant* C = cast<Constant>(GV->getInitializer());
     assert(C &&  "GlobalVar initializer isn't constant?");
-    writeOperand(GV->getInitializer(), false);
+    writeOperand(GV->getInitializer(), false, isa<GlobalValue>(C));
   }
   
   if (GV->hasSection())
@@ -904,17 +887,53 @@ void AssemblyWriter::printGlobal(const GlobalVariable *GV) {
   Out << "\n";
 }
 
-void AssemblyWriter::printTypeSymbolTable(const TypeSymbolTable &ST) {
+
+// printSymbolTable - Run through symbol table looking for constants
+// and types. Emit their declarations.
+void AssemblyWriter::printSymbolTable(const SymbolTable &ST) {
+
   // Print the types.
-  for (TypeSymbolTable::const_iterator TI = ST.begin(), TE = ST.end();
-       TI != TE; ++TI) {
-    Out << "\t" << getLLVMName(TI->first, LocalPrefix) << " = type ";
+  for (SymbolTable::type_const_iterator TI = ST.type_begin();
+       TI != ST.type_end(); ++TI ) {
+    Out << "\t" << getLLVMName(TI->first) << " = type ";
 
     // Make sure we print out at least one level of the type structure, so
     // that we do not get %FILE = type %FILE
     //
     printTypeAtLeastOneLevel(TI->second) << "\n";
   }
+
+  // Print the constants, in type plane order.
+  for (SymbolTable::plane_const_iterator PI = ST.plane_begin();
+       PI != ST.plane_end(); ++PI ) {
+    SymbolTable::value_const_iterator VI = ST.value_begin(PI->first);
+    SymbolTable::value_const_iterator VE = ST.value_end(PI->first);
+
+    for (; VI != VE; ++VI) {
+      const Value* V = VI->second;
+      const Constant *CPV = dyn_cast<Constant>(V) ;
+      if (CPV && !isa<GlobalValue>(V)) {
+        printConstant(CPV);
+      }
+    }
+  }
+}
+
+
+/// printConstant - Print out a constant pool entry...
+///
+void AssemblyWriter::printConstant(const Constant *CPV) {
+  // Don't print out unnamed constants, they will be inlined
+  if (!CPV->hasName()) return;
+
+  // Print out name...
+  Out << "\t" << getLLVMName(CPV->getName()) << " =";
+
+  // Write the value out now...
+  writeOperand(CPV, true, false);
+
+  printInfoComment(*CPV);
+  Out << "\n";
 }
 
 /// printFunction - Print all aspects of a function.
@@ -923,16 +942,18 @@ void AssemblyWriter::printFunction(const Function *F) {
   // Print out the return type and name...
   Out << "\n";
 
+  // Ensure that no local symbols conflict with global symbols.
+  const_cast<Function*>(F)->renameLocalSymbols();
+
   if (AnnotationWriter) AnnotationWriter->emitFunctionAnnot(F, Out);
 
-  if (F->isDeclaration())
+  if (F->isExternal())
     switch (F->getLinkage()) {
     case GlobalValue::DLLImportLinkage:    Out << "declare dllimport "; break;
     case GlobalValue::ExternalWeakLinkage: Out << "declare extern_weak "; break;
     default: Out << "declare ";
     }
-  else {
-    Out << "define ";
+  else
     switch (F->getLinkage()) {
     case GlobalValue::InternalLinkage:     Out << "internal "; break;
     case GlobalValue::LinkOnceLinkage:     Out << "linkonce "; break;
@@ -943,19 +964,14 @@ void AssemblyWriter::printFunction(const Function *F) {
     case GlobalValue::ExternalWeakLinkage: Out << "extern_weak "; break;      
     case GlobalValue::ExternalLinkage: break;
     case GlobalValue::GhostLinkage:
-      cerr << "GhostLinkage not allowed in AsmWriter!\n";
+      std::cerr << "GhostLinkage not allowed in AsmWriter!\n";
       abort();
     }
-    switch (F->getVisibility()) {
-    default: assert(0 && "Invalid visibility style!");
-    case GlobalValue::DefaultVisibility: break;
-    case GlobalValue::HiddenVisibility: Out << "hidden "; break;
-    }
-  }
 
   // Print the calling convention.
   switch (F->getCallingConv()) {
   case CallingConv::C: break;   // default
+  case CallingConv::CSRet:        Out << "csretcc "; break;
   case CallingConv::Fast:         Out << "fastcc "; break;
   case CallingConv::Cold:         Out << "coldcc "; break;
   case CallingConv::X86_StdCall:  Out << "x86_stdcallcc "; break;
@@ -963,25 +979,19 @@ void AssemblyWriter::printFunction(const Function *F) {
   default: Out << "cc" << F->getCallingConv() << " "; break;
   }
 
-  const FunctionType *FT = F->getFunctionType();
   printType(F->getReturnType()) << ' ';
   if (!F->getName().empty())
-    Out << getLLVMName(F->getName(), GlobalPrefix);
+    Out << getLLVMName(F->getName());
   else
-    Out << "@\"\"";
+    Out << "\"\"";
   Out << '(';
   Machine.incorporateFunction(F);
 
   // Loop over the arguments, printing them...
+  const FunctionType *FT = F->getFunctionType();
 
-  unsigned Idx = 1;
-  for (Function::const_arg_iterator I = F->arg_begin(), E = F->arg_end();
-       I != E; ++I) {
-    // Insert commas as we go... the first arg doesn't get a comma
-    if (I != F->arg_begin()) Out << ", ";
-    printArgument(I, FT->getParamAttrs(Idx));
-    Idx++;
-  }
+  for(Function::const_arg_iterator I = F->arg_begin(), E = F->arg_end(); I != E; ++I)
+    printArgument(I);
 
   // Finish printing arguments...
   if (FT->isVarArg()) {
@@ -989,14 +999,13 @@ void AssemblyWriter::printFunction(const Function *F) {
     Out << "...";  // Output varargs portion of signature!
   }
   Out << ')';
-  if (FT->getParamAttrs(0))
-    Out << ' ' << FunctionType::getParamAttrsText(FT->getParamAttrs(0));
+
   if (F->hasSection())
     Out << " section \"" << F->getSection() << '"';
   if (F->getAlignment())
     Out << " align " << F->getAlignment();
 
-  if (F->isDeclaration()) {
+  if (F->isExternal()) {
     Out << "\n";
   } else {
     Out << " {";
@@ -1014,27 +1023,26 @@ void AssemblyWriter::printFunction(const Function *F) {
 /// printArgument - This member is called for every argument that is passed into
 /// the function.  Simply print it out
 ///
-void AssemblyWriter::printArgument(const Argument *Arg, 
-                                   FunctionType::ParameterAttributes attrs) {
+void AssemblyWriter::printArgument(const Argument *Arg) {
+  // Insert commas as we go... the first arg doesn't get a comma
+  if (Arg != Arg->getParent()->arg_begin()) Out << ", ";
+
   // Output type...
   printType(Arg->getType());
 
-  if (attrs != FunctionType::NoAttributeSet)
-    Out << ' ' << FunctionType::getParamAttrsText(attrs);
-
   // Output name, if available...
   if (Arg->hasName())
-    Out << ' ' << getLLVMName(Arg->getName(), LocalPrefix);
+    Out << ' ' << getLLVMName(Arg->getName());
 }
 
 /// printBasicBlock - This member is called for each basic block in a method.
 ///
 void AssemblyWriter::printBasicBlock(const BasicBlock *BB) {
   if (BB->hasName()) {              // Print out the label if it exists...
-    Out << "\n" << getLLVMName(BB->getName(), LabelPrefix) << ':';
+    Out << "\n" << getLLVMName(BB->getName(), false) << ':';
   } else if (!BB->use_empty()) {      // Don't print block # of no uses...
     Out << "\n; <label>:";
-    int Slot = Machine.getLocalSlot(BB);
+    int Slot = Machine.getSlot(BB);
     if (Slot != -1)
       Out << Slot;
     else
@@ -1053,10 +1061,10 @@ void AssemblyWriter::printBasicBlock(const BasicBlock *BB) {
         Out << " No predecessors!";
       } else {
         Out << " preds =";
-        writeOperand(*PI, false);
+        writeOperand(*PI, false, true);
         for (++PI; PI != PE; ++PI) {
           Out << ',';
-          writeOperand(*PI, false);
+          writeOperand(*PI, false, true);
         }
       }
     }
@@ -1083,11 +1091,7 @@ void AssemblyWriter::printInfoComment(const Value &V) {
     printType(V.getType()) << '>';
 
     if (!V.hasName()) {
-      int SlotNum;
-      if (const GlobalValue *GV = dyn_cast<GlobalValue>(&V))
-        SlotNum = Machine.getGlobalSlot(GV);
-      else
-        SlotNum = Machine.getLocalSlot(&V);
+      int SlotNum = Machine.getSlot(&V);
       if (SlotNum == -1)
         Out << ":<badref>";
       else
@@ -1105,7 +1109,7 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
 
   // Print out name if it exists...
   if (I.hasName())
-    Out << getLLVMName(I.getName(), LocalPrefix) << " = ";
+    Out << getLLVMName(I.getName()) << " = ";
 
   // If this is a volatile load or store, print out the volatile marker.
   if ((isa<LoadInst>(I)  && cast<LoadInst>(I).isVolatile()) ||
@@ -1118,13 +1122,6 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
 
   // Print out the opcode...
   Out << I.getOpcodeName();
-
-  // Print out the compare instruction predicates
-  if (const FCmpInst *FCI = dyn_cast<FCmpInst>(&I)) {
-    Out << " " << getPredicateText(FCI->getPredicate());
-  } else if (const ICmpInst *ICI = dyn_cast<ICmpInst>(&I)) {
-    Out << " " << getPredicateText(ICI->getPredicate());
-  }
 
   // Print out the type of the operands...
   const Value *Operand = I.getNumOperands() ? I.getOperand(0) : 0;
@@ -1165,6 +1162,7 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     // Print the calling convention being used.
     switch (CI->getCallingConv()) {
     case CallingConv::C: break;   // default
+    case CallingConv::CSRet: Out << " csretcc"; break;
     case CallingConv::Fast:  Out << " fastcc"; break;
     case CallingConv::Cold:  Out << " coldcc"; break;
     case CallingConv::X86_StdCall:  Out << "x86_stdcallcc "; break;
@@ -1189,16 +1187,13 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
       writeOperand(Operand, true);
     }
     Out << '(';
-    for (unsigned op = 1, Eop = I.getNumOperands(); op < Eop; ++op) {
-      if (op > 1)
-        Out << ',';
+    if (CI->getNumOperands() > 1) writeOperand(CI->getOperand(1), true);
+    for (unsigned op = 2, Eop = I.getNumOperands(); op < Eop; ++op) {
+      Out << ',';
       writeOperand(I.getOperand(op), true);
-      if (FTy->getParamAttrs(op) != FunctionType::NoAttributeSet)
-        Out << " " << FTy->getParamAttrsText(FTy->getParamAttrs(op));
     }
+
     Out << " )";
-    if (FTy->getParamAttrs(0) != FunctionType::NoAttributeSet)
-      Out << ' ' << FTy->getParamAttrsText(FTy->getParamAttrs(0));
   } else if (const InvokeInst *II = dyn_cast<InvokeInst>(&I)) {
     const PointerType  *PTy = cast<PointerType>(Operand->getType());
     const FunctionType *FTy = cast<FunctionType>(PTy->getElementType());
@@ -1207,6 +1202,7 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     // Print the calling convention being used.
     switch (II->getCallingConv()) {
     case CallingConv::C: break;   // default
+    case CallingConv::CSRet: Out << " csretcc"; break;
     case CallingConv::Fast:  Out << " fastcc"; break;
     case CallingConv::Cold:  Out << " coldcc"; break;
     case CallingConv::X86_StdCall:  Out << "x86_stdcallcc "; break;
@@ -1228,18 +1224,13 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     }
 
     Out << '(';
-    for (unsigned op = 3, Eop = I.getNumOperands(); op < Eop; ++op) {
-      if (op > 3)
-        Out << ',';
+    if (I.getNumOperands() > 3) writeOperand(I.getOperand(3), true);
+    for (unsigned op = 4, Eop = I.getNumOperands(); op < Eop; ++op) {
+      Out << ',';
       writeOperand(I.getOperand(op), true);
-      if (FTy->getParamAttrs(op-2) != FunctionType::NoAttributeSet)
-        Out << " " << FTy->getParamAttrsText(FTy->getParamAttrs(op-2));
     }
 
-    Out << " )";
-    if (FTy->getParamAttrs(0) != FunctionType::NoAttributeSet)
-      Out << " " << FTy->getParamAttrsText(FTy->getParamAttrs(0));
-    Out << "\n\t\t\tto";
+    Out << " )\n\t\t\tto";
     writeOperand(II->getNormalDest(), true);
     Out << " unwind";
     writeOperand(II->getUnwindDest(), true);
@@ -1270,8 +1261,10 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     bool PrintAllTypes = false;
     const Type *TheType = Operand->getType();
 
-    // Select, Store and ShuffleVector always print all types.
-    if (isa<SelectInst>(I) || isa<StoreInst>(I) || isa<ShuffleVectorInst>(I)) {
+    // Shift Left & Right print both types even for Ubyte LHS, and select prints
+    // types even if all operands are bools.
+    if (isa<ShiftInst>(I) || isa<SelectInst>(I) || isa<StoreInst>(I) ||
+        isa<ShuffleVectorInst>(I)) {
       PrintAllTypes = true;
     } else {
       for (unsigned i = 1, E = I.getNumOperands(); i != E; ++i) {
@@ -1323,7 +1316,7 @@ void Function::print(std::ostream &o, AssemblyAnnotationWriter *AAW) const {
 }
 
 void InlineAsm::print(std::ostream &o, AssemblyAnnotationWriter *AAW) const {
-  WriteAsOperand(o, this, true, 0);
+  WriteAsOperand(o, this, true, true, 0);
 }
 
 void BasicBlock::print(std::ostream &o, AssemblyAnnotationWriter *AAW) const {
@@ -1347,7 +1340,7 @@ void Constant::print(std::ostream &o) const {
   o << ' ' << getType()->getDescription() << ' ';
 
   std::map<const Type *, std::string> TypeTable;
-  WriteConstantInt(o, this, TypeTable, 0);
+  WriteConstantInt(o, this, false, TypeTable, 0);
 }
 
 void Type::print(std::ostream &o) const {
@@ -1358,23 +1351,68 @@ void Type::print(std::ostream &o) const {
 }
 
 void Argument::print(std::ostream &o) const {
-  WriteAsOperand(o, this, true, getParent() ? getParent()->getParent() : 0);
+  WriteAsOperand(o, this, true, true,
+                 getParent() ? getParent()->getParent() : 0);
 }
 
 // Value::dump - allow easy printing of  Values from the debugger.
 // Located here because so much of the needed functionality is here.
-void Value::dump() const { print(*cerr.stream()); cerr << '\n'; }
+void Value::dump() const { print(std::cerr); std::cerr << '\n'; }
 
 // Type::dump - allow easy printing of  Values from the debugger.
 // Located here because so much of the needed functionality is here.
-void Type::dump() const { print(*cerr.stream()); cerr << '\n'; }
+void Type::dump() const { print(std::cerr); std::cerr << '\n'; }
 
 //===----------------------------------------------------------------------===//
-//                         SlotMachine Implementation
+//  CachedWriter Class Implementation
+//===----------------------------------------------------------------------===//
+
+void CachedWriter::setModule(const Module *M) {
+  delete SC; delete AW;
+  if (M) {
+    SC = new SlotMachine(M );
+    AW = new AssemblyWriter(Out, *SC, M, 0);
+  } else {
+    SC = 0; AW = 0;
+  }
+}
+
+CachedWriter::~CachedWriter() {
+  delete AW;
+  delete SC;
+}
+
+CachedWriter &CachedWriter::operator<<(const Value &V) {
+  assert(AW && SC && "CachedWriter does not have a current module!");
+  if (const Instruction *I = dyn_cast<Instruction>(&V))
+    AW->write(I);
+  else if (const BasicBlock *BB = dyn_cast<BasicBlock>(&V))
+    AW->write(BB);
+  else if (const Function *F = dyn_cast<Function>(&V))
+    AW->write(F);
+  else if (const GlobalVariable *GV = dyn_cast<GlobalVariable>(&V))
+    AW->write(GV);
+  else
+    AW->writeOperand(&V, true, true);
+  return *this;
+}
+
+CachedWriter& CachedWriter::operator<<(const Type &Ty) {
+  if (SymbolicTypes) {
+    const Module *M = AW->getModule();
+    if (M) WriteTypeSymbolic(Out, &Ty, M);
+  } else {
+    AW->write(&Ty);
+  }
+  return *this;
+}
+
+//===----------------------------------------------------------------------===//
+//===--                    SlotMachine Implementation
 //===----------------------------------------------------------------------===//
 
 #if 0
-#define SC_DEBUG(X) cerr << X
+#define SC_DEBUG(X) std::cerr << X
 #else
 #define SC_DEBUG(X)
 #endif
@@ -1385,25 +1423,34 @@ SlotMachine::SlotMachine(const Module *M)
   : TheModule(M)    ///< Saved for lazy initialization.
   , TheFunction(0)
   , FunctionProcessed(false)
+  , mMap()
+  , mTypes()
+  , fMap()
+  , fTypes()
 {
 }
 
 // Function level constructor. Causes the contents of the Module and the one
 // function provided to be added to the slot table.
-SlotMachine::SlotMachine(const Function *F)
-  : TheModule(F ? F->getParent() : 0) ///< Saved for lazy initialization
+SlotMachine::SlotMachine(const Function *F )
+  : TheModule( F ? F->getParent() : 0 ) ///< Saved for lazy initialization
   , TheFunction(F) ///< Saved for lazy initialization
   , FunctionProcessed(false)
+  , mMap()
+  , mTypes()
+  , fMap()
+  , fTypes()
 {
 }
 
-inline void SlotMachine::initialize() {
-  if (TheModule) {
+inline void SlotMachine::initialize(void) {
+  if ( TheModule) {
     processModule();
     TheModule = 0; ///< Prevent re-processing next time we're called.
   }
-  if (TheFunction && !FunctionProcessed)
+  if ( TheFunction && ! FunctionProcessed) {
     processFunction();
+  }
 }
 
 // Iterate through all the global variables, functions, and global
@@ -1411,17 +1458,15 @@ inline void SlotMachine::initialize() {
 void SlotMachine::processModule() {
   SC_DEBUG("begin processModule!\n");
 
-  // Add all of the unnamed global variables to the value table.
-  for (Module::const_global_iterator I = TheModule->global_begin(),
-       E = TheModule->global_end(); I != E; ++I)
-    if (!I->hasName()) 
-      CreateModuleSlot(I);
+  // Add all of the global variables to the value table...
+  for (Module::const_global_iterator I = TheModule->global_begin(), E = TheModule->global_end();
+       I != E; ++I)
+    createSlot(I);
 
-  // Add all the unnamed functions to the table.
+  // Add all the functions to the table
   for (Module::const_iterator I = TheModule->begin(), E = TheModule->end();
        I != E; ++I)
-    if (!I->hasName())
-      CreateModuleSlot(I);
+    createSlot(I);
 
   SC_DEBUG("end processModule!\n");
 }
@@ -1431,22 +1476,20 @@ void SlotMachine::processModule() {
 void SlotMachine::processFunction() {
   SC_DEBUG("begin processFunction!\n");
 
-  // Add all the function arguments with no names.
+  // Add all the function arguments
   for(Function::const_arg_iterator AI = TheFunction->arg_begin(),
       AE = TheFunction->arg_end(); AI != AE; ++AI)
-    if (!AI->hasName())
-      CreateFunctionSlot(AI);
+    createSlot(AI);
 
   SC_DEBUG("Inserting Instructions:\n");
 
-  // Add all of the basic blocks and instructions with no names.
+  // Add all of the basic blocks and instructions
   for (Function::const_iterator BB = TheFunction->begin(),
        E = TheFunction->end(); BB != E; ++BB) {
-    if (!BB->hasName())
-      CreateFunctionSlot(BB);
-    for (BasicBlock::const_iterator I = BB->begin(), E = BB->end(); I != E; ++I)
-      if (I->getType() != Type::VoidTy && !I->hasName())
-        CreateFunctionSlot(I);
+    createSlot(BB);
+    for (BasicBlock::const_iterator I = BB->begin(), E = BB->end(); I!=E; ++I) {
+      createSlot(I);
+    }
   }
 
   FunctionProcessed = true;
@@ -1454,83 +1497,292 @@ void SlotMachine::processFunction() {
   SC_DEBUG("end processFunction!\n");
 }
 
-/// Clean up after incorporating a function. This is the only way to get out of
-/// the function incorporation state that affects get*Slot/Create*Slot. Function
-/// incorporation state is indicated by TheFunction != 0.
+// Clean up after incorporating a function. This is the only way
+// to get out of the function incorporation state that affects the
+// getSlot/createSlot lock. Function incorporation state is indicated
+// by TheFunction != 0.
 void SlotMachine::purgeFunction() {
   SC_DEBUG("begin purgeFunction!\n");
   fMap.clear(); // Simply discard the function level map
+  fTypes.clear();
   TheFunction = 0;
   FunctionProcessed = false;
   SC_DEBUG("end purgeFunction!\n");
 }
 
-/// getGlobalSlot - Get the slot number of a global value.
-int SlotMachine::getGlobalSlot(const GlobalValue *V) {
-  // Check for uninitialized state and do lazy initialization.
-  initialize();
-  
-  // Find the type plane in the module map
-  TypedPlanes::const_iterator MI = mMap.find(V->getType());
-  if (MI == mMap.end()) return -1;
-  
-  // Lookup the value in the module plane's map.
-  ValueMap::const_iterator MVI = MI->second.map.find(V);
-  return MVI != MI->second.map.end() ? int(MVI->second) : -1;
-}
+/// Get the slot number for a value. This function will assert if you
+/// ask for a Value that hasn't previously been inserted with createSlot.
+/// Types are forbidden because Type does not inherit from Value (any more).
+int SlotMachine::getSlot(const Value *V) {
+  assert( V && "Can't get slot for null Value" );
+  assert(!isa<Constant>(V) || isa<GlobalValue>(V) &&
+    "Can't insert a non-GlobalValue Constant into SlotMachine");
 
-
-/// getLocalSlot - Get the slot number for a value that is local to a function.
-int SlotMachine::getLocalSlot(const Value *V) {
-  assert(!isa<Constant>(V) && "Can't get a constant or global slot with this!");
-
-  // Check for uninitialized state and do lazy initialization.
-  initialize();
+  // Check for uninitialized state and do lazy initialization
+  this->initialize();
 
   // Get the type of the value
-  const Type *VTy = V->getType();
+  const Type* VTy = V->getType();
 
-  TypedPlanes::const_iterator FI = fMap.find(VTy);
-  if (FI == fMap.end()) return -1;
-  
-  // Lookup the Value in the function and module maps.
-  ValueMap::const_iterator FVI = FI->second.map.find(V);
-  
-  // If the value doesn't exist in the function map, it is a <badref>
-  if (FVI == FI->second.map.end()) return -1;
-  
-  return FVI->second;
+  // Find the type plane in the module map
+  TypedPlanes::const_iterator MI = mMap.find(VTy);
+
+  if ( TheFunction ) {
+    // Lookup the type in the function map too
+    TypedPlanes::const_iterator FI = fMap.find(VTy);
+    // If there is a corresponding type plane in the function map
+    if ( FI != fMap.end() ) {
+      // Lookup the Value in the function map
+      ValueMap::const_iterator FVI = FI->second.map.find(V);
+      // If the value doesn't exist in the function map
+      if ( FVI == FI->second.map.end() ) {
+        // Look up the value in the module map.
+        if (MI == mMap.end()) return -1;
+        ValueMap::const_iterator MVI = MI->second.map.find(V);
+        // If we didn't find it, it wasn't inserted
+        if (MVI == MI->second.map.end()) return -1;
+        assert( MVI != MI->second.map.end() && "Value not found");
+        // We found it only at the module level
+        return MVI->second;
+
+      // else the value exists in the function map
+      } else {
+        // Return the slot number as the module's contribution to
+        // the type plane plus the index in the function's contribution
+        // to the type plane.
+        if (MI != mMap.end())
+          return MI->second.next_slot + FVI->second;
+        else
+          return FVI->second;
+      }
+    }
+  }
+
+  // N.B. Can get here only if either !TheFunction or the function doesn't
+  // have a corresponding type plane for the Value
+
+  // Make sure the type plane exists
+  if (MI == mMap.end()) return -1;
+  // Lookup the value in the module's map
+  ValueMap::const_iterator MVI = MI->second.map.find(V);
+  // Make sure we found it.
+  if (MVI == MI->second.map.end()) return -1;
+  // Return it.
+  return MVI->second;
 }
 
+/// Get the slot number for a value. This function will assert if you
+/// ask for a Value that hasn't previously been inserted with createSlot.
+/// Types are forbidden because Type does not inherit from Value (any more).
+int SlotMachine::getSlot(const Type *Ty) {
+  assert( Ty && "Can't get slot for null Type" );
 
-/// CreateModuleSlot - Insert the specified GlobalValue* into the slot table.
-void SlotMachine::CreateModuleSlot(const GlobalValue *V) {
+  // Check for uninitialized state and do lazy initialization
+  this->initialize();
+
+  if ( TheFunction ) {
+    // Lookup the Type in the function map
+    TypeMap::const_iterator FTI = fTypes.map.find(Ty);
+    // If the Type doesn't exist in the function map
+    if ( FTI == fTypes.map.end() ) {
+      TypeMap::const_iterator MTI = mTypes.map.find(Ty);
+      // If we didn't find it, it wasn't inserted
+      if (MTI == mTypes.map.end())
+        return -1;
+      // We found it only at the module level
+      return MTI->second;
+
+    // else the value exists in the function map
+    } else {
+      // Return the slot number as the module's contribution to
+      // the type plane plus the index in the function's contribution
+      // to the type plane.
+      return mTypes.next_slot + FTI->second;
+    }
+  }
+
+  // N.B. Can get here only if either !TheFunction
+
+  // Lookup the value in the module's map
+  TypeMap::const_iterator MTI = mTypes.map.find(Ty);
+  // Make sure we found it.
+  if (MTI == mTypes.map.end()) return -1;
+  // Return it.
+  return MTI->second;
+}
+
+// Create a new slot, or return the existing slot if it is already
+// inserted. Note that the logic here parallels getSlot but instead
+// of asserting when the Value* isn't found, it inserts the value.
+unsigned SlotMachine::createSlot(const Value *V) {
+  assert( V && "Can't insert a null Value to SlotMachine");
+  assert(!isa<Constant>(V) || isa<GlobalValue>(V) &&
+    "Can't insert a non-GlobalValue Constant into SlotMachine");
+
+  const Type* VTy = V->getType();
+
+  // Just ignore void typed things
+  if (VTy == Type::VoidTy) return 0; // FIXME: Wrong return value!
+
+  // Look up the type plane for the Value's type from the module map
+  TypedPlanes::const_iterator MI = mMap.find(VTy);
+
+  if ( TheFunction ) {
+    // Get the type plane for the Value's type from the function map
+    TypedPlanes::const_iterator FI = fMap.find(VTy);
+    // If there is a corresponding type plane in the function map
+    if ( FI != fMap.end() ) {
+      // Lookup the Value in the function map
+      ValueMap::const_iterator FVI = FI->second.map.find(V);
+      // If the value doesn't exist in the function map
+      if ( FVI == FI->second.map.end() ) {
+        // If there is no corresponding type plane in the module map
+        if ( MI == mMap.end() )
+          return insertValue(V);
+        // Look up the value in the module map
+        ValueMap::const_iterator MVI = MI->second.map.find(V);
+        // If we didn't find it, it wasn't inserted
+        if ( MVI == MI->second.map.end() )
+          return insertValue(V);
+        else
+          // We found it only at the module level
+          return MVI->second;
+
+      // else the value exists in the function map
+      } else {
+        if ( MI == mMap.end() )
+          return FVI->second;
+        else
+          // Return the slot number as the module's contribution to
+          // the type plane plus the index in the function's contribution
+          // to the type plane.
+          return MI->second.next_slot + FVI->second;
+      }
+
+    // else there is not a corresponding type plane in the function map
+    } else {
+      // If the type plane doesn't exists at the module level
+      if ( MI == mMap.end() ) {
+        return insertValue(V);
+      // else type plane exists at the module level, examine it
+      } else {
+        // Look up the value in the module's map
+        ValueMap::const_iterator MVI = MI->second.map.find(V);
+        // If we didn't find it there either
+        if ( MVI == MI->second.map.end() )
+          // Return the slot number as the module's contribution to
+          // the type plane plus the index of the function map insertion.
+          return MI->second.next_slot + insertValue(V);
+        else
+          return MVI->second;
+      }
+    }
+  }
+
+  // N.B. Can only get here if !TheFunction
+
+  // If the module map's type plane is not for the Value's type
+  if ( MI != mMap.end() ) {
+    // Lookup the value in the module's map
+    ValueMap::const_iterator MVI = MI->second.map.find(V);
+    if ( MVI != MI->second.map.end() )
+      return MVI->second;
+  }
+
+  return insertValue(V);
+}
+
+// Create a new slot, or return the existing slot if it is already
+// inserted. Note that the logic here parallels getSlot but instead
+// of asserting when the Value* isn't found, it inserts the value.
+unsigned SlotMachine::createSlot(const Type *Ty) {
+  assert( Ty && "Can't insert a null Type to SlotMachine");
+
+  if ( TheFunction ) {
+    // Lookup the Type in the function map
+    TypeMap::const_iterator FTI = fTypes.map.find(Ty);
+    // If the type doesn't exist in the function map
+    if ( FTI == fTypes.map.end() ) {
+      // Look up the type in the module map
+      TypeMap::const_iterator MTI = mTypes.map.find(Ty);
+      // If we didn't find it, it wasn't inserted
+      if ( MTI == mTypes.map.end() )
+        return insertValue(Ty);
+      else
+        // We found it only at the module level
+        return MTI->second;
+
+    // else the value exists in the function map
+    } else {
+      // Return the slot number as the module's contribution to
+      // the type plane plus the index in the function's contribution
+      // to the type plane.
+      return mTypes.next_slot + FTI->second;
+    }
+  }
+
+  // N.B. Can only get here if !TheFunction
+
+  // Lookup the type in the module's map
+  TypeMap::const_iterator MTI = mTypes.map.find(Ty);
+  if ( MTI != mTypes.map.end() )
+    return MTI->second;
+
+  return insertValue(Ty);
+}
+
+// Low level insert function. Minimal checking is done. This
+// function is just for the convenience of createSlot (above).
+unsigned SlotMachine::insertValue(const Value *V ) {
   assert(V && "Can't insert a null Value into SlotMachine!");
-  
-  unsigned DestSlot = 0;
+  assert(!isa<Constant>(V) || isa<GlobalValue>(V) &&
+    "Can't insert a non-GlobalValue Constant into SlotMachine");
+
+  // If this value does not contribute to a plane (is void)
+  // or if the value already has a name then ignore it.
+  if (V->getType() == Type::VoidTy || V->hasName() ) {
+      SC_DEBUG("ignored value " << *V << "\n");
+      return 0;   // FIXME: Wrong return value
+  }
+
   const Type *VTy = V->getType();
-  
-  ValuePlane &PlaneMap = mMap[VTy];
-  DestSlot = PlaneMap.map[V] = PlaneMap.next_slot++;
-  
+  unsigned DestSlot = 0;
+
+  if ( TheFunction ) {
+    TypedPlanes::iterator I = fMap.find( VTy );
+    if ( I == fMap.end() )
+      I = fMap.insert(std::make_pair(VTy,ValuePlane())).first;
+    DestSlot = I->second.map[V] = I->second.next_slot++;
+  } else {
+    TypedPlanes::iterator I = mMap.find( VTy );
+    if ( I == mMap.end() )
+      I = mMap.insert(std::make_pair(VTy,ValuePlane())).first;
+    DestSlot = I->second.map[V] = I->second.next_slot++;
+  }
+
   SC_DEBUG("  Inserting value [" << VTy << "] = " << V << " slot=" <<
            DestSlot << " [");
-  // G = Global, F = Function, o = other
-  SC_DEBUG((isa<GlobalVariable>(V) ? 'G' : 'F') << "]\n");
+  // G = Global, C = Constant, T = Type, F = Function, o = other
+  SC_DEBUG((isa<GlobalVariable>(V) ? 'G' : (isa<Function>(V) ? 'F' :
+           (isa<Constant>(V) ? 'C' : 'o'))));
+  SC_DEBUG("]\n");
+  return DestSlot;
 }
 
+// Low level insert function. Minimal checking is done. This
+// function is just for the convenience of createSlot (above).
+unsigned SlotMachine::insertValue(const Type *Ty ) {
+  assert(Ty && "Can't insert a null Type into SlotMachine!");
 
-/// CreateSlot - Create a new slot for the specified value if it has no name.
-void SlotMachine::CreateFunctionSlot(const Value *V) {
-  const Type *VTy = V->getType();
-  assert(VTy != Type::VoidTy && !V->hasName() && "Doesn't need a slot!");
-  
   unsigned DestSlot = 0;
-  
-  ValuePlane &PlaneMap = fMap[VTy];
-  DestSlot = PlaneMap.map[V] = PlaneMap.next_slot++;
-  
-  // G = Global, F = Function, o = other
-  SC_DEBUG("  Inserting value [" << VTy << "] = " << V << " slot=" <<
-           DestSlot << " [o]\n");
-}  
+
+  if ( TheFunction ) {
+    DestSlot = fTypes.map[Ty] = fTypes.next_slot++;
+  } else {
+    DestSlot = fTypes.map[Ty] = fTypes.next_slot++;
+  }
+  SC_DEBUG("  Inserting type [" << DestSlot << "] = " << Ty << "\n");
+  return DestSlot;
+}
+
+// vim: sw=2

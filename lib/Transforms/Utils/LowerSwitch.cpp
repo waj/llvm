@@ -21,10 +21,14 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/ADT/Statistic.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
 
 namespace {
+  Statistic<> NumLowered("lowerswitch", "Number of SwitchInst's replaced");
+
   /// LowerSwitch Pass - Replace all SwitchInst instructions with chained branch
   /// instructions.  Note that this cannot be a BasicBlock pass because it
   /// modifies the CFG!
@@ -59,7 +63,9 @@ namespace {
 
       const ConstantInt* CI1 = cast<const ConstantInt>(C1.first);
       const ConstantInt* CI2 = cast<const ConstantInt>(C2.first);
-      return CI1->getZExtValue() < CI2->getZExtValue();
+      if (CI1->getType()->isUnsigned()) 
+        return CI1->getZExtValue() < CI2->getZExtValue();
+      return CI1->getSExtValue() < CI2->getSExtValue();
     }
   };
 
@@ -103,10 +109,6 @@ std::ostream& operator<<(std::ostream &O,
 
   return O << "]";
 }
-OStream& operator<<(OStream &O, const std::vector<LowerSwitch::Case> &C) {
-  if (O.stream()) *O.stream() << C;
-  return O;
-}
 
 // switchConvert - Convert the switch statement into a binary lookup of
 // the case values. The function recursively builds this tree.
@@ -122,13 +124,14 @@ BasicBlock* LowerSwitch::switchConvert(CaseItr Begin, CaseItr End,
 
   unsigned Mid = Size / 2;
   std::vector<Case> LHS(Begin, Begin + Mid);
-  DOUT << "LHS: " << LHS << "\n";
+  DEBUG(std::cerr << "LHS: " << LHS << "\n");
   std::vector<Case> RHS(Begin + Mid, End);
-  DOUT << "RHS: " << RHS << "\n";
+  DEBUG(std::cerr << "RHS: " << RHS << "\n");
 
   Case& Pivot = *(Begin + Mid);
-  DOUT << "Pivot ==> "
-       << cast<ConstantInt>(Pivot.first)->getSExtValue() << "\n";
+  DEBUG(std::cerr << "Pivot ==> "
+                  << cast<ConstantInt>(Pivot.first)->getSExtValue()
+                  << "\n");
 
   BasicBlock* LBranch = switchConvert(LHS.begin(), LHS.end(), Val,
                                       OrigBlock, Default);
@@ -141,7 +144,8 @@ BasicBlock* LowerSwitch::switchConvert(CaseItr Begin, CaseItr End,
   BasicBlock* NewNode = new BasicBlock("NodeBlock");
   F->getBasicBlockList().insert(OrigBlock->getNext(), NewNode);
 
-  ICmpInst* Comp = new ICmpInst(ICmpInst::ICMP_ULT, Val, Pivot.first, "Pivot");
+  SetCondInst* Comp = new SetCondInst(Instruction::SetLT, Val, Pivot.first,
+                                      "Pivot");
   NewNode->getInstList().push_back(Comp);
   new BranchInst(LBranch, RBranch, Comp, NewNode);
   return NewNode;
@@ -162,8 +166,8 @@ BasicBlock* LowerSwitch::newLeafBlock(Case& Leaf, Value* Val,
   F->getBasicBlockList().insert(OrigBlock->getNext(), NewLeaf);
 
   // Make the seteq instruction...
-  ICmpInst* Comp = new ICmpInst(ICmpInst::ICMP_EQ, Val,
-                                Leaf.first, "SwitchLeaf");
+  SetCondInst* Comp = new SetCondInst(Instruction::SetEQ, Val,
+                                      Leaf.first, "SwitchLeaf");
   NewLeaf->getInstList().push_back(Comp);
 
   // Make the conditional branch...
@@ -222,7 +226,7 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI) {
     Cases.push_back(Case(SI->getSuccessorValue(i), SI->getSuccessor(i)));
 
   std::sort(Cases.begin(), Cases.end(), CaseCmp());
-  DOUT << "Cases: " << Cases << "\n";
+  DEBUG(std::cerr << "Cases: " << Cases << "\n");
   BasicBlock* SwitchBlock = switchConvert(Cases.begin(), Cases.end(), Val,
                                           OrigBlock, NewDefault);
 

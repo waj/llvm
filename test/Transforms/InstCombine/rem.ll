@@ -1,7 +1,7 @@
 ; This test makes sure that these instructions are properly eliminated.
 ;
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine -disable-output &&
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | not grep rem
+; RUN: llvm-as < %s | opt -instcombine -disable-output &&
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep rem
 
 implementation
 
@@ -20,7 +20,7 @@ uint %test3(uint %A) {
 	ret uint %B
 }
 
-bool %test3a(int %A) {
+bool %test3(int %A) {
 	%B = rem int %A, -8   ; & 7
 	%C = setne int %B, 0
 	ret bool %C

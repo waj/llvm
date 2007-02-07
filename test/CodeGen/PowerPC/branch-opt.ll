@@ -1,5 +1,5 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=ppc32 &&
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=ppc32 | grep 'b LBB.*cond_next48.loopexit' | wc -l | grep 1
+; RUN: llvm-as < %s | llc -march=ppc32 &&
+; RUN: llvm-as < %s | llc -march=ppc32 | not grep 'b LBB.*cond_next48.loopexit'
 
 target endian = big
 target pointersize = 32

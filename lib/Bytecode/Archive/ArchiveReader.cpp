@@ -13,8 +13,8 @@
 
 #include "ArchiveInternals.h"
 #include "llvm/Bytecode/Reader.h"
-#include "llvm/Support/Compressor.h"
 #include <memory>
+
 using namespace llvm;
 
 /// Read a variable-bit-rate encoded unsigned integer
@@ -68,11 +68,7 @@ Archive::parseSymbolTable(const void* data, unsigned size, std::string* error) {
 ArchiveMember*
 Archive::parseMemberHeader(const char*& At, const char* End, std::string* error)
 {
-  if (At + sizeof(ArchiveMemberHeader) >= End) {
-    if (error)
-      *error = "Unexpected end of file";
-    return 0;
-  }
+  assert(At + sizeof(ArchiveMemberHeader) < End && "Not enough data");
 
   // Cast archive member header
   ArchiveMemberHeader* Hdr = (ArchiveMemberHeader*)At;
@@ -351,9 +347,7 @@ Archive::getAllModules(std::vector<Module*>& Modules, std::string* ErrMessage) {
       std::string FullMemberName = archPath.toString() +
         "(" + I->getPath().toString() + ")";
       Module* M = ParseBytecodeBuffer((const unsigned char*)I->getData(),
-                                      I->getSize(), FullMemberName,
-                                      Compressor::decompressToNewBuffer,
-                                      ErrMessage);
+          I->getSize(), FullMemberName, ErrMessage);
       if (!M)
         return true;
 
@@ -488,7 +482,7 @@ Archive::findModuleDefiningSymbol(const std::string& symbol,
     mbr->getPath().toString() + ")";
   ModuleProvider* mp = getBytecodeBufferModuleProvider(
       (const unsigned char*) mbr->getData(), mbr->getSize(),
-      FullMemberName, Decompressor, ErrMsg, 0);
+      FullMemberName, ErrMsg, 0);
   if (!mp)
     return 0;
 
@@ -502,13 +496,9 @@ Archive::findModuleDefiningSymbol(const std::string& symbol,
 bool
 Archive::findModulesDefiningSymbols(std::set<std::string>& symbols,
                                     std::set<ModuleProvider*>& result,
-                                    std::string* error) {
-  if (!mapfile || !base) {
-    if (error)
-      *error = "Empty archive invalid for finding modules defining symbols";
-    return false;
-  }
-
+                                    std::string* error)
+{
+  assert(mapfile && base && "Can't findModulesDefiningSymbols on new archive");
   if (symTab.empty()) {
     // We don't have a symbol table, so we must build it now but lets also
     // make sure that we populate the modules table as we do this to ensure
@@ -534,10 +524,8 @@ Archive::findModulesDefiningSymbols(std::set<std::string>& symbols,
         std::vector<std::string> symbols;
         std::string FullMemberName = archPath.toString() + "(" +
           mbr->getPath().toString() + ")";
-        ModuleProvider* MP = 
-          GetBytecodeSymbols((const unsigned char*)At, mbr->getSize(),
-                             FullMemberName, symbols, 
-                             Compressor::decompressToNewBuffer, error);
+        ModuleProvider* MP = GetBytecodeSymbols((const unsigned char*)At,
+            mbr->getSize(), FullMemberName, symbols, error);
 
         if (MP) {
           // Insert the module's symbols into the symbol table

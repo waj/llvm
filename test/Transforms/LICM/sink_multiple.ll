@@ -3,7 +3,7 @@
 ; instructions from the loop.  Instead they got hoisted, which is better than
 ; leaving them in the loop, but increases register pressure pointlessly.
 
-; RUN: llvm-upgrade < %s | llvm-as | opt -licm | llvm-dis | %prcontext getelementptr 1 | grep Out:
+; RUN: llvm-as < %s | opt -licm | llvm-dis | %prcontext getelementptr 1 | grep Out:
 
 %Ty = type { int, int }
 %X = external global %Ty
@@ -11,7 +11,7 @@
 int %test() {
         br label %Loop
 Loop:
-        %dead = getelementptr %Ty* %X, long 0, uint 0
+        %dead = getelementptr %Ty* %X, long 0, ubyte 0
         %sunk2 = load int* %dead
         br bool false, label %Loop, label %Out
 Out:

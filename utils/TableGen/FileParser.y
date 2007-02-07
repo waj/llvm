@@ -14,7 +14,6 @@
 %{
 #include "Record.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/Streams.h"
 #include <algorithm>
 #include <cstdio>
 #define YYERROR_VERBOSE 1
@@ -125,7 +124,7 @@ static void setValue(const std::string &ValName,
     }
 
     // We should have a BitsInit type now...
-    assert(dynamic_cast<BitsInit*>(BI) != 0 || (cerr << *BI).stream() == 0);
+    assert(dynamic_cast<BitsInit*>(BI) != 0 || &(std::cerr << *BI) == 0);
     BitsInit *BInit = (BitsInit*)BI;
 
     BitsInit *NewVal = new BitsInit(CurVal->getNumBits());

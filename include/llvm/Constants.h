@@ -36,18 +36,13 @@ template<class ConstantClass, class TypeClass>
 struct ConvertConstantType;
 
 //===----------------------------------------------------------------------===//
-/// This is the shared class of boolean and integer constants. This class 
-/// represents both boolean and integral constants.
-/// @brief Class for constant integers.
-class ConstantInt : public Constant {
+/// This is the shared superclass of boolean and integer constants. This class 
+/// just defines some common interfaces to be implemented by the subclasses.
+/// @brief An abstract class for integer constants.
+class ConstantIntegral : public Constant {
 protected:
   uint64_t Val;
-protected:
-  ConstantInt(const ConstantInt &);      // DO NOT IMPLEMENT
-  ConstantInt(const Type *Ty, uint64_t V);
-  ConstantInt(const Type *Ty, int64_t V);
-  ConstantInt(bool V);
-  friend struct ConstantCreator<ConstantInt, Type, uint64_t>;
+  ConstantIntegral(const Type *Ty, ValueTy VT, uint64_t V);
 public:
   /// Return the constant as a 64-bit unsigned integer value after it
   /// has been zero extended as appropriate for the type of this constant.
@@ -60,9 +55,117 @@ public:
   /// sign extended as appropriate for the type of this constant.
   /// @brief Return the sign extended value.
   inline int64_t getSExtValue() const {
-    unsigned Size = Value::getType()->getPrimitiveSizeInBits();
+    unsigned Size = getType()->getPrimitiveSizeInBits();
     return (int64_t(Val) << (64-Size)) >> (64-Size);
   }
+  
+  /// This function is implemented by subclasses and will return true iff this
+  /// constant represents the the "null" value that would be returned by the
+  /// getNullValue method.
+  /// @returns true if the constant's value is 0.
+  /// @brief Determine if the value is null.
+  virtual bool isNullValue() const = 0;
+
+  /// This function is implemented by sublcasses and will return true iff this
+  /// constant represents the the largest value that may be represented by this
+  /// constant's type.
+  /// @returns true if the constant's value is maximal.
+  /// @brief Determine if the value is maximal.
+  virtual bool isMaxValue() const = 0;
+
+  /// This function is implemented by subclasses and will return true iff this 
+  /// constant represents the smallest value that may be represented by this 
+  /// constant's type.
+  /// @returns true if the constant's value is minimal
+  /// @brief Determine if the value is minimal.
+  virtual bool isMinValue() const = 0;
+
+  /// This function is implemented by subclasses and will return true iff every
+  /// bit in this constant is set to true.
+  /// @returns true if all bits of the constant are ones.
+  /// @brief Determine if the value is all ones.
+  virtual bool isAllOnesValue() const = 0;
+
+  /// @returns the largest value for an integer constant of the given type 
+  /// @brief Get the maximal value
+  static ConstantIntegral *getMaxValue(const Type *Ty);
+
+  /// @returns the smallest value for an integer constant of the given type 
+  /// @brief Get the minimal value
+  static ConstantIntegral *getMinValue(const Type *Ty);
+
+  /// @returns the value for an integer constant of the given type that has all
+  /// its bits set to true.
+  /// @brief Get the all ones value
+  static ConstantIntegral *getAllOnesValue(const Type *Ty);
+
+  /// Methods to support type inquiry through isa, cast, and dyn_cast:
+  static inline bool classof(const ConstantIntegral *) { return true; }
+  static bool classof(const Value *V) {
+    return V->getValueType() == ConstantBoolVal ||
+           V->getValueType() == ConstantIntVal;
+  }
+};
+
+
+//===----------------------------------------------------------------------===//
+/// This concrete class represents constant values of type BoolTy. There are 
+/// only two instances of this class constructed: the True and False static 
+/// members. The constructor is hidden to ensure this invariant.
+/// @brief Constant Boolean class
+class ConstantBool : public ConstantIntegral {
+  ConstantBool(bool V);
+public:
+  /// getTrue/getFalse - Return the singleton true/false values.
+  static ConstantBool *getTrue();
+  static ConstantBool *getFalse();
+
+  /// This method is provided mostly for compatibility with the other 
+  /// ConstantIntegral subclasses.
+  /// @brief Static factory method for getting a ConstantBool instance.
+  static ConstantBool *get(bool Value) { return Value ? getTrue() : getFalse();}
+
+  /// This method is provided mostly for compatibility with the other 
+  /// ConstantIntegral subclasses.
+  /// @brief Static factory method for getting a ConstantBool instance.
+  static ConstantBool *get(const Type *Ty, bool Value) { return get(Value); }
+
+  /// Returns the opposite value of this ConstantBool value.
+  /// @brief Get inverse value.
+  inline ConstantBool *inverted() const {
+    return getValue() ? getFalse() : getTrue();
+  }
+
+  /// @returns the value of this ConstantBool
+  /// @brief return the boolean value of this constant.
+  inline bool getValue() const { return static_cast<bool>(getZExtValue()); }
+
+  /// @see ConstantIntegral for details
+  /// @brief Implement overrides
+  virtual bool isNullValue() const { return getValue() == false; }
+  virtual bool isMaxValue() const { return getValue() == true; }
+  virtual bool isMinValue() const { return getValue() == false; }
+  virtual bool isAllOnesValue() const { return getValue() == true; }
+
+  /// @brief Methods to support type inquiry through isa, cast, and dyn_cast:
+  static inline bool classof(const ConstantBool *) { return true; }
+  static bool classof(const Value *V) {
+    return V->getValueType() == ConstantBoolVal;
+  }
+};
+
+
+//===----------------------------------------------------------------------===//
+/// This is concrete integer subclass of ConstantIntegral that represents 
+/// both signed and unsigned integral constants, other than boolean.
+/// @brief Class for constant integers.
+class ConstantInt : public ConstantIntegral {
+protected:
+  ConstantInt(const ConstantInt &);      // DO NOT IMPLEMENT
+  ConstantInt(const Type *Ty, uint64_t V);
+  ConstantInt(const Type *Ty, int64_t V);
+  friend struct ConstantCreator<ConstantInt, Type, uint64_t>;
+public:
   /// A helper method that can be used to determine if the constant contained 
   /// within is equal to a constant.  This only works for very small values, 
   /// because this is all that can be represented with all types.
@@ -73,94 +176,57 @@ public:
     return Val == V;
   }
 
-  /// getTrue/getFalse - Return the singleton true/false values.
-  static inline ConstantInt *getTrue() {
-    static ConstantInt *T = 0;
-    if (T) return T;
-    return T = new ConstantInt(true);
-  }
-  static inline ConstantInt *getFalse() {
-    static ConstantInt *F = 0;
-    if (F) return F;
-    return F = new ConstantInt(false);
-  }
-
   /// Return a ConstantInt with the specified value for the specified type. The
   /// value V will be canonicalized to a uint64_t but accessing it with either
-  /// getSExtValue() or getZExtValue() (ConstantInt) will yield the correct
+  /// getSExtValue() or getZExtValue() (ConstantIntegral) will yield the correct
   /// sized/signed value for the type Ty.
   /// @brief Get a ConstantInt for a specific value.
   static ConstantInt *get(const Type *Ty, int64_t V);
 
-  /// getType - Specialize the getType() method to always return an IntegerType,
-  /// which reduces the amount of casting needed in parts of the compiler.
-  ///
-  inline const IntegerType *getType() const {
-    return reinterpret_cast<const IntegerType*>(Value::getType());
-  }
-
   /// This static method returns true if the type Ty is big enough to 
   /// represent the value V. This can be used to avoid having the get method 
-  /// assert when V is larger than Ty can represent. Note that there are two
-  /// versions of this method, one for unsigned and one for signed integers.
-  /// Although ConstantInt canonicalizes everything to an unsigned integer, 
-  /// the signed version avoids callers having to convert a signed quantity
-  /// to the appropriate unsigned type before calling the method.
+  /// assert when V is larger than Ty can represent.
   /// @returns true if V is a valid value for type Ty
   /// @brief Determine if the value is in range for the given type.
-  static bool isValueValidForType(const Type *Ty, uint64_t V);
   static bool isValueValidForType(const Type *Ty, int64_t V);
 
-  /// This function will return true iff this constant represents the "null"
-  /// value that would be returned by the getNullValue method.
   /// @returns true if this is the null integer value.
-  /// @brief Determine if the value is null.
-  virtual bool isNullValue() const { 
-    return Val == 0; 
-  }
+  /// @see ConstantIntegral for details
+  /// @brief Implement override.
+  virtual bool isNullValue() const { return Val == 0; }
 
-  /// This function will return true iff every bit in this constant is set
-  /// to true.
   /// @returns true iff this constant's bits are all set to true.
-  /// @brief Determine if the value is all ones.
-  bool isAllOnesValue() const { 
-    return getSExtValue() == -1; 
-  }
+  /// @see ConstantIntegral
+  /// @brief Override implementation
+  virtual bool isAllOnesValue() const { return getSExtValue() == -1; }
 
-  /// This function will return true iff this constant represents the largest
-  /// value that may be represented by the constant's type.
   /// @returns true iff this is the largest value that may be represented 
   /// by this type.
-  /// @brief Determine if the value is maximal.
-  bool isMaxValue(bool isSigned) const {
-    if (isSigned) {
+  /// @see ConstantIntegeral
+  /// @brief Override implementation
+  virtual bool isMaxValue() const {
+    if (getType()->isSigned()) {
       int64_t V = getSExtValue();
       if (V < 0) return false;    // Be careful about wrap-around on 'long's
       ++V;
-      return !isValueValidForType(Value::getType(), V) || V < 0;
+      return !isValueValidForType(getType(), V) || V < 0;
     }
     return isAllOnesValue();
   }
 
-  /// This function will return true iff this constant represents the smallest
-  /// value that may be represented by this constant's type.
   /// @returns true if this is the smallest value that may be represented by 
   /// this type.
-  /// @brief Determine if the value is minimal.
-  bool isMinValue(bool isSigned) const {
-    if (isSigned) {
+  /// @see ConstantIntegral
+  /// @brief Override implementation
+  virtual bool isMinValue() const {
+    if (getType()->isSigned()) {
       int64_t V = getSExtValue();
       if (V > 0) return false;    // Be careful about wrap-around on 'long's
       --V;
-      return !isValueValidForType(Value::getType(), V) || V > 0;
+      return !isValueValidForType(getType(), V) || V > 0;
     }
     return getZExtValue() == 0;
   }
-
-  /// @returns the value for an integer constant of the given type that has all
-  /// its bits set to true.
-  /// @brief Get the all ones value
-  static ConstantInt *getAllOnesValue(const Type *Ty);
 
   /// @brief Methods to support type inquiry through isa, cast, and dyn_cast.
   static inline bool classof(const ConstantInt *) { return true; }
@@ -308,7 +374,7 @@ public:
   /// get() - Static factory methods - Return objects of the specified value
   ///
   static Constant *get(const StructType *T, const std::vector<Constant*> &V);
-  static Constant *get(const std::vector<Constant*> &V, bool packed = false);
+  static Constant *get(const std::vector<Constant*> &V);
 
   /// getType() specialization - Reduce amount of casting...
   ///
@@ -355,21 +421,10 @@ public:
     return reinterpret_cast<const PackedType*>(Value::getType());
   }
 
-  /// @returns the value for an packed integer constant of the given type that
-  /// has all its bits set to true.
-  /// @brief Get the all ones value
-  static ConstantPacked *getAllOnesValue(const PackedType *Ty);
-  
   /// isNullValue - Return true if this is the value that would be returned by
   /// getNullValue.  This always returns false because zero arrays are always
   /// created as ConstantAggregateZero objects.
   virtual bool isNullValue() const { return false; }
-
-  /// This function will return true iff every element in this packed constant
-  /// is set to all ones.
-  /// @returns true iff this constant's emements are all set to all ones.
-  /// @brief Determine if the value is all ones.
-  bool isAllOnesValue() const;
 
   virtual void destroyConstant();
   virtual void replaceUsesOfWithOnConstant(Value *From, Value *To, Use *U);
@@ -440,12 +495,12 @@ protected:
   // ConstantExprs in intermediate forms.
   static Constant *getTy(const Type *Ty, unsigned Opcode,
                          Constant *C1, Constant *C2);
-  static Constant *getCompareTy(unsigned short pred, Constant *C1, 
-                                Constant *C2);
+  static Constant *getShiftTy(const Type *Ty,
+                              unsigned Opcode, Constant *C1, Constant *C2);
   static Constant *getSelectTy(const Type *Ty,
                                Constant *C1, Constant *C2, Constant *C3);
   static Constant *getGetElementPtrTy(const Type *Ty, Constant *C,
-                                      Value* const *Idxs, unsigned NumIdxs);
+                                      const std::vector<Value*> &IdxList);
   static Constant *getExtractElementTy(const Type *Ty, Constant *Val,
                                        Constant *Idx);
   static Constant *getInsertElementTy(const Type *Ty, Constant *Val,
@@ -461,69 +516,9 @@ public:
 
   /// Cast constant expr
   ///
-  static Constant *getTrunc   (Constant *C, const Type *Ty);
-  static Constant *getSExt    (Constant *C, const Type *Ty);
-  static Constant *getZExt    (Constant *C, const Type *Ty);
-  static Constant *getFPTrunc (Constant *C, const Type *Ty);
-  static Constant *getFPExtend(Constant *C, const Type *Ty);
-  static Constant *getUIToFP  (Constant *C, const Type *Ty);
-  static Constant *getSIToFP  (Constant *C, const Type *Ty);
-  static Constant *getFPToUI  (Constant *C, const Type *Ty);
-  static Constant *getFPToSI  (Constant *C, const Type *Ty);
-  static Constant *getPtrToInt(Constant *C, const Type *Ty);
-  static Constant *getIntToPtr(Constant *C, const Type *Ty);
-  static Constant *getBitCast (Constant *C, const Type *Ty);
-
-  // @brief Convenience function for getting one of the casting operations
-  // using a CastOps opcode.
-  static Constant *getCast(
-    unsigned ops,  ///< The opcode for the conversion
-    Constant *C,   ///< The constant to be converted
-    const Type *Ty ///< The type to which the constant is converted
-  );
-
-  // @brief Create a ZExt or BitCast cast constant expression
-  static Constant *getZExtOrBitCast(
-    Constant *C,   ///< The constant to zext or bitcast
-    const Type *Ty ///< The type to zext or bitcast C to
-  );
-
-  // @brief Create a SExt or BitCast cast constant expression 
-  static Constant *getSExtOrBitCast(
-    Constant *C,   ///< The constant to sext or bitcast
-    const Type *Ty ///< The type to sext or bitcast C to
-  );
-
-  // @brief Create a Trunc or BitCast cast constant expression
-  static Constant *getTruncOrBitCast(
-    Constant *C,   ///< The constant to trunc or bitcast
-    const Type *Ty ///< The type to trunc or bitcast C to
-  );
-
-  /// @brief Create a BitCast or a PtrToInt cast constant expression
-  static Constant *getPointerCast(
-    Constant *C,   ///< The pointer value to be casted (operand 0)
-    const Type *Ty ///< The type to which cast should be made
-  );
-
-  /// @brief Create a ZExt, Bitcast or Trunc for integer -> integer casts
-  static Constant *getIntegerCast(
-    Constant *C,    ///< The integer constant to be casted 
-    const Type *Ty, ///< The integer type to cast to
-    bool isSigned   ///< Whether C should be treated as signed or not
-  );
-
-  /// @brief Create a FPExt, Bitcast or FPTrunc for fp -> fp casts
-  static Constant *getFPCast(
-    Constant *C,    ///< The integer constant to be casted 
-    const Type *Ty ///< The integer type to cast to
-  );
-
-  /// @brief Return true if this is a convert constant expression
-  bool isCast() const;
-
-  /// @brief Return true if this is a compare constant expression
-  bool isCompare() const;
+  static Constant *getCast(Constant *C, const Type *Ty);
+  static Constant *getSignExtend(Constant *C, const Type *Ty);
+  static Constant *getZeroExtend(Constant *C, const Type *Ty);
 
   /// Select constant expr
   ///
@@ -545,9 +540,6 @@ public:
   ///
   static Constant *get(unsigned Opcode, Constant *C1, Constant *C2);
 
-  /// @brief Return an ICmp or FCmp comparison operator constant expression.
-  static Constant *getCompare(unsigned short pred, Constant *C1, Constant *C2);
-
   /// ConstantExpr::get* - Return some common constants without having to
   /// specify the full Instruction::OPCODE identifier.
   ///
@@ -565,47 +557,36 @@ public:
   static Constant *getAnd(Constant *C1, Constant *C2);
   static Constant *getOr(Constant *C1, Constant *C2);
   static Constant *getXor(Constant *C1, Constant *C2);
-  static Constant* getICmp(unsigned short pred, Constant* LHS, Constant* RHS);
-  static Constant* getFCmp(unsigned short pred, Constant* LHS, Constant* RHS);
+  static Constant *getSetEQ(Constant *C1, Constant *C2);
+  static Constant *getSetNE(Constant *C1, Constant *C2);
+  static Constant *getSetLT(Constant *C1, Constant *C2);
+  static Constant *getSetGT(Constant *C1, Constant *C2);
+  static Constant *getSetLE(Constant *C1, Constant *C2);
+  static Constant *getSetGE(Constant *C1, Constant *C2);
   static Constant *getShl(Constant *C1, Constant *C2);
-  static Constant *getLShr(Constant *C1, Constant *C2);
-  static Constant *getAShr(Constant *C1, Constant *C2);
+  static Constant *getShr(Constant *C1, Constant *C2);
+
+  static Constant *getUShr(Constant *C1, Constant *C2); // unsigned shr
+  static Constant *getSShr(Constant *C1, Constant *C2); // signed shr
 
   /// Getelementptr form.  std::vector<Value*> is only accepted for convenience:
   /// all elements must be Constant's.
   ///
   static Constant *getGetElementPtr(Constant *C,
-                                    Constant* const *IdxList, unsigned NumIdx);
+                                    const std::vector<Constant*> &IdxList);
   static Constant *getGetElementPtr(Constant *C,
-                                    Value* const *IdxList, unsigned NumIdx);
-  static Constant *getGetElementPtr(Constant *C,
-                                    const std::vector<Constant*> &IdxList) {
-    return getGetElementPtr(C, &IdxList[0], IdxList.size());
-  }
-  static Constant *getGetElementPtr(Constant *C,
-                                    const std::vector<Value*> &IdxList) {
-    return getGetElementPtr(C, &IdxList[0], IdxList.size());
-  }
-  
+                                    const std::vector<Value*> &IdxList);
+
   static Constant *getExtractElement(Constant *Vec, Constant *Idx);
   static Constant *getInsertElement(Constant *Vec, Constant *Elt,Constant *Idx);
   static Constant *getShuffleVector(Constant *V1, Constant *V2, Constant *Mask);
-
-  /// Floating point negation must be implemented with f(x) = -0.0 - x. This
-  /// method returns the negative zero constant for floating point or packed
-  /// floating point types; for all other types, it returns the null value.
-  static Constant *getZeroValueForNegationExpr(const Type *Ty);
-
+  
   /// isNullValue - Return true if this is the value that would be returned by
   /// getNullValue.
   virtual bool isNullValue() const { return false; }
 
   /// getOpcode - Return the opcode at the root of this constant expression
   unsigned getOpcode() const { return SubclassData; }
-
-  /// getPredicate - Return the ICMP or FCMP predicate value. Assert if this is
-  /// not an ICMP or FCMP constant expression.
-  unsigned getPredicate() const;
 
   /// getOpcodeName - Return a string representation for an opcode.
   const char *getOpcodeName() const;

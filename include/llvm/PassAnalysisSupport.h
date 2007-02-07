@@ -100,50 +100,39 @@ public:
   const std::vector<AnalysisID> &getPreservedSet() const { return Preserved; }
 };
 
+
+
 //===----------------------------------------------------------------------===//
-// AnalysisResolver - Simple interface used by Pass objects to pull all
-// analysis information out of pass manager that is responsible to manage
-// the pass.
+// AnalysisResolver - Simple interface implemented by PassManager objects that
+// is used to pull analysis information out of them.
 //
-class PMDataManager;
-class AnalysisResolver {
-private:
-  AnalysisResolver();  // DO NOT IMPLEMENT
-
-public:
-  AnalysisResolver(PMDataManager &P) : PM(P) { }
-  
-  inline PMDataManager &getPMDataManager() { return PM; }
-
-  // Find pass that is implementing PI.
-  Pass *findImplPass(const PassInfo *PI) {
-    Pass *ResultPass = 0;
-    for (unsigned i = 0; i < AnalysisImpls.size() ; ++i) {
-      if (AnalysisImpls[i].first == PI) {
-        ResultPass = AnalysisImpls[i].second;
-        break;
-      }
-    }
-    return ResultPass;
-  }
-
-  void addAnalysisImplsPair(const PassInfo *PI, Pass *P) {
-    std::pair<const PassInfo*, Pass*> pir = std::make_pair(PI,P);
-    AnalysisImpls.push_back(pir);
+struct AnalysisResolver {
+  virtual ~AnalysisResolver();
+  virtual Pass *getAnalysisOrNullUp(AnalysisID ID) const = 0;
+  virtual Pass *getAnalysisOrNullDown(AnalysisID ID) const = 0;
+  virtual void addPass(ImmutablePass *IP, AnalysisUsage &AU) = 0;
+  Pass *getAnalysis(AnalysisID ID) const {
+    Pass *Result = getAnalysisOrNullUp(ID);
+    assert(Result && "Pass has an incorrect analysis uses set!");
+    return Result;
   }
 
   // getAnalysisToUpdate - Return an analysis result or null if it doesn't exist
-  Pass *getAnalysisToUpdate(AnalysisID ID, bool Direction) const;
+  Pass *getAnalysisToUpdate(AnalysisID ID) const {
+    return getAnalysisOrNullUp(ID);
+  }
 
-  // AnalysisImpls - This keeps track of which passes implements the interfaces
-  // that are required by the current pass (to implement getAnalysis()).
-  // NOTE : Remove AnalysisImpls from class Pass, when AnalysisResolver
-  // replaces AnalysisResolver
-  std::vector<std::pair<const PassInfo*, Pass*> > AnalysisImpls;
+  // Methods for introspecting into pass manager objects...
+  virtual unsigned getDepth() const = 0;
+  virtual unsigned getNumContainedPasses() const = 0;
+  virtual const Pass *getContainedPass(unsigned N) const = 0;
 
-private:
-  // PassManager that is used to resolve analysis info
-  PMDataManager &PM;
+  virtual void markPassUsed(AnalysisID P, Pass *User) = 0;
+
+  void startPass(Pass *P) {}
+  void endPass(Pass *P) {}
+protected:
+  void setAnalysisResolver(Pass *P, AnalysisResolver *AR);
 };
 
 /// getAnalysisToUpdate<AnalysisType>() - This function is used by subclasses
@@ -157,44 +146,9 @@ private:
 template<typename AnalysisType>
 AnalysisType *Pass::getAnalysisToUpdate() const {
   assert(Resolver && "Pass not resident in a PassManager object!");
-
   const PassInfo *PI = getClassPassInfo<AnalysisType>();
   if (PI == 0) return 0;
-  return dynamic_cast<AnalysisType*>
-    (Resolver->getAnalysisToUpdate(PI, true));
-}
-
-/// getAnalysis<AnalysisType>() - This function is used by subclasses to get
-/// to the analysis information that they claim to use by overriding the
-/// getAnalysisUsage function.
-///
-template<typename AnalysisType>
-AnalysisType &Pass::getAnalysis() const {
-  assert(Resolver &&"Pass has not been inserted into a PassManager object!");
-
-  return getAnalysisID<AnalysisType>(getClassPassInfo<AnalysisType>());
-}
-
-template<typename AnalysisType>
-AnalysisType &Pass::getAnalysisID(const PassInfo *PI) const {
-  assert(PI && "getAnalysis for unregistered pass!");
-  assert(Resolver&&"Pass has not been inserted into a PassManager object!");
-  // PI *must* appear in AnalysisImpls.  Because the number of passes used
-  // should be a small number, we just do a linear search over a (dense)
-  // vector.
-  Pass *ResultPass = Resolver->findImplPass(PI);
-  assert (ResultPass && 
-          "getAnalysis*() called on an analysis that was not "
-          "'required' by pass!");
-
-  // Because the AnalysisType may not be a subclass of pass (for
-  // AnalysisGroups), we must use dynamic_cast here to potentially adjust the
-  // return pointer (because the class may multiply inherit, once from pass,
-  // once from AnalysisType).
-  //
-  AnalysisType *Result = dynamic_cast<AnalysisType*>(ResultPass);
-  assert(Result && "Pass does not implement interface required!");
-  return *Result;
+  return dynamic_cast<AnalysisType*>(Resolver->getAnalysisToUpdate(PI));
 }
 
 } // End llvm namespace

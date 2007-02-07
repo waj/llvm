@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc -fast
+; RUN: llvm-as < %s | llc -fast
 
 	%struct.cl_perfunc_opts = type { ubyte, ubyte, ubyte, ubyte, ubyte, ubyte, ubyte, ubyte, ubyte, ubyte, ubyte, ubyte, int, int, int, int, int, int, int }
 %cl_pf_opts = external global %struct.cl_perfunc_opts		; <%struct.cl_perfunc_opts*> [#uses=2]

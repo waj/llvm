@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -lowerswitch
+; RUN: llvm-as < %s | opt -lowerswitch
 
 void %child(int %ct.1) {
 entry:          ; No predecessors!

@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llvm-dis > %t1.ll
+; RUN: llvm-as %s -o - | llvm-dis > %t1.ll
 ; RUN: llvm-as %t1.ll -o - | llvm-dis > %t2.ll
 ; RUN: diff %t1.ll %t2.ll
 
@@ -19,7 +19,7 @@ implementation
 int "foo"(int %blah)
 begin
 	store int 5, int *%MyVar
-	%idx = getelementptr { \2 *, int } * %MyIntList, long 0, uint 1
+	%idx = getelementptr { \2 *, int } * %MyIntList, long 0, ubyte 1
   	store int 12, int* %idx
   	ret int %blah
 end

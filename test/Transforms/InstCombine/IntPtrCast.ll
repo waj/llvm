@@ -1,5 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | notcast
-target endian = little
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep cast
 target pointersize = 32
 
 int *%test(int *%P) {

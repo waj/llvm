@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=x86 | not grep 'set'
+; RUN: llvm-as < %s | llc -march=x86 | not grep 'set'
 
 declare bool %llvm.isunordered.f32(float, float)
 

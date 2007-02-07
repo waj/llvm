@@ -11,9 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Type.h"
 #include "llvm/Instructions.h"
 #include "llvm/Function.h"
+#include "llvm/SymbolTable.h"
+#include "llvm/Type.h"
 #include "llvm/Support/LeakDetector.h"
 using namespace llvm;
 
@@ -47,6 +48,10 @@ Instruction::~Instruction() {
   assert(Parent == 0 && "Instruction still linked in the program!");
 }
 
+
+void Instruction::setOpcode(unsigned opc) {
+  setValueType(Value::InstructionVal + opc);
+}
 
 void Instruction::setParent(BasicBlock *P) {
   if (getParent()) {
@@ -101,6 +106,14 @@ const char *Instruction::getOpcodeName(unsigned OpCode) {
   case Or : return "or";
   case Xor: return "xor";
 
+  // SetCC operators...
+  case SetLE:  return "setle";
+  case SetGE:  return "setge";
+  case SetLT:  return "setlt";
+  case SetGT:  return "setgt";
+  case SetEQ:  return "seteq";
+  case SetNE:  return "setne";
+
   // Memory instructions...
   case Malloc:        return "malloc";
   case Free:          return "free";
@@ -109,33 +122,17 @@ const char *Instruction::getOpcodeName(unsigned OpCode) {
   case Store:         return "store";
   case GetElementPtr: return "getelementptr";
 
-  // Convert instructions...
-  case Trunc:     return "trunc";
-  case ZExt:      return "zext";
-  case SExt:      return "sext";
-  case FPTrunc:   return "fptrunc";
-  case FPExt:     return "fpext";
-  case FPToUI:    return "fptoui";
-  case FPToSI:    return "fptosi";
-  case UIToFP:    return "uitofp";
-  case SIToFP:    return "sitofp";
-  case IntToPtr:  return "inttoptr";
-  case PtrToInt:  return "ptrtoint";
-  case BitCast:   return "bitcast";
-
   // Other instructions...
-  case ICmp:           return "icmp";
-  case FCmp:           return "fcmp";
-  case PHI:            return "phi";
-  case Select:         return "select";
-  case Call:           return "call";
-  case Shl:            return "shl";
-  case LShr:           return "lshr";
-  case AShr:           return "ashr";
-  case VAArg:          return "va_arg";
+  case PHI:     return "phi";
+  case Cast:    return "cast";
+  case Select:  return "select";
+  case Call:    return "call";
+  case Shl:     return "shl";
+  case Shr:     return "shr";
+  case VAArg:   return "va_arg";
   case ExtractElement: return "extractelement";
-  case InsertElement:  return "insertelement";
-  case ShuffleVector:  return "shufflevector";
+  case InsertElement: return "insertelement";
+  case ShuffleVector: return "shufflevector";
 
   default: return "<Invalid operator> ";
   }
@@ -163,35 +160,8 @@ bool Instruction::isIdenticalTo(Instruction *I) const {
     return LI->isVolatile() == cast<LoadInst>(I)->isVolatile();
   if (const StoreInst *SI = dyn_cast<StoreInst>(this))
     return SI->isVolatile() == cast<StoreInst>(I)->isVolatile();
-  if (const CmpInst *CI = dyn_cast<CmpInst>(this))
-    return CI->getPredicate() == cast<CmpInst>(I)->getPredicate();
   if (const CallInst *CI = dyn_cast<CallInst>(this))
     return CI->isTailCall() == cast<CallInst>(I)->isTailCall();
-  return true;
-}
-
-// isSameOperationAs
-bool Instruction::isSameOperationAs(Instruction *I) const {
-  if (getOpcode() != I->getOpcode() || getType() != I->getType() ||
-      getNumOperands() != I->getNumOperands())
-    return false;
-
-  // We have two instructions of identical opcode and #operands.  Check to see
-  // if all operands are the same type
-  for (unsigned i = 0, e = getNumOperands(); i != e; ++i)
-    if (getOperand(i)->getType() != I->getOperand(i)->getType())
-      return false;
-
-  // Check special state that is a part of some instructions.
-  if (const LoadInst *LI = dyn_cast<LoadInst>(this))
-    return LI->isVolatile() == cast<LoadInst>(I)->isVolatile();
-  if (const StoreInst *SI = dyn_cast<StoreInst>(this))
-    return SI->isVolatile() == cast<StoreInst>(I)->isVolatile();
-  if (const CmpInst *CI = dyn_cast<CmpInst>(this))
-    return CI->getPredicate() == cast<CmpInst>(I)->getPredicate();
-  if (const CallInst *CI = dyn_cast<CallInst>(this))
-    return CI->isTailCall() == cast<CallInst>(I)->isTailCall();
-
   return true;
 }
 
@@ -227,11 +197,30 @@ bool Instruction::isCommutative(unsigned op) {
   case And:
   case Or:
   case Xor:
+  case SetEQ:
+  case SetNE:
     return true;
   default:
     return false;
   }
 }
+
+/// isComparison - Return true if the instruction is a Set* instruction:
+///
+bool Instruction::isComparison(unsigned op) {
+  switch (op) {
+  case SetEQ:
+  case SetNE:
+  case SetLT:
+  case SetGT:
+  case SetLE:
+  case SetGE:
+    return true;
+  }
+  return false;
+}
+
+
 
 /// isTrappingInstruction - Return true if the instruction may trap.
 ///

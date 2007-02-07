@@ -13,17 +13,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Analysis/ScalarEvolutionExpander.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolutionExpander.h"
 using namespace llvm;
 
 /// InsertCastOfTo - Insert a cast of V to the specified type, doing what
 /// we can to share the casts.
-Value *SCEVExpander::InsertCastOfTo(Instruction::CastOps opcode, Value *V, 
-                                    const Type *Ty) {
+Value *SCEVExpander::InsertCastOfTo(Value *V, const Type *Ty) {
   // FIXME: keep track of the cast instruction.
   if (Constant *C = dyn_cast<Constant>(V))
-    return ConstantExpr::getCast(opcode, C, Ty);
+    return ConstantExpr::getCast(C, Ty);
   
   if (Argument *A = dyn_cast<Argument>(V)) {
     // Check to see if there is already a cast!
@@ -31,7 +30,8 @@ Value *SCEVExpander::InsertCastOfTo(Instruction::CastOps opcode, Value *V,
          UI != E; ++UI) {
       if ((*UI)->getType() == Ty)
         if (CastInst *CI = dyn_cast<CastInst>(cast<Instruction>(*UI))) {
-          // If the cast isn't the first instruction of the function, move it.
+          // If the cast isn't in the first instruction of the function,
+          // move it.
           if (BasicBlock::iterator(CI) != 
               A->getParent()->getEntryBlock().begin()) {
             CI->moveBefore(A->getParent()->getEntryBlock().begin());
@@ -39,8 +39,8 @@ Value *SCEVExpander::InsertCastOfTo(Instruction::CastOps opcode, Value *V,
           return CI;
         }
     }
-    return CastInst::create(opcode, V, Ty, V->getName(), 
-                            A->getParent()->getEntryBlock().begin());
+    return new CastInst(V, Ty, V->getName(),
+                        A->getParent()->getEntryBlock().begin());
   }
     
   Instruction *I = cast<Instruction>(V);
@@ -65,7 +65,7 @@ Value *SCEVExpander::InsertCastOfTo(Instruction::CastOps opcode, Value *V,
   if (InvokeInst *II = dyn_cast<InvokeInst>(I))
     IP = II->getNormalDest()->begin();
   while (isa<PHINode>(IP)) ++IP;
-  return CastInst::create(opcode, V, Ty, V->getName(), IP);
+  return new CastInst(V, Ty, V->getName(), IP);
 }
 
 Value *SCEVExpander::visitMulExpr(SCEVMulExpr *S) {
@@ -92,7 +92,7 @@ Value *SCEVExpander::visitAddRecExpr(SCEVAddRecExpr *S) {
   const Type *Ty = S->getType();
   const Loop *L = S->getLoop();
   // We cannot yet do fp recurrences, e.g. the xform of {X,+,F} --> X+{0,+,F}
-  assert(Ty->isInteger() && "Cannot expand fp recurrences yet!");
+  assert(Ty->isIntegral() && "Cannot expand fp recurrences yet!");
 
   // {X,+,F} --> X + {0,+,F}
   if (!isa<SCEVConstant>(S->getStart()) ||
@@ -123,7 +123,8 @@ Value *SCEVExpander::visitAddRecExpr(SCEVAddRecExpr *S) {
 
     // Insert a unit add instruction right before the terminator corresponding
     // to the back-edge.
-    Constant *One = ConstantInt::get(Ty, 1);
+    Constant *One = Ty->isFloatingPoint() ? (Constant*)ConstantFP::get(Ty, 1.0)
+                                          : ConstantInt::get(Ty, 1);
     Instruction *Add = BinaryOperator::createAdd(PN, One, "indvar.next",
                                                  (*HPI)->getTerminator());
 
@@ -142,7 +143,7 @@ Value *SCEVExpander::visitAddRecExpr(SCEVAddRecExpr *S) {
     Value *F = expandInTy(S->getOperand(1), Ty);
     
     // IF the step is by one, just return the inserted IV.
-    if (ConstantInt *CI = dyn_cast<ConstantInt>(F))
+    if (ConstantIntegral *CI = dyn_cast<ConstantIntegral>(F))
       if (CI->getZExtValue() == 1)
         return I;
     
@@ -174,7 +175,7 @@ Value *SCEVExpander::visitAddRecExpr(SCEVAddRecExpr *S) {
   SCEVHandle IH = SCEVUnknown::get(I);   // Get I as a "symbolic" SCEV.
 
   SCEVHandle V = S->evaluateAtIteration(IH);
-  //cerr << "Evaluated: " << *this << "\n     to: " << *V << "\n";
+  //std::cerr << "Evaluated: " << *this << "\n     to: " << *V << "\n";
 
   return expandInTy(V, Ty);
 }

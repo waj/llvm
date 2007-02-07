@@ -1,8 +1,6 @@
 ; This test makes sure that add instructions are properly eliminated.
 
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine -disable-output &&
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | \
-; RUN:    grep -v OK | not grep add
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep -v OK | not grep add
 
 implementation
 
@@ -47,8 +45,7 @@ int %test7(int %A) {
         ret int %C
 }
 
-; (A & C1)+(B & C2) -> (A & C1)|(B & C2) iff C1&C2 == 0
-int %test8(int %A, int %B) {     
+int %test8(int %A, int %B) {     ; (A & C1)+(B & C2) -> (A & C1)|(B & C2) iff C1&C2 == 0
 	%A1 = and int %A, 7
 	%B1 = and int %B, 128
 	%C = add int %A1, %B1
@@ -230,22 +227,3 @@ int %test32(int %A) {
 	%D = sub int %C, 16
 	ret int %D
 }
-
-ubyte %test33(ubyte %A) {   ;; OR A, 1
-        %B = and ubyte %A, 254
-        %C = add ubyte %B, 1
-        ret ubyte %C
-}
-
-ubyte %test34(ubyte %A) {
-        %B = add ubyte %A, 64   ;; dead
-        %C = and ubyte %B, 12
-        ret ubyte %C
-}
-
-int %test35(int %a) {  ;; -> -1
-        %tmpnot = xor int %a, -1
-        %tmp2 = add int %tmpnot, %a
-        ret int %tmp2
-}
-

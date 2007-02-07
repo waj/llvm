@@ -1,7 +1,5 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -lcssa | llvm-dis | \
-; RUN:    grep "%X.1.lcssa" &&
-; RUN: llvm-upgrade < %s | llvm-as | opt -lcssa | llvm-dis | \
-; RUN:    not grep "%X.1.lcssa1"
+; RUN: llvm-as < %s | opt -lcssa | llvm-dis | grep "%X.1.lcssa" &&
+; RUN: llvm-as < %s | opt -lcssa | llvm-dis | not grep "%X.1.lcssa1"
 
 declare bool %c1()
 declare bool %c2()

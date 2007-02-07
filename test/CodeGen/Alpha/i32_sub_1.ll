@@ -3,8 +3,8 @@
 
 implementation   ; Functions:
 
-define i32 @foo(i32 sext %x) sext {
+int %foo(int %x) {
 entry:
-	%tmp.1 = add i32 %x, -1		; <int> [#uses=1]
-	ret i32 %tmp.1
+	%tmp.1 = add int %x, -1		; <int> [#uses=1]
+	ret int %tmp.1
 }

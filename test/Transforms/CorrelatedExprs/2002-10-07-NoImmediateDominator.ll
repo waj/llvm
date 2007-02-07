@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -cee
+; RUN: llvm-as < %s | opt -cee
 ;
 ; This testcase causes an assertion error.
 ;

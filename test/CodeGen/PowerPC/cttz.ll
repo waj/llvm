@@ -1,12 +1,12 @@
 ; Make sure this testcase does not use ctpop
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=ppc32 | grep -i 'cntlzw'
+; RUN: llvm-as < %s | llc -march=ppc32 | grep -i 'cntlzw'
 
-declare uint %llvm.cttz.i32(uint)
+declare int %llvm.cttz(int)
 
 implementation   ; Functions:
 
-uint %bar(uint %x) {
+int %bar(int %x) {
 entry:
-	%tmp.1 = call uint %llvm.cttz.i32( uint %x ) 
-	ret uint %tmp.1
+	%tmp.1 = call int %llvm.cttz( int %x ) 
+	ret int %tmp.1
 }

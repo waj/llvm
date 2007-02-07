@@ -15,7 +15,7 @@
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Module.h"
 #include "llvm/DerivedTypes.h"
-#include "llvm/TypeSymbolTable.h"
+#include "llvm/SymbolTable.h"
 #include "llvm/Constant.h"
 #include "ValueMapper.h"
 using namespace llvm;
@@ -28,23 +28,25 @@ using namespace llvm;
 Module *llvm::CloneModule(const Module *M) {
   // Create the value map that maps things from the old module over to the new
   // module.
-  DenseMap<const Value*, Value*> ValueMap;
+  std::map<const Value*, Value*> ValueMap;
+
   return CloneModule(M, ValueMap);
 }
 
-Module *llvm::CloneModule(const Module *M,
-                          DenseMap<const Value*, Value*> &ValueMap) {
+Module *llvm::CloneModule(const Module *M, std::map<const Value*, Value*> &ValueMap) {
   // First off, we need to create the new module...
   Module *New = new Module(M->getModuleIdentifier());
-  New->setDataLayout(M->getDataLayout());
+  New->setEndianness(M->getEndianness());
+  New->setPointerSize(M->getPointerSize());
   New->setTargetTriple(M->getTargetTriple());
   New->setModuleInlineAsm(M->getModuleInlineAsm());
 
   // Copy all of the type symbol table entries over.
-  const TypeSymbolTable &TST = M->getTypeSymbolTable();
-  for (TypeSymbolTable::const_iterator TI = TST.begin(), TE = TST.end(); 
-       TI != TE; ++TI)
-    New->addTypeName(TI->first, TI->second);
+  const SymbolTable &SymTab = M->getSymbolTable();
+  SymbolTable::type_const_iterator TypeI = SymTab.type_begin();
+  SymbolTable::type_const_iterator TypeE = SymTab.type_end();
+  for (; TypeI != TypeE; ++TypeI)
+    New->addTypeName(TypeI->first, TypeI->second);
   
   // Copy all of the dependent libraries over.
   for (Module::lib_iterator I = M->lib_begin(), E = M->lib_end(); I != E; ++I)
@@ -86,7 +88,7 @@ Module *llvm::CloneModule(const Module *M,
   //
   for (Module::const_iterator I = M->begin(), E = M->end(); I != E; ++I) {
     Function *F = cast<Function>(ValueMap[I]);
-    if (!I->isDeclaration()) {
+    if (!I->isExternal()) {
       Function::arg_iterator DestI = F->arg_begin();
       for (Function::const_arg_iterator J = I->arg_begin(); J != I->arg_end();
            ++J) {

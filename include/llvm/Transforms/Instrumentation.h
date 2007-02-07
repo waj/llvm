@@ -47,6 +47,18 @@ FunctionPass *createProfilePathsPass();
 ModulePass* createNullProfilerRSPass();
 FunctionPass* createRSProfilingPass();
 
+
+//===----------------------------------------------------------------------===//
+// Support for inserting LLVM code to print values at basic block and function
+// exits.
+//
+
+// Just trace function entry/exit
+FunctionPass *createTraceValuesPassForBasicBlocks();
+
+// Trace BB's and methods
+FunctionPass *createTraceValuesPassForFunction();
+
 } // End llvm namespace
 
 #endif

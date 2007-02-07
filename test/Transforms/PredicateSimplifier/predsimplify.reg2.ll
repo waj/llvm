@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -predsimplify -verify
+; RUN: llvm-as < %s | opt -predsimplify -verify
 
 ; ModuleID = 'bugpoint-reduced-simplified.bc'
 target endian = little

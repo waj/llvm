@@ -18,7 +18,7 @@
 #ifndef LLVM_CODEGEN_MACHINEFUNCTION_H
 #define LLVM_CODEGEN_MACHINEFUNCTION_H
 
-#include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/CodeGen/MachineDebugInfo.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/Support/Annotation.h"
 
@@ -238,7 +238,6 @@ public:
   /// to the specified stream.
   ///
   void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
 
   /// viewCFG - This function is meant for use from the debugger.  You can just
   /// say 'call F->viewCFG()' and a ghostview window should pop up from the

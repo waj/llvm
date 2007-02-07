@@ -114,15 +114,6 @@ ctz:
 however, check that these are defined for 0 and 32.  Our intrinsics are, GCC's
 aren't.
 
-Another example (use predsimplify to eliminate a select):
-
-int foo (unsigned long j) {
-  if (j)
-    return __builtin_ffs (j) - 1;
-  else
-    return 0;
-}
-
 //===---------------------------------------------------------------------===//
 
 Use push/pop instructions in prolog/epilog sequences instead of stores off 
@@ -238,6 +229,17 @@ _test1:
         ret
 
 which is probably slower, but it's interesting at least :)
+
+//===---------------------------------------------------------------------===//
+
+Should generate min/max for stuff like:
+
+void minf(float a, float b, float *X) {
+  *X = a <= b ? a : b;
+}
+
+Make use of floating point min / max instructions. Perhaps introduce ISD::FMIN
+and ISD::FMAX node types?
 
 //===---------------------------------------------------------------------===//
 
@@ -430,13 +432,16 @@ void pairtest(pair P, float *FP) {
 We currently generate this code with llvmgcc4:
 
 _pairtest:
-        movl 8(%esp), %eax
-        movl 4(%esp), %ecx
-        movd %eax, %xmm0
-        movd %ecx, %xmm1
-        addss %xmm0, %xmm1
-        movl 12(%esp), %eax
-        movss %xmm1, (%eax)
+        subl $12, %esp
+        movl 20(%esp), %eax
+        movl %eax, 4(%esp)
+        movl 16(%esp), %eax
+        movl %eax, (%esp)
+        movss (%esp), %xmm0
+        addss 4(%esp), %xmm0
+        movl 24(%esp), %eax
+        movss %xmm0, (%eax)
+        addl $12, %esp
         ret
 
 we should be able to generate:
@@ -451,10 +456,6 @@ The issue is that llvmgcc4 is forcing the struct to memory, then passing it as
 integer chunks.  It does this so that structs like {short,short} are passed in
 a single 32-bit integer stack slot.  We should handle the safe cases above much
 nicer, while still handling the hard cases.
-
-While true in general, in this specific case we could do better by promoting
-load int + bitcast to float -> load fload.  This basically needs alignment info,
-the code is already implemented (but disabled) in dag combine).
 
 //===---------------------------------------------------------------------===//
 
@@ -531,6 +532,10 @@ It appears gcc place string data with linkonce linkage in
 .section __DATA,__const_coal,coalesced.
 Take a look at darwin.h, there are other Darwin assembler directives that we
 do not make use of.
+
+//===---------------------------------------------------------------------===//
+
+We should handle __attribute__ ((__visibility__ ("hidden"))).
 
 //===---------------------------------------------------------------------===//
 
@@ -726,159 +731,4 @@ This could be "reassociated" into:
 to avoid the copy.  In fact, the existing two-address stuff would do this
 except that mul isn't a commutative 2-addr instruction.  I guess this has
 to be done at isel time based on the #uses to mul?
-
-//===---------------------------------------------------------------------===//
-
-Make sure the instruction which starts a loop does not cross a cacheline
-boundary. This requires knowning the exact length of each machine instruction.
-That is somewhat complicated, but doable. Example 256.bzip2:
-
-In the new trace, the hot loop has an instruction which crosses a cacheline
-boundary.  In addition to potential cache misses, this can't help decoding as I
-imagine there has to be some kind of complicated decoder reset and realignment
-to grab the bytes from the next cacheline.
-
-532  532 0x3cfc movb     (1809(%esp, %esi), %bl   <<<--- spans 2 64 byte lines
-942  942 0x3d03 movl     %dh, (1809(%esp, %esi)                                                                          
-937  937 0x3d0a incl     %esi                           
-3    3   0x3d0b cmpb     %bl, %dl                                               
-27   27  0x3d0d jnz      0x000062db <main+11707>
-
-//===---------------------------------------------------------------------===//
-
-In c99 mode, the preprocessor doesn't like assembly comments like #TRUNCATE.
-
-//===---------------------------------------------------------------------===//
-
-This could be a single 16-bit load.
-
-int f(char *p) {
-    if ((p[0] == 1) & (p[1] == 2)) return 1;
-    return 0;
-}
-
-//===---------------------------------------------------------------------===//
-
-We should inline lrintf and probably other libc functions.
-
-//===---------------------------------------------------------------------===//
-
-Start using the flags more.  For example, compile:
-
-int add_zf(int *x, int y, int a, int b) {
-     if ((*x += y) == 0)
-          return a;
-     else
-          return b;
-}
-
-to:
-       addl    %esi, (%rdi)
-       movl    %edx, %eax
-       cmovne  %ecx, %eax
-       ret
-instead of:
-
-_add_zf:
-        addl (%rdi), %esi
-        movl %esi, (%rdi)
-        testl %esi, %esi
-        cmove %edx, %ecx
-        movl %ecx, %eax
-        ret
-
-and:
-
-int add_zf(int *x, int y, int a, int b) {
-     if ((*x + y) < 0)
-          return a;
-     else
-          return b;
-}
-
-to:
-
-add_zf:
-        addl    (%rdi), %esi
-        movl    %edx, %eax
-        cmovns  %ecx, %eax
-        ret
-
-instead of:
-
-_add_zf:
-        addl (%rdi), %esi
-        testl %esi, %esi
-        cmovs %edx, %ecx
-        movl %ecx, %eax
-        ret
-
-//===---------------------------------------------------------------------===//
-
-This:
-#include <math.h>
-int foo(double X) { return isnan(X); }
-
-compiles to (-m64):
-
-_foo:
-        pxor %xmm1, %xmm1
-        ucomisd %xmm1, %xmm0
-        setp %al
-        movzbl %al, %eax
-        ret
-
-the pxor is not needed, we could compare the value against itself.
-
-//===---------------------------------------------------------------------===//
-
-These two functions have identical effects:
-
-unsigned int f(unsigned int i, unsigned int n) {++i; if (i == n) ++i; return i;}
-unsigned int f2(unsigned int i, unsigned int n) {++i; i += i == n; return i;}
-
-We currently compile them to:
-
-_f:
-        movl 4(%esp), %eax
-        movl %eax, %ecx
-        incl %ecx
-        movl 8(%esp), %edx
-        cmpl %edx, %ecx
-        jne LBB1_2      #UnifiedReturnBlock
-LBB1_1: #cond_true
-        addl $2, %eax
-        ret
-LBB1_2: #UnifiedReturnBlock
-        movl %ecx, %eax
-        ret
-_f2:
-        movl 4(%esp), %eax
-        movl %eax, %ecx
-        incl %ecx
-        cmpl 8(%esp), %ecx
-        sete %cl
-        movzbl %cl, %ecx
-        leal 1(%ecx,%eax), %eax
-        ret
-
-both of which are inferior to GCC's:
-
-_f:
-        movl    4(%esp), %edx
-        leal    1(%edx), %eax
-        addl    $2, %edx
-        cmpl    8(%esp), %eax
-        cmove   %edx, %eax
-        ret
-_f2:
-        movl    4(%esp), %eax
-        addl    $1, %eax
-        xorl    %edx, %edx
-        cmpl    8(%esp), %eax
-        sete    %dl
-        addl    %edx, %eax
-        ret
-
-//===---------------------------------------------------------------------===//
 

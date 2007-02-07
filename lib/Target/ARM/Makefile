@@ -7,7 +7,6 @@
 # License. See LICENSE.TXT for details.
 #
 ##===----------------------------------------------------------------------===##
-
 LEVEL = ../../..
 LIBRARYNAME = LLVMARM
 TARGET = ARM
@@ -16,6 +15,7 @@ TARGET = ARM
 BUILT_SOURCES = ARMGenRegisterInfo.h.inc ARMGenRegisterNames.inc \
                 ARMGenRegisterInfo.inc ARMGenInstrNames.inc \
                 ARMGenInstrInfo.inc ARMGenAsmWriter.inc \
-                ARMGenDAGISel.inc ARMGenSubtarget.inc
+                ARMGenDAGISel.inc
 
 include $(LEVEL)/Makefile.common
+

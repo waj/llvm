@@ -19,7 +19,7 @@
 #define LLVM_TRANSFORMS_UTILS_CLONING_H
 
 #include <vector>
-#include "llvm/ADT/DenseMap.h"
+#include <map>
 
 namespace llvm {
 
@@ -33,12 +33,11 @@ class ReturnInst;
 class CallSite;
 class Trace;
 class CallGraph;
-class TargetData;
 
 /// CloneModule - Return an exact copy of the specified module
 ///
 Module *CloneModule(const Module *M);
-Module *CloneModule(const Module *M, DenseMap<const Value*, Value*> &ValueMap);
+Module *CloneModule(const Module *M, std::map<const Value*, Value*> &ValueMap);
 
 /// ClonedCodeInfo - This struct can be used to capture information about code
 /// being cloned, while it is being cloned.
@@ -94,7 +93,7 @@ struct ClonedCodeInfo {
 /// parameter.
 ///
 BasicBlock *CloneBasicBlock(const BasicBlock *BB,
-                            DenseMap<const Value*, Value*> &ValueMap,
+                            std::map<const Value*, Value*> &ValueMap,
                             const char *NameSuffix = "", Function *F = 0,
                             ClonedCodeInfo *CodeInfo = 0);
 
@@ -109,13 +108,13 @@ BasicBlock *CloneBasicBlock(const BasicBlock *BB,
 /// information about the cloned code if non-null.
 ///
 Function *CloneFunction(const Function *F,
-                        DenseMap<const Value*, Value*> &ValueMap,
+                        std::map<const Value*, Value*> &ValueMap,
                         ClonedCodeInfo *CodeInfo = 0);
 
 /// CloneFunction - Version of the function that doesn't need the ValueMap.
 ///
 inline Function *CloneFunction(const Function *F, ClonedCodeInfo *CodeInfo = 0){
-  DenseMap<const Value*, Value*> ValueMap;
+  std::map<const Value*, Value*> ValueMap;
   return CloneFunction(F, ValueMap, CodeInfo);
 }
 
@@ -126,7 +125,7 @@ inline Function *CloneFunction(const Function *F, ClonedCodeInfo *CodeInfo = 0){
 /// specified suffix to all values cloned.
 ///
 void CloneFunctionInto(Function *NewFunc, const Function *OldFunc,
-                       DenseMap<const Value*, Value*> &ValueMap,
+                       std::map<const Value*, Value*> &ValueMap,
                        std::vector<ReturnInst*> &Returns,
                        const char *NameSuffix = "", 
                        ClonedCodeInfo *CodeInfo = 0);
@@ -139,18 +138,17 @@ void CloneFunctionInto(Function *NewFunc, const Function *OldFunc,
 /// dead.  Since this doesn't produce an exactly copy of the input, it can't be
 /// used for things like CloneFunction or CloneModule.
 void CloneAndPruneFunctionInto(Function *NewFunc, const Function *OldFunc,
-                               DenseMap<const Value*, Value*> &ValueMap,
+                               std::map<const Value*, Value*> &ValueMap,
                                std::vector<ReturnInst*> &Returns,
                                const char *NameSuffix = "", 
-                               ClonedCodeInfo *CodeInfo = 0,
-                               const TargetData *TD = 0);
+                               ClonedCodeInfo *CodeInfo = 0);
 
 
 /// CloneTraceInto - Clone T into NewFunc. Original<->clone mapping is
 /// saved in ValueMap.
 ///
 void CloneTraceInto(Function *NewFunc, Trace &T,
-                    DenseMap<const Value*, Value*> &ValueMap,
+                    std::map<const Value*, Value*> &ValueMap,
                     const char *NameSuffix);
 
 /// CloneTrace - Returns a copy of the specified trace.
@@ -172,9 +170,9 @@ std::vector<BasicBlock *> CloneTrace(const std::vector<BasicBlock*> &origTrace);
 /// If a non-null callgraph pointer is provided, these functions update the
 /// CallGraph to represent the program after inlining.
 ///
-bool InlineFunction(CallInst *C, CallGraph *CG = 0, const TargetData *TD = 0);
-bool InlineFunction(InvokeInst *II, CallGraph *CG = 0, const TargetData *TD =0);
-bool InlineFunction(CallSite CS, CallGraph *CG = 0, const TargetData *TD = 0);
+bool InlineFunction(CallInst *C, CallGraph *CG = 0);
+bool InlineFunction(InvokeInst *II, CallGraph *CG = 0);
+bool InlineFunction(CallSite CS, CallGraph *CG = 0);
 
 } // End llvm namespace
 

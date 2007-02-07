@@ -19,10 +19,10 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/LeakDetector.h"
 #include "SymbolTableListTraitsImpl.h"
-#include "llvm/TypeSymbolTable.h"
 #include <algorithm>
 #include <cstdarg>
 #include <cstdlib>
+#include <iostream>
 #include <map>
 using namespace llvm;
 
@@ -32,15 +32,14 @@ using namespace llvm;
 
 Function *ilist_traits<Function>::createSentinel() {
   FunctionType *FTy =
-    FunctionType::get(Type::VoidTy, std::vector<const Type*>(), false, 
-                      std::vector<FunctionType::ParameterAttributes>() );
+    FunctionType::get(Type::VoidTy, std::vector<const Type*>(), false);
   Function *Ret = new Function(FTy, GlobalValue::ExternalLinkage);
   // This should not be garbage monitored.
   LeakDetector::removeGarbageObject(Ret);
   return Ret;
 }
 GlobalVariable *ilist_traits<GlobalVariable>::createSentinel() {
-  GlobalVariable *Ret = new GlobalVariable(Type::Int32Ty, false,
+  GlobalVariable *Ret = new GlobalVariable(Type::IntTy, false,
                                            GlobalValue::ExternalLinkage);
   // This should not be garbage monitored.
   LeakDetector::removeGarbageObject(Ret);
@@ -69,8 +68,7 @@ Module::Module(const std::string &MID)
   FunctionList.setParent(this);
   GlobalList.setItemParent(this);
   GlobalList.setParent(this);
-  ValSymTab = new ValueSymbolTable();
-  TypeSymTab = new TypeSymbolTable();
+  SymTab = new SymbolTable();
 }
 
 Module::~Module() {
@@ -80,13 +78,12 @@ Module::~Module() {
   FunctionList.clear();
   FunctionList.setParent(0);
   LibraryList.clear();
-  delete ValSymTab;
-  delete TypeSymTab;
+  delete SymTab;
 }
 
 // Module::dump() - Allow printing from debugger
 void Module::dump() const {
-  print(*cerr.stream());
+  print(std::cerr);
 }
 
 /// Target endian information...
@@ -105,6 +102,16 @@ Module::Endianness Module::getEndianness() const {
   }
   
   return ret;
+}
+
+void Module::setEndianness(Endianness E) {
+  if (!DataLayout.empty() && E != AnyEndianness)
+    DataLayout += "-";
+  
+  if (E == LittleEndian)
+    DataLayout += "e";
+  else if (E == BigEndian)
+    DataLayout += "E";
 }
 
 /// Target Pointer Size information...
@@ -128,6 +135,16 @@ Module::PointerSize Module::getPointerSize() const {
   return ret;
 }
 
+void Module::setPointerSize(PointerSize PS) {
+  if (!DataLayout.empty() && PS != AnyPointerSize)
+    DataLayout += "-";
+  
+  if (PS == Pointer32)
+    DataLayout += "p:32:32";
+  else if (PS == Pointer64)
+    DataLayout += "p:64:64";
+}
+
 //===----------------------------------------------------------------------===//
 // Methods for easy access to the functions in the module.
 //
@@ -137,34 +154,18 @@ Module::PointerSize Module::getPointerSize() const {
 // it.  This is nice because it allows most passes to get away with not handling
 // the symbol table directly for this common task.
 //
-Constant *Module::getOrInsertFunction(const std::string &Name,
+Function *Module::getOrInsertFunction(const std::string &Name,
                                       const FunctionType *Ty) {
-  ValueSymbolTable &SymTab = getValueSymbolTable();
+  SymbolTable &SymTab = getSymbolTable();
 
-  // See if we have a definition for the specified function already.
-  GlobalValue *F = dyn_cast_or_null<GlobalValue>(SymTab.lookup(Name));
-  if (F == 0) {
-    // Nope, add it
+  // See if we have a definitions for the specified function already...
+  if (Value *V = SymTab.lookup(PointerType::get(Ty), Name)) {
+    return cast<Function>(V);      // Yup, got it
+  } else {                         // Nope, add one
     Function *New = new Function(Ty, GlobalVariable::ExternalLinkage, Name);
     FunctionList.push_back(New);
-    return New;                    // Return the new prototype.
+    return New;                    // Return the new prototype...
   }
-
-  // Okay, the function exists.  Does it have externally visible linkage?
-  if (F->hasInternalLinkage()) {
-    // Rename the function.
-    F->setName(SymTab.getUniqueName(F->getName()));
-    // Retry, now there won't be a conflict.
-    return getOrInsertFunction(Name, Ty);
-  }
-
-  // If the function exists but has the wrong type, return a bitcast to the
-  // right type.
-  if (F->getType() != PointerType::get(Ty))
-    return ConstantExpr::getBitCast(F, PointerType::get(Ty));
-  
-  // Otherwise, we just found the existing function or a prototype.
-  return F;  
 }
 
 // getOrInsertFunction - Look up the specified function in the module symbol
@@ -172,7 +173,7 @@ Constant *Module::getOrInsertFunction(const std::string &Name,
 // This version of the method takes a null terminated list of function
 // arguments, which makes it easier for clients to use.
 //
-Constant *Module::getOrInsertFunction(const std::string &Name,
+Function *Module::getOrInsertFunction(const std::string &Name,
                                       const Type *RetTy, ...) {
   va_list Args;
   va_start(Args, RetTy);
@@ -192,9 +193,73 @@ Constant *Module::getOrInsertFunction(const std::string &Name,
 // getFunction - Look up the specified function in the module symbol table.
 // If it does not exist, return null.
 //
-Function *Module::getFunction(const std::string &Name) const {
-  const ValueSymbolTable &SymTab = getValueSymbolTable();
-  return dyn_cast_or_null<Function>(SymTab.lookup(Name));
+Function *Module::getFunction(const std::string &Name, const FunctionType *Ty) {
+  SymbolTable &SymTab = getSymbolTable();
+  return cast_or_null<Function>(SymTab.lookup(PointerType::get(Ty), Name));
+}
+
+
+/// getMainFunction - This function looks up main efficiently.  This is such a
+/// common case, that it is a method in Module.  If main cannot be found, a
+/// null pointer is returned.
+///
+Function *Module::getMainFunction() {
+  std::vector<const Type*> Params;
+
+  // int main(void)...
+  if (Function *F = getFunction("main", FunctionType::get(Type::IntTy,
+                                                          Params, false)))
+    return F;
+
+  // void main(void)...
+  if (Function *F = getFunction("main", FunctionType::get(Type::VoidTy,
+                                                          Params, false)))
+    return F;
+
+  Params.push_back(Type::IntTy);
+
+  // int main(int argc)...
+  if (Function *F = getFunction("main", FunctionType::get(Type::IntTy,
+                                                          Params, false)))
+    return F;
+
+  // void main(int argc)...
+  if (Function *F = getFunction("main", FunctionType::get(Type::VoidTy,
+                                                          Params, false)))
+    return F;
+
+  for (unsigned i = 0; i != 2; ++i) {  // Check argv and envp
+    Params.push_back(PointerType::get(PointerType::get(Type::SByteTy)));
+
+    // int main(int argc, char **argv)...
+    if (Function *F = getFunction("main", FunctionType::get(Type::IntTy,
+                                                            Params, false)))
+      return F;
+
+    // void main(int argc, char **argv)...
+    if (Function *F = getFunction("main", FunctionType::get(Type::VoidTy,
+                                                            Params, false)))
+      return F;
+  }
+
+  // Ok, try to find main the hard way...
+  return getNamedFunction("main");
+}
+
+/// getNamedFunction - Return the first function in the module with the
+/// specified name, of arbitrary type.  This method returns null if a function
+/// with the specified name is not found.
+///
+Function *Module::getNamedFunction(const std::string &Name) const {
+  // Loop over all of the functions, looking for the function desired
+  const Function *Found = 0;
+  for (const_iterator I = begin(), E = end(); I != E; ++I)
+    if (I->getName() == Name)
+      if (I->isExternal())
+        Found = I;
+      else
+        return const_cast<Function*>(&(*I));
+  return const_cast<Function*>(Found); // Non-external function not found...
 }
 
 //===----------------------------------------------------------------------===//
@@ -209,14 +274,30 @@ Function *Module::getFunction(const std::string &Name) const {
 /// have InternalLinkage. By default, these types are not returned.
 ///
 GlobalVariable *Module::getGlobalVariable(const std::string &Name,
-                                          bool AllowInternal) const {
-  if (Value *V = ValSymTab->lookup(Name)) {
-    GlobalVariable *Result = dyn_cast<GlobalVariable>(V);
-    if (Result && (AllowInternal || !Result->hasInternalLinkage()))
+                                          const Type *Ty, bool AllowInternal) {
+  if (Value *V = getSymbolTable().lookup(PointerType::get(Ty), Name)) {
+    GlobalVariable *Result = cast<GlobalVariable>(V);
+    if (AllowInternal || !Result->hasInternalLinkage())
       return Result;
   }
   return 0;
 }
+
+/// getNamedGlobal - Return the first global variable in the module with the
+/// specified name, of arbitrary type.  This method returns null if a global
+/// with the specified name is not found.
+///
+GlobalVariable *Module::getNamedGlobal(const std::string &Name) const {
+  // FIXME: This would be much faster with a symbol table that doesn't
+  // discriminate based on type!
+  for (const_global_iterator I = global_begin(), E = global_end();
+       I != E; ++I)
+    if (I->getName() == Name) 
+      return const_cast<GlobalVariable*>(&(*I));
+  return 0;
+}
+
+
 
 //===----------------------------------------------------------------------===//
 // Methods for easy access to the types in the module.
@@ -228,9 +309,9 @@ GlobalVariable *Module::getGlobalVariable(const std::string &Name,
 // table is not modified.
 //
 bool Module::addTypeName(const std::string &Name, const Type *Ty) {
-  TypeSymbolTable &ST = getTypeSymbolTable();
+  SymbolTable &ST = getSymbolTable();
 
-  if (ST.lookup(Name)) return true;  // Already in symtab...
+  if (ST.lookupType(Name)) return true;  // Already in symtab...
 
   // Not in symbol table?  Set the name with the Symtab as an argument so the
   // type knows what to update...
@@ -242,18 +323,18 @@ bool Module::addTypeName(const std::string &Name, const Type *Ty) {
 /// getTypeByName - Return the type with the specified name in this module, or
 /// null if there is none by that name.
 const Type *Module::getTypeByName(const std::string &Name) const {
-  const TypeSymbolTable &ST = getTypeSymbolTable();
-  return cast_or_null<Type>(ST.lookup(Name));
+  const SymbolTable &ST = getSymbolTable();
+  return cast_or_null<Type>(ST.lookupType(Name));
 }
 
 // getTypeName - If there is at least one entry in the symbol table for the
 // specified type, return it.
 //
 std::string Module::getTypeName(const Type *Ty) const {
-  const TypeSymbolTable &ST = getTypeSymbolTable();
+  const SymbolTable &ST = getSymbolTable();
 
-  TypeSymbolTable::const_iterator TI = ST.begin();
-  TypeSymbolTable::const_iterator TE = ST.end();
+  SymbolTable::type_const_iterator TI = ST.type_begin();
+  SymbolTable::type_const_iterator TE = ST.type_end();
   if ( TI == TE ) return ""; // No names for types
 
   while (TI != TE && TI->second != Ty)
@@ -282,22 +363,5 @@ void Module::dropAllReferences() {
 
   for(Module::global_iterator I = global_begin(), E = global_end(); I != E; ++I)
     I->dropAllReferences();
-}
-
-void Module::addLibrary(const std::string& Lib) {
-  for (Module::lib_iterator I = lib_begin(), E = lib_end(); I != E; ++I)
-    if (*I == Lib)
-      return;
-  LibraryList.push_back(Lib);
-}
-
-void Module::removeLibrary(const std::string& Lib) {
-  LibraryListType::iterator I = LibraryList.begin();
-  LibraryListType::iterator E = LibraryList.end();
-  for (;I != E; ++I)
-    if (*I == Lib) {
-      LibraryList.erase(I);
-      return;
-    }
 }
 

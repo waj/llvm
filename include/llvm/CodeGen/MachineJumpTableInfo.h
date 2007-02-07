@@ -38,12 +38,10 @@ struct MachineJumpTableEntry {
 };
   
 class MachineJumpTableInfo {
-  unsigned EntrySize;
-  unsigned Alignment;
+  const TargetData *TD;
   std::vector<MachineJumpTableEntry> JumpTables;
 public:
-  MachineJumpTableInfo(unsigned Size, unsigned Align)
-  : EntrySize(Size), Alignment(Align) {}
+  MachineJumpTableInfo(const TargetData *td) : TD(td) {}
     
   /// getJumpTableIndex - Create a new jump table or return an existing one.
   ///
@@ -79,18 +77,16 @@ public:
     return MadeChange;
   }
   
-  /// getEntrySize - Returns the size of an individual field in a jump table. 
-  ///
-  unsigned getEntrySize() const { return EntrySize; }
+  /// getEntrySize - returns the size of an individual field in a jump table 
+  unsigned getEntrySize() const;
   
   /// getAlignment - returns the target's preferred alignment for jump tables
-  unsigned getAlignment() const { return Alignment; }
+  unsigned getAlignment() const;
   
   /// print - Used by the MachineFunction printer to print information about
   /// jump tables.  Implemented in MachineFunction.cpp
   ///
   void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
 
   /// dump - Call print(std::cerr) to be called from the debugger.
   ///

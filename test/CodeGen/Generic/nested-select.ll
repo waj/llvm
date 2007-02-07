@@ -1,10 +1,6 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc -o /dev/null -f
+; RUN: llvm-as < %s | llc -o /dev/null -f
 
 ; Test that select of a select works
-
-%typedef.tree = type opaque
-
-implementation
 
 int %ic_test(double %p.0.2.0.val, double %p.0.2.1.val, double %p.0.2.2.val, %typedef.tree* %t) {
         %result.1.0 = cast bool false to int            ; <int> [#uses=1]

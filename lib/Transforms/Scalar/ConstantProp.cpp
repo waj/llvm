@@ -18,22 +18,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "constprop"
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/Analysis/ConstantFolding.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Constant.h"
 #include "llvm/Instruction.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/InstIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumInstKilled, "Number of instructions killed");
-
 namespace {
-  struct VISIBILITY_HIDDEN ConstantPropagation : public FunctionPass {
+  Statistic<> NumInstKilled("constprop", "Number of instructions killed");
+
+  struct ConstantPropagation : public FunctionPass {
     bool runOnFunction(Function &F);
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {

@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -adce
+; RUN: llvm-as < %s | opt -adce
 
 implementation
 

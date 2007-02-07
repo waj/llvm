@@ -15,11 +15,11 @@
 #include "AlphaInstrInfo.h"
 #include "AlphaGenInstrInfo.inc"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include <iostream>
 using namespace llvm;
 
 AlphaInstrInfo::AlphaInstrInfo()
-  : TargetInstrInfo(AlphaInsts, sizeof(AlphaInsts)/sizeof(AlphaInsts[0])),
-    RI(*this) { }
+  : TargetInstrInfo(AlphaInsts, sizeof(AlphaInsts)/sizeof(AlphaInsts[0])) { }
 
 
 bool AlphaInstrInfo::isMoveInstr(const MachineInstr& MI,
@@ -109,25 +109,25 @@ void AlphaInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
   // One-way branch.
   if (FBB == 0) {
     if (Cond.empty())   // Unconditional branch
-      BuildMI(&MBB, get(Alpha::BR)).addMBB(TBB);
+      BuildMI(&MBB, Alpha::BR, 1).addMBB(TBB);
     else                // Conditional branch
       if (isAlphaIntCondCode(Cond[0].getImm()))
-        BuildMI(&MBB, get(Alpha::COND_BRANCH_I))
+        BuildMI(&MBB, Alpha::COND_BRANCH_I, 3)
           .addImm(Cond[0].getImm()).addReg(Cond[1].getReg()).addMBB(TBB);
       else
-        BuildMI(&MBB, get(Alpha::COND_BRANCH_F))
+        BuildMI(&MBB, Alpha::COND_BRANCH_F, 3)
           .addImm(Cond[0].getImm()).addReg(Cond[1].getReg()).addMBB(TBB);
     return;
   }
   
   // Two-way Conditional Branch.
   if (isAlphaIntCondCode(Cond[0].getImm()))
-    BuildMI(&MBB, get(Alpha::COND_BRANCH_I))
+    BuildMI(&MBB, Alpha::COND_BRANCH_I, 3)
       .addImm(Cond[0].getImm()).addReg(Cond[1].getReg()).addMBB(TBB);
   else
-    BuildMI(&MBB, get(Alpha::COND_BRANCH_F))
+    BuildMI(&MBB, Alpha::COND_BRANCH_F, 3)
       .addImm(Cond[0].getImm()).addReg(Cond[1].getReg()).addMBB(TBB);
-  BuildMI(&MBB, get(Alpha::BR)).addMBB(FBB);
+  BuildMI(&MBB, Alpha::BR, 1).addMBB(FBB);
 }
 
 static unsigned AlphaRevCondCode(unsigned Opcode) {
@@ -229,7 +229,7 @@ void AlphaInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
 
 void AlphaInstrInfo::insertNoop(MachineBasicBlock &MBB, 
                                 MachineBasicBlock::iterator MI) const {
-  BuildMI(MBB, MI, get(Alpha::BISr), Alpha::R31).addReg(Alpha::R31)
+  BuildMI(MBB, MI, Alpha::BISr, 2, Alpha::R31).addReg(Alpha::R31)
     .addReg(Alpha::R31);
 }
 

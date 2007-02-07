@@ -15,28 +15,36 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "indmemrem"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
+#include "llvm/Function.h"
 #include "llvm/Instructions.h"
 #include "llvm/Type.h"
-#include "llvm/DerivedTypes.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Support/Compiler.h"
+#include <fstream>
+#include <iostream>
+#include <set>
 using namespace llvm;
 
-STATISTIC(NumBounceSites, "Number of sites modified");
-STATISTIC(NumBounce     , "Number of bounce functions created");
-
 namespace {
-  class VISIBILITY_HIDDEN IndMemRemPass : public ModulePass {
+  Statistic<> NumBounceSites("indmemrem", "Number of sites modified");
+  Statistic<> NumBounce  ("indmemrem", "Number of bounce functions created");
+
+  class IndMemRemPass : public ModulePass {
+
   public:
+    IndMemRemPass();
     virtual bool runOnModule(Module &M);
   };
   RegisterPass<IndMemRemPass> X("indmemrem","Indirect Malloc and Free Removal");
 } // end anonymous namespace
 
+
+IndMemRemPass::IndMemRemPass()
+{
+}
 
 bool IndMemRemPass::runOnModule(Module &M) {
   //in Theory, all direct calls of malloc and free should be promoted
@@ -45,8 +53,8 @@ bool IndMemRemPass::runOnModule(Module &M) {
   //functions, ensuring that all malloc and free that might happen
   //happen through intrinsics.
   bool changed = false;
-  if (Function* F = M.getFunction("free")) {
-    assert(F->isDeclaration() && "free not external?");
+  if (Function* F = M.getNamedFunction("free")) {
+    assert(F->isExternal() && "free not external?");
     if (!F->use_empty()) {
       Function* FN = new Function(F->getFunctionType(), 
 				  GlobalValue::LinkOnceLinkage, 
@@ -60,16 +68,15 @@ bool IndMemRemPass::runOnModule(Module &M) {
       changed = true;
     }
   }
-  if (Function* F = M.getFunction("malloc")) {
-    assert(F->isDeclaration() && "malloc not external?");
+  if (Function* F = M.getNamedFunction("malloc")) {
+    assert(F->isExternal() && "malloc not external?");
     if (!F->use_empty()) {
       Function* FN = new Function(F->getFunctionType(), 
 				  GlobalValue::LinkOnceLinkage, 
 				  "malloc_llvm_bounce", &M);
       BasicBlock* bb = new BasicBlock("entry",FN);
-      Instruction* c = CastInst::createIntegerCast(
-          FN->arg_begin(), Type::Int32Ty, false, "c", bb);
-      Instruction* a = new MallocInst(Type::Int8Ty, c, "m", bb);
+      Instruction* c = new CastInst(FN->arg_begin(), Type::UIntTy, "c", bb);
+      Instruction* a = new MallocInst(Type::SByteTy, c, "m", bb);
       new ReturnInst(a, bb);
       ++NumBounce;
       NumBounceSites += F->getNumUses();

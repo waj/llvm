@@ -27,7 +27,6 @@
 #include "llvm/Target/TargetData.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/System/Path.h"
 #include "llvm/System/Program.h"
 #include "llvm/Config/alloca.h"
@@ -56,8 +55,7 @@ bool BugDriver::writeProgramToFile(const std::string &Filename,
   std::ofstream Out(Filename.c_str(), io_mode);
   if (!Out.good()) return true;
   try {
-    OStream L(Out);
-    WriteBytecodeToFile(M ? M : Program, L, /*compression=*/false);
+    WriteBytecodeToFile(M ? M : Program, Out, /*compression=*/true);
   } catch (...) {
     return true;
   }
@@ -74,15 +72,15 @@ void BugDriver::EmitProgressBytecode(const std::string &ID, bool NoFlyer) {
   //
   std::string Filename = "bugpoint-" + ID + ".bc";
   if (writeProgramToFile(Filename)) {
-    cerr <<  "Error opening file '" << Filename << "' for writing!\n";
+    std::cerr <<  "Error opening file '" << Filename << "' for writing!\n";
     return;
   }
 
-  cout << "Emitted bytecode to '" << Filename << "'\n";
+  std::cout << "Emitted bytecode to '" << Filename << "'\n";
   if (NoFlyer || PassesToRun.empty()) return;
-  cout << "\n*** You can reproduce the problem with: ";
-  cout << "opt " << Filename << " ";
-  cout << getPassesString(PassesToRun) << "\n";
+  std::cout << "\n*** You can reproduce the problem with: ";
+  std::cout << "opt " << Filename << " ";
+  std::cout << getPassesString(PassesToRun) << "\n";
 }
 
 int BugDriver::runPassesAsChild(const std::vector<const PassInfo*> &Passes) {
@@ -91,7 +89,7 @@ int BugDriver::runPassesAsChild(const std::vector<const PassInfo*> &Passes) {
                                std::ios::binary;
   std::ofstream OutFile(ChildOutput.c_str(), io_mode);
   if (!OutFile.good()) {
-    cerr << "Error opening bytecode file: " << ChildOutput << "\n";
+    std::cerr << "Error opening bytecode file: " << ChildOutput << "\n";
     return 1;
   }
 
@@ -103,14 +101,14 @@ int BugDriver::runPassesAsChild(const std::vector<const PassInfo*> &Passes) {
     if (Passes[i]->getNormalCtor())
       PM.add(Passes[i]->getNormalCtor()());
     else
-      cerr << "Cannot create pass yet: " << Passes[i]->getPassName() << "\n";
+      std::cerr << "Cannot create pass yet: " << Passes[i]->getPassName()
+                << "\n";
   }
   // Check that the module is well formed on completion of optimization
   PM.add(createVerifierPass());
 
   // Write bytecode out to disk as the last step...
-  OStream L(OutFile);
-  PM.add(new WriteBytecodePass(&L));
+  PM.add(new WriteBytecodePass(&OutFile));
 
   // Run all queued passes.
   PM.run(*Program);
@@ -130,12 +128,12 @@ bool BugDriver::runPasses(const std::vector<const PassInfo*> &Passes,
                           std::string &OutputFilename, bool DeleteOutput,
                           bool Quiet) const {
   // setup the output file name
-  cout << std::flush;
+  std::cout << std::flush;
   sys::Path uniqueFilename("bugpoint-output.bc");
   std::string ErrMsg;
   if (uniqueFilename.makeUnique(true, &ErrMsg)) {
-    cerr << getToolName() << ": Error making unique filename: " 
-         << ErrMsg << "\n";
+    std::cerr << getToolName() << ": Error making unique filename: " 
+              << ErrMsg << "\n";
     return(1);
   }
   OutputFilename = uniqueFilename.toString();
@@ -143,19 +141,18 @@ bool BugDriver::runPasses(const std::vector<const PassInfo*> &Passes,
   // set up the input file name
   sys::Path inputFilename("bugpoint-input.bc");
   if (inputFilename.makeUnique(true, &ErrMsg)) {
-    cerr << getToolName() << ": Error making unique filename: " 
-         << ErrMsg << "\n";
+    std::cerr << getToolName() << ": Error making unique filename: " 
+              << ErrMsg << "\n";
     return(1);
   }
   std::ios::openmode io_mode = std::ios::out | std::ios::trunc |
                                std::ios::binary;
   std::ofstream InFile(inputFilename.c_str(), io_mode);
   if (!InFile.good()) {
-    cerr << "Error opening bytecode file: " << inputFilename << "\n";
+    std::cerr << "Error opening bytecode file: " << inputFilename << "\n";
     return(1);
   }
-  OStream L(InFile);
-  WriteBytecodeToFile(Program,L,false);
+  WriteBytecodeToFile(Program,InFile,false);
   InFile.close();
 
   // setup the child process' arguments
@@ -206,17 +203,17 @@ bool BugDriver::runPasses(const std::vector<const PassInfo*> &Passes,
 
   if (!Quiet) {
     if (result == 0)
-      cout << "Success!\n";
+      std::cout << "Success!\n";
     else if (result > 0)
-      cout << "Exited with error code '" << result << "'\n";
+      std::cout << "Exited with error code '" << result << "'\n";
     else if (result < 0) {
       if (result == -1)
-        cout << "Execute failed: " << ErrMsg << "\n";
+        std::cout << "Execute failed: " << ErrMsg << "\n";
       else
-        cout << "Crashed with signal #" << abs(result) << "\n";
+        std::cout << "Crashed with signal #" << abs(result) << "\n";
     }
     if (result & 0x01000000)
-      cout << "Dumped core\n";
+      std::cout << "Dumped core\n";
   }
 
   // Was the child successful?
@@ -234,8 +231,8 @@ Module *BugDriver::runPassesOn(Module *M,
   std::string BytecodeResult;
   if (runPasses(Passes, BytecodeResult, false/*delete*/, true/*quiet*/)) {
     if (AutoDebugCrashes) {
-      cerr << " Error running this sequence of passes"
-           << " on the input program!\n";
+      std::cerr << " Error running this sequence of passes"
+                << " on the input program!\n";
       delete OldProgram;
       EmitProgressBytecode("pass-error",  false);
       exit(debugOptimizerCrash());
@@ -249,8 +246,8 @@ Module *BugDriver::runPassesOn(Module *M,
 
   Module *Ret = ParseInputFile(BytecodeResult);
   if (Ret == 0) {
-    cerr << getToolName() << ": Error reading bytecode file '"
-         << BytecodeResult << "'!\n";
+    std::cerr << getToolName() << ": Error reading bytecode file '"
+              << BytecodeResult << "'!\n";
     exit(1);
   }
   sys::Path(BytecodeResult).eraseFromDisk();  // No longer need the file on disk

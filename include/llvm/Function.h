@@ -63,7 +63,7 @@ private:
   BasicBlockListType  BasicBlocks;      // The basic blocks
   ArgumentListType ArgumentList;        // The formal arguments
 
-  ValueSymbolTable *SymTab;
+  SymbolTable *SymTab;
   unsigned CallingConvention;
 
   friend class SymbolTableListTraits<Function, Module, Module>;
@@ -89,11 +89,11 @@ public:
   /// arguments.
   bool isVarArg() const;
 
-  /// isDeclaration - Is the body of this function unknown? (The basic block 
-  /// list is empty if so.) This is true for function declarations, but not 
-  /// true for function definitions.
+  /// isExternal - Is the body of this function unknown? (The basic block list
+  /// is empty if so.) This is true for external functions, defined as forward
+  /// "declare"ations
   ///
-  virtual bool isDeclaration() const { return BasicBlocks.empty(); }
+  virtual bool isExternal() const { return BasicBlocks.empty(); }
 
   /// getIntrinsicID - This method returns the ID number of the specified
   /// function, or Intrinsic::not_intrinsic if the function is not an
@@ -110,6 +110,13 @@ public:
   /// calling conventions are defined in CallingConv.h.
   unsigned getCallingConv() const { return CallingConvention; }
   void setCallingConv(unsigned CC) { CallingConvention = CC; }
+
+  /// renameLocalSymbols - This method goes through the Function's symbol table
+  /// and renames any symbols that conflict with symbols at global scope.  This
+  /// is required before printing out to a textual form, to ensure that there is
+  /// no ambiguity when parsing.
+  void renameLocalSymbols();
+
 
   /// deleteBody - This method deletes the body of the function, and converts
   /// the linkage to external.
@@ -156,8 +163,8 @@ public:
 
   /// getSymbolTable() - Return the symbol table...
   ///
-  inline       ValueSymbolTable &getValueSymbolTable()       { return *SymTab; }
-  inline const ValueSymbolTable &getValueSymbolTable() const { return *SymTab; }
+  inline       SymbolTable &getSymbolTable()       { return *SymTab; }
+  inline const SymbolTable &getSymbolTable() const { return *SymTab; }
 
 
   //===--------------------------------------------------------------------===//
@@ -187,7 +194,6 @@ public:
   bool                        arg_empty() const { return ArgumentList.empty(); }
 
   virtual void print(std::ostream &OS) const { print(OS, 0); }
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
   void print(std::ostream &OS, AssemblyAnnotationWriter *AAW) const;
 
   /// viewCFG - This function is meant for use from the debugger.  You can just

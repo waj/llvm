@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | grep false
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep false
 ;
 ; This actually looks like a constant propagation bug
 
@@ -7,7 +7,7 @@
 implementation
 
 bool %test() {
-	%A = getelementptr %X* null, long 0, uint 0, long 0
+	%A = getelementptr %X* null, long 0, ubyte 0, long 0
 	%B = setne int* %A, null
 	ret bool %B
 }

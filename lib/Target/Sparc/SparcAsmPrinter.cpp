@@ -12,12 +12,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "asm-printer"
 #include "Sparc.h"
 #include "SparcInstrInfo.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Module.h"
+#include "llvm/Assembly/Writer.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
@@ -31,11 +31,12 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MathExtras.h"
 #include <cctype>
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(EmittedInsts, "Number of machine instrs printed");
-
 namespace {
+  Statistic<> EmittedInsts("asm-printer", "Number of machine instrs printed");
+
   struct VISIBILITY_HIDDEN SparcAsmPrinter : public AsmPrinter {
     SparcAsmPrinter(std::ostream &O, TargetMachine &TM, const TargetAsmInfo *T)
       : AsmPrinter(O, TM, T) {
@@ -229,7 +230,7 @@ bool SparcAsmPrinter::doFinalization(Module &M) {
       std::string name = Mang->getValueName(I);
       Constant *C = I->getInitializer();
       unsigned Size = TD->getTypeSize(C->getType());
-      unsigned Align = TD->getTypeAlignmentPref(C->getType());
+      unsigned Align = TD->getTypeAlignment(C->getType());
 
       if (C->isNullValue() &&
           (I->hasLinkOnceLinkage() || I->hasInternalLinkage() ||
@@ -239,7 +240,9 @@ bool SparcAsmPrinter::doFinalization(Module &M) {
           O << "\t.local " << name << "\n";
 
         O << "\t.comm " << name << "," << TD->getTypeSize(C->getType())
-          << "," << Align;
+          << "," << (unsigned)TD->getTypeAlignment(C->getType());
+        O << "\t\t! ";
+        WriteAsOperand(O, I, true, true, &M);
         O << "\n";
       } else {
         switch (I->getLinkage()) {
@@ -266,13 +269,13 @@ bool SparcAsmPrinter::doFinalization(Module &M) {
             SwitchToDataSection(".data", I);
           break;
         case GlobalValue::GhostLinkage:
-          cerr << "Should not have any unmaterialized functions!\n";
+          std::cerr << "Should not have any unmaterialized functions!\n";
           abort();
         case GlobalValue::DLLImportLinkage:
-          cerr << "DLLImport linkage is not supported by this target!\n";
+          std::cerr << "DLLImport linkage is not supported by this target!\n";
           abort();
         case GlobalValue::DLLExportLinkage:
-          cerr << "DLLExport linkage is not supported by this target!\n";
+          std::cerr << "DLLExport linkage is not supported by this target!\n";
           abort();
         default:
           assert(0 && "Unknown linkage type!");          
@@ -281,7 +284,9 @@ bool SparcAsmPrinter::doFinalization(Module &M) {
         O << "\t.align " << Align << "\n";
         O << "\t.type " << name << ",#object\n";
         O << "\t.size " << name << "," << Size << "\n";
-        O << name << ":\n";
+        O << name << ":\t\t\t\t! ";
+        WriteAsOperand(O, I, true, true, &M);
+        O << "\n";
         EmitGlobalConstant(C);
       }
     }

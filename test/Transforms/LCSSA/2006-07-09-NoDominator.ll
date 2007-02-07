@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -lcssa
+; RUN: llvm-as < %s | opt -lcssa
 
 	%struct.SetJmpMapEntry = type { sbyte*, uint, %struct.SetJmpMapEntry* }
 

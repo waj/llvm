@@ -1,6 +1,6 @@
 ; This testcase causes instcombine to hang.
 ;
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine
+; RUN: llvm-as < %s | opt -instcombine
 
 implementation
 

@@ -13,7 +13,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "phielim"
 #include "llvm/CodeGen/LiveVariables.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -21,6 +20,7 @@
 #include "llvm/CodeGen/SSARegMap.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/Compiler.h"
@@ -28,10 +28,10 @@
 #include <algorithm>
 using namespace llvm;
 
-STATISTIC(NumAtomic, "Number of atomic phis lowered");
-//STATISTIC(NumSimple, "Number of simple phis lowered");
-
 namespace {
+  static Statistic<> NumAtomic("phielim", "Number of atomic phis lowered");
+  static Statistic<> NumSimple("phielim", "Number of simple phis lowered");
+  
   struct VISIBILITY_HIDDEN PNE : public MachineFunctionPass {
     bool runOnMachineFunction(MachineFunction &Fn) {
       analyzePHINodes(Fn);

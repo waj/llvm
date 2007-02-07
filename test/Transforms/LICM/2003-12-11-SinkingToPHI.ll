@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -licm | lli
+; RUN: llvm-as < %s | opt -licm | lli
 
 implementation   ; Functions:
 

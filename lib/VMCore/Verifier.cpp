@@ -51,15 +51,15 @@
 #include "llvm/Instructions.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/PassManager.h"
-#include "llvm/ValueSymbolTable.h"
+#include "llvm/SymbolTable.h"
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/InstVisitor.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Compiler.h"
 #include <algorithm>
+#include <iostream>
 #include <sstream>
 #include <cstdarg>
 using namespace llvm;
@@ -99,8 +99,7 @@ namespace {  // Anonymous namespace for class
 
     bool doInitialization(Module &M) {
       Mod = &M;
-      verifyTypeSymbolTable(M.getTypeSymbolTable());
-      verifyValueSymbolTable(M.getValueSymbolTable());
+      verifySymbolTable(M.getSymbolTable());
 
       // If this is a real pass, in a pass manager, we must abort before
       // returning back to the pass manager, or else the pass manager may try to
@@ -113,7 +112,6 @@ namespace {  // Anonymous namespace for class
     bool runOnFunction(Function &F) {
       // Get dominator information if we are being run by PassManager
       if (RealPass) EF = &getAnalysis<ETForest>();
-      
       visit(F);
       InstsInThisBlock.clear();
 
@@ -132,7 +130,7 @@ namespace {  // Anonymous namespace for class
         visitGlobalValue(*I);
 
         // Check to make sure function prototypes are okay.
-        if (I->isDeclaration()) visitFunction(*I);
+        if (I->isExternal()) visitFunction(*I);
       }
 
       for (Module::global_iterator I = M.global_begin(), E = M.global_end(); 
@@ -158,11 +156,11 @@ namespace {  // Anonymous namespace for class
         switch (action) {
           case AbortProcessAction:
             msgs << "compilation aborted!\n";
-            cerr << msgs.str();
+            std::cerr << msgs.str();
             abort();
           case PrintMessageAction:
             msgs << "verification continues.\n";
-            cerr << msgs.str();
+            std::cerr << msgs.str();
             return false;
           case ReturnStatusAction:
             msgs << "compilation terminated.\n";
@@ -174,28 +172,14 @@ namespace {  // Anonymous namespace for class
 
 
     // Verification methods...
-    void verifyTypeSymbolTable(TypeSymbolTable &ST);
-    void verifyValueSymbolTable(ValueSymbolTable &ST);
+    void verifySymbolTable(SymbolTable &ST);
     void visitGlobalValue(GlobalValue &GV);
     void visitGlobalVariable(GlobalVariable &GV);
     void visitFunction(Function &F);
     void visitBasicBlock(BasicBlock &BB);
-    void visitTruncInst(TruncInst &I);
-    void visitZExtInst(ZExtInst &I);
-    void visitSExtInst(SExtInst &I);
-    void visitFPTruncInst(FPTruncInst &I);
-    void visitFPExtInst(FPExtInst &I);
-    void visitFPToUIInst(FPToUIInst &I);
-    void visitFPToSIInst(FPToSIInst &I);
-    void visitUIToFPInst(UIToFPInst &I);
-    void visitSIToFPInst(SIToFPInst &I);
-    void visitIntToPtrInst(IntToPtrInst &I);
-    void visitPtrToIntInst(PtrToIntInst &I);
-    void visitBitCastInst(BitCastInst &I);
     void visitPHINode(PHINode &PN);
     void visitBinaryOperator(BinaryOperator &B);
-    void visitICmpInst(ICmpInst &IC);
-    void visitFCmpInst(FCmpInst &FC);
+    void visitShiftInst(ShiftInst &SI);
     void visitExtractElementInst(ExtractElementInst &EI);
     void visitInsertElementInst(InsertElementInst &EI);
     void visitShuffleVectorInst(ShuffleVectorInst &EI);
@@ -220,7 +204,7 @@ namespace {  // Anonymous namespace for class
       if (isa<Instruction>(V)) {
         msgs << *V;
       } else {
-        WriteAsOperand(msgs, V, true, Mod);
+        WriteAsOperand (msgs, V, true, true, Mod);
         msgs << "\n";
       }
     }
@@ -273,14 +257,14 @@ namespace {  // Anonymous namespace for class
 
 
 void Verifier::visitGlobalValue(GlobalValue &GV) {
-  Assert1(!GV.isDeclaration() ||
+  Assert1(!GV.isExternal() ||
           GV.hasExternalLinkage() ||
           GV.hasDLLImportLinkage() ||
           GV.hasExternalWeakLinkage(),
   "Global is external, but doesn't have external or dllimport or weak linkage!",
           &GV);
 
-  Assert1(!GV.hasDLLImportLinkage() || GV.isDeclaration(),
+  Assert1(!GV.hasDLLImportLinkage() || GV.isExternal(),
           "Global is marked as dllimport, but not external", &GV);
   
   Assert1(!GV.hasAppendingLinkage() || isa<GlobalVariable>(GV),
@@ -302,23 +286,23 @@ void Verifier::visitGlobalVariable(GlobalVariable &GV) {
   visitGlobalValue(GV);
 }
 
-void Verifier::verifyTypeSymbolTable(TypeSymbolTable &ST) {
-}
 
 // verifySymbolTable - Verify that a function or module symbol table is ok
 //
-void Verifier::verifyValueSymbolTable(ValueSymbolTable &ST) {
+void Verifier::verifySymbolTable(SymbolTable &ST) {
 
-  // Loop over all of the values in the symbol table.
-  for (ValueSymbolTable::const_iterator VI = ST.begin(), VE = ST.end(); 
-       VI != VE; ++VI) {
-    Value *V = VI->second;
-    // Check that there are no void typed values in the symbol table.  Values
-    // with a void type cannot be put into symbol tables because they cannot
-    // have names!
-    Assert1(V->getType() != Type::VoidTy,
-      "Values with void type are not allowed to have names!", V);
-  }
+  // Loop over all of the values in all type planes in the symbol table.
+  for (SymbolTable::plane_const_iterator PI = ST.plane_begin(),
+       PE = ST.plane_end(); PI != PE; ++PI)
+    for (SymbolTable::value_const_iterator VI = PI->second.begin(),
+         VE = PI->second.end(); VI != VE; ++VI) {
+      Value *V = VI->second;
+      // Check that there are no void typed values in the symbol table.  Values
+      // with a void type cannot be put into symbol tables because they cannot
+      // have names!
+      Assert1(V->getType() != Type::VoidTy,
+        "Values with void type are not allowed to have names!", V);
+    }
 }
 
 // visitFunction - Verify that a function is ok.
@@ -335,16 +319,16 @@ void Verifier::visitFunction(Function &F) {
           F.getReturnType() == Type::VoidTy,
           "Functions cannot return aggregate values!", &F);
 
-  Assert1(!FT->isStructReturn() ||
-          (FT->getReturnType() == Type::VoidTy && 
-           FT->getNumParams() > 0 && isa<PointerType>(FT->getParamType(0))),
-          "Invalid struct-return function!", &F);
-
   // Check that this function meets the restrictions on this calling convention.
   switch (F.getCallingConv()) {
   default:
     break;
   case CallingConv::C:
+    break;
+  case CallingConv::CSRet:
+    Assert1(FT->getReturnType() == Type::VoidTy && 
+            FT->getNumParams() > 0 && isa<PointerType>(FT->getParamType(0)),
+            "Invalid struct-return function!", &F);
     break;
   case CallingConv::Fast:
   case CallingConv::Cold:
@@ -356,8 +340,7 @@ void Verifier::visitFunction(Function &F) {
   
   // Check that the argument values match the function type for this function...
   unsigned i = 0;
-  for (Function::arg_iterator I = F.arg_begin(), E = F.arg_end();
-       I != E; ++I, ++i) {
+  for (Function::arg_iterator I = F.arg_begin(), E = F.arg_end(); I != E; ++I, ++i) {
     Assert2(I->getType() == FT->getParamType(i),
             "Argument value does not match function argument type!",
             I, FT->getParamType(i));
@@ -366,14 +349,8 @@ void Verifier::visitFunction(Function &F) {
             "Functions cannot take aggregates as arguments by value!", I);
    }
 
-  if (!F.isDeclaration()) {
-    // Verify that this function (which has a body) is not named "llvm.*".  It
-    // is not legal to define intrinsics.
-    if (F.getName().size() >= 5)
-      Assert1(F.getName().substr(0, 5) != "llvm.",
-              "llvm intrinsics cannot be defined!", &F);
-    
-    verifyValueSymbolTable(F.getValueSymbolTable());
+  if (!F.isExternal()) {
+    verifySymbolTable(F.getSymbolTable());
 
     // Check the entry node
     BasicBlock *Entry = &F.getEntryBlock();
@@ -471,7 +448,7 @@ void Verifier::visitSwitchInst(SwitchInst &SI) {
 }
 
 void Verifier::visitSelectInst(SelectInst &SI) {
-  Assert1(SI.getCondition()->getType() == Type::Int1Ty,
+  Assert1(SI.getCondition()->getType() == Type::BoolTy,
           "Select condition type must be bool!", &SI);
   Assert1(SI.getTrueValue()->getType() == SI.getFalseValue()->getType(),
           "Select values must have identical types!", &SI);
@@ -486,169 +463,6 @@ void Verifier::visitSelectInst(SelectInst &SI) {
 ///
 void Verifier::visitUserOp1(Instruction &I) {
   Assert1(0, "User-defined operators should not live outside of a pass!", &I);
-}
-
-void Verifier::visitTruncInst(TruncInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  // Get the size of the types in bits, we'll need this later
-  unsigned SrcBitSize = SrcTy->getPrimitiveSizeInBits();
-  unsigned DestBitSize = DestTy->getPrimitiveSizeInBits();
-
-  Assert1(SrcTy->isInteger(), "Trunc only operates on integer", &I);
-  Assert1(DestTy->isInteger(), "Trunc only produces integer", &I);
-  Assert1(SrcBitSize > DestBitSize,"DestTy too big for Trunc", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitZExtInst(ZExtInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  // Get the size of the types in bits, we'll need this later
-  Assert1(SrcTy->isInteger(), "ZExt only operates on integer", &I);
-  Assert1(DestTy->isInteger(), "ZExt only produces an integer", &I);
-  unsigned SrcBitSize = SrcTy->getPrimitiveSizeInBits();
-  unsigned DestBitSize = DestTy->getPrimitiveSizeInBits();
-
-  Assert1(SrcBitSize < DestBitSize,"Type too small for ZExt", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitSExtInst(SExtInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  // Get the size of the types in bits, we'll need this later
-  unsigned SrcBitSize = SrcTy->getPrimitiveSizeInBits();
-  unsigned DestBitSize = DestTy->getPrimitiveSizeInBits();
-
-  Assert1(SrcTy->isInteger(), "SExt only operates on integer", &I);
-  Assert1(DestTy->isInteger(), "SExt only produces an integer", &I);
-  Assert1(SrcBitSize < DestBitSize,"Type too small for SExt", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitFPTruncInst(FPTruncInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-  // Get the size of the types in bits, we'll need this later
-  unsigned SrcBitSize = SrcTy->getPrimitiveSizeInBits();
-  unsigned DestBitSize = DestTy->getPrimitiveSizeInBits();
-
-  Assert1(SrcTy->isFloatingPoint(),"FPTrunc only operates on FP", &I);
-  Assert1(DestTy->isFloatingPoint(),"FPTrunc only produces an FP", &I);
-  Assert1(SrcBitSize > DestBitSize,"DestTy too big for FPTrunc", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitFPExtInst(FPExtInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  // Get the size of the types in bits, we'll need this later
-  unsigned SrcBitSize = SrcTy->getPrimitiveSizeInBits();
-  unsigned DestBitSize = DestTy->getPrimitiveSizeInBits();
-
-  Assert1(SrcTy->isFloatingPoint(),"FPExt only operates on FP", &I);
-  Assert1(DestTy->isFloatingPoint(),"FPExt only produces an FP", &I);
-  Assert1(SrcBitSize < DestBitSize,"DestTy too small for FPExt", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitUIToFPInst(UIToFPInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  Assert1(SrcTy->isInteger(),"UInt2FP source must be integral", &I);
-  Assert1(DestTy->isFloatingPoint(),"UInt2FP result must be FP", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitSIToFPInst(SIToFPInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  Assert1(SrcTy->isInteger(),"SInt2FP source must be integral", &I);
-  Assert1(DestTy->isFloatingPoint(),"SInt2FP result must be FP", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitFPToUIInst(FPToUIInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  Assert1(SrcTy->isFloatingPoint(),"FP2UInt source must be FP", &I);
-  Assert1(DestTy->isInteger(),"FP2UInt result must be integral", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitFPToSIInst(FPToSIInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  Assert1(SrcTy->isFloatingPoint(),"FPToSI source must be FP", &I);
-  Assert1(DestTy->isInteger(),"FP2ToI result must be integral", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitPtrToIntInst(PtrToIntInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  Assert1(isa<PointerType>(SrcTy), "PtrToInt source must be pointer", &I);
-  Assert1(DestTy->isInteger(), "PtrToInt result must be integral", &I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitIntToPtrInst(IntToPtrInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  Assert1(SrcTy->isInteger(), "IntToPtr source must be an integral", &I);
-  Assert1(isa<PointerType>(DestTy), "IntToPtr result must be a pointer",&I);
-
-  visitInstruction(I);
-}
-
-void Verifier::visitBitCastInst(BitCastInst &I) {
-  // Get the source and destination types
-  const Type *SrcTy = I.getOperand(0)->getType();
-  const Type *DestTy = I.getType();
-
-  // Get the size of the types in bits, we'll need this later
-  unsigned SrcBitSize = SrcTy->getPrimitiveSizeInBits();
-  unsigned DestBitSize = DestTy->getPrimitiveSizeInBits();
-
-  // BitCast implies a no-op cast of type only. No bits change.
-  // However, you can't cast pointers to anything but pointers.
-  Assert1(isa<PointerType>(DestTy) == isa<PointerType>(DestTy),
-          "Bitcast requires both operands to be pointer or neither", &I);
-  Assert1(SrcBitSize == DestBitSize, "Bitcast requies types of same width", &I);
-
-  visitInstruction(I);
 }
 
 /// visitPHINode - Ensure that a PHI node is well formed.
@@ -710,28 +524,21 @@ void Verifier::visitBinaryOperator(BinaryOperator &B) {
   Assert1(B.getOperand(0)->getType() == B.getOperand(1)->getType(),
           "Both operands to a binary operator are not of the same type!", &B);
 
-  switch (B.getOpcode()) {
   // Check that logical operators are only used with integral operands.
-  case Instruction::And:
-  case Instruction::Or:
-  case Instruction::Xor:
-    Assert1(B.getType()->isInteger() ||
+  if (B.getOpcode() == Instruction::And || B.getOpcode() == Instruction::Or ||
+      B.getOpcode() == Instruction::Xor) {
+    Assert1(B.getType()->isIntegral() ||
             (isa<PackedType>(B.getType()) && 
-             cast<PackedType>(B.getType())->getElementType()->isInteger()),
+             cast<PackedType>(B.getType())->getElementType()->isIntegral()),
             "Logical operators only work with integral types!", &B);
     Assert1(B.getType() == B.getOperand(0)->getType(),
             "Logical operators must have same type for operands and result!",
             &B);
-    break;
-  case Instruction::Shl:
-  case Instruction::LShr:
-  case Instruction::AShr:
-    Assert1(B.getType()->isInteger(),
-            "Shift must return an integer result!", &B);
-    Assert1(B.getType() == B.getOperand(0)->getType(),
-            "Shift return type must be same as operands!", &B);
-    /* FALL THROUGH */
-  default:
+  } else if (isa<SetCondInst>(B)) {
+    // Check that setcc instructions return bool
+    Assert1(B.getType() == Type::BoolTy,
+            "setcc instructions must return boolean values!", &B);
+  } else {
     // Arithmetic operators only work on integer or fp values
     Assert1(B.getType() == B.getOperand(0)->getType(),
             "Arithmetic operators must have same type for operands and result!",
@@ -739,34 +546,19 @@ void Verifier::visitBinaryOperator(BinaryOperator &B) {
     Assert1(B.getType()->isInteger() || B.getType()->isFloatingPoint() ||
             isa<PackedType>(B.getType()),
             "Arithmetic operators must have integer, fp, or packed type!", &B);
-    break;
   }
 
   visitInstruction(B);
 }
 
-void Verifier::visitICmpInst(ICmpInst& IC) {
-  // Check that the operands are the same type
-  const Type* Op0Ty = IC.getOperand(0)->getType();
-  const Type* Op1Ty = IC.getOperand(1)->getType();
-  Assert1(Op0Ty == Op1Ty,
-          "Both operands to ICmp instruction are not of the same type!", &IC);
-  // Check that the operands are the right type
-  Assert1(Op0Ty->isInteger() || isa<PointerType>(Op0Ty),
-          "Invalid operand types for ICmp instruction", &IC);
-  visitInstruction(IC);
-}
-
-void Verifier::visitFCmpInst(FCmpInst& FC) {
-  // Check that the operands are the same type
-  const Type* Op0Ty = FC.getOperand(0)->getType();
-  const Type* Op1Ty = FC.getOperand(1)->getType();
-  Assert1(Op0Ty == Op1Ty,
-          "Both operands to FCmp instruction are not of the same type!", &FC);
-  // Check that the operands are the right type
-  Assert1(Op0Ty->isFloatingPoint(),
-          "Invalid operand types for FCmp instruction", &FC);
-  visitInstruction(FC);
+void Verifier::visitShiftInst(ShiftInst &SI) {
+  Assert1(SI.getType()->isInteger(),
+          "Shift must return an integer result!", &SI);
+  Assert1(SI.getType() == SI.getOperand(0)->getType(),
+          "Shift return type must be same as first operand!", &SI);
+  Assert1(SI.getOperand(1)->getType() == Type::UByteTy,
+          "Second operand to shift must be ubyte type!", &SI);
+  visitInstruction(SI);
 }
 
 void Verifier::visitExtractElementInst(ExtractElementInst &EI) {
@@ -895,47 +687,9 @@ void Verifier::visitInstruction(Instruction &I) {
       if (!isa<PHINode>(I)) {
         // Invoke results are only usable in the normal destination, not in the
         // exceptional destination.
-        if (InvokeInst *II = dyn_cast<InvokeInst>(Op)) {
+        if (InvokeInst *II = dyn_cast<InvokeInst>(Op))
           OpBlock = II->getNormalDest();
-          
-          Assert2(OpBlock != II->getUnwindDest(),
-                  "No uses of invoke possible due to dominance structure!",
-                  Op, II);
-          
-          // If the normal successor of an invoke instruction has multiple
-          // predecessors, then the normal edge from the invoke is critical, so
-          // the invoke value can only be live if the destination block
-          // dominates all of it's predecessors (other than the invoke) or if
-          // the invoke value is only used by a phi in the successor.
-          if (!OpBlock->getSinglePredecessor() &&
-              EF->dominates(&BB->getParent()->getEntryBlock(), BB)) {
-            // The first case we allow is if the use is a PHI operand in the
-            // normal block, and if that PHI operand corresponds to the invoke's
-            // block.
-            bool Bad = true;
-            if (PHINode *PN = dyn_cast<PHINode>(&I))
-              if (PN->getParent() == OpBlock &&
-                  PN->getIncomingBlock(i/2) == Op->getParent())
-                Bad = false;
-            
-            // If it is used by something non-phi, then the other case is that
-            // 'OpBlock' dominates all of its predecessors other than the
-            // invoke.  In this case, the invoke value can still be used.
-            if (Bad) {
-              Bad = false;
-              for (pred_iterator PI = pred_begin(OpBlock),
-                   E = pred_end(OpBlock); PI != E; ++PI) {
-                if (*PI != II->getParent() && !EF->dominates(OpBlock, *PI)) {
-                  Bad = true;
-                  break;
-                }
-              }
-            }
-            Assert2(!Bad,
-                    "Invoke value defined on critical edge but not dead!", &I,
-                    Op);
-          }
-        } else if (OpBlock == BB) {
+        else if (OpBlock == BB) {
           // If they are in the same basic block, make sure that the definition
           // comes before the use.
           Assert2(InstsInThisBlock.count(Op) ||
@@ -967,7 +721,7 @@ void Verifier::visitInstruction(Instruction &I) {
 ///
 void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
   Function *IF = CI.getCalledFunction();
-  Assert1(IF->isDeclaration(), "Intrinsic functions should never be defined!", IF);
+  Assert1(IF->isExternal(), "Intrinsic functions should never be defined!", IF);
   
 #define GET_INTRINSIC_VERIFIER
 #include "llvm/Intrinsics.gen"
@@ -987,10 +741,6 @@ void Verifier::VerifyIntrinsicPrototype(Function *F, ...) {
   for (unsigned ArgNo = 0; 1; ++ArgNo) {
     int TypeID = va_arg(VA, int);
 
-    if (TypeID == -2) {
-      break;
-    }
-
     if (TypeID == -1) {
       if (ArgNo != FTy->getNumParams()+1)
         CheckFailed("Intrinsic prototype has too many arguments!", F);
@@ -1008,7 +758,7 @@ void Verifier::VerifyIntrinsicPrototype(Function *F, ...) {
     else
       Ty = FTy->getParamType(ArgNo-1);
     
-    if (TypeID != Ty->getTypeID()) {
+    if (Ty->getTypeID() != TypeID) {
       if (ArgNo == 0)
         CheckFailed("Intrinsic prototype has incorrect result type!", F);
       else
@@ -1016,43 +766,18 @@ void Verifier::VerifyIntrinsicPrototype(Function *F, ...) {
       break;
     }
 
-    if (TypeID == Type::IntegerTyID) {
-      unsigned GotBits = (unsigned) va_arg(VA, int);
-      unsigned ExpectBits = cast<IntegerType>(Ty)->getBitWidth();
-      if (GotBits != ExpectBits) {
-        std::string bitmsg = " Expecting " + utostr(ExpectBits) + " but got " +
-                             utostr(GotBits) + " bits.";
-        if (ArgNo == 0)
-          CheckFailed("Intrinsic prototype has incorrect integer result width!"
-                      + bitmsg, F);
-        else
-          CheckFailed("Intrinsic parameter #" + utostr(ArgNo-1) + " has "
-                      "incorrect integer width!" + bitmsg, F);
-        break;
-      }
-    } else if (TypeID == Type::PackedTyID) {
-      // If this is a packed argument, verify the number and type of elements.
+    // If this is a packed argument, verify the number and type of elements.
+    if (TypeID == Type::PackedTyID) {
       const PackedType *PTy = cast<PackedType>(Ty);
-      int ElemTy = va_arg(VA, int);
-      if (ElemTy != PTy->getElementType()->getTypeID()) {
-        CheckFailed("Intrinsic prototype has incorrect vector element type!",
-                    F);
+      if (va_arg(VA, int) != PTy->getElementType()->getTypeID()) {
+        CheckFailed("Intrinsic prototype has incorrect vector element type!",F);
         break;
       }
-      if (ElemTy == Type::IntegerTyID) {
-        unsigned NumBits = (unsigned)va_arg(VA, int);
-        unsigned ExpectedBits = 
-          cast<IntegerType>(PTy->getElementType())->getBitWidth();
-        if (NumBits != ExpectedBits) {
-          CheckFailed("Intrinsic prototype has incorrect vector element type!",
-                      F);
-          break;
-        }
-      }
+
       if ((unsigned)va_arg(VA, int) != PTy->getNumElements()) {
         CheckFailed("Intrinsic prototype has incorrect number of "
                     "vector elements!",F);
-          break;
+        break;
       }
     }
   }
@@ -1073,7 +798,7 @@ FunctionPass *llvm::createVerifierPass(VerifierFailureAction action) {
 // verifyFunction - Create
 bool llvm::verifyFunction(const Function &f, VerifierFailureAction action) {
   Function &F = const_cast<Function&>(f);
-  assert(!F.isDeclaration() && "Cannot verify external functions");
+  assert(!F.isExternal() && "Cannot verify external functions");
 
   FunctionPassManager FPM(new ExistingModuleProvider(F.getParent()));
   Verifier *V = new Verifier(action);

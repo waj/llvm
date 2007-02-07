@@ -1,3 +1,4 @@
+
 //===-- llvm/ADT/UniqueVector.h ---------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
@@ -10,7 +11,6 @@
 #ifndef LLVM_ADT_UNIQUEVECTOR_H
 #define LLVM_ADT_UNIQUEVECTOR_H
 
-#include <cassert>
 #include <map>
 #include <vector>
 
@@ -28,31 +28,35 @@ private:
 
   // Vector - ID ordered vector of entries. Entries can be indexed by ID - 1.
   //
-  std::vector<T> Vector;
+  std::vector<const T *> Vector;
   
 public:
   /// insert - Append entry to the vector if it doesn't already exist.  Returns
   /// the entry's index + 1 to be used as a unique ID.
   unsigned insert(const T &Entry) {
     // Check if the entry is already in the map.
-    unsigned &Val = Map[Entry];
+    typename std::map<T, unsigned>::iterator MI = Map.lower_bound(Entry);
     
     // See if entry exists, if so return prior ID.
-    if (Val) return Val;
+    if (MI != Map.end() && MI->first == Entry) return MI->second;
 
     // Compute ID for entry.
-    Val = Vector.size() + 1;
+    unsigned ID = Vector.size() + 1;
+    
+    // Insert in map.
+    MI = Map.insert(MI, std::make_pair(Entry, ID));
     
     // Insert in vector.
-    Vector.push_back(Entry);
-    return Val;
+    Vector.push_back(&MI->first);
+
+    return ID;
   }
   
   /// idFor - return the ID for an existing entry.  Returns 0 if the entry is
   /// not found.
   unsigned idFor(const T &Entry) const {
     // Search for entry in the map.
-    typename std::map<T, unsigned>::const_iterator MI = Map.find(Entry);
+    typename std::map<T, unsigned>::iterator MI = Map.find(Entry);
     
     // See if entry exists, if so return ID.
     if (MI != Map.end()) return MI->second;
@@ -63,10 +67,7 @@ public:
 
   /// operator[] - Returns a reference to the entry with the specified ID.
   ///
-  const T &operator[](unsigned ID) const {
-    assert(ID-1 < size() && "ID is 0 or out of range!");
-    return Vector[ID - 1];
-  }
+  const T &operator[](unsigned ID) const { return *Vector[ID - 1]; }
   
   /// size - Returns the number of entries in the vector.
   ///

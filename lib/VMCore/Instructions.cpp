@@ -203,7 +203,6 @@ void CallInst::init(Value *Func, const std::vector<Value*> &Params) {
 
   const FunctionType *FTy =
     cast<FunctionType>(cast<PointerType>(Func->getType())->getElementType());
-  FTy = FTy;  // silence warning.
 
   assert((Params.size() == FTy->getNumParams() ||
           (FTy->isVarArg() && Params.size() > FTy->getNumParams())) &&
@@ -225,7 +224,6 @@ void CallInst::init(Value *Func, Value *Actual1, Value *Actual2) {
 
   const FunctionType *FTy =
     cast<FunctionType>(cast<PointerType>(Func->getType())->getElementType());
-  FTy = FTy;  // silence warning.
 
   assert((FTy->getNumParams() == 2 ||
           (FTy->isVarArg() && FTy->getNumParams() < 2)) &&
@@ -246,7 +244,6 @@ void CallInst::init(Value *Func, Value *Actual) {
 
   const FunctionType *FTy =
     cast<FunctionType>(cast<PointerType>(Func->getType())->getElementType());
-  FTy = FTy;  // silence warning.
 
   assert((FTy->getNumParams() == 1 ||
           (FTy->isVarArg() && FTy->getNumParams() == 0)) &&
@@ -261,11 +258,10 @@ void CallInst::init(Value *Func) {
   Use *OL = OperandList = new Use[1];
   OL[0].init(Func, this);
 
-  const FunctionType *FTy =
+  const FunctionType *MTy =
     cast<FunctionType>(cast<PointerType>(Func->getType())->getElementType());
-  FTy = FTy;  // silence warning.
 
-  assert(FTy->getNumParams() == 0 && "Calling a function with bad signature");
+  assert(MTy->getNumParams() == 0 && "Calling a function with bad signature");
 }
 
 CallInst::CallInst(Value *Func, const std::vector<Value*> &Params,
@@ -360,7 +356,6 @@ void InvokeInst::init(Value *Fn, BasicBlock *IfNormal, BasicBlock *IfException,
   OL[2].init(IfException, this);
   const FunctionType *FTy =
     cast<FunctionType>(cast<PointerType>(Fn->getType())->getElementType());
-  FTy = FTy;  // silence warning.
 
   assert((Params.size() == FTy->getNumParams()) ||
          (FTy->isVarArg() && Params.size() > FTy->getNumParams()) &&
@@ -487,7 +482,7 @@ BasicBlock *UnreachableInst::getSuccessorV(unsigned idx) const {
 
 void BranchInst::AssertOK() {
   if (isConditional())
-    assert(getCondition()->getType() == Type::Int1Ty &&
+    assert(getCondition()->getType() == Type::BoolTy &&
            "May only branch on boolean predicates!");
 }
 
@@ -518,12 +513,12 @@ void BranchInst::setSuccessorV(unsigned idx, BasicBlock *B) {
 
 static Value *getAISize(Value *Amt) {
   if (!Amt)
-    Amt = ConstantInt::get(Type::Int32Ty, 1);
+    Amt = ConstantInt::get(Type::UIntTy, 1);
   else {
     assert(!isa<BasicBlock>(Amt) &&
            "Passed basic block into allocation size parameter!  Ue other ctor");
-    assert(Amt->getType() == Type::Int32Ty &&
-           "Malloc/Allocation array size is not a 32-bit integer!");
+    assert(Amt->getType() == Type::UIntTy &&
+           "Malloc/Allocation array size != UIntTy!");
   }
   return Amt;
 }
@@ -689,12 +684,12 @@ static inline const Type *checkType(const Type *Ty) {
   return Ty;
 }
 
-void GetElementPtrInst::init(Value *Ptr, Value* const *Idx, unsigned NumIdx) {
-  NumOperands = 1+NumIdx;
+void GetElementPtrInst::init(Value *Ptr, const std::vector<Value*> &Idx) {
+  NumOperands = 1+Idx.size();
   Use *OL = OperandList = new Use[NumOperands];
   OL[0].init(Ptr, this);
 
-  for (unsigned i = 0; i != NumIdx; ++i)
+  for (unsigned i = 0, e = Idx.size(); i != e; ++i)
     OL[i+1].init(Idx[i], this);
 }
 
@@ -716,51 +711,29 @@ void GetElementPtrInst::init(Value *Ptr, Value *Idx) {
 GetElementPtrInst::GetElementPtrInst(Value *Ptr, const std::vector<Value*> &Idx,
                                      const std::string &Name, Instruction *InBe)
   : Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),
-                                                          &Idx[0], Idx.size(), 
-                                                          true))),
+                                                          Idx, true))),
                 GetElementPtr, 0, 0, Name, InBe) {
-  init(Ptr, &Idx[0], Idx.size());
+  init(Ptr, Idx);
 }
 
 GetElementPtrInst::GetElementPtrInst(Value *Ptr, const std::vector<Value*> &Idx,
                                      const std::string &Name, BasicBlock *IAE)
   : Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),
-                                                          &Idx[0], Idx.size(),
-                                                          true))),
+                                                          Idx, true))),
                 GetElementPtr, 0, 0, Name, IAE) {
-  init(Ptr, &Idx[0], Idx.size());
-}
-
-GetElementPtrInst::GetElementPtrInst(Value *Ptr, Value* const *Idx,
-                                     unsigned NumIdx,
-                                     const std::string &Name, Instruction *InBe)
-: Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),
-                                                        Idx, NumIdx, true))),
-              GetElementPtr, 0, 0, Name, InBe) {
-  init(Ptr, Idx, NumIdx);
-}
-
-GetElementPtrInst::GetElementPtrInst(Value *Ptr, Value* const *Idx, 
-                                     unsigned NumIdx,
-                                     const std::string &Name, BasicBlock *IAE)
-: Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),
-                                                        Idx, NumIdx, true))),
-              GetElementPtr, 0, 0, Name, IAE) {
-  init(Ptr, Idx, NumIdx);
+  init(Ptr, Idx);
 }
 
 GetElementPtrInst::GetElementPtrInst(Value *Ptr, Value *Idx,
                                      const std::string &Name, Instruction *InBe)
-  : Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),
-                                                          Idx))),
+  : Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),Idx))),
                 GetElementPtr, 0, 0, Name, InBe) {
   init(Ptr, Idx);
 }
 
 GetElementPtrInst::GetElementPtrInst(Value *Ptr, Value *Idx,
                                      const std::string &Name, BasicBlock *IAE)
-  : Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),
-                                                          Idx))),
+  : Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),Idx))),
                 GetElementPtr, 0, 0, Name, IAE) {
   init(Ptr, Idx);
 }
@@ -792,13 +765,12 @@ GetElementPtrInst::~GetElementPtrInst() {
 // pointer type.
 //
 const Type* GetElementPtrInst::getIndexedType(const Type *Ptr,
-                                              Value* const *Idxs,
-                                              unsigned NumIdx,
+                                              const std::vector<Value*> &Idx,
                                               bool AllowCompositeLeaf) {
   if (!isa<PointerType>(Ptr)) return 0;   // Type isn't a pointer type!
 
   // Handle the special case of the empty set index set...
-  if (NumIdx == 0)
+  if (Idx.empty())
     if (AllowCompositeLeaf ||
         cast<PointerType>(Ptr)->getElementType()->isFirstClassType())
       return cast<PointerType>(Ptr)->getElementType();
@@ -807,12 +779,12 @@ const Type* GetElementPtrInst::getIndexedType(const Type *Ptr,
 
   unsigned CurIdx = 0;
   while (const CompositeType *CT = dyn_cast<CompositeType>(Ptr)) {
-    if (NumIdx == CurIdx) {
+    if (Idx.size() == CurIdx) {
       if (AllowCompositeLeaf || CT->isFirstClassType()) return Ptr;
       return 0;   // Can't load a whole structure or array!?!?
     }
 
-    Value *Index = Idxs[CurIdx++];
+    Value *Index = Idx[CurIdx++];
     if (isa<PointerType>(CT) && CurIdx != 1)
       return 0;  // Can only index into pointer types at the first index!
     if (!CT->indexValid(Index)) return 0;
@@ -826,7 +798,7 @@ const Type* GetElementPtrInst::getIndexedType(const Type *Ptr,
       Ptr = Ty;
     }
   }
-  return CurIdx == NumIdx ? Ptr : 0;
+  return CurIdx == Idx.size() ? Ptr : 0;
 }
 
 const Type* GetElementPtrInst::getIndexedType(const Type *Ptr,
@@ -877,7 +849,7 @@ ExtractElementInst::ExtractElementInst(Value *Val, unsigned IndexV,
                                        Instruction *InsertBef)
   : Instruction(cast<PackedType>(Val->getType())->getElementType(),
                 ExtractElement, Ops, 2, Name, InsertBef) {
-  Constant *Index = ConstantInt::get(Type::Int32Ty, IndexV);
+  Constant *Index = ConstantInt::get(Type::UIntTy, IndexV);
   assert(isValidOperands(Val, Index) &&
          "Invalid extractelement instruction operands!");
   Ops[0].init(Val, this);
@@ -902,7 +874,7 @@ ExtractElementInst::ExtractElementInst(Value *Val, unsigned IndexV,
                                        BasicBlock *InsertAE)
   : Instruction(cast<PackedType>(Val->getType())->getElementType(),
                 ExtractElement, Ops, 2, Name, InsertAE) {
-  Constant *Index = ConstantInt::get(Type::Int32Ty, IndexV);
+  Constant *Index = ConstantInt::get(Type::UIntTy, IndexV);
   assert(isValidOperands(Val, Index) &&
          "Invalid extractelement instruction operands!");
   
@@ -912,7 +884,7 @@ ExtractElementInst::ExtractElementInst(Value *Val, unsigned IndexV,
 
 
 bool ExtractElementInst::isValidOperands(const Value *Val, const Value *Index) {
-  if (!isa<PackedType>(Val->getType()) || Index->getType() != Type::Int32Ty)
+  if (!isa<PackedType>(Val->getType()) || Index->getType() != Type::UIntTy)
     return false;
   return true;
 }
@@ -943,7 +915,7 @@ InsertElementInst::InsertElementInst(Value *Vec, Value *Elt, unsigned IndexV,
                                      const std::string &Name,
                                      Instruction *InsertBef)
   : Instruction(Vec->getType(), InsertElement, Ops, 3, Name, InsertBef) {
-  Constant *Index = ConstantInt::get(Type::Int32Ty, IndexV);
+  Constant *Index = ConstantInt::get(Type::UIntTy, IndexV);
   assert(isValidOperands(Vec, Elt, Index) &&
          "Invalid insertelement instruction operands!");
   Ops[0].init(Vec, this);
@@ -968,7 +940,7 @@ InsertElementInst::InsertElementInst(Value *Vec, Value *Elt, unsigned IndexV,
                                      const std::string &Name,
                                      BasicBlock *InsertAE)
 : Instruction(Vec->getType(), InsertElement, Ops, 3, Name, InsertAE) {
-  Constant *Index = ConstantInt::get(Type::Int32Ty, IndexV);
+  Constant *Index = ConstantInt::get(Type::UIntTy, IndexV);
   assert(isValidOperands(Vec, Elt, Index) &&
          "Invalid insertelement instruction operands!");
   
@@ -985,7 +957,7 @@ bool InsertElementInst::isValidOperands(const Value *Vec, const Value *Elt,
   if (Elt->getType() != cast<PackedType>(Vec->getType())->getElementType())
     return false;// Second operand of insertelement must be packed element type.
     
-  if (Index->getType() != Type::Int32Ty)
+  if (Index->getType() != Type::UIntTy)
     return false;  // Third operand of insertelement must be uint.
   return true;
 }
@@ -1030,7 +1002,7 @@ bool ShuffleVectorInst::isValidOperands(const Value *V1, const Value *V2,
   if (!isa<PackedType>(V1->getType())) return false;
   if (V1->getType() != V2->getType()) return false;
   if (!isa<PackedType>(Mask->getType()) ||
-         cast<PackedType>(Mask->getType())->getElementType() != Type::Int32Ty ||
+         cast<PackedType>(Mask->getType())->getElementType() != Type::UIntTy ||
          cast<PackedType>(Mask->getType())->getNumElements() !=
          cast<PackedType>(V1->getType())->getNumElements())
     return false;
@@ -1045,7 +1017,6 @@ bool ShuffleVectorInst::isValidOperands(const Value *V1, const Value *V2,
 void BinaryOperator::init(BinaryOps iType)
 {
   Value *LHS = getOperand(0), *RHS = getOperand(1);
-  LHS = LHS; RHS = RHS; // Silence warnings.
   assert(LHS->getType() == RHS->getType() &&
          "Binary operator operand types must match!");
 #ifndef NDEBUG
@@ -1088,23 +1059,18 @@ void BinaryOperator::init(BinaryOps iType)
             cast<PackedType>(getType())->getElementType()->isFloatingPoint())) 
             && "Incorrect operand type (not floating point) for FREM");
     break;
-  case Shl:
-  case LShr:
-  case AShr:
-    assert(getType() == LHS->getType() &&
-           "Shift operation should return same type as operands!");
-    assert(getType()->isInteger() && 
-           "Shift operation requires integer operands");
-    break;
   case And: case Or:
   case Xor:
     assert(getType() == LHS->getType() &&
            "Logical operation should return same type as operands!");
-    assert((getType()->isInteger() ||
+    assert((getType()->isIntegral() ||
             (isa<PackedType>(getType()) && 
-             cast<PackedType>(getType())->getElementType()->isInteger())) &&
+             cast<PackedType>(getType())->getElementType()->isIntegral())) &&
            "Tried to create a logical operation on a non-integral type!");
     break;
+  case SetLT: case SetGT: case SetLE:
+  case SetGE: case SetEQ: case SetNE:
+    assert(getType() == Type::BoolTy && "Setcc must return bool!");
   default:
     break;
   }
@@ -1116,7 +1082,15 @@ BinaryOperator *BinaryOperator::create(BinaryOps Op, Value *S1, Value *S2,
                                        Instruction *InsertBefore) {
   assert(S1->getType() == S2->getType() &&
          "Cannot create binary operator with two operands of differing type!");
-  return new BinaryOperator(Op, S1, S2, S1->getType(), Name, InsertBefore);
+  switch (Op) {
+  // Binary comparison operators...
+  case SetLT: case SetGT: case SetLE:
+  case SetGE: case SetEQ: case SetNE:
+    return new SetCondInst(Op, S1, S2, Name, InsertBefore);
+
+  default:
+    return new BinaryOperator(Op, S1, S2, S1->getType(), Name, InsertBefore);
+  }
 }
 
 BinaryOperator *BinaryOperator::create(BinaryOps Op, Value *S1, Value *S2,
@@ -1129,28 +1103,36 @@ BinaryOperator *BinaryOperator::create(BinaryOps Op, Value *S1, Value *S2,
 
 BinaryOperator *BinaryOperator::createNeg(Value *Op, const std::string &Name,
                                           Instruction *InsertBefore) {
-  Value *zero = ConstantExpr::getZeroValueForNegationExpr(Op->getType());
-  return new BinaryOperator(Instruction::Sub,
-                            zero, Op,
-                            Op->getType(), Name, InsertBefore);
+  if (!Op->getType()->isFloatingPoint())
+    return new BinaryOperator(Instruction::Sub,
+                              Constant::getNullValue(Op->getType()), Op,
+                              Op->getType(), Name, InsertBefore);
+  else
+    return new BinaryOperator(Instruction::Sub,
+                              ConstantFP::get(Op->getType(), -0.0), Op,
+                              Op->getType(), Name, InsertBefore);
 }
 
 BinaryOperator *BinaryOperator::createNeg(Value *Op, const std::string &Name,
                                           BasicBlock *InsertAtEnd) {
-  Value *zero = ConstantExpr::getZeroValueForNegationExpr(Op->getType());
-  return new BinaryOperator(Instruction::Sub,
-                            zero, Op,
-                            Op->getType(), Name, InsertAtEnd);
+  if (!Op->getType()->isFloatingPoint())
+    return new BinaryOperator(Instruction::Sub,
+                              Constant::getNullValue(Op->getType()), Op,
+                              Op->getType(), Name, InsertAtEnd);
+  else
+    return new BinaryOperator(Instruction::Sub,
+                              ConstantFP::get(Op->getType(), -0.0), Op,
+                              Op->getType(), Name, InsertAtEnd);
 }
 
 BinaryOperator *BinaryOperator::createNot(Value *Op, const std::string &Name,
                                           Instruction *InsertBefore) {
   Constant *C;
   if (const PackedType *PTy = dyn_cast<PackedType>(Op->getType())) {
-    C = ConstantInt::getAllOnesValue(PTy->getElementType());
+    C = ConstantIntegral::getAllOnesValue(PTy->getElementType());
     C = ConstantPacked::get(std::vector<Constant*>(PTy->getNumElements(), C));
   } else {
-    C = ConstantInt::getAllOnesValue(Op->getType());
+    C = ConstantIntegral::getAllOnesValue(Op->getType());
   }
   
   return new BinaryOperator(Instruction::Xor, Op, C,
@@ -1162,11 +1144,11 @@ BinaryOperator *BinaryOperator::createNot(Value *Op, const std::string &Name,
   Constant *AllOnes;
   if (const PackedType *PTy = dyn_cast<PackedType>(Op->getType())) {
     // Create a vector of all ones values.
-    Constant *Elt = ConstantInt::getAllOnesValue(PTy->getElementType());
+    Constant *Elt = ConstantIntegral::getAllOnesValue(PTy->getElementType());
     AllOnes = 
       ConstantPacked::get(std::vector<Constant*>(PTy->getNumElements(), Elt));
   } else {
-    AllOnes = ConstantInt::getAllOnesValue(Op->getType());
+    AllOnes = ConstantIntegral::getAllOnesValue(Op->getType());
   }
   
   return new BinaryOperator(Instruction::Xor, Op, AllOnes,
@@ -1176,14 +1158,16 @@ BinaryOperator *BinaryOperator::createNot(Value *Op, const std::string &Name,
 
 // isConstantAllOnes - Helper function for several functions below
 static inline bool isConstantAllOnes(const Value *V) {
-  return isa<ConstantInt>(V) &&cast<ConstantInt>(V)->isAllOnesValue();
+  return isa<ConstantIntegral>(V) &&cast<ConstantIntegral>(V)->isAllOnesValue();
 }
 
 bool BinaryOperator::isNeg(const Value *V) {
   if (const BinaryOperator *Bop = dyn_cast<BinaryOperator>(V))
     if (Bop->getOpcode() == Instruction::Sub)
-      return Bop->getOperand(0) ==
-             ConstantExpr::getZeroValueForNegationExpr(Bop->getType());
+      if (!V->getType()->isFloatingPoint())
+        return Bop->getOperand(0) == Constant::getNullValue(Bop->getType());
+      else
+        return Bop->getOperand(0) == ConstantFP::get(Bop->getType(), -0.0);
   return false;
 }
 
@@ -1226,940 +1210,94 @@ const Value *BinaryOperator::getNotArgument(const Value *BinOp) {
 // order dependent (SetLT f.e.) the opcode is changed.
 //
 bool BinaryOperator::swapOperands() {
-  if (!isCommutative())
-    return true; // Can't commute operands
+  if (isCommutative())
+    ;  // If the instruction is commutative, it is safe to swap the operands
+  else if (SetCondInst *SCI = dyn_cast<SetCondInst>(this))
+    /// FIXME: SetCC instructions shouldn't all have different opcodes.
+    setOpcode(SCI->getSwappedCondition());
+  else
+    return true;   // Can't commute operands
+
   std::swap(Ops[0], Ops[1]);
   return false;
+}
+
+
+//===----------------------------------------------------------------------===//
+//                               ShiftInst Class
+//===----------------------------------------------------------------------===//
+
+/// isLogicalShift - Return true if this is a logical shift left or a logical
+/// shift right.
+bool ShiftInst::isLogicalShift() const {
+  return getOpcode() == Instruction::Shl || getType()->isUnsigned();
 }
 
 //===----------------------------------------------------------------------===//
 //                                CastInst Class
 //===----------------------------------------------------------------------===//
 
-// Just determine if this cast only deals with integral->integral conversion.
-bool CastInst::isIntegerCast() const {
-  switch (getOpcode()) {
-    default: return false;
-    case Instruction::ZExt:
-    case Instruction::SExt:
-    case Instruction::Trunc:
-      return true;
-    case Instruction::BitCast:
-      return getOperand(0)->getType()->isInteger() && getType()->isInteger();
-  }
-}
-
-bool CastInst::isLosslessCast() const {
-  // Only BitCast can be lossless, exit fast if we're not BitCast
-  if (getOpcode() != Instruction::BitCast)
+/// isTruncIntCast - Return true if this is a truncating integer cast
+/// instruction, e.g. a cast from long to uint.
+bool CastInst::isTruncIntCast() const {
+  // The dest type has to be integral, the input has to be integer.
+  if (!getType()->isIntegral() || !getOperand(0)->getType()->isInteger())
     return false;
 
-  // Identity cast is always lossless
-  const Type* SrcTy = getOperand(0)->getType();
-  const Type* DstTy = getType();
-  if (SrcTy == DstTy)
-    return true;
-  
-  // Pointer to pointer is always lossless.
-  if (isa<PointerType>(SrcTy))
-    return isa<PointerType>(DstTy);
-  return false;  // Other types have no identity values
+  // Has to be large to smaller.
+  return getOperand(0)->getType()->getPrimitiveSizeInBits() >
+         getType()->getPrimitiveSizeInBits();
 }
 
-/// This function determines if the CastInst does not require any bits to be
-/// changed in order to effect the cast. Essentially, it identifies cases where
-/// no code gen is necessary for the cast, hence the name no-op cast.  For 
-/// example, the following are all no-op casts:
-/// # bitcast uint %X, int
-/// # bitcast uint* %x, sbyte*
-/// # bitcast packed< 2 x int > %x, packed< 4 x short> 
-/// # ptrtoint uint* %x, uint     ; on 32-bit plaforms only
-/// @brief Determine if a cast is a no-op.
-bool CastInst::isNoopCast(const Type *IntPtrTy) const {
-  switch (getOpcode()) {
-    default:
-      assert(!"Invalid CastOp");
-    case Instruction::Trunc:
-    case Instruction::ZExt:
-    case Instruction::SExt: 
-    case Instruction::FPTrunc:
-    case Instruction::FPExt:
-    case Instruction::UIToFP:
-    case Instruction::SIToFP:
-    case Instruction::FPToUI:
-    case Instruction::FPToSI:
-      return false; // These always modify bits
-    case Instruction::BitCast:
-      return true;  // BitCast never modifies bits.
-    case Instruction::PtrToInt:
-      return IntPtrTy->getPrimitiveSizeInBits() ==
-            getType()->getPrimitiveSizeInBits();
-    case Instruction::IntToPtr:
-      return IntPtrTy->getPrimitiveSizeInBits() ==
-             getOperand(0)->getType()->getPrimitiveSizeInBits();
-  }
-}
-
-/// This function determines if a pair of casts can be eliminated and what 
-/// opcode should be used in the elimination. This assumes that there are two 
-/// instructions like this:
-/// *  %F = firstOpcode SrcTy %x to MidTy
-/// *  %S = secondOpcode MidTy %F to DstTy
-/// The function returns a resultOpcode so these two casts can be replaced with:
-/// *  %Replacement = resultOpcode %SrcTy %x to DstTy
-/// If no such cast is permited, the function returns 0.
-unsigned CastInst::isEliminableCastPair(
-  Instruction::CastOps firstOp, Instruction::CastOps secondOp,
-  const Type *SrcTy, const Type *MidTy, const Type *DstTy, const Type *IntPtrTy)
-{
-  // Define the 144 possibilities for these two cast instructions. The values
-  // in this matrix determine what to do in a given situation and select the
-  // case in the switch below.  The rows correspond to firstOp, the columns 
-  // correspond to secondOp.  In looking at the table below, keep in  mind
-  // the following cast properties:
-  //
-  //          Size Compare       Source               Destination
-  // Operator  Src ? Size   Type       Sign         Type       Sign
-  // -------- ------------ -------------------   ---------------------
-  // TRUNC         >       Integer      Any        Integral     Any
-  // ZEXT          <       Integral   Unsigned     Integer      Any
-  // SEXT          <       Integral    Signed      Integer      Any
-  // FPTOUI       n/a      FloatPt      n/a        Integral   Unsigned
-  // FPTOSI       n/a      FloatPt      n/a        Integral    Signed 
-  // UITOFP       n/a      Integral   Unsigned     FloatPt      n/a   
-  // SITOFP       n/a      Integral    Signed      FloatPt      n/a   
-  // FPTRUNC       >       FloatPt      n/a        FloatPt      n/a   
-  // FPEXT         <       FloatPt      n/a        FloatPt      n/a   
-  // PTRTOINT     n/a      Pointer      n/a        Integral   Unsigned
-  // INTTOPTR     n/a      Integral   Unsigned     Pointer      n/a
-  // BITCONVERT    =       FirstClass   n/a       FirstClass    n/a   
-  //
-  // NOTE: some transforms are safe, but we consider them to be non-profitable.
-  // For example, we could merge "fptoui double to uint" + "zext uint to ulong",
-  // into "fptoui double to ulong", but this loses information about the range
-  // of the produced value (we no longer know the top-part is all zeros). 
-  // Further this conversion is often much more expensive for typical hardware,
-  // and causes issues when building libgcc.  We disallow fptosi+sext for the 
-  // same reason.
-  const unsigned numCastOps = 
-    Instruction::CastOpsEnd - Instruction::CastOpsBegin;
-  static const uint8_t CastResults[numCastOps][numCastOps] = {
-    // T        F  F  U  S  F  F  P  I  B   -+
-    // R  Z  S  P  P  I  I  T  P  2  N  T    |
-    // U  E  E  2  2  2  2  R  E  I  T  C    +- secondOp
-    // N  X  X  U  S  F  F  N  X  N  2  V    |
-    // C  T  T  I  I  P  P  C  T  T  P  T   -+
-    {  1, 0, 0,99,99, 0, 0,99,99,99, 0, 3 }, // Trunc      -+
-    {  8, 1, 9,99,99, 2, 0,99,99,99, 2, 3 }, // ZExt        |
-    {  8, 0, 1,99,99, 0, 2,99,99,99, 0, 3 }, // SExt        |
-    {  0, 0, 0,99,99, 0, 0,99,99,99, 0, 3 }, // FPToUI      |
-    {  0, 0, 0,99,99, 0, 0,99,99,99, 0, 3 }, // FPToSI      |
-    { 99,99,99, 0, 0,99,99, 0, 0,99,99, 4 }, // UIToFP      +- firstOp
-    { 99,99,99, 0, 0,99,99, 0, 0,99,99, 4 }, // SIToFP      |
-    { 99,99,99, 0, 0,99,99, 1, 0,99,99, 4 }, // FPTrunc     |
-    { 99,99,99, 2, 2,99,99,10, 2,99,99, 4 }, // FPExt       |
-    {  1, 0, 0,99,99, 0, 0,99,99,99, 7, 3 }, // PtrToInt    |
-    { 99,99,99,99,99,99,99,99,99,13,99,12 }, // IntToPtr    |
-    {  5, 5, 5, 6, 6, 5, 5, 6, 6,11, 5, 1 }, // BitCast    -+
-  };
-
-  int ElimCase = CastResults[firstOp-Instruction::CastOpsBegin]
-                            [secondOp-Instruction::CastOpsBegin];
-  switch (ElimCase) {
-    case 0: 
-      // categorically disallowed
-      return 0;
-    case 1: 
-      // allowed, use first cast's opcode
-      return firstOp;
-    case 2: 
-      // allowed, use second cast's opcode
-      return secondOp;
-    case 3: 
-      // no-op cast in second op implies firstOp as long as the DestTy 
-      // is integer
-      if (DstTy->isInteger())
-        return firstOp;
-      return 0;
-    case 4:
-      // no-op cast in second op implies firstOp as long as the DestTy
-      // is floating point
-      if (DstTy->isFloatingPoint())
-        return firstOp;
-      return 0;
-    case 5: 
-      // no-op cast in first op implies secondOp as long as the SrcTy
-      // is an integer
-      if (SrcTy->isInteger())
-        return secondOp;
-      return 0;
-    case 6:
-      // no-op cast in first op implies secondOp as long as the SrcTy
-      // is a floating point
-      if (SrcTy->isFloatingPoint())
-        return secondOp;
-      return 0;
-    case 7: { 
-      // ptrtoint, inttoptr -> bitcast (ptr -> ptr) if int size is >= ptr size
-      unsigned PtrSize = IntPtrTy->getPrimitiveSizeInBits();
-      unsigned MidSize = MidTy->getPrimitiveSizeInBits();
-      if (MidSize >= PtrSize)
-        return Instruction::BitCast;
-      return 0;
-    }
-    case 8: {
-      // ext, trunc -> bitcast,    if the SrcTy and DstTy are same size
-      // ext, trunc -> ext,        if sizeof(SrcTy) < sizeof(DstTy)
-      // ext, trunc -> trunc,      if sizeof(SrcTy) > sizeof(DstTy)
-      unsigned SrcSize = SrcTy->getPrimitiveSizeInBits();
-      unsigned DstSize = DstTy->getPrimitiveSizeInBits();
-      if (SrcSize == DstSize)
-        return Instruction::BitCast;
-      else if (SrcSize < DstSize)
-        return firstOp;
-      return secondOp;
-    }
-    case 9: // zext, sext -> zext, because sext can't sign extend after zext
-      return Instruction::ZExt;
-    case 10:
-      // fpext followed by ftrunc is allowed if the bit size returned to is
-      // the same as the original, in which case its just a bitcast
-      if (SrcTy == DstTy)
-        return Instruction::BitCast;
-      return 0; // If the types are not the same we can't eliminate it.
-    case 11:
-      // bitcast followed by ptrtoint is allowed as long as the bitcast
-      // is a pointer to pointer cast.
-      if (isa<PointerType>(SrcTy) && isa<PointerType>(MidTy))
-        return secondOp;
-      return 0;
-    case 12:
-      // inttoptr, bitcast -> intptr  if bitcast is a ptr to ptr cast
-      if (isa<PointerType>(MidTy) && isa<PointerType>(DstTy))
-        return firstOp;
-      return 0;
-    case 13: {
-      // inttoptr, ptrtoint -> bitcast if SrcSize<=PtrSize and SrcSize==DstSize
-      unsigned PtrSize = IntPtrTy->getPrimitiveSizeInBits();
-      unsigned SrcSize = SrcTy->getPrimitiveSizeInBits();
-      unsigned DstSize = DstTy->getPrimitiveSizeInBits();
-      if (SrcSize <= PtrSize && SrcSize == DstSize)
-        return Instruction::BitCast;
-      return 0;
-    }
-    case 99: 
-      // cast combination can't happen (error in input). This is for all cases
-      // where the MidTy is not the same for the two cast instructions.
-      assert(!"Invalid Cast Combination");
-      return 0;
-    default:
-      assert(!"Error in CastResults table!!!");
-      return 0;
-  }
-  return 0;
-}
-
-CastInst *CastInst::create(Instruction::CastOps op, Value *S, const Type *Ty, 
-  const std::string &Name, Instruction *InsertBefore) {
-  // Construct and return the appropriate CastInst subclass
-  switch (op) {
-    case Trunc:    return new TruncInst    (S, Ty, Name, InsertBefore);
-    case ZExt:     return new ZExtInst     (S, Ty, Name, InsertBefore);
-    case SExt:     return new SExtInst     (S, Ty, Name, InsertBefore);
-    case FPTrunc:  return new FPTruncInst  (S, Ty, Name, InsertBefore);
-    case FPExt:    return new FPExtInst    (S, Ty, Name, InsertBefore);
-    case UIToFP:   return new UIToFPInst   (S, Ty, Name, InsertBefore);
-    case SIToFP:   return new SIToFPInst   (S, Ty, Name, InsertBefore);
-    case FPToUI:   return new FPToUIInst   (S, Ty, Name, InsertBefore);
-    case FPToSI:   return new FPToSIInst   (S, Ty, Name, InsertBefore);
-    case PtrToInt: return new PtrToIntInst (S, Ty, Name, InsertBefore);
-    case IntToPtr: return new IntToPtrInst (S, Ty, Name, InsertBefore);
-    case BitCast:  return new BitCastInst  (S, Ty, Name, InsertBefore);
-    default:
-      assert(!"Invalid opcode provided");
-  }
-  return 0;
-}
-
-CastInst *CastInst::create(Instruction::CastOps op, Value *S, const Type *Ty,
-  const std::string &Name, BasicBlock *InsertAtEnd) {
-  // Construct and return the appropriate CastInst subclass
-  switch (op) {
-    case Trunc:    return new TruncInst    (S, Ty, Name, InsertAtEnd);
-    case ZExt:     return new ZExtInst     (S, Ty, Name, InsertAtEnd);
-    case SExt:     return new SExtInst     (S, Ty, Name, InsertAtEnd);
-    case FPTrunc:  return new FPTruncInst  (S, Ty, Name, InsertAtEnd);
-    case FPExt:    return new FPExtInst    (S, Ty, Name, InsertAtEnd);
-    case UIToFP:   return new UIToFPInst   (S, Ty, Name, InsertAtEnd);
-    case SIToFP:   return new SIToFPInst   (S, Ty, Name, InsertAtEnd);
-    case FPToUI:   return new FPToUIInst   (S, Ty, Name, InsertAtEnd);
-    case FPToSI:   return new FPToSIInst   (S, Ty, Name, InsertAtEnd);
-    case PtrToInt: return new PtrToIntInst (S, Ty, Name, InsertAtEnd);
-    case IntToPtr: return new IntToPtrInst (S, Ty, Name, InsertAtEnd);
-    case BitCast:  return new BitCastInst  (S, Ty, Name, InsertAtEnd);
-    default:
-      assert(!"Invalid opcode provided");
-  }
-  return 0;
-}
-
-CastInst *CastInst::createZExtOrBitCast(Value *S, const Type *Ty, 
-                                        const std::string &Name,
-                                        Instruction *InsertBefore) {
-  if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return create(Instruction::BitCast, S, Ty, Name, InsertBefore);
-  return create(Instruction::ZExt, S, Ty, Name, InsertBefore);
-}
-
-CastInst *CastInst::createZExtOrBitCast(Value *S, const Type *Ty, 
-                                        const std::string &Name,
-                                        BasicBlock *InsertAtEnd) {
-  if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
-  return create(Instruction::ZExt, S, Ty, Name, InsertAtEnd);
-}
-
-CastInst *CastInst::createSExtOrBitCast(Value *S, const Type *Ty, 
-                                        const std::string &Name,
-                                        Instruction *InsertBefore) {
-  if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return create(Instruction::BitCast, S, Ty, Name, InsertBefore);
-  return create(Instruction::SExt, S, Ty, Name, InsertBefore);
-}
-
-CastInst *CastInst::createSExtOrBitCast(Value *S, const Type *Ty, 
-                                        const std::string &Name,
-                                        BasicBlock *InsertAtEnd) {
-  if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
-  return create(Instruction::SExt, S, Ty, Name, InsertAtEnd);
-}
-
-CastInst *CastInst::createTruncOrBitCast(Value *S, const Type *Ty,
-                                         const std::string &Name,
-                                         Instruction *InsertBefore) {
-  if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return create(Instruction::BitCast, S, Ty, Name, InsertBefore);
-  return create(Instruction::Trunc, S, Ty, Name, InsertBefore);
-}
-
-CastInst *CastInst::createTruncOrBitCast(Value *S, const Type *Ty,
-                                         const std::string &Name, 
-                                         BasicBlock *InsertAtEnd) {
-  if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
-  return create(Instruction::Trunc, S, Ty, Name, InsertAtEnd);
-}
-
-CastInst *CastInst::createPointerCast(Value *S, const Type *Ty,
-                                      const std::string &Name,
-                                      BasicBlock *InsertAtEnd) {
-  assert(isa<PointerType>(S->getType()) && "Invalid cast");
-  assert((Ty->isInteger() || isa<PointerType>(Ty)) &&
-         "Invalid cast");
-
-  if (Ty->isInteger())
-    return create(Instruction::PtrToInt, S, Ty, Name, InsertAtEnd);
-  return create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
-}
-
-/// @brief Create a BitCast or a PtrToInt cast instruction
-CastInst *CastInst::createPointerCast(Value *S, const Type *Ty, 
-                                      const std::string &Name, 
-                                      Instruction *InsertBefore) {
-  assert(isa<PointerType>(S->getType()) && "Invalid cast");
-  assert((Ty->isInteger() || isa<PointerType>(Ty)) &&
-         "Invalid cast");
-
-  if (Ty->isInteger())
-    return create(Instruction::PtrToInt, S, Ty, Name, InsertBefore);
-  return create(Instruction::BitCast, S, Ty, Name, InsertBefore);
-}
-
-CastInst *CastInst::createIntegerCast(Value *C, const Type *Ty, 
-                                      bool isSigned, const std::string &Name,
-                                      Instruction *InsertBefore) {
-  assert(C->getType()->isInteger() && Ty->isInteger() && "Invalid cast");
-  unsigned SrcBits = C->getType()->getPrimitiveSizeInBits();
-  unsigned DstBits = Ty->getPrimitiveSizeInBits();
-  Instruction::CastOps opcode =
-    (SrcBits == DstBits ? Instruction::BitCast :
-     (SrcBits > DstBits ? Instruction::Trunc :
-      (isSigned ? Instruction::SExt : Instruction::ZExt)));
-  return create(opcode, C, Ty, Name, InsertBefore);
-}
-
-CastInst *CastInst::createIntegerCast(Value *C, const Type *Ty, 
-                                      bool isSigned, const std::string &Name,
-                                      BasicBlock *InsertAtEnd) {
-  assert(C->getType()->isInteger() && Ty->isInteger() && "Invalid cast");
-  unsigned SrcBits = C->getType()->getPrimitiveSizeInBits();
-  unsigned DstBits = Ty->getPrimitiveSizeInBits();
-  Instruction::CastOps opcode =
-    (SrcBits == DstBits ? Instruction::BitCast :
-     (SrcBits > DstBits ? Instruction::Trunc :
-      (isSigned ? Instruction::SExt : Instruction::ZExt)));
-  return create(opcode, C, Ty, Name, InsertAtEnd);
-}
-
-CastInst *CastInst::createFPCast(Value *C, const Type *Ty, 
-                                 const std::string &Name, 
-                                 Instruction *InsertBefore) {
-  assert(C->getType()->isFloatingPoint() && Ty->isFloatingPoint() && 
-         "Invalid cast");
-  unsigned SrcBits = C->getType()->getPrimitiveSizeInBits();
-  unsigned DstBits = Ty->getPrimitiveSizeInBits();
-  Instruction::CastOps opcode =
-    (SrcBits == DstBits ? Instruction::BitCast :
-     (SrcBits > DstBits ? Instruction::FPTrunc : Instruction::FPExt));
-  return create(opcode, C, Ty, Name, InsertBefore);
-}
-
-CastInst *CastInst::createFPCast(Value *C, const Type *Ty, 
-                                 const std::string &Name, 
-                                 BasicBlock *InsertAtEnd) {
-  assert(C->getType()->isFloatingPoint() && Ty->isFloatingPoint() && 
-         "Invalid cast");
-  unsigned SrcBits = C->getType()->getPrimitiveSizeInBits();
-  unsigned DstBits = Ty->getPrimitiveSizeInBits();
-  Instruction::CastOps opcode =
-    (SrcBits == DstBits ? Instruction::BitCast :
-     (SrcBits > DstBits ? Instruction::FPTrunc : Instruction::FPExt));
-  return create(opcode, C, Ty, Name, InsertAtEnd);
-}
-
-// Provide a way to get a "cast" where the cast opcode is inferred from the 
-// types and size of the operand. This, basically, is a parallel of the 
-// logic in the castIsValid function below.  This axiom should hold:
-//   castIsValid( getCastOpcode(Val, Ty), Val, Ty)
-// should not assert in castIsValid. In other words, this produces a "correct"
-// casting opcode for the arguments passed to it.
-Instruction::CastOps
-CastInst::getCastOpcode(
-  const Value *Src, bool SrcIsSigned, const Type *DestTy, bool DestIsSigned) {
-  // Get the bit sizes, we'll need these
-  const Type *SrcTy = Src->getType();
-  unsigned SrcBits = SrcTy->getPrimitiveSizeInBits();   // 0 for ptr/packed
-  unsigned DestBits = DestTy->getPrimitiveSizeInBits(); // 0 for ptr/packed
-
-  // Run through the possibilities ...
-  if (DestTy->isInteger()) {                       // Casting to integral
-    if (SrcTy->isInteger()) {                      // Casting from integral
-      if (DestBits < SrcBits)
-        return Trunc;                               // int -> smaller int
-      else if (DestBits > SrcBits) {                // its an extension
-        if (SrcIsSigned)
-          return SExt;                              // signed -> SEXT
-        else
-          return ZExt;                              // unsigned -> ZEXT
-      } else {
-        return BitCast;                             // Same size, No-op cast
-      }
-    } else if (SrcTy->isFloatingPoint()) {          // Casting from floating pt
-      if (DestIsSigned) 
-        return FPToSI;                              // FP -> sint
-      else
-        return FPToUI;                              // FP -> uint 
-    } else if (const PackedType *PTy = dyn_cast<PackedType>(SrcTy)) {
-      assert(DestBits == PTy->getBitWidth() &&
-               "Casting packed to integer of different width");
-      return BitCast;                             // Same size, no-op cast
-    } else {
-      assert(isa<PointerType>(SrcTy) &&
-             "Casting from a value that is not first-class type");
-      return PtrToInt;                              // ptr -> int
-    }
-  } else if (DestTy->isFloatingPoint()) {           // Casting to floating pt
-    if (SrcTy->isInteger()) {                      // Casting from integral
-      if (SrcIsSigned)
-        return SIToFP;                              // sint -> FP
-      else
-        return UIToFP;                              // uint -> FP
-    } else if (SrcTy->isFloatingPoint()) {          // Casting from floating pt
-      if (DestBits < SrcBits) {
-        return FPTrunc;                             // FP -> smaller FP
-      } else if (DestBits > SrcBits) {
-        return FPExt;                               // FP -> larger FP
-      } else  {
-        return BitCast;                             // same size, no-op cast
-      }
-    } else if (const PackedType *PTy = dyn_cast<PackedType>(SrcTy)) {
-      assert(DestBits == PTy->getBitWidth() &&
-             "Casting packed to floating point of different width");
-        return BitCast;                             // same size, no-op cast
-    } else {
-      assert(0 && "Casting pointer or non-first class to float");
-    }
-  } else if (const PackedType *DestPTy = dyn_cast<PackedType>(DestTy)) {
-    if (const PackedType *SrcPTy = dyn_cast<PackedType>(SrcTy)) {
-      assert(DestPTy->getBitWidth() == SrcPTy->getBitWidth() &&
-             "Casting packed to packed of different widths");
-      return BitCast;                             // packed -> packed
-    } else if (DestPTy->getBitWidth() == SrcBits) {
-      return BitCast;                               // float/int -> packed
-    } else {
-      assert(!"Illegal cast to packed (wrong type or size)");
-    }
-  } else if (isa<PointerType>(DestTy)) {
-    if (isa<PointerType>(SrcTy)) {
-      return BitCast;                               // ptr -> ptr
-    } else if (SrcTy->isInteger()) {
-      return IntToPtr;                              // int -> ptr
-    } else {
-      assert(!"Casting pointer to other than pointer or int");
-    }
-  } else {
-    assert(!"Casting to type that is not first-class");
-  }
-
-  // If we fall through to here we probably hit an assertion cast above
-  // and assertions are not turned on. Anything we return is an error, so
-  // BitCast is as good a choice as any.
-  return BitCast;
-}
 
 //===----------------------------------------------------------------------===//
-//                    CastInst SubClass Constructors
+//                             SetCondInst Class
 //===----------------------------------------------------------------------===//
 
-/// Check that the construction parameters for a CastInst are correct. This
-/// could be broken out into the separate constructors but it is useful to have
-/// it in one place and to eliminate the redundant code for getting the sizes
-/// of the types involved.
-bool 
-CastInst::castIsValid(Instruction::CastOps op, Value *S, const Type *DstTy) {
+SetCondInst::SetCondInst(BinaryOps Opcode, Value *S1, Value *S2,
+                         const std::string &Name, Instruction *InsertBefore)
+  : BinaryOperator(Opcode, S1, S2, Type::BoolTy, Name, InsertBefore) {
 
-  // Check for type sanity on the arguments
-  const Type *SrcTy = S->getType();
-  if (!SrcTy->isFirstClassType() || !DstTy->isFirstClassType())
-    return false;
+  // Make sure it's a valid type... getInverseCondition will assert out if not.
+  assert(getInverseCondition(Opcode));
+}
 
-  // Get the size of the types in bits, we'll need this later
-  unsigned SrcBitSize = SrcTy->getPrimitiveSizeInBits();
-  unsigned DstBitSize = DstTy->getPrimitiveSizeInBits();
+SetCondInst::SetCondInst(BinaryOps Opcode, Value *S1, Value *S2,
+                         const std::string &Name, BasicBlock *InsertAtEnd)
+  : BinaryOperator(Opcode, S1, S2, Type::BoolTy, Name, InsertAtEnd) {
 
-  // Switch on the opcode provided
-  switch (op) {
-  default: return false; // This is an input error
-  case Instruction::Trunc:
-    return SrcTy->isInteger() && DstTy->isInteger()&& SrcBitSize > DstBitSize;
-  case Instruction::ZExt:
-    return SrcTy->isInteger() && DstTy->isInteger()&& SrcBitSize < DstBitSize;
-  case Instruction::SExt: 
-    return SrcTy->isInteger() && DstTy->isInteger()&& SrcBitSize < DstBitSize;
-  case Instruction::FPTrunc:
-    return SrcTy->isFloatingPoint() && DstTy->isFloatingPoint() && 
-      SrcBitSize > DstBitSize;
-  case Instruction::FPExt:
-    return SrcTy->isFloatingPoint() && DstTy->isFloatingPoint() && 
-      SrcBitSize < DstBitSize;
-  case Instruction::UIToFP:
-    return SrcTy->isInteger() && DstTy->isFloatingPoint();
-  case Instruction::SIToFP:
-    return SrcTy->isInteger() && DstTy->isFloatingPoint();
-  case Instruction::FPToUI:
-    return SrcTy->isFloatingPoint() && DstTy->isInteger();
-  case Instruction::FPToSI:
-    return SrcTy->isFloatingPoint() && DstTy->isInteger();
-  case Instruction::PtrToInt:
-    return isa<PointerType>(SrcTy) && DstTy->isInteger();
-  case Instruction::IntToPtr:
-    return SrcTy->isInteger() && isa<PointerType>(DstTy);
-  case Instruction::BitCast:
-    // BitCast implies a no-op cast of type only. No bits change.
-    // However, you can't cast pointers to anything but pointers.
-    if (isa<PointerType>(SrcTy) != isa<PointerType>(DstTy))
-      return false;
+  // Make sure it's a valid type... getInverseCondition will assert out if not.
+  assert(getInverseCondition(Opcode));
+}
 
-    // Now we know we're not dealing with a pointer/non-poiner mismatch. In all
-    // these cases, the cast is okay if the source and destination bit widths
-    // are identical.
-    return SrcBitSize == DstBitSize;
+// getInverseCondition - Return the inverse of the current condition opcode.
+// For example seteq -> setne, setgt -> setle, setlt -> setge, etc...
+//
+Instruction::BinaryOps SetCondInst::getInverseCondition(BinaryOps Opcode) {
+  switch (Opcode) {
+  default:
+    assert(0 && "Unknown setcc opcode!");
+  case SetEQ: return SetNE;
+  case SetNE: return SetEQ;
+  case SetGT: return SetLE;
+  case SetLT: return SetGE;
+  case SetGE: return SetLT;
+  case SetLE: return SetGT;
   }
 }
 
-TruncInst::TruncInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, Trunc, S, Name, InsertBefore) {
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal Trunc");
-}
-
-TruncInst::TruncInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, Trunc, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal Trunc");
-}
-
-ZExtInst::ZExtInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-)  : CastInst(Ty, ZExt, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal ZExt");
-}
-
-ZExtInst::ZExtInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-)  : CastInst(Ty, ZExt, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal ZExt");
-}
-SExtInst::SExtInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, SExt, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal SExt");
-}
-
-SExtInst::SExtInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-)  : CastInst(Ty, SExt, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal SExt");
-}
-
-FPTruncInst::FPTruncInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, FPTrunc, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal FPTrunc");
-}
-
-FPTruncInst::FPTruncInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, FPTrunc, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal FPTrunc");
-}
-
-FPExtInst::FPExtInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, FPExt, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal FPExt");
-}
-
-FPExtInst::FPExtInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, FPExt, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal FPExt");
-}
-
-UIToFPInst::UIToFPInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, UIToFP, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal UIToFP");
-}
-
-UIToFPInst::UIToFPInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, UIToFP, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal UIToFP");
-}
-
-SIToFPInst::SIToFPInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, SIToFP, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal SIToFP");
-}
-
-SIToFPInst::SIToFPInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, SIToFP, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal SIToFP");
-}
-
-FPToUIInst::FPToUIInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, FPToUI, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal FPToUI");
-}
-
-FPToUIInst::FPToUIInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, FPToUI, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal FPToUI");
-}
-
-FPToSIInst::FPToSIInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, FPToSI, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal FPToSI");
-}
-
-FPToSIInst::FPToSIInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, FPToSI, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal FPToSI");
-}
-
-PtrToIntInst::PtrToIntInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, PtrToInt, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal PtrToInt");
-}
-
-PtrToIntInst::PtrToIntInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, PtrToInt, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal PtrToInt");
-}
-
-IntToPtrInst::IntToPtrInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, IntToPtr, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal IntToPtr");
-}
-
-IntToPtrInst::IntToPtrInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, IntToPtr, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal IntToPtr");
-}
-
-BitCastInst::BitCastInst(
-  Value *S, const Type *Ty, const std::string &Name, Instruction *InsertBefore
-) : CastInst(Ty, BitCast, S, Name, InsertBefore) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal BitCast");
-}
-
-BitCastInst::BitCastInst(
-  Value *S, const Type *Ty, const std::string &Name, BasicBlock *InsertAtEnd
-) : CastInst(Ty, BitCast, S, Name, InsertAtEnd) { 
-  assert(castIsValid(getOpcode(), S, Ty) && "Illegal BitCast");
-}
-
-//===----------------------------------------------------------------------===//
-//                               CmpInst Classes
-//===----------------------------------------------------------------------===//
-
-CmpInst::CmpInst(OtherOps op, unsigned short predicate, Value *LHS, Value *RHS,
-                 const std::string &Name, Instruction *InsertBefore)
-  : Instruction(Type::Int1Ty, op, Ops, 2, Name, InsertBefore) {
-    Ops[0].init(LHS, this);
-    Ops[1].init(RHS, this);
-  SubclassData = predicate;
-  if (op == Instruction::ICmp) {
-    assert(predicate >= ICmpInst::FIRST_ICMP_PREDICATE &&
-           predicate <= ICmpInst::LAST_ICMP_PREDICATE &&
-           "Invalid ICmp predicate value");
-    const Type* Op0Ty = getOperand(0)->getType();
-    const Type* Op1Ty = getOperand(1)->getType();
-    assert(Op0Ty == Op1Ty &&
-           "Both operands to ICmp instruction are not of the same type!");
-    // Check that the operands are the right type
-    assert((Op0Ty->isInteger() || isa<PointerType>(Op0Ty)) &&
-           "Invalid operand types for ICmp instruction");
-    return;
-  }
-  assert(op == Instruction::FCmp && "Invalid CmpInst opcode");
-  assert(predicate <= FCmpInst::LAST_FCMP_PREDICATE &&
-         "Invalid FCmp predicate value");
-  const Type* Op0Ty = getOperand(0)->getType();
-  const Type* Op1Ty = getOperand(1)->getType();
-  assert(Op0Ty == Op1Ty &&
-         "Both operands to FCmp instruction are not of the same type!");
-  // Check that the operands are the right type
-  assert(Op0Ty->isFloatingPoint() &&
-         "Invalid operand types for FCmp instruction");
-}
-  
-CmpInst::CmpInst(OtherOps op, unsigned short predicate, Value *LHS, Value *RHS,
-                 const std::string &Name, BasicBlock *InsertAtEnd)
-  : Instruction(Type::Int1Ty, op, Ops, 2, Name, InsertAtEnd) {
-  Ops[0].init(LHS, this);
-  Ops[1].init(RHS, this);
-  SubclassData = predicate;
-  if (op == Instruction::ICmp) {
-    assert(predicate >= ICmpInst::FIRST_ICMP_PREDICATE &&
-           predicate <= ICmpInst::LAST_ICMP_PREDICATE &&
-           "Invalid ICmp predicate value");
-
-    const Type* Op0Ty = getOperand(0)->getType();
-    const Type* Op1Ty = getOperand(1)->getType();
-    assert(Op0Ty == Op1Ty &&
-          "Both operands to ICmp instruction are not of the same type!");
-    // Check that the operands are the right type
-    assert(Op0Ty->isInteger() || isa<PointerType>(Op0Ty) &&
-           "Invalid operand types for ICmp instruction");
-    return;
-  }
-  assert(op == Instruction::FCmp && "Invalid CmpInst opcode");
-  assert(predicate <= FCmpInst::LAST_FCMP_PREDICATE &&
-         "Invalid FCmp predicate value");
-  const Type* Op0Ty = getOperand(0)->getType();
-  const Type* Op1Ty = getOperand(1)->getType();
-  assert(Op0Ty == Op1Ty &&
-          "Both operands to FCmp instruction are not of the same type!");
-  // Check that the operands are the right type
-  assert(Op0Ty->isFloatingPoint() &&
-        "Invalid operand types for FCmp instruction");
-}
-
-CmpInst *
-CmpInst::create(OtherOps Op, unsigned short predicate, Value *S1, Value *S2, 
-                const std::string &Name, Instruction *InsertBefore) {
-  if (Op == Instruction::ICmp) {
-    return new ICmpInst(ICmpInst::Predicate(predicate), S1, S2, Name, 
-                        InsertBefore);
-  }
-  return new FCmpInst(FCmpInst::Predicate(predicate), S1, S2, Name, 
-                      InsertBefore);
-}
-
-CmpInst *
-CmpInst::create(OtherOps Op, unsigned short predicate, Value *S1, Value *S2, 
-                const std::string &Name, BasicBlock *InsertAtEnd) {
-  if (Op == Instruction::ICmp) {
-    return new ICmpInst(ICmpInst::Predicate(predicate), S1, S2, Name, 
-                        InsertAtEnd);
-  }
-  return new FCmpInst(FCmpInst::Predicate(predicate), S1, S2, Name, 
-                      InsertAtEnd);
-}
-
-void CmpInst::swapOperands() {
-  if (ICmpInst *IC = dyn_cast<ICmpInst>(this))
-    IC->swapOperands();
-  else
-    cast<FCmpInst>(this)->swapOperands();
-}
-
-bool CmpInst::isCommutative() {
-  if (ICmpInst *IC = dyn_cast<ICmpInst>(this))
-    return IC->isCommutative();
-  return cast<FCmpInst>(this)->isCommutative();
-}
-
-bool CmpInst::isEquality() {
-  if (ICmpInst *IC = dyn_cast<ICmpInst>(this))
-    return IC->isEquality();
-  return cast<FCmpInst>(this)->isEquality();
-}
-
-
-ICmpInst::Predicate ICmpInst::getInversePredicate(Predicate pred) {
-  switch (pred) {
-    default:
-      assert(!"Unknown icmp predicate!");
-    case ICMP_EQ: return ICMP_NE;
-    case ICMP_NE: return ICMP_EQ;
-    case ICMP_UGT: return ICMP_ULE;
-    case ICMP_ULT: return ICMP_UGE;
-    case ICMP_UGE: return ICMP_ULT;
-    case ICMP_ULE: return ICMP_UGT;
-    case ICMP_SGT: return ICMP_SLE;
-    case ICMP_SLT: return ICMP_SGE;
-    case ICMP_SGE: return ICMP_SLT;
-    case ICMP_SLE: return ICMP_SGT;
-  }
-}
-
-ICmpInst::Predicate ICmpInst::getSwappedPredicate(Predicate pred) {
-  switch (pred) {
-    default: assert(! "Unknown icmp predicate!");
-    case ICMP_EQ: case ICMP_NE:
-      return pred;
-    case ICMP_SGT: return ICMP_SLT;
-    case ICMP_SLT: return ICMP_SGT;
-    case ICMP_SGE: return ICMP_SLE;
-    case ICMP_SLE: return ICMP_SGE;
-    case ICMP_UGT: return ICMP_ULT;
-    case ICMP_ULT: return ICMP_UGT;
-    case ICMP_UGE: return ICMP_ULE;
-    case ICMP_ULE: return ICMP_UGE;
-  }
-}
-
-ICmpInst::Predicate ICmpInst::getSignedPredicate(Predicate pred) {
-  switch (pred) {
-    default: assert(! "Unknown icmp predicate!");
-    case ICMP_EQ: case ICMP_NE: 
-    case ICMP_SGT: case ICMP_SLT: case ICMP_SGE: case ICMP_SLE: 
-       return pred;
-    case ICMP_UGT: return ICMP_SGT;
-    case ICMP_ULT: return ICMP_SLT;
-    case ICMP_UGE: return ICMP_SGE;
-    case ICMP_ULE: return ICMP_SLE;
-  }
-}
-
-bool ICmpInst::isSignedPredicate(Predicate pred) {
-  switch (pred) {
-    default: assert(! "Unknown icmp predicate!");
-    case ICMP_SGT: case ICMP_SLT: case ICMP_SGE: case ICMP_SLE: 
-      return true;
-    case ICMP_EQ:  case ICMP_NE: case ICMP_UGT: case ICMP_ULT: 
-    case ICMP_UGE: case ICMP_ULE:
-      return false;
-  }
-}
-
-FCmpInst::Predicate FCmpInst::getInversePredicate(Predicate pred) {
-  switch (pred) {
-    default:
-      assert(!"Unknown icmp predicate!");
-    case FCMP_OEQ: return FCMP_UNE;
-    case FCMP_ONE: return FCMP_UEQ;
-    case FCMP_OGT: return FCMP_ULE;
-    case FCMP_OLT: return FCMP_UGE;
-    case FCMP_OGE: return FCMP_ULT;
-    case FCMP_OLE: return FCMP_UGT;
-    case FCMP_UEQ: return FCMP_ONE;
-    case FCMP_UNE: return FCMP_OEQ;
-    case FCMP_UGT: return FCMP_OLE;
-    case FCMP_ULT: return FCMP_OGE;
-    case FCMP_UGE: return FCMP_OLT;
-    case FCMP_ULE: return FCMP_OGT;
-    case FCMP_ORD: return FCMP_UNO;
-    case FCMP_UNO: return FCMP_ORD;
-    case FCMP_TRUE: return FCMP_FALSE;
-    case FCMP_FALSE: return FCMP_TRUE;
-  }
-}
-
-FCmpInst::Predicate FCmpInst::getSwappedPredicate(Predicate pred) {
-  switch (pred) {
-    default: assert(!"Unknown fcmp predicate!");
-    case FCMP_FALSE: case FCMP_TRUE:
-    case FCMP_OEQ: case FCMP_ONE:
-    case FCMP_UEQ: case FCMP_UNE:
-    case FCMP_ORD: case FCMP_UNO:
-      return pred;
-    case FCMP_OGT: return FCMP_OLT;
-    case FCMP_OLT: return FCMP_OGT;
-    case FCMP_OGE: return FCMP_OLE;
-    case FCMP_OLE: return FCMP_OGE;
-    case FCMP_UGT: return FCMP_ULT;
-    case FCMP_ULT: return FCMP_UGT;
-    case FCMP_UGE: return FCMP_ULE;
-    case FCMP_ULE: return FCMP_UGE;
-  }
-}
-
-bool CmpInst::isUnsigned(unsigned short predicate) {
-  switch (predicate) {
-    default: return false;
-    case ICmpInst::ICMP_ULT: case ICmpInst::ICMP_ULE: case ICmpInst::ICMP_UGT: 
-    case ICmpInst::ICMP_UGE: return true;
-  }
-}
-
-bool CmpInst::isSigned(unsigned short predicate){
-  switch (predicate) {
-    default: return false;
-    case ICmpInst::ICMP_SLT: case ICmpInst::ICMP_SLE: case ICmpInst::ICMP_SGT: 
-    case ICmpInst::ICMP_SGE: return true;
-  }
-}
-
-bool CmpInst::isOrdered(unsigned short predicate) {
-  switch (predicate) {
-    default: return false;
-    case FCmpInst::FCMP_OEQ: case FCmpInst::FCMP_ONE: case FCmpInst::FCMP_OGT: 
-    case FCmpInst::FCMP_OLT: case FCmpInst::FCMP_OGE: case FCmpInst::FCMP_OLE: 
-    case FCmpInst::FCMP_ORD: return true;
-  }
-}
-      
-bool CmpInst::isUnordered(unsigned short predicate) {
-  switch (predicate) {
-    default: return false;
-    case FCmpInst::FCMP_UEQ: case FCmpInst::FCMP_UNE: case FCmpInst::FCMP_UGT: 
-    case FCmpInst::FCMP_ULT: case FCmpInst::FCMP_UGE: case FCmpInst::FCMP_ULE: 
-    case FCmpInst::FCMP_UNO: return true;
+// getSwappedCondition - Return the condition opcode that would be the result
+// of exchanging the two operands of the setcc instruction without changing
+// the result produced.  Thus, seteq->seteq, setle->setge, setlt->setgt, etc.
+//
+Instruction::BinaryOps SetCondInst::getSwappedCondition(BinaryOps Opcode) {
+  switch (Opcode) {
+  default: assert(0 && "Unknown setcc instruction!");
+  case SetEQ: case SetNE: return Opcode;
+  case SetGT: return SetLT;
+  case SetLT: return SetGT;
+  case SetGE: return SetLE;
+  case SetLE: return SetGE;
   }
 }
 
@@ -2285,31 +1423,16 @@ BinaryOperator *BinaryOperator::clone() const {
   return create(getOpcode(), Ops[0], Ops[1]);
 }
 
-CmpInst* CmpInst::clone() const {
-  return create(getOpcode(), getPredicate(), Ops[0], Ops[1]);
-}
-
-MallocInst *MallocInst::clone()   const { return new MallocInst(*this); }
-AllocaInst *AllocaInst::clone()   const { return new AllocaInst(*this); }
-FreeInst   *FreeInst::clone()     const { return new FreeInst(getOperand(0)); }
-LoadInst   *LoadInst::clone()     const { return new LoadInst(*this); }
-StoreInst  *StoreInst::clone()    const { return new StoreInst(*this); }
-CastInst   *TruncInst::clone()    const { return new TruncInst(*this); }
-CastInst   *ZExtInst::clone()     const { return new ZExtInst(*this); }
-CastInst   *SExtInst::clone()     const { return new SExtInst(*this); }
-CastInst   *FPTruncInst::clone()  const { return new FPTruncInst(*this); }
-CastInst   *FPExtInst::clone()    const { return new FPExtInst(*this); }
-CastInst   *UIToFPInst::clone()   const { return new UIToFPInst(*this); }
-CastInst   *SIToFPInst::clone()   const { return new SIToFPInst(*this); }
-CastInst   *FPToUIInst::clone()   const { return new FPToUIInst(*this); }
-CastInst   *FPToSIInst::clone()   const { return new FPToSIInst(*this); }
-CastInst   *PtrToIntInst::clone() const { return new PtrToIntInst(*this); }
-CastInst   *IntToPtrInst::clone() const { return new IntToPtrInst(*this); }
-CastInst   *BitCastInst::clone()  const { return new BitCastInst(*this); }
-CallInst   *CallInst::clone()     const { return new CallInst(*this); }
-SelectInst *SelectInst::clone()   const { return new SelectInst(*this); }
-VAArgInst  *VAArgInst::clone()    const { return new VAArgInst(*this); }
-
+MallocInst *MallocInst::clone() const { return new MallocInst(*this); }
+AllocaInst *AllocaInst::clone() const { return new AllocaInst(*this); }
+FreeInst   *FreeInst::clone()   const { return new FreeInst(getOperand(0)); }
+LoadInst   *LoadInst::clone()   const { return new LoadInst(*this); }
+StoreInst  *StoreInst::clone()  const { return new StoreInst(*this); }
+CastInst   *CastInst::clone()   const { return new CastInst(*this); }
+CallInst   *CallInst::clone()   const { return new CallInst(*this); }
+ShiftInst  *ShiftInst::clone()  const { return new ShiftInst(*this); }
+SelectInst *SelectInst::clone() const { return new SelectInst(*this); }
+VAArgInst  *VAArgInst::clone()  const { return new VAArgInst(*this); }
 ExtractElementInst *ExtractElementInst::clone() const {
   return new ExtractElementInst(*this);
 }

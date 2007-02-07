@@ -84,8 +84,7 @@ def X86rep_movs: SDNode<"X86ISD::REP_MOVS", SDTX86RepStr,
 def X86rdtsc   : SDNode<"X86ISD::RDTSC_DAG",SDTX86RdTsc,
                         [SDNPHasChain, SDNPOutFlag]>;
 
-def X86Wrapper    : SDNode<"X86ISD::Wrapper",     SDTX86Wrapper>;
-def X86WrapperRIP : SDNode<"X86ISD::WrapperRIP",  SDTX86Wrapper>;
+def X86Wrapper : SDNode<"X86ISD::Wrapper",  SDTX86Wrapper>;
 
 //===----------------------------------------------------------------------===//
 // X86 Operand Definitions.
@@ -163,16 +162,13 @@ def MRMInitReg : Format<32>;
 
 //===----------------------------------------------------------------------===//
 // X86 Instruction Predicate Definitions.
-def HasMMX       : Predicate<"Subtarget->hasMMX()">;
-def HasSSE1      : Predicate<"Subtarget->hasSSE1()">;
-def HasSSE2      : Predicate<"Subtarget->hasSSE2()">;
-def HasSSE3      : Predicate<"Subtarget->hasSSE3()">;
-def FPStack      : Predicate<"!Subtarget->hasSSE2()">;
-def In32BitMode  : Predicate<"!Subtarget->is64Bit()">;
-def In64BitMode  : Predicate<"Subtarget->is64Bit()">;
-def SmallCode    : Predicate<"TM.getCodeModel() == CodeModel::Small">;
-def NotSmallCode : Predicate<"TM.getCodeModel() != CodeModel::Small">;
-def IsStatic     : Predicate<"TM.getRelocationModel() == Reloc::Static">;
+def HasMMX   : Predicate<"Subtarget->hasMMX()">;
+def HasSSE1  : Predicate<"Subtarget->hasSSE1()">;
+def HasSSE2  : Predicate<"Subtarget->hasSSE2()">;
+def HasSSE3  : Predicate<"Subtarget->hasSSE3()">;
+def FPStack  : Predicate<"!Subtarget->hasSSE2()">;
+def In32BitMode : Predicate<"!Subtarget->is64Bit()">;
+def In64BitMode : Predicate<"Subtarget->is64Bit()">;
 
 //===----------------------------------------------------------------------===//
 // X86 specific pattern fragments.
@@ -540,8 +536,6 @@ def REP_STOSD : I<0xAB, RawFrm, (ops), "{rep;stosl|rep stosd}",
                   [(X86rep_stos i32)]>,
                 Imp<[EAX,ECX,EDI], [ECX,EDI]>, REP;
 
-def RDTSC : I<0x31, RawFrm, (ops), "rdtsc", [(X86rdtsc)]>,
-            TB, Imp<[],[RAX,RDX]>;
 
 //===----------------------------------------------------------------------===//
 //  Input/Output Instructions...
@@ -2394,15 +2388,21 @@ def MOVZX32rm16: I<0xB7, MRMSrcMem, (ops GR32:$dst, i16mem:$src),
                    [(set GR32:$dst, (zextloadi32i16 addr:$src))]>, TB;
 
 def CBW : I<0x98, RawFrm, (ops),
-            "{cbtw|cbw}", []>, Imp<[AL],[AX]>, OpSize;   // AX = signext(AL)
+            "{cbtw|cbw}", []>, Imp<[AL],[AX]>;   // AX = signext(AL)
 def CWDE : I<0x98, RawFrm, (ops),
             "{cwtl|cwde}", []>, Imp<[AX],[EAX]>;   // EAX = signext(AX)
 
 def CWD : I<0x99, RawFrm, (ops),
-            "{cwtd|cwd}", []>, Imp<[AX],[AX,DX]>, OpSize; // DX:AX = signext(AX)
+            "{cwtd|cwd}", []>, Imp<[AX],[AX,DX]>;   // DX:AX = signext(AX)
 def CDQ : I<0x99, RawFrm, (ops),
             "{cltd|cdq}", []>, Imp<[EAX],[EAX,EDX]>; // EDX:EAX = signext(EAX)
           
+//===----------------------------------------------------------------------===//
+// Miscellaneous Instructions
+//===----------------------------------------------------------------------===//
+
+def RDTSC : I<0x31, RawFrm, (ops), "rdtsc", [(X86rdtsc)]>,
+            TB, Imp<[],[EAX,EDX]>;
 
 //===----------------------------------------------------------------------===//
 // Alias Instructions
@@ -2448,6 +2448,10 @@ def DWARF_LOC   : I<0, Pseudo, (ops i32imm:$line, i32imm:$col, i32imm:$file),
                     "; .loc $file, $line, $col",
                     [(dwarf_loc (i32 imm:$line), (i32 imm:$col),
                       (i32 imm:$file))]>;
+
+def DWARF_LABEL : I<0, Pseudo, (ops i32imm:$id), 
+                    "\n${:private}debug_loc${id:debug}:",
+                    [(dwarf_label (i32 imm:$id))]>;
 
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns

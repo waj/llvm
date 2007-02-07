@@ -16,7 +16,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "reg2mem"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Pass.h"
@@ -25,14 +24,15 @@
 #include "llvm/BasicBlock.h"
 #include "llvm/Instructions.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Support/Compiler.h"
+
 #include <list>
+
 using namespace llvm;
 
-STATISTIC(NumDemoted, "Number of registers demoted");
-
 namespace {
-  struct VISIBILITY_HIDDEN RegToMem : public FunctionPass {
+  Statistic<> NumDemoted("reg2mem", "Number of registers demoted");
+  
+  struct RegToMem : public FunctionPass {
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.addRequiredID(BreakCriticalEdgesID);
@@ -50,7 +50,7 @@ namespace {
     }
 
     virtual bool runOnFunction(Function &F) {
-      if (!F.isDeclaration()) {
+      if (!F.isExternal()) {
         //give us a clean block
 	BasicBlock* bbold = &F.getEntryBlock();
 	BasicBlock* bbnew = new BasicBlock("allocablock", &F, &F.getEntryBlock());

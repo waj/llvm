@@ -22,6 +22,8 @@
 #include "llvm/Function.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
+#include <iostream>
+
 using namespace llvm;
 
 /// AddLiveIn - This helper function adds the specified physical register to the
@@ -104,12 +106,10 @@ AlphaTargetLowering::AlphaTargetLowering(TargetMachine &TM) : TargetLowering(TM)
   
   setOperationAction(ISD::SETCC, MVT::f32, Promote);
 
-  setOperationAction(ISD::BIT_CONVERT, MVT::f32, Promote);
-
   // We don't have line number support yet.
   setOperationAction(ISD::LOCATION, MVT::Other, Expand);
   setOperationAction(ISD::DEBUG_LOC, MVT::Other, Expand);
-  setOperationAction(ISD::LABEL, MVT::Other, Expand);
+  setOperationAction(ISD::DEBUG_LABEL, MVT::Other, Expand);
 
   // Not implemented yet.
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand); 
@@ -145,11 +145,15 @@ AlphaTargetLowering::AlphaTargetLowering(TargetMachine &TM) : TargetLowering(TM)
   setJumpBufAlignment(16);
 
   computeRegisterProperties();
+
+  useITOF = TM.getSubtarget<AlphaSubtarget>().hasF2I();
 }
 
 const char *AlphaTargetLowering::getTargetNodeName(unsigned Opcode) const {
   switch (Opcode) {
   default: return 0;
+  case AlphaISD::ITOFT_: return "Alpha::ITOFT_";
+  case AlphaISD::FTOIT_: return "Alpha::FTOIT_";
   case AlphaISD::CVTQT_: return "Alpha::CVTQT_";
   case AlphaISD::CVTQS_: return "Alpha::CVTQS_";
   case AlphaISD::CVTTQ_: return "Alpha::CVTTQ_";
@@ -220,7 +224,7 @@ static SDOperand LowerFORMAL_ARGUMENTS(SDOperand Op, SelectionDAG &DAG,
     if (ArgNo  < 6) {
       switch (ObjectVT) {
       default:
-        cerr << "Unknown Type " << ObjectVT << "\n";
+        std::cerr << "Unknown Type " << ObjectVT << "\n";
         abort();
       case MVT::f64:
         args_float[ArgNo] = AddLiveIn(MF, args_float[ArgNo], 
@@ -315,8 +319,8 @@ static SDOperand LowerRET(SDOperand Op, SelectionDAG &DAG) {
 }
 
 std::pair<SDOperand, SDOperand>
-AlphaTargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy, 
-                                 bool RetTyIsSigned, bool isVarArg,
+AlphaTargetLowering::LowerCallTo(SDOperand Chain,
+                                 const Type *RetTy, bool isVarArg,
                                  unsigned CallingConv, bool isTailCall,
                                  SDOperand Callee, ArgListTy &Args,
                                  SelectionDAG &DAG) {
@@ -329,7 +333,7 @@ AlphaTargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy,
   std::vector<SDOperand> args_to_use;
   for (unsigned i = 0, e = Args.size(); i != e; ++i)
   {
-    switch (getValueType(Args[i].Ty)) {
+    switch (getValueType(Args[i].second)) {
     default: assert(0 && "Unexpected ValueType for argument!");
     case MVT::i1:
     case MVT::i8:
@@ -337,17 +341,17 @@ AlphaTargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy,
     case MVT::i32:
       // Promote the integer to 64 bits.  If the input type is signed use a
       // sign extend, otherwise use a zero extend.
-      if (Args[i].isSigned)
-        Args[i].Node = DAG.getNode(ISD::SIGN_EXTEND, MVT::i64, Args[i].Node);
+      if (Args[i].second->isSigned())
+        Args[i].first = DAG.getNode(ISD::SIGN_EXTEND, MVT::i64, Args[i].first);
       else
-        Args[i].Node = DAG.getNode(ISD::ZERO_EXTEND, MVT::i64, Args[i].Node);
+        Args[i].first = DAG.getNode(ISD::ZERO_EXTEND, MVT::i64, Args[i].first);
       break;
     case MVT::i64:
     case MVT::f64:
     case MVT::f32:
       break;
     }
-    args_to_use.push_back(Args[i].Node);
+    args_to_use.push_back(Args[i].first);
   }
 
   std::vector<MVT::ValueType> RetVals;
@@ -371,7 +375,7 @@ AlphaTargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy,
   SDOperand RetVal = TheCall;
 
   if (RetTyVT != ActualRetTyVT) {
-    RetVal = DAG.getNode(RetTyIsSigned ? ISD::AssertSext : ISD::AssertZext,
+    RetVal = DAG.getNode(RetTy->isSigned() ? ISD::AssertSext : ISD::AssertZext,
                          MVT::i64, RetVal, DAG.getValueType(RetTyVT));
     RetVal = DAG.getNode(ISD::TRUNCATE, RetTyVT, RetVal);
   }
@@ -396,7 +400,16 @@ SDOperand AlphaTargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG) {
            "Unhandled SINT_TO_FP type in custom expander!");
     SDOperand LD;
     bool isDouble = MVT::f64 == Op.getValueType();
-    LD = DAG.getNode(ISD::BIT_CONVERT, MVT::f64, Op.getOperand(0));
+    if (useITOF) {
+      LD = DAG.getNode(AlphaISD::ITOFT_, MVT::f64, Op.getOperand(0));
+    } else {
+      int FrameIdx =
+        DAG.getMachineFunction().getFrameInfo()->CreateStackObject(8, 8);
+      SDOperand FI = DAG.getFrameIndex(FrameIdx, MVT::i64);
+      SDOperand ST = DAG.getStore(DAG.getEntryNode(),
+                                  Op.getOperand(0), FI, NULL, 0);
+      LD = DAG.getLoad(MVT::f64, ST, FI, NULL, 0);
+      }
     SDOperand FP = DAG.getNode(isDouble?AlphaISD::CVTQT_:AlphaISD::CVTQS_,
                                isDouble?MVT::f64:MVT::f32, LD);
     return FP;
@@ -410,7 +423,15 @@ SDOperand AlphaTargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG) {
     
     src = DAG.getNode(AlphaISD::CVTTQ_, MVT::f64, src);
 
-    return DAG.getNode(ISD::BIT_CONVERT, MVT::i64, src);
+    if (useITOF) {
+      return DAG.getNode(AlphaISD::FTOIT_, MVT::i64, src);
+    } else {
+      int FrameIdx =
+        DAG.getMachineFunction().getFrameInfo()->CreateStackObject(8, 8);
+      SDOperand FI = DAG.getFrameIndex(FrameIdx, MVT::i64);
+      SDOperand ST = DAG.getStore(DAG.getEntryNode(), src, FI, NULL, 0);
+      return DAG.getLoad(MVT::i64, ST, FI, NULL, 0);
+      }
   }
   case ISD::ConstantPool: {
     ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
@@ -427,7 +448,7 @@ SDOperand AlphaTargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG) {
     GlobalValue *GV = GSDN->getGlobal();
     SDOperand GA = DAG.getTargetGlobalAddress(GV, MVT::i64, GSDN->getOffset());
 
-    //    if (!GV->hasWeakLinkage() && !GV->isDeclaration() && !GV->hasLinkOnceLinkage()) {
+    //    if (!GV->hasWeakLinkage() && !GV->isExternal() && !GV->hasLinkOnceLinkage()) {
     if (GV->hasInternalLinkage()) {
       SDOperand Hi = DAG.getNode(AlphaISD::GPRelHi,  MVT::i64, GA,
 				 DAG.getNode(ISD::GLOBAL_OFFSET_TABLE, MVT::i64));
@@ -544,9 +565,6 @@ SDOperand AlphaTargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG) {
     return DAG.getTruncStore(S1, DAG.getConstant(VarArgsOffset, MVT::i64),
                              SA2, NULL, 0, MVT::i32);
   }
-  // Frame & Return address.  Currently unimplemented
-  case ISD::RETURNADDR:         break;
-  case ISD::FRAMEADDR:          break;
   }
 
   return SDOperand();

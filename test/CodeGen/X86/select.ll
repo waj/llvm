@@ -1,5 +1,5 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=x86 -mcpu=yonah &&
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=x86 -mcpu=pentium
+; RUN: llvm-as < %s | llc -march=x86 -mcpu=yonah &&
+; RUN: llvm-as < %s | llc -march=x86 -mcpu=pentium
 
 bool %boolSel(bool %A, bool %B, bool %C) {
 	%X = select bool %A, bool %B, bool %C
@@ -43,7 +43,7 @@ int %foldSel2(bool %A, int %B, int %C) {
 	ret int %X
 }
 
-int %foldSel2a(bool %A, int %B, int %C, double %X, double %Y) {
+int %foldSel2(bool %A, int %B, int %C, double %X, double %Y) {
 	%Cond = setlt double %X, %Y
 	%X = select bool %Cond, int %B, int %C
 	ret int %X

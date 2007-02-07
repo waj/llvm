@@ -57,14 +57,13 @@ void MRegisterInfo::getLocation(MachineFunction &MF, unsigned Index,
   ML.set(getFrameRegister(MF),
          MFI->getObjectOffset(Index) +
          MFI->getStackSize() -
-         TFI.getOffsetOfLocalArea() +
-         MFI->getOffsetAdjustment());
+         TFI.getOffsetOfLocalArea());
 }
 
 /// getInitialFrameState - Returns a list of machine moves that are assumed
 /// on entry to a function.
 void
-MRegisterInfo::getInitialFrameState(std::vector<MachineMove> &Moves) const {
+MRegisterInfo::getInitialFrameState(std::vector<MachineMove *> &Moves) const {
   // Default is to do nothing.
 }
 

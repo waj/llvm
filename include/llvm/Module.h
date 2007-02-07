@@ -16,6 +16,7 @@
 
 #include "llvm/Function.h"
 #include "llvm/GlobalVariable.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
@@ -23,6 +24,7 @@ namespace llvm {
 class GlobalVariable;
 class GlobalValueRefMap;   // Used by ConstantVals.cpp
 class FunctionType;
+class SymbolTable;
 
 template<> struct ilist_traits<Function>
   : public SymbolTableListTraits<Function, Module, Module> {
@@ -60,7 +62,7 @@ public:
   typedef iplist<Function> FunctionListType;
 
   /// The type for the list of dependent libraries.
-  typedef std::vector<std::string> LibraryListType;
+  typedef SetVector<std::string> LibraryListType;
 
   /// The Global Variable iterator.
   typedef GlobalListType::iterator                     global_iterator;
@@ -89,8 +91,7 @@ private:
   FunctionListType FunctionList; ///< The Functions in the module
   LibraryListType LibraryList;   ///< The Libraries needed by the module
   std::string GlobalScopeAsm;    ///< Inline Asm at global scope.
-  ValueSymbolTable *ValSymTab;   ///< Symbol table for values
-  TypeSymbolTable *TypeSymTab;   ///< Symbol table for types
+  SymbolTable *SymTab;           ///< Symbol Table for the module
   std::string ModuleID;          ///< Human readable identifier for the module
   std::string TargetTriple;      ///< Platform target triple Module compiled on
   std::string DataLayout;        ///< Target data description
@@ -118,7 +119,7 @@ public:
   /// Get the data layout string for the module's target platform.  This encodes
   /// the type sizes and alignments expected by this module.
   /// @returns the data layout as a string
-  const std::string& getDataLayout() const { return DataLayout; }
+  std::string getDataLayout() const { return DataLayout; }
 
   /// Get the target triple which is a string describing the target host.
   /// @returns a string containing the target triple.
@@ -144,10 +145,16 @@ public:
   void setModuleIdentifier(const std::string &ID) { ModuleID = ID; }
 
   /// Set the data layout
-  void setDataLayout(const std::string& DL) { DataLayout = DL; }
+  void setDataLayout(std::string DL) { DataLayout = DL; }
 
   /// Set the target triple.
   void setTargetTriple(const std::string &T) { TargetTriple = T; }
+
+  /// Set the target endian information.
+  void setEndianness(Endianness E);
+
+  /// Set the target pointer size.
+  void setPointerSize(PointerSize PS);
 
   /// Set the module-scope inline assembly blocks.
   void setModuleInlineAsm(const std::string &Asm) { GlobalScopeAsm = Asm; }
@@ -157,29 +164,30 @@ public:
 /// @{
 public:
   /// getOrInsertFunction - Look up the specified function in the module symbol
-  /// table.  Four possibilities:
-  ///   1. If it does not exist, add a prototype for the function and return it.
-  ///   2. If it exists, and has internal linkage, the existing function is
-  ///      renamed and a new one is inserted.
-  ///   3. Otherwise, if the existing function has the correct prototype, return
-  ///      the existing function.
-  ///   4. Finally, the function exists but has the wrong prototype: return the
-  ///      function with a constantexpr cast to the right prototype.
-  Constant *getOrInsertFunction(const std::string &Name, const FunctionType *T);
+  /// table.  If it does not exist, add a prototype for the function and return
+  /// it.
+  Function *getOrInsertFunction(const std::string &Name, const FunctionType *T);
 
   /// getOrInsertFunction - Look up the specified function in the module symbol
   /// table.  If it does not exist, add a prototype for the function and return
-  /// it.  This function guarantees to return a constant of pointer to the
-  /// specified function type or a ConstantExpr BitCast of that type if the 
-  /// named /// function has a different type.  This version of the method 
-  /// takes a null terminated list of function arguments, which makes it 
-  /// easier for clients to use.
-  Constant *getOrInsertFunction(const std::string &Name, const Type *RetTy,...)
+  /// it.  This version of the method takes a null terminated list of function
+  /// arguments, which makes it easier for clients to use.
+  Function *getOrInsertFunction(const std::string &Name, const Type *RetTy,...)
     END_WITH_NULL;
 
   /// getFunction - Look up the specified function in the module symbol table.
   /// If it does not exist, return null.
-  Function *getFunction(const std::string &Name) const;
+  Function *getFunction(const std::string &Name, const FunctionType *Ty);
+
+  /// getMainFunction - This function looks up main efficiently.  This is such a
+  /// common case, that it is a method in Module.  If main cannot be found, a
+  /// null pointer is returned.
+  Function *getMainFunction();
+
+  /// getNamedFunction - Return the first function in the module with the
+  /// specified name, of arbitrary type.  This method returns null if a function
+  /// with the specified name is not found.
+  Function *getNamedFunction(const std::string &Name) const;
 
 /// @}
 /// @name Global Variable Accessors 
@@ -191,15 +199,13 @@ public:
   /// the top-level PointerType, which represents the address of the global.
   /// If AllowInternal is set to true, this function will return types that
   /// have InternalLinkage. By default, these types are not returned.
-  GlobalVariable *getGlobalVariable(const std::string &Name, 
-                                    bool AllowInternal = false) const;
+  GlobalVariable *getGlobalVariable(const std::string &Name, const Type *Ty,
+                                    bool AllowInternal = false);
 
   /// getNamedGlobal - Return the first global variable in the module with the
   /// specified name, of arbitrary type.  This method returns null if a global
   /// with the specified name is not found.
-  GlobalVariable *getNamedGlobal(const std::string &Name) const {
-    return getGlobalVariable(Name, true);
-  }
+  GlobalVariable *getNamedGlobal(const std::string &Name) const;
   
 /// @}
 /// @name Type Accessors
@@ -231,13 +237,9 @@ public:
   /// Get the Module's list of functions.
   FunctionListType       &getFunctionList()           { return FunctionList; }
   /// Get the symbol table of global variable and function identifiers
-  const ValueSymbolTable &getValueSymbolTable() const { return *ValSymTab; }
+  const SymbolTable      &getSymbolTable() const      { return *SymTab; }
   /// Get the Module's symbol table of global variable and function identifiers.
-  ValueSymbolTable       &getValueSymbolTable()       { return *ValSymTab; }
-  /// Get the symbol table of types
-  const TypeSymbolTable   &getTypeSymbolTable() const { return *TypeSymTab; }
-  /// Get the Module's symbol table of types
-  TypeSymbolTable         &getTypeSymbolTable()       { return *TypeSymTab; }
+  SymbolTable            &getSymbolTable()            { return *SymTab; }
 
 /// @}
 /// @name Global Variable Iteration
@@ -282,9 +284,9 @@ public:
   /// @brief Returns the number of items in the list of libraries.
   inline size_t lib_size() const { return LibraryList.size(); }
   /// @brief Add a library to the list of dependent libraries
-  void addLibrary(const std::string& Lib);
+  inline void addLibrary(const std::string& Lib){ LibraryList.insert(Lib); }
   /// @brief Remove a library from the list of dependent libraries
-  void removeLibrary(const std::string& Lib);
+  inline void removeLibrary(const std::string& Lib) { LibraryList.remove(Lib); }
   /// @brief Get all the libraries
   inline const LibraryListType& getLibraries() const { return LibraryList; }
 
@@ -294,12 +296,8 @@ public:
 public:
   /// Print the module to an output stream
   void print(std::ostream &OS) const { print(OS, 0); }
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
   /// Print the module to an output stream with AssemblyAnnotationWriter.
   void print(std::ostream &OS, AssemblyAnnotationWriter *AAW) const;
-  void print(std::ostream *OS, AssemblyAnnotationWriter *AAW) const {
-    if (OS) print(*OS, AAW);
-  }
   /// Dump the module to std::cerr (for debugging).
   void dump() const;
   /// This function causes all the subinstructions to "let go" of all references

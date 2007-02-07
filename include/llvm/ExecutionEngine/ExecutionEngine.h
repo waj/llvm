@@ -63,7 +63,6 @@ public:
 class ExecutionEngine {
   const TargetData *TD;
   ExecutionEngineState state;
-  bool LazyCompilationDisabled;
 protected:
   /// Modules - This is a list of ModuleProvider's that we are JIT'ing from.  We
   /// use a smallvector to optimize for the case where there is only one module.
@@ -197,15 +196,6 @@ public:
   /// Emitter.
   virtual void *getOrEmitGlobalVariable(const GlobalVariable *GV) {
     return getPointerToGlobal((GlobalValue*)GV);
-  }
-  
-  /// DisableLazyCompilation - If called, the JIT will abort if lazy compilation
-  // is ever attempted.
-  void DisableLazyCompilation() {
-    LazyCompilationDisabled = true;
-  }
-  bool isLazyCompilationDisabled() const {
-    return LazyCompilationDisabled;
   }
 
 protected:

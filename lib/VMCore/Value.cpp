@@ -15,10 +15,10 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/InstrTypes.h"
 #include "llvm/Module.h"
-#include "llvm/ValueSymbolTable.h"
-#include "llvm/Support/Debug.h"
+#include "llvm/SymbolTable.h"
 #include "llvm/Support/LeakDetector.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -50,10 +50,10 @@ Value::~Value() {
   // a <badref>
   //
   if (use_begin() != use_end()) {
-    DOUT << "While deleting: " << *Ty << " %" << Name << "\n";
+    std::cerr << "While deleting: " << *Ty << " %" << Name << "\n";
     for (use_iterator I = use_begin(), E = use_end(); I != E; ++I)
-      DOUT << "Use still stuck around after Def is destroyed:"
-           << **I << "\n";
+      std::cerr << "Use still stuck around after Def is destroyed:"
+                << **I << "\n";
   }
 #endif
   assert(use_begin() == use_end() && "Uses remain when a value is destroyed!");
@@ -97,20 +97,17 @@ void Value::setName(const std::string &name) {
   if (Name == name) return;   // Name is already set.
 
   // Get the symbol table to update for this object.
-  ValueSymbolTable *ST = 0;
+  SymbolTable *ST = 0;
   if (Instruction *I = dyn_cast<Instruction>(this)) {
     if (BasicBlock *P = I->getParent())
       if (Function *PP = P->getParent())
-        ST = &PP->getValueSymbolTable();
+        ST = &PP->getSymbolTable();
   } else if (BasicBlock *BB = dyn_cast<BasicBlock>(this)) {
-    if (Function *P = BB->getParent()) 
-      ST = &P->getValueSymbolTable();
+    if (Function *P = BB->getParent()) ST = &P->getSymbolTable();
   } else if (GlobalValue *GV = dyn_cast<GlobalValue>(this)) {
-    if (Module *P = GV->getParent()) 
-      ST = &P->getValueSymbolTable();
+    if (Module *P = GV->getParent()) ST = &P->getSymbolTable();
   } else if (Argument *A = dyn_cast<Argument>(this)) {
-    if (Function *P = A->getParent()) 
-      ST = &P->getValueSymbolTable();
+    if (Function *P = A->getParent()) ST = &P->getSymbolTable();
   } else {
     assert(isa<Constant>(this) && "Unknown value type!");
     return;  // no name is setable for this.
@@ -120,9 +117,7 @@ void Value::setName(const std::string &name) {
     Name = name;
   else if (hasName()) {
     if (!name.empty()) {    // Replacing name.
-      ST->remove(this);
-      Name = name;
-      ST->insert(this);
+      ST->changeName(this, name);
     } else {                // Transitioning from hasName -> noname.
       ST->remove(this);
       Name.clear();

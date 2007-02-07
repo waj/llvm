@@ -20,14 +20,12 @@
 namespace llvm {
 
 class SparcSubtarget;
-class TargetInstrInfo;
 class Type;
 
 struct SparcRegisterInfo : public SparcGenRegisterInfo {
   SparcSubtarget &Subtarget;
-  const TargetInstrInfo &TII;
   
-  SparcRegisterInfo(SparcSubtarget &st, const TargetInstrInfo &tii);
+  SparcRegisterInfo(SparcSubtarget &st);
 
   /// Code Generation virtual methods...
   void storeRegToStackSlot(MachineBasicBlock &MBB,
@@ -48,11 +46,9 @@ struct SparcRegisterInfo : public SparcGenRegisterInfo {
                                           unsigned OpNum,
                                           int FrameIndex) const;
 
-  const unsigned *getCalleeSavedRegs() const;
+  const unsigned *getCalleeSaveRegs() const;
 
-  const TargetRegisterClass* const* getCalleeSavedRegClasses() const;
-
-  bool hasFP(const MachineFunction &MF) const;
+  const TargetRegisterClass* const* getCalleeSaveRegClasses() const;
 
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,

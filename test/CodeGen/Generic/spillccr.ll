@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade %s | llvm-as | llc
+; RUN: llvm-as -f %s -o - | llc
 
 ; July 6, 2002 -- LLC Regression test
 ; This test case checks if the integer CC register %xcc (or %ccr)

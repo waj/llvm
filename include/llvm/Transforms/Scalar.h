@@ -19,12 +19,20 @@
 
 namespace llvm {
 
+class ModulePass;
 class FunctionPass;
-class Pass;
 class GetElementPtrInst;
 class PassInfo;
 class TerminatorInst;
 class TargetLowering;
+
+//===----------------------------------------------------------------------===//
+//
+// RaisePointerReferences - Try to eliminate as many pointer arithmetic
+// expressions as possible, by converting expressions to use getelementptr and
+// friends.
+//
+FunctionPass *createRaisePointerReferencesPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -44,7 +52,7 @@ FunctionPass *createSCCPPass();
 // without modifying the CFG of the function.  It is a BasicBlockPass, so it
 // runs efficiently when queued next to other BasicBlockPass's.
 //
-Pass *createDeadInstEliminationPass();
+FunctionPass *createDeadInstEliminationPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -241,7 +249,7 @@ extern const PassInfo *LowerSelectID;
 //
 //   AU.addRequiredID(LowerAllocationsID);
 //
-Pass *createLowerAllocationsPass(bool LowerMallocArgToInteger = false);
+FunctionPass *createLowerAllocationsPass(bool LowerMallocArgToInteger = false);
 extern const PassInfo *LowerAllocationsID;
 
 //===----------------------------------------------------------------------===//

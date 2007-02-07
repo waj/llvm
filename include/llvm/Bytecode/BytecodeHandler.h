@@ -96,7 +96,9 @@ public:
   /// read.
   /// @brief Handle the bytecode prolog
   virtual void handleVersionInfo(
-    unsigned char RevisionNum        ///< Byte code revision number
+    unsigned char RevisionNum,        ///< Byte code revision number
+    Module::Endianness Endianness,    ///< Endianness indicator
+    Module::PointerSize PointerSize   ///< PointerSize indicator
   ) {}
 
   /// This method is called at the start of a module globals block which
@@ -110,7 +112,6 @@ public:
     const Type* ElemType,     ///< The type of the global variable
     bool isConstant,          ///< Whether the GV is constant or not
     GlobalValue::LinkageTypes,///< The linkage type of the GV
-    GlobalValue::VisibilityTypes,///< The visibility style of the GV
     unsigned SlotNum,         ///< Slot number of GV
     unsigned initSlot         ///< Slot number of GV's initializer (0 if none)
   ) {}
@@ -181,14 +182,16 @@ public:
   virtual void handleCompactionTableEnd() {}
 
   /// @brief Handle start of a symbol table
-  virtual void handleTypeSymbolTableBegin(
-    TypeSymbolTable* ST  ///< The symbol table being filled
+  virtual void handleSymbolTableBegin(
+    Function* Func,  ///< The function to which the ST belongs
+    SymbolTable* ST  ///< The symbol table being filled
   ) {}
 
-  /// @brief Handle start of a symbol table
-  virtual void handleValueSymbolTableBegin(
-    Function* Func,       ///< The function to which the ST belongs or 0 for Mod
-    ValueSymbolTable* ST  ///< The symbol table being filled
+  /// @brief Handle start of a symbol table plane
+  virtual void handleSymbolTablePlane(
+    unsigned TySlot,      ///< The slotnum of the type plane
+    unsigned NumEntries,  ///< Number of entries in the plane
+    const Type* Typ       ///< The type of this type plane
   ) {}
 
   /// @brief Handle a named type in the symbol table
@@ -205,11 +208,8 @@ public:
     const std::string& name  ///< Name of the value.
   ) {}
 
-  /// @brief Handle the end of a value symbol table
-  virtual void handleTypeSymbolTableEnd() {}
-
-  /// @brief Handle the end of a type symbol table
-  virtual void handleValueSymbolTableEnd() {}
+  /// @brief Handle the end of a symbol table
+  virtual void handleSymbolTableEnd() {}
 
   /// @brief Handle the beginning of a function body
   virtual void handleFunctionBegin(
@@ -233,8 +233,7 @@ public:
   virtual bool handleInstruction(
     unsigned Opcode,                 ///< Opcode of the instruction
     const Type* iType,               ///< Instruction type
-    unsigned *Operands, unsigned NumOps, ///< Vector of slot # operands
-    Instruction *Inst,               ///< The resulting instruction
+    std::vector<unsigned>& Operands, ///< Vector of slot # operands
     unsigned Length                  ///< Length of instruction in bc bytes
   ) { return false; }
 
@@ -249,14 +248,14 @@ public:
   /// @brief Handle a constant expression
   virtual void handleConstantExpression(
     unsigned Opcode,  ///< Opcode of primary expression operator
-    Constant**Args, unsigned NumArgs, ///< expression args
+    std::vector<Constant*> ArgVec, ///< expression args
     Constant* C ///< The constant value
   ) {}
 
   /// @brief Handle a constant array
   virtual void handleConstantArray(
     const ArrayType* AT,                ///< Type of the array
-    Constant**ElementSlots, unsigned NumElts,///< Slot nums for array values
+    std::vector<Constant*>& ElementSlots,///< Slot nums for array values
     unsigned TypeSlot,                  ///< Slot # of type
     Constant* Val                       ///< The constant value
   ) {}
@@ -264,14 +263,14 @@ public:
   /// @brief Handle a constant structure
   virtual void handleConstantStruct(
     const StructType* ST,               ///< Type of the struct
-    Constant**ElementSlots, unsigned NumElts,///< Slot nums for struct values
+    std::vector<Constant*>& ElementSlots,///< Slot nums for struct values
     Constant* Val                       ///< The constant value
   ) {}
 
   /// @brief Handle a constant packed
   virtual void handleConstantPacked(
     const PackedType* PT,                ///< Type of the array
-    Constant**ElementSlots, unsigned NumElts,///< Slot nums for packed values
+    std::vector<Constant*>& ElementSlots,///< Slot nums for packed values
     unsigned TypeSlot,                  ///< Slot # of type
     Constant* Val                       ///< The constant value
   ) {}
@@ -308,6 +307,15 @@ public:
     unsigned Size                  ///< The size of the block
   ) {}
 
+  /// @brief Handle a variable bit rate 32 bit unsigned
+  virtual void handleVBR32(
+    unsigned Size  ///< Number of bytes the vbr_uint took up
+  ) {}
+
+  /// @brief Handle a variable bit rate 64 bit unsigned
+  virtual void handleVBR64(
+    unsigned Size  ///< Number of byte sthe vbr_uint64 took up
+  ) {}
 /// @}
 
 };

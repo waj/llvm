@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -raiseallocs -disable-output
+; RUN: llvm-as < %s | opt -raiseallocs -disable-output
 implementation   ; Functions:
 
 void %main() {

@@ -8,25 +8,23 @@
 //===----------------------------------------------------------------------===//
 //
 // Here we check for potential replay traps introduced by the spiller
-// We also align some branch targets if we can do so for free.
-//
+// We also align some branch targets if we can do so for free
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "alpha-nops"
+
 #include "Alpha.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/CommandLine.h"
 using namespace llvm;
 
-STATISTIC(nopintro, "Number of nops inserted");
-STATISTIC(nopalign, "Number of nops inserted for alignment");
-
 namespace {
+  Statistic<> nopintro("alpha-nops", "Number of nops inserted");
+  Statistic<> nopalign("alpha-nops-align", 
+		       "Number of nops inserted for alignment");
+
   cl::opt<bool>
   AlignAll("alpha-align-all", cl::Hidden,
                    cl::desc("Align all blocks"));
@@ -44,7 +42,6 @@ namespace {
     }
 
     bool runOnMachineFunction(MachineFunction &F) {
-      const TargetInstrInfo *TII = F.getTarget().getInstrInfo();
       bool Changed = false;
       MachineInstr* prev[3] = {0,0,0};
       unsigned count = 0;
@@ -73,7 +70,7 @@ namespace {
 		  prev[0] = prev[1];
 		  prev[1] = prev[2];
 		  prev[2] = 0;
-		  BuildMI(MBB, MI, TII->get(Alpha::BISr), Alpha::R31).addReg(Alpha::R31)
+		  BuildMI(MBB, MI, Alpha::BISr, 2, Alpha::R31).addReg(Alpha::R31)
 		    .addReg(Alpha::R31); 
 		  Changed = true; nopintro += 1;
 		  count += 1;
@@ -84,9 +81,9 @@ namespace {
 			   MI->getOperand(1).getImmedValue()) {
 		  prev[0] = prev[2];
 		  prev[1] = prev[2] = 0;
-		  BuildMI(MBB, MI, TII->get(Alpha::BISr), Alpha::R31).addReg(Alpha::R31)
+		  BuildMI(MBB, MI, Alpha::BISr, 2, Alpha::R31).addReg(Alpha::R31)
 		    .addReg(Alpha::R31); 
-		  BuildMI(MBB, MI, TII->get(Alpha::BISr), Alpha::R31).addReg(Alpha::R31)
+		  BuildMI(MBB, MI, Alpha::BISr, 2, Alpha::R31).addReg(Alpha::R31)
 		    .addReg(Alpha::R31);
 		  Changed = true; nopintro += 2;
 		  count += 2;
@@ -96,11 +93,11 @@ namespace {
                            && prev[2]->getOperand(1).getImmedValue() == 
                            MI->getOperand(1).getImmedValue()) {
                   prev[0] = prev[1] = prev[2] = 0;
-                  BuildMI(MBB, MI, TII->get(Alpha::BISr), Alpha::R31).addReg(Alpha::R31)
+                  BuildMI(MBB, MI, Alpha::BISr, 2, Alpha::R31).addReg(Alpha::R31)
                     .addReg(Alpha::R31);
-                  BuildMI(MBB, MI, TII->get(Alpha::BISr), Alpha::R31).addReg(Alpha::R31)
+                  BuildMI(MBB, MI, Alpha::BISr, 2, Alpha::R31).addReg(Alpha::R31)
                     .addReg(Alpha::R31);
-                  BuildMI(MBB, MI, TII->get(Alpha::BISr), Alpha::R31).addReg(Alpha::R31)
+                  BuildMI(MBB, MI, Alpha::BISr, 2, Alpha::R31).addReg(Alpha::R31)
                     .addReg(Alpha::R31);
                   Changed = true; nopintro += 3;
                   count += 3;
@@ -117,9 +114,6 @@ namespace {
             case Alpha::ALTENT:
             case Alpha::MEMLABEL:
             case Alpha::PCLABEL:
-            case Alpha::IDEF_I:
-            case Alpha::IDEF_F32:
-            case Alpha::IDEF_F64:
               --count;
               break;
             case Alpha::BR:
@@ -136,7 +130,7 @@ namespace {
           if (ub || AlignAll) {
             //we can align stuff for free at this point
             while (count % 4) {
-              BuildMI(MBB, MBB.end(), TII->get(Alpha::BISr), Alpha::R31)
+              BuildMI(MBB, MBB.end(), Alpha::BISr, 2, Alpha::R31)
                 .addReg(Alpha::R31).addReg(Alpha::R31);
               ++count;
               ++nopalign;

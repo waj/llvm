@@ -1,5 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -ipconstprop -instcombine | \
-; RUN:    llvm-dis | grep 'ret i1 true'
+; RUN: llvm-as < %s | opt -ipconstprop -instcombine | llvm-dis | grep 'ret bool true'
 implementation
 
 internal int %foo(bool %C) {
@@ -12,6 +11,6 @@ F:
 
 bool %caller(bool %C) {
 	%X = call int %foo(bool %C)
-	%Y = setne int %X, 0
+	%Y = cast int %X to bool
 	ret bool %Y
 }

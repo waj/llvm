@@ -10,6 +10,7 @@ LEVEL = ../..
 TOOLNAME = opt
 REQUIRES_EH := 1
 
-LINK_COMPONENTS := bcreader bcwriter instrumentation scalaropts ipo
+LINK_COMPONENTS := bcreader bcwriter instrumentation scalaropts ipo \
+                   transforms
 
 include $(LEVEL)/Makefile.common

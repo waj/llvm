@@ -60,23 +60,19 @@ class IForm<bits<6> opcode, bit aa, bit lk, dag OL, string asmstr,
 }
 
 // 1.7.2 B-Form
-class BForm<bits<6> opcode, bit aa, bit lk, dag OL, string asmstr>
-  : I<opcode, OL, asmstr, BrB> {
-  bits<7> BIBO;  // 2 bits of BI and 5 bits of BO.
+class BForm<bits<6> opcode, bit aa, bit lk, bits<5> bo, bits<2> bicode, dag OL, 
+            string asmstr, InstrItinClass itin>
+  : I<opcode, OL, asmstr, itin> {
   bits<3>  CR;
   bits<14> BD;
 
-  bits<5> BI;
-  let BI{0-1} = BIBO{5-6};
-  let BI{2-4} = CR{0-2};
-
-  let Inst{6-10}  = BIBO{4-0};
-  let Inst{11-15} = BI;
+  let Inst{6-10}  = bo;
+  let Inst{11-13} = CR;
+  let Inst{14-15} = bicode;
   let Inst{16-29} = BD;
   let Inst{30}    = aa;
   let Inst{31}    = lk;
 }
-
 
 // 1.7.4 D-Form
 class DForm_base<bits<6> opcode, dag OL, string asmstr, InstrItinClass itin,
@@ -123,6 +119,11 @@ class DForm_2_r0<bits<6> opcode, dag OL, string asmstr, InstrItinClass itin,
   let Inst{11-15} = 0;
   let Inst{16-31} = B;
 }
+
+// Currently we make the use/def reg distinction in ISel, not tablegen
+class DForm_3<bits<6> opcode, dag OL, string asmstr, InstrItinClass itin,
+              list<dag> pattern>
+  : DForm_1<opcode, OL, asmstr, itin, pattern>;
 
 class DForm_4<bits<6> opcode, dag OL, string asmstr, InstrItinClass itin,
               list<dag> pattern>
@@ -173,6 +174,15 @@ class DForm_6_ext<bits<6> opcode, dag OL, string asmstr, InstrItinClass itin>
   let L = PPC64;
 }
 
+class DForm_8<bits<6> opcode, dag OL, string asmstr, InstrItinClass itin,
+              list<dag> pattern>
+  : DForm_1<opcode, OL, asmstr, itin, pattern> {
+}
+
+class DForm_9<bits<6> opcode, dag OL, string asmstr, InstrItinClass itin,
+              list<dag> pattern>
+  : DForm_1<opcode, OL, asmstr, itin, pattern> {
+}
 
 // 1.7.5 DS-Form
 class DSForm_1<bits<6> opcode, bits<2> xo, dag OL, string asmstr,
@@ -189,6 +199,10 @@ class DSForm_1<bits<6> opcode, bits<2> xo, dag OL, string asmstr,
   let Inst{16-29} = DS;
   let Inst{30-31} = xo;
 }
+
+class DSForm_2<bits<6> opcode, bits<2> xo, dag OL, string asmstr,
+               InstrItinClass itin, list<dag> pattern>
+  : DSForm_1<opcode, xo, OL, asmstr, itin, pattern>;
 
 // 1.7.6 X-Form
 class XForm_base_r3xo<bits<6> opcode, bits<10> xo, dag OL, string asmstr, 
@@ -498,12 +512,12 @@ class XFXForm_7_ext<bits<6> opcode, bits<10> xo, bits<10> spr,
   let SPR = spr;
 }
 
-// 1.7.10 XS-Form - SRADI.
+// 1.7.10 XS-Form
 class XSForm_1<bits<6> opcode, bits<9> xo, dag OL, string asmstr,
                InstrItinClass itin, list<dag> pattern>
          : I<opcode, OL, asmstr, itin> {
-  bits<5> A;
   bits<5> RS;
+  bits<5> A;
   bits<6> SH;
 
   bit RC = 0;    // set by isDOT
@@ -511,9 +525,9 @@ class XSForm_1<bits<6> opcode, bits<9> xo, dag OL, string asmstr,
 
   let Inst{6-10}  = RS;
   let Inst{11-15} = A;
-  let Inst{16-20} = SH{4,3,2,1,0};
+  let Inst{16-20} = SH{1-5};
   let Inst{21-29} = xo;
-  let Inst{30}    = SH{5};
+  let Inst{30}    = SH{0};
   let Inst{31}    = RC;
 }
 
@@ -618,8 +632,8 @@ class MDForm_1<bits<6> opcode, bits<3> xo, dag OL, string asmstr,
 
   let Inst{6-10}  = RS;
   let Inst{11-15} = RA;
-  let Inst{16-20} = SH{4,3,2,1,0};
-  let Inst{21-26} = MBE{4,3,2,1,0,5};
+  let Inst{16-20} = { SH{4}, SH{3}, SH{2}, SH{1}, SH{0} };
+  let Inst{21-26} = { MBE{4}, MBE{3}, MBE{2}, MBE{1}, MBE{0}, MBE{5} };
   let Inst{27-29} = xo;
   let Inst{30}    = SH{5};
   let Inst{31}    = RC;

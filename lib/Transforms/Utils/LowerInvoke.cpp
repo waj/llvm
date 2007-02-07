@@ -34,7 +34,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "lowerinvoke"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
@@ -48,28 +47,27 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Target/TargetLowering.h"
 #include <csetjmp>
-#include <set>
 using namespace llvm;
 
-STATISTIC(NumInvokes, "Number of invokes replaced");
-STATISTIC(NumUnwinds, "Number of unwinds replaced");
-STATISTIC(NumSpilled, "Number of registers live across unwind edges");
-
-static cl::opt<bool> ExpensiveEHSupport("enable-correct-eh-support",
+namespace {
+  Statistic<> NumInvokes("lowerinvoke", "Number of invokes replaced");
+  Statistic<> NumUnwinds("lowerinvoke", "Number of unwinds replaced");
+  Statistic<> NumSpilled("lowerinvoke",
+                         "Number of registers live across unwind edges");
+  cl::opt<bool> ExpensiveEHSupport("enable-correct-eh-support",
  cl::desc("Make the -lowerinvoke pass insert expensive, but correct, EH code"));
 
-namespace {
   class VISIBILITY_HIDDEN LowerInvoke : public FunctionPass {
     // Used for both models.
-    Constant *WriteFn;
-    Constant *AbortFn;
+    Function *WriteFn;
+    Function *AbortFn;
     Value *AbortMessage;
     unsigned AbortMessageLength;
 
     // Used for expensive EH support.
     const Type *JBLinkTy;
     GlobalVariable *JBListHead;
-    Constant *SetJmpFn, *LongJmpFn;
+    Function *SetJmpFn, *LongJmpFn;
     
     // We peek in TLI to grab the target's jmp_buf size and alignment
     const TargetLowering *TLI;
@@ -88,7 +86,7 @@ namespace {
     }
        
   private:
-    void createAbortMessage(Module *M);
+    void createAbortMessage();
     void writeAbortMessage(Instruction *IB);
     bool insertCheapEHSupport(Function &F);
     void splitLiveRangesLiveAcrossInvokes(std::vector<InvokeInst*> &Invokes);
@@ -111,7 +109,7 @@ FunctionPass *llvm::createLowerInvokePass(const TargetLowering *TLI) {
 // doInitialization - Make sure that there is a prototype for abort in the
 // current module.
 bool LowerInvoke::doInitialization(Module &M) {
-  const Type *VoidPtrTy = PointerType::get(Type::Int8Ty);
+  const Type *VoidPtrTy = PointerType::get(Type::SByteTy);
   AbortMessage = 0;
   if (ExpensiveEHSupport) {
     // Insert a type for the linked list of jump buffers.
@@ -140,21 +138,38 @@ bool LowerInvoke::doInitialization(Module &M) {
                                       Constant::getNullValue(PtrJBList),
                                       "llvm.sjljeh.jblist", &M);
     }
-    SetJmpFn = M.getOrInsertFunction("llvm.setjmp", Type::Int32Ty,
+    SetJmpFn = M.getOrInsertFunction("llvm.setjmp", Type::IntTy,
                                      PointerType::get(JmpBufTy), (Type *)0);
     LongJmpFn = M.getOrInsertFunction("llvm.longjmp", Type::VoidTy,
                                       PointerType::get(JmpBufTy),
-                                      Type::Int32Ty, (Type *)0);
+                                      Type::IntTy, (Type *)0);
   }
 
   // We need the 'write' and 'abort' functions for both models.
   AbortFn = M.getOrInsertFunction("abort", Type::VoidTy, (Type *)0);
-  WriteFn = M.getOrInsertFunction("write", Type::VoidTy, Type::Int32Ty,
-                                  VoidPtrTy, Type::Int32Ty, (Type *)0);
+
+  // Unfortunately, 'write' can end up being prototyped in several different
+  // ways.  If the user defines a three (or more) operand function named 'write'
+  // we will use their prototype.  We _do not_ want to insert another instance
+  // of a write prototype, because we don't know that the funcresolve pass will
+  // run after us.  If there is a definition of a write function, but it's not
+  // suitable for our uses, we just don't emit write calls.  If there is no
+  // write prototype at all, we just add one.
+  if (Function *WF = M.getNamedFunction("write")) {
+    if (WF->getFunctionType()->getNumParams() > 3 ||
+        WF->getFunctionType()->isVarArg())
+      WriteFn = WF;
+    else
+      WriteFn = 0;
+  } else {
+    WriteFn = M.getOrInsertFunction("write", Type::VoidTy, Type::IntTy,
+                                    VoidPtrTy, Type::IntTy, (Type *)0);
+  }
   return true;
 }
 
-void LowerInvoke::createAbortMessage(Module *M) {
+void LowerInvoke::createAbortMessage() {
+  Module &M = *WriteFn->getParent();
   if (ExpensiveEHSupport) {
     // The abort message for expensive EH support tells the user that the
     // program 'unwound' without an 'invoke' instruction.
@@ -164,8 +179,8 @@ void LowerInvoke::createAbortMessage(Module *M) {
 
     GlobalVariable *MsgGV = new GlobalVariable(Msg->getType(), true,
                                                GlobalValue::InternalLinkage,
-                                               Msg, "abortmsg", M);
-    std::vector<Constant*> GEPIdx(2, Constant::getNullValue(Type::Int32Ty));
+                                               Msg, "abortmsg", &M);
+    std::vector<Constant*> GEPIdx(2, Constant::getNullValue(Type::IntTy));
     AbortMessage = ConstantExpr::getGetElementPtr(MsgGV, GEPIdx);
   } else {
     // The abort message for cheap EH support tells the user that EH is not
@@ -177,23 +192,34 @@ void LowerInvoke::createAbortMessage(Module *M) {
 
     GlobalVariable *MsgGV = new GlobalVariable(Msg->getType(), true,
                                                GlobalValue::InternalLinkage,
-                                               Msg, "abortmsg", M);
-    std::vector<Constant*> GEPIdx(2, Constant::getNullValue(Type::Int32Ty));
+                                               Msg, "abortmsg", &M);
+    std::vector<Constant*> GEPIdx(2, Constant::getNullValue(Type::IntTy));
     AbortMessage = ConstantExpr::getGetElementPtr(MsgGV, GEPIdx);
   }
 }
 
 
 void LowerInvoke::writeAbortMessage(Instruction *IB) {
-  if (AbortMessage == 0)
-    createAbortMessage(IB->getParent()->getParent()->getParent());
+  if (WriteFn) {
+    if (AbortMessage == 0) createAbortMessage();
 
-  // These are the arguments we WANT...
-  std::vector<Value*> Args;
-  Args.push_back(ConstantInt::get(Type::Int32Ty, 2));
-  Args.push_back(AbortMessage);
-  Args.push_back(ConstantInt::get(Type::Int32Ty, AbortMessageLength));
-  (new CallInst(WriteFn, Args, "", IB))->setTailCall();
+    // These are the arguments we WANT...
+    std::vector<Value*> Args;
+    Args.push_back(ConstantInt::get(Type::IntTy, 2));
+    Args.push_back(AbortMessage);
+    Args.push_back(ConstantInt::get(Type::IntTy, AbortMessageLength));
+
+    // If the actual declaration of write disagrees, insert casts as
+    // appropriate.
+    const FunctionType *FT = WriteFn->getFunctionType();
+    unsigned NumArgs = FT->getNumParams();
+    for (unsigned i = 0; i != 3; ++i)
+      if (i < NumArgs && FT->getParamType(i) != Args[i]->getType())
+        Args[i] = ConstantExpr::getCast(cast<Constant>(Args[i]),
+                                        FT->getParamType(i));
+
+    (new CallInst(WriteFn, Args, "", IB))->setTailCall();
+  }
 }
 
 bool LowerInvoke::insertCheapEHSupport(Function &F) {
@@ -243,7 +269,7 @@ bool LowerInvoke::insertCheapEHSupport(Function &F) {
 void LowerInvoke::rewriteExpensiveInvoke(InvokeInst *II, unsigned InvokeNo,
                                          AllocaInst *InvokeNum,
                                          SwitchInst *CatchSwitch) {
-  ConstantInt *InvokeNoC = ConstantInt::get(Type::Int32Ty, InvokeNo);
+  ConstantInt *InvokeNoC = ConstantInt::get(Type::UIntTy, InvokeNo);
 
   // Insert a store of the invoke num before the invoke and store zero into the
   // location afterward.
@@ -252,7 +278,7 @@ void LowerInvoke::rewriteExpensiveInvoke(InvokeInst *II, unsigned InvokeNo,
   BasicBlock::iterator NI = II->getNormalDest()->begin();
   while (isa<PHINode>(NI)) ++NI;
   // nonvolatile.
-  new StoreInst(Constant::getNullValue(Type::Int32Ty), InvokeNum, false, NI);
+  new StoreInst(Constant::getNullValue(Type::UIntTy), InvokeNum, false, NI);
   
   // Add a switch case to our unwind block.
   CatchSwitch->addCase(InvokeNoC, II->getUnwindDest());
@@ -300,7 +326,7 @@ splitLiveRangesLiveAcrossInvokes(std::vector<InvokeInst*> &Invokes) {
   Function *F = Invokes.back()->getParent()->getParent();
   
   // To avoid having to handle incoming arguments specially, we lower each arg
-  // to a copy instruction in the entry block.  This ensures that the argument
+  // to a copy instruction in the entry block.  This ensure that the argument
   // value itself cannot be live across the entry block.
   BasicBlock::iterator AfterAllocaInsertPt = F->begin()->begin();
   while (isa<AllocaInst>(AfterAllocaInsertPt) &&
@@ -308,16 +334,10 @@ splitLiveRangesLiveAcrossInvokes(std::vector<InvokeInst*> &Invokes) {
     ++AfterAllocaInsertPt;
   for (Function::arg_iterator AI = F->arg_begin(), E = F->arg_end();
        AI != E; ++AI) {
-    // This is always a no-op cast because we're casting AI to AI->getType() so
-    // src and destination types are identical. BitCast is the only possibility.
-    CastInst *NC = new BitCastInst(
-      AI, AI->getType(), AI->getName()+".tmp", AfterAllocaInsertPt);
+    CastInst *NC = new CastInst(AI, AI->getType(), AI->getName()+".tmp",
+                                AfterAllocaInsertPt);
     AI->replaceAllUsesWith(NC);
-    // Normally its is forbidden to replace a CastInst's operand because it
-    // could cause the opcode to reflect an illegal conversion. However, we're
-    // replacing it here with the same value it was constructed with to simply
-    // make NC its user.
-    NC->setOperand(0, AI); 
+    NC->setOperand(0, AI);
   }
   
   // Finally, scan the code looking for instructions with bad live ranges.
@@ -439,8 +459,8 @@ bool LowerInvoke::insertExpensiveEHSupport(Function &F) {
       new AllocaInst(JBLinkTy, 0, Align, "jblink", F.begin()->begin());
     
     std::vector<Value*> Idx;
-    Idx.push_back(Constant::getNullValue(Type::Int32Ty));
-    Idx.push_back(ConstantInt::get(Type::Int32Ty, 1));
+    Idx.push_back(Constant::getNullValue(Type::IntTy));
+    Idx.push_back(ConstantInt::get(Type::UIntTy, 1));
     OldJmpBufPtr = new GetElementPtrInst(JmpBuf, Idx, "OldBuf",
                                          EntryBB->getTerminator());
 
@@ -458,9 +478,9 @@ bool LowerInvoke::insertExpensiveEHSupport(Function &F) {
     
     // Create an alloca which keeps track of which invoke is currently
     // executing.  For normal calls it contains zero.
-    AllocaInst *InvokeNum = new AllocaInst(Type::Int32Ty, 0, "invokenum",
+    AllocaInst *InvokeNum = new AllocaInst(Type::UIntTy, 0, "invokenum",
                                            EntryBB->begin());
-    new StoreInst(ConstantInt::get(Type::Int32Ty, 0), InvokeNum, true,
+    new StoreInst(ConstantInt::get(Type::UIntTy, 0), InvokeNum, true,
                   EntryBB->getTerminator());
     
     // Insert a load in the Catch block, and a switch on its value.  By default,
@@ -479,16 +499,16 @@ bool LowerInvoke::insertExpensiveEHSupport(Function &F) {
     BasicBlock *ContBlock = EntryBB->splitBasicBlock(EntryBB->getTerminator(),
                                                      "setjmp.cont");
 
-    Idx[1] = ConstantInt::get(Type::Int32Ty, 0);
+    Idx[1] = ConstantInt::get(Type::UIntTy, 0);
     Value *JmpBufPtr = new GetElementPtrInst(JmpBuf, Idx, "TheJmpBuf",
                                              EntryBB->getTerminator());
     Value *SJRet = new CallInst(SetJmpFn, JmpBufPtr, "sjret",
                                 EntryBB->getTerminator());
     
     // Compare the return value to zero.
-    Value *IsNormal = new ICmpInst(ICmpInst::ICMP_EQ, SJRet, 
-                                   Constant::getNullValue(SJRet->getType()),
-      "notunwind", EntryBB->getTerminator());
+    Value *IsNormal = BinaryOperator::createSetEQ(SJRet,
+                                     Constant::getNullValue(SJRet->getType()),
+                                        "notunwind", EntryBB->getTerminator());
     // Nuke the uncond branch.
     EntryBB->getTerminator()->eraseFromParent();
     
@@ -520,18 +540,18 @@ bool LowerInvoke::insertExpensiveEHSupport(Function &F) {
   }
   
   // Load the JBList, if it's null, then there was no catch!
-  Value *NotNull = new ICmpInst(ICmpInst::ICMP_NE, BufPtr, 
-                                Constant::getNullValue(BufPtr->getType()),
-    "notnull", UnwindHandler);
+  Value *NotNull = BinaryOperator::createSetNE(BufPtr,
+                                      Constant::getNullValue(BufPtr->getType()),
+                                          "notnull", UnwindHandler);
   new BranchInst(UnwindBlock, TermBlock, NotNull, UnwindHandler);
   
   // Create the block to do the longjmp.
   // Get a pointer to the jmpbuf and longjmp.
   std::vector<Value*> Idx;
-  Idx.push_back(Constant::getNullValue(Type::Int32Ty));
-  Idx.push_back(ConstantInt::get(Type::Int32Ty, 0));
+  Idx.push_back(Constant::getNullValue(Type::IntTy));
+  Idx.push_back(ConstantInt::get(Type::UIntTy, 0));
   Idx[0] = new GetElementPtrInst(BufPtr, Idx, "JmpBuf", UnwindBlock);
-  Idx[1] = ConstantInt::get(Type::Int32Ty, 1);
+  Idx[1] = ConstantInt::get(Type::IntTy, 1);
   new CallInst(LongJmpFn, Idx, "", UnwindBlock);
   new UnreachableInst(UnwindBlock);
   

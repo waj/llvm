@@ -19,7 +19,6 @@
 #include "PPCJITInfo.h"
 #include "PPCInstrInfo.h"
 #include "PPCISelLowering.h"
-#include "PPCMachOWriterInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetData.h"
 
@@ -37,8 +36,7 @@ class PPCTargetMachine : public LLVMTargetMachine {
   PPCJITInfo          JITInfo;
   PPCTargetLowering   TLInfo;
   InstrItineraryData  InstrItins;
-  PPCMachOWriterInfo  MachOWriterInfo;
-
+  
 protected:
   virtual const TargetAsmInfo *createTargetAsmInfo() const;
   
@@ -59,9 +57,6 @@ public:
   virtual const PPCSubtarget  *getSubtargetImpl() const { return &Subtarget; }
   virtual const InstrItineraryData getInstrItineraryData() const {  
     return InstrItins;
-  }
-  virtual const PPCMachOWriterInfo *getMachOWriterInfo() const {
-    return &MachOWriterInfo;
   }
   
   // Pass Pipeline Configuration

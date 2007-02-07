@@ -12,10 +12,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/GraphWriter.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/System/Path.h"
 #include "llvm/System/Program.h"
 #include "llvm/Config/config.h"
+#include <iostream>
 using namespace llvm;
 
 void llvm::DisplayGraph(const sys::Path &Filename) {
@@ -28,9 +28,9 @@ void llvm::DisplayGraph(const sys::Path &Filename) {
   args.push_back(Filename.c_str());
   args.push_back(0);
   
-  cerr << "Running 'Graphviz' program... " << std::flush;
+  std::cerr << "Running 'Graphviz' program... " << std::flush;
   if (sys::Program::ExecuteAndWait(Graphviz, &args[0],0,0,0,&ErrMsg)) {
-    cerr << "Error viewing graph: " << ErrMsg << "\n";
+    std::cerr << "Error viewing graph: " << ErrMsg << "\n";
   }
 #elif (HAVE_GV && HAVE_DOT)
   sys::Path PSFilename = Filename;
@@ -48,11 +48,11 @@ void llvm::DisplayGraph(const sys::Path &Filename) {
   args.push_back(PSFilename.c_str());
   args.push_back(0);
   
-  cerr << "Running 'dot' program... " << std::flush;
+  std::cerr << "Running 'dot' program... " << std::flush;
   if (sys::Program::ExecuteAndWait(dot, &args[0],0,0,0,&ErrMsg)) {
-    cerr << "Error viewing graph: '" << ErrMsg << "\n";
+    std::cerr << "Error viewing graph: '" << ErrMsg << "\n";
   } else {
-    cerr << " done. \n";
+    std::cerr << " done. \n";
 
     sys::Path gv(LLVM_PATH_GV);
     args.clear();
@@ -62,7 +62,7 @@ void llvm::DisplayGraph(const sys::Path &Filename) {
     
     ErrMsg.clear();
     if (sys::Program::ExecuteAndWait(gv, &args[0],0,0,0,&ErrMsg)) {
-      cerr << "Error viewing graph: " << ErrMsg << "\n";
+      std::cerr << "Error viewing graph: " << ErrMsg << "\n";
     }
   }
   PSFilename.eraseFromDisk();
@@ -73,9 +73,9 @@ void llvm::DisplayGraph(const sys::Path &Filename) {
   args.push_back(Filename.c_str());
   args.push_back(0);
   
-  cerr << "Running 'dotty' program... " << std::flush;
+  std::cerr << "Running 'dotty' program... " << std::flush;
   if (sys::Program::ExecuteAndWait(dotty, &args[0],0,0,0,&ErrMsg)) {
-    cerr << "Error viewing graph: " << ErrMsg << "\n";
+    std::cerr << "Error viewing graph: " << ErrMsg << "\n";
   } else {
 #ifdef __MINGW32__ // Dotty spawns another app and doesn't wait until it returns
     return;

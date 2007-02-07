@@ -15,12 +15,12 @@
 #ifndef VALUEMAPPER_H
 #define VALUEMAPPER_H
 
-#include "llvm/ADT/DenseMap.h"
+#include <map>
 
 namespace llvm {
   class Value;
   class Instruction;
-  typedef DenseMap<const Value *, Value *> ValueMapTy;
+  typedef std::map<const Value *, Value *> ValueMapTy;
 
   Value *MapValue(const Value *V, ValueMapTy &VM);
   void RemapInstruction(Instruction *I, ValueMapTy &VM);

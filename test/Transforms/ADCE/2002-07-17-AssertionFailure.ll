@@ -3,7 +3,7 @@
 ; block in this function, it would work fine, but that would be the part we 
 ; have to fix now, wouldn't it....
 ;
-; RUN: llvm-upgrade < %s | llvm-as | opt -adce
+; RUN: llvm-as < %s | opt -adce
 
 void %foo(sbyte* %reg5481) {
         %cast611 = cast sbyte* %reg5481 to sbyte**              ; <sbyte**> [#uses=1]

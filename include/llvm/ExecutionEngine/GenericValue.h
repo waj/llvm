@@ -22,11 +22,15 @@ namespace llvm {
 typedef uintptr_t PointerTy;
 
 union GenericValue {
-  bool            Int1Val;
-  unsigned char   Int8Val;
-  unsigned short  Int16Val;
-  unsigned int    Int32Val;
-  uint64_t        Int64Val;
+  bool            BoolVal;
+  unsigned char   UByteVal;
+  signed   char   SByteVal;
+  unsigned short  UShortVal;
+  signed   short  ShortVal;
+  unsigned int    UIntVal;
+  signed   int    IntVal;
+  uint64_t        ULongVal;
+  int64_t         LongVal;
   double          DoubleVal;
   float           FloatVal;
   struct { unsigned int first; unsigned int second; } UIntPairVal;

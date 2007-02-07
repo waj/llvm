@@ -14,7 +14,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "prune-eh"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/CallGraphSCCPass.h"
 #include "llvm/Constants.h"
@@ -24,16 +23,15 @@
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/Compiler.h"
 #include <set>
 #include <algorithm>
 using namespace llvm;
 
-STATISTIC(NumRemoved, "Number of invokes removed");
-STATISTIC(NumUnreach, "Number of noreturn calls optimized");
-
 namespace {
-  struct VISIBILITY_HIDDEN PruneEH : public CallGraphSCCPass {
+  Statistic<> NumRemoved("prune-eh", "Number of invokes removed");
+  Statistic<> NumUnreach("prune-eh", "Number of noreturn calls optimized");
+
+  struct PruneEH : public CallGraphSCCPass {
     /// DoesNotUnwind - This set contains all of the functions which we have
     /// determined cannot unwind.
     std::set<CallGraphNode*> DoesNotUnwind;
@@ -51,7 +49,7 @@ namespace {
   RegisterPass<PruneEH> X("prune-eh", "Remove unused exception handling info");
 }
 
-Pass *llvm::createPruneEHPass() { return new PruneEH(); }
+ModulePass *llvm::createPruneEHPass() { return new PruneEH(); }
 
 
 bool PruneEH::runOnSCC(const std::vector<CallGraphNode *> &SCC) {
@@ -73,11 +71,11 @@ bool PruneEH::runOnSCC(const std::vector<CallGraphNode *> &SCC) {
   for (unsigned i = 0, e = SCC.size();
        (!SCCMightUnwind || !SCCMightReturn) && i != e; ++i) {
     Function *F = SCC[i]->getFunction();
-    if (F == 0 || (F->isDeclaration() && !F->getIntrinsicID())) {
+    if (F == 0 || (F->isExternal() && !F->getIntrinsicID())) {
       SCCMightUnwind = true;
       SCCMightReturn = true;
     } else {
-      if (F->isDeclaration())
+      if (F->isExternal())
         SCCMightReturn = true;
 
       // Check to see if this function performs an unwind or calls an

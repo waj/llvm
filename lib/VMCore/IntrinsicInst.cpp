@@ -28,7 +28,7 @@
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Constants.h"
 #include "llvm/GlobalVariable.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/CodeGen/MachineDebugInfo.h"
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -37,7 +37,7 @@ using namespace llvm;
 
 static Value *CastOperand(Value *C) {
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(C))
-    if (CE->isCast())
+    if (CE->getOpcode() == Instruction::Cast)
       return CE->getOperand(0);
   return NULL;
 }
@@ -59,7 +59,7 @@ Value *DbgInfoIntrinsic::StripCast(Value *C) {
 
 std::string DbgStopPointInst::getFileName() const {
   // Once the operand indices are verified, update this assert
-  assert(LLVMDebugVersion == (6 << 16) && "Verify operand indices");
+  assert(LLVMDebugVersion == (5 << 16) && "Verify operand indices");
   GlobalVariable *GV = cast<GlobalVariable>(getContext());
   if (!GV->hasInitializer()) return "";
   ConstantStruct *CS = cast<ConstantStruct>(GV->getInitializer());
@@ -68,7 +68,7 @@ std::string DbgStopPointInst::getFileName() const {
 
 std::string DbgStopPointInst::getDirectory() const {
   // Once the operand indices are verified, update this assert
-  assert(LLVMDebugVersion == (6 << 16) && "Verify operand indices");
+  assert(LLVMDebugVersion == (5 << 16) && "Verify operand indices");
   GlobalVariable *GV = cast<GlobalVariable>(getContext());
   if (!GV->hasInitializer()) return "";
   ConstantStruct *CS = cast<ConstantStruct>(GV->getInitializer());

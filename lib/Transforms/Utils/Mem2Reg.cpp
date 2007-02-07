@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "mem2reg"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/UnifyFunctionExitNodes.h"
@@ -24,9 +23,9 @@
 #include "llvm/Support/Compiler.h"
 using namespace llvm;
 
-STATISTIC(NumPromoted, "Number of alloca's promoted");
-
 namespace {
+  Statistic<> NumPromoted("mem2reg", "Number of alloca's promoted");
+
   struct VISIBILITY_HIDDEN PromotePass : public FunctionPass {
     // runOnFunction - To run this pass, first we calculate the alloca
     // instructions that are safe for promotion, then we promote each one.

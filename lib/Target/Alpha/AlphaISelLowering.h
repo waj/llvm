@@ -27,7 +27,7 @@ namespace llvm {
       // Start the numbering where the builting ops and target ops leave off.
       FIRST_NUMBER = ISD::BUILTIN_OP_END+Alpha::INSTRUCTION_LIST_END,
       //These corrospond to the identical Instruction
-      CVTQT_, CVTQS_, CVTTQ_,
+      ITOFT_, FTOIT_, CVTQT_, CVTQS_, CVTTQ_,
 
       /// GPRelHi/GPRelLo - These represent the high and low 16-bit
       /// parts of a global address respectively.
@@ -77,9 +77,9 @@ namespace llvm {
     /// LowerCallTo - This hook lowers an abstract call to a function into an
     /// actual call.
     virtual std::pair<SDOperand, SDOperand>
-    LowerCallTo(SDOperand Chain, const Type *RetTy, bool RetTyIsSigned, 
-                bool isVarArg, unsigned CC, bool isTailCall, SDOperand Callee, 
-                ArgListTy &Args, SelectionDAG &DAG);
+    LowerCallTo(SDOperand Chain, const Type *RetTy, bool isVarArg, unsigned CC,
+                bool isTailCall, SDOperand Callee, ArgListTy &Args,
+                SelectionDAG &DAG);
 
     ConstraintType getConstraintType(char ConstraintLetter) const;
 

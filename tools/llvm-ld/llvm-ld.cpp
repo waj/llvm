@@ -32,12 +32,12 @@
 #include "llvm/Target/TargetMachineRegistry.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileUtilities.h"
-#include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/Support/SystemUtils.h"
 #include "llvm/System/Signals.h"
 #include <fstream>
+#include <iostream>
 #include <memory>
+
 using namespace llvm;
 
 // Input/Output Options
@@ -74,7 +74,7 @@ static cl::opt<bool> Native("native",
 static cl::opt<bool>NativeCBE("native-cbe",
   cl::desc("Generate a native binary with the C backend and GCC"));
 
-static cl::opt<bool>DisableCompression("disable-compression", cl::init(true),
+static cl::opt<bool>DisableCompression("disable-compression",cl::init(false),
   cl::desc("Disable writing of compressed bytecode files"));
 
 static cl::list<std::string> PostLinkOpts("post-link-opts",
@@ -109,7 +109,7 @@ static std::string progname;
 ///  Message  - The message to print to standard error.
 ///
 static int PrintAndReturn(const std::string &Message) {
-  cerr << progname << ": " << Message << "\n";
+  std::cerr << progname << ": " << Message << "\n";
   return 1;
 }
 
@@ -208,8 +208,7 @@ void GenerateBytecode(Module* M, const std::string& FileName) {
   sys::RemoveFileOnSignal(sys::Path(FileName));
 
   // Write it out
-  OStream L(Out);
-  WriteBytecodeToFile(M, L, !DisableCompression);
+  WriteBytecodeToFile(M, Out, !DisableCompression);
 
   // Close the bytecode file.
   Out.close();
@@ -265,7 +264,7 @@ static int GenerateCFile(const std::string &OutputFile,
 /// Inputs:
 ///  InputFilename  - The name of the input bytecode file.
 ///  OutputFilename - The name of the file to generate.
-///  LinkItems      - The native libraries, files, code with which to link
+///  Libraries      - The list of libraries with which to link.
 ///  LibPaths       - The list of directories in which to find libraries.
 ///  gcc            - The pathname to use for GGC.
 ///  envp           - A copy of the process's current environment.
@@ -277,7 +276,7 @@ static int GenerateCFile(const std::string &OutputFile,
 ///
 static int GenerateNative(const std::string &OutputFilename,
                           const std::string &InputFilename,
-                          const Linker::ItemList &LinkItems,
+                          const std::vector<std::string> &Libraries,
                           const sys::Path &gcc, char ** const envp,
                           std::string& ErrMsg) {
   // Remove these environment variables from the environment of the
@@ -324,13 +323,10 @@ static int GenerateNative(const std::string &OutputFilename,
   }
 
   // Add in the libraries to link.
-  for (unsigned index = 0; index < LinkItems.size(); index++)
-    if (LinkItems[index].first != "crtend") {
-      if (LinkItems[index].second) {
-        std::string lib_name = "-l" + LinkItems[index].first;
-        args.push_back(lib_name.c_str());
-      } else
-        args.push_back(LinkItems[index].first.c_str());
+  for (unsigned index = 0; index < Libraries.size(); index++)
+    if (Libraries[index] != "crtend") {
+      args.push_back("-l");
+      args.push_back(Libraries[index].c_str());
     }
 
   args.push_back(0);
@@ -352,12 +348,12 @@ static void EmitShellScript(char **argv) {
   std::string ErrMsg;  
   sys::Path llvmstub = FindExecutable("llvm-stub.exe", argv[0]);
   if (llvmstub.isEmpty()) {
-    cerr << "Could not find llvm-stub.exe executable!\n";
+    std::cerr << "Could not find llvm-stub.exe executable!\n";
     exit(1);
   }
 
   if (0 != sys::CopyFile(sys::Path(OutputFilename), llvmstub, &ErrMsg)) {
-    cerr << argv[0] << ": " << ErrMsg << "\n";
+    std::cerr << argv[0] << ": " << ErrMsg << "\n";
     exit(1);    
   }
 
@@ -434,21 +430,16 @@ extern void Optimize(Module*);
 }
 
 int main(int argc, char **argv, char **envp) {
-  llvm_shutdown_obj X;  // Call llvm_shutdown() on exit.
   try {
     // Initial global variable above for convenience printing of program name.
     progname = sys::Path(argv[0]).getBasename();
+    Linker TheLinker(progname, OutputFilename, Verbose);
 
     // Parse the command line options
     cl::ParseCommandLineOptions(argc, argv, " llvm linker\n");
     sys::PrintStackTraceOnErrorSignal();
 
-    // Construct a Linker (now that Verbose is set)
-    Linker TheLinker(progname, OutputFilename, Verbose);
-    // Keep track of the native link items (vice the bytecode items)
-    Linker::ItemList LinkItems;
-
-    // Add library paths to the linker
+    // Set up the library paths for the Linker
     TheLinker.addPaths(LibPaths);
     TheLinker.addSystemPaths();
 
@@ -472,10 +463,11 @@ int main(int argc, char **argv, char **envp) {
     } else {
       // Build a list of the items from our command line
       Linker::ItemList Items;
+      Linker::ItemList NativeItems;
       BuildLinkItems(Items, InputFilenames, Libraries);
 
       // Link all the items together
-      if (TheLinker.LinkInItems(Items,LinkItems) )
+      if (TheLinker.LinkInItems(Items,NativeItems) )
         return 1;
     }
 
@@ -520,14 +512,14 @@ int main(int argc, char **argv, char **envp) {
               sys::Path target(RealBytecodeOutput);
               target.eraseFromDisk();
               if (tmp_output.renamePathOnDisk(target, &ErrMsg)) {
-                cerr << argv[0] << ": " << ErrMsg << "\n";
+                std::cerr << argv[0] << ": " << ErrMsg << "\n";
                 return 2;
               }
             } else
               return PrintAndReturn(
                 "Post-link optimization output is not bytecode");
           } else {
-            cerr << argv[0] << ": " << ErrMsg << "\n";
+            std::cerr << argv[0] << ": " << ErrMsg << "\n";
             return 2;
           }
         }
@@ -556,18 +548,18 @@ int main(int argc, char **argv, char **envp) {
           return PrintAndReturn("Failed to find gcc");
 
         // Generate an assembly language file for the bytecode.
-        if (Verbose) cout << "Generating Assembly Code\n";
+        if (Verbose) std::cout << "Generating Assembly Code\n";
         std::string ErrMsg;
         if (0 != GenerateAssembly(AssemblyFile.toString(), RealBytecodeOutput,
             llc, ErrMsg)) {
-          cerr << argv[0] << ": " << ErrMsg << "\n";
+          std::cerr << argv[0] << ": " << ErrMsg << "\n";
           return 1;
         }
 
-        if (Verbose) cout << "Generating Native Code\n";
+        if (Verbose) std::cout << "Generating Native Code\n";
         if (0 != GenerateNative(OutputFilename, AssemblyFile.toString(),
-            LinkItems,gcc,envp,ErrMsg)) {
-          cerr << argv[0] << ": " << ErrMsg << "\n";
+            Libraries,gcc,envp,ErrMsg)) {
+          std::cerr << argv[0] << ": " << ErrMsg << "\n";
           return 1;
         }
 
@@ -591,18 +583,18 @@ int main(int argc, char **argv, char **envp) {
           return PrintAndReturn("Failed to find gcc");
 
         // Generate an assembly language file for the bytecode.
-        if (Verbose) cout << "Generating Assembly Code\n";
+        if (Verbose) std::cout << "Generating Assembly Code\n";
         std::string ErrMsg;
         if (0 != GenerateCFile(
             CFile.toString(), RealBytecodeOutput, llc, ErrMsg)) {
-          cerr << argv[0] << ": " << ErrMsg << "\n";
+          std::cerr << argv[0] << ": " << ErrMsg << "\n";
           return 1;
         }
 
-        if (Verbose) cout << "Generating Native Code\n";
-        if (0 != GenerateNative(OutputFilename, CFile.toString(), LinkItems, 
+        if (Verbose) std::cout << "Generating Native Code\n";
+        if (0 != GenerateNative(OutputFilename, CFile.toString(), Libraries, 
             gcc, envp, ErrMsg)) {
-          cerr << argv[0] << ": " << ErrMsg << "\n";
+          std::cerr << argv[0] << ": " << ErrMsg << "\n";
           return 1;
         }
 
@@ -616,26 +608,26 @@ int main(int argc, char **argv, char **envp) {
       // Make the script executable...
       std::string ErrMsg;
       if (sys::Path(OutputFilename).makeExecutableOnDisk(&ErrMsg)) {
-        cerr << argv[0] << ": " << ErrMsg << "\n";
+        std::cerr << argv[0] << ": " << ErrMsg << "\n";
         return 1;
       }
 
       // Make the bytecode file readable and directly executable in LLEE as well
       if (sys::Path(RealBytecodeOutput).makeExecutableOnDisk(&ErrMsg)) {
-        cerr << argv[0] << ": " << ErrMsg << "\n";
+        std::cerr << argv[0] << ": " << ErrMsg << "\n";
         return 1;
       }
       if (sys::Path(RealBytecodeOutput).makeReadableOnDisk(&ErrMsg)) {
-        cerr << argv[0] << ": " << ErrMsg << "\n";
+        std::cerr << argv[0] << ": " << ErrMsg << "\n";
         return 1;
       }
     }
 
     return 0;
   } catch (const std::string& msg) {
-    cerr << argv[0] << ": " << msg << "\n";
+    std::cerr << argv[0] << ": " << msg << "\n";
   } catch (...) {
-    cerr << argv[0] << ": Unexpected unknown exception occurred.\n";
+    std::cerr << argv[0] << ": Unexpected unknown exception occurred.\n";
   }
   return 1;
 }

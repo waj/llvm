@@ -18,7 +18,6 @@
 #define LLVM_ANALYSIS_ALIASSETTRACKER_H
 
 #include "llvm/Support/CallSite.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/ADT/iterator"
 #include "llvm/ADT/hash_map"
 #include "llvm/ADT/ilist"
@@ -157,7 +156,6 @@ public:
   bool empty() const { return PtrList == 0; }
 
   void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
   void dump() const;
 
   /// Define an iterator for alias sets... this is just a forward iterator.
@@ -356,7 +354,6 @@ public:
   iterator end()   { return AliasSets.end(); }
 
   void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
   void dump() const;
 
 private:

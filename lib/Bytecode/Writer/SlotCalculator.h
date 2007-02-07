@@ -30,8 +30,6 @@ class Type;
 class Module;
 class Function;
 class SymbolTable;
-class TypeSymbolTable;
-class ValueSymbolTable;
 class ConstantArray;
 
 class SlotCalculator {
@@ -62,6 +60,17 @@ class SlotCalculator {
   /// is only possible if building information for a bytecode file.
   bool ModuleContainsAllFunctionConstants;
 
+  /// CompactionTable/NodeMap - When function compaction has been performed,
+  /// these entries provide a compacted view of the namespace needed to emit
+  /// instructions in a function body.  The 'getSlot()' method automatically
+  /// returns these entries if applicable, or the global entries if not.
+  std::vector<TypePlane> CompactionTable;
+  TypeList CompactionTypes;
+  typedef std::map<const Value*, unsigned> CompactionNodeMapType;
+  CompactionNodeMapType CompactionNodeMap;
+  typedef std::map<const Type*, unsigned> CompactionTypeMapType;
+  CompactionTypeMapType CompactionTypeMap;
+
   SlotCalculator(const SlotCalculator &);  // DO NOT IMPLEMENT
   void operator=(const SlotCalculator &);  // DO NOT IMPLEMENT
 public:
@@ -75,8 +84,24 @@ public:
   int getSlot(const Value *V) const;
   int getSlot(const Type* T) const;
 
-  inline unsigned getNumPlanes() const { return Table.size(); }
-  inline unsigned getNumTypes() const { return Types.size(); }
+  /// getGlobalSlot - Return a slot number from the global table.  This can only
+  /// be used when a compaction table is active.
+  unsigned getGlobalSlot(const Value *V) const;
+  unsigned getGlobalSlot(const Type *V) const;
+
+  inline unsigned getNumPlanes() const {
+    if (CompactionTable.empty())
+      return Table.size();
+    else
+      return CompactionTable.size();
+  }
+
+  inline unsigned getNumTypes() const {
+    if (CompactionTypes.empty())
+      return Types.size();
+    else
+      return CompactionTypes.size();
+  }
 
   inline unsigned getModuleLevel(unsigned Plane) const {
     return Plane < ModuleLevel.size() ? ModuleLevel[Plane] : 0;
@@ -88,7 +113,11 @@ public:
   }
 
   TypePlane &getPlane(unsigned Plane);
-  TypeList& getTypes() { return Types; }
+  TypeList& getTypes() {
+    if (!CompactionTypes.empty())
+      return CompactionTypes;
+    return Types;
+  }
 
   /// incorporateFunction/purgeFunction - If you'd like to deal with a function,
   /// use these two methods to get its data into the SlotCalculator!
@@ -102,6 +131,15 @@ public:
   typedef std::vector<const ConstantArray*>::const_iterator string_iterator;
   string_iterator string_begin() const { return ConstantStrings.begin(); }
   string_iterator string_end() const   { return ConstantStrings.end(); }
+
+  const std::vector<TypePlane> &getCompactionTable() const {
+    return CompactionTable;
+  }
+
+  const TypeList& getCompactionTypes() const { return CompactionTypes; }
+
+  /// @brief Determine if the compaction table (not types) is empty
+  bool CompactionTableIsEmpty() const;
 
 private:
   // getOrCreateSlot - Values can be crammed into here at will... if
@@ -130,12 +168,13 @@ private:
   // processSymbolTable - Insert all of the values in the specified symbol table
   // into the values table...
   //
-  void processTypeSymbolTable(const TypeSymbolTable *ST);
-  void processValueSymbolTable(const ValueSymbolTable *ST);
-  void processSymbolTableConstants(const ValueSymbolTable *ST);
+  void processSymbolTable(const SymbolTable *ST);
+  void processSymbolTableConstants(const SymbolTable *ST);
 
-  // insertPrimitives - helper for constructors to insert primitive types.
-  void insertPrimitives();
+  void buildCompactionTable(const Function *F);
+  unsigned getOrCreateCompactionTableSlot(const Value *V);
+  unsigned getOrCreateCompactionTableSlot(const Type *V);
+  void pruneCompactionTable();
 };
 
 } // End llvm namespace

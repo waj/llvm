@@ -1,12 +1,10 @@
-; RUN: llvm-upgrade < %s | llvm-as > %t.bc
-; RUN: llvm-upgrade < `dirname %s`/testlink2.ll | llvm-as > %t2.bc
+; RUN: llvm-as < %s > %t.bc
+; RUN: llvm-as < `dirname %s`/testlink2.ll > %t2.bc
 ; RUN: llvm-link %t.bc %t2.bc
 
 %MyVar     = external global int
 %MyIntList = global { \2 *, int } { { \2, int }* null, int 17 }
              external global int      ; int*:0
-
-%Inte = global int 1
 
 %AConst    = linkonce constant int 123
 
@@ -27,7 +25,7 @@ begin
 	%v1 = load int* %MyVar
 	call void %print(int %v1)    ;; Should start out 4
 
-	%idx = getelementptr { \2 *, int }* %MyIntList, long 0, uint 1
+	%idx = getelementptr { \2 *, int }* %MyIntList, long 0, ubyte 1
 	%v2 = load int* %idx
 	call void %print(int %v2)    ;; Should start out 17
 

@@ -27,14 +27,14 @@
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetJITInfo.h"
+#include <iostream>
 using namespace llvm;
 
 #ifdef __APPLE__ 
 #include <AvailabilityMacros.h>
-#if defined(MAC_OS_X_VERSION_10_4) && \
-    ((MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_4) || \
-     (MAC_OS_X_VERSION_MIN_REQUIRED == MAC_OS_X_VERSION_10_4 && \
-      __APPLE_CC__ >= 5330))
+#if (MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_4) || \
+    (MAC_OS_X_VERSION_MIN_REQUIRED == MAC_OS_X_VERSION_10_4 && \
+     __APPLE_CC__ >= 5330)
 // __dso_handle is resolved by Mac OS X dynamic linker.
 extern void *__dso_handle __attribute__ ((__visibility__ ("hidden")));
 #endif
@@ -64,7 +64,7 @@ JIT::JIT(ModuleProvider *MP, TargetMachine &tm, TargetJITInfo &tji)
   // Turn the machine code intermediate representation into bytes in memory that
   // may be executed.
   if (TM.addPassesToEmitMachineCode(PM, *MCE, false /*fast*/)) {
-    cerr << "Target does not support machine code emission!\n";
+    std::cerr << "Target does not support machine code emission!\n";
     abort();
   }
   
@@ -95,11 +95,11 @@ GenericValue JIT::runFunction(Function *F,
 
   // Handle some common cases first.  These cases correspond to common `main'
   // prototypes.
-  if (RetTy == Type::Int32Ty || RetTy == Type::Int32Ty || RetTy == Type::VoidTy) {
+  if (RetTy == Type::IntTy || RetTy == Type::UIntTy || RetTy == Type::VoidTy) {
     switch (ArgValues.size()) {
     case 3:
-      if ((FTy->getParamType(0) == Type::Int32Ty ||
-           FTy->getParamType(0) == Type::Int32Ty) &&
+      if ((FTy->getParamType(0) == Type::IntTy ||
+           FTy->getParamType(0) == Type::UIntTy) &&
           isa<PointerType>(FTy->getParamType(1)) &&
           isa<PointerType>(FTy->getParamType(2))) {
         int (*PF)(int, char **, const char **) =
@@ -107,30 +107,30 @@ GenericValue JIT::runFunction(Function *F,
 
         // Call the function.
         GenericValue rv;
-        rv.Int32Val = PF(ArgValues[0].Int32Val, (char **)GVTOP(ArgValues[1]),
+        rv.IntVal = PF(ArgValues[0].IntVal, (char **)GVTOP(ArgValues[1]),
                        (const char **)GVTOP(ArgValues[2]));
         return rv;
       }
       break;
     case 2:
-      if ((FTy->getParamType(0) == Type::Int32Ty ||
-           FTy->getParamType(0) == Type::Int32Ty) &&
+      if ((FTy->getParamType(0) == Type::IntTy ||
+           FTy->getParamType(0) == Type::UIntTy) &&
           isa<PointerType>(FTy->getParamType(1))) {
         int (*PF)(int, char **) = (int(*)(int, char **))(intptr_t)FPtr;
 
         // Call the function.
         GenericValue rv;
-        rv.Int32Val = PF(ArgValues[0].Int32Val, (char **)GVTOP(ArgValues[1]));
+        rv.IntVal = PF(ArgValues[0].IntVal, (char **)GVTOP(ArgValues[1]));
         return rv;
       }
       break;
     case 1:
       if (FTy->getNumParams() == 1 &&
-          (FTy->getParamType(0) == Type::Int32Ty ||
-           FTy->getParamType(0) == Type::Int32Ty)) {
+          (FTy->getParamType(0) == Type::IntTy ||
+           FTy->getParamType(0) == Type::UIntTy)) {
         GenericValue rv;
         int (*PF)(int) = (int(*)(int))(intptr_t)FPtr;
-        rv.Int32Val = PF(ArgValues[0].Int32Val);
+        rv.IntVal = PF(ArgValues[0].IntVal);
         return rv;
       }
       break;
@@ -142,24 +142,25 @@ GenericValue JIT::runFunction(Function *F,
     GenericValue rv;
     switch (RetTy->getTypeID()) {
     default: assert(0 && "Unknown return type for function call!");
-    case Type::IntegerTyID: {
-      unsigned BitWidth = cast<IntegerType>(RetTy)->getBitWidth();
-      if (BitWidth == 1)
-        rv.Int1Val = ((bool(*)())(intptr_t)FPtr)();
-      else if (BitWidth <= 8)
-        rv.Int8Val = ((char(*)())(intptr_t)FPtr)();
-      else if (BitWidth <= 16)
-        rv.Int16Val = ((short(*)())(intptr_t)FPtr)();
-      else if (BitWidth <= 32)
-        rv.Int32Val = ((int(*)())(intptr_t)FPtr)();
-      else if (BitWidth <= 64)
-        rv.Int64Val = ((int64_t(*)())(intptr_t)FPtr)();
-      else 
-        assert(0 && "Integer types > 64 bits not supported");
+    case Type::BoolTyID:
+      rv.BoolVal = ((bool(*)())(intptr_t)FPtr)();
       return rv;
-    }
+    case Type::SByteTyID:
+    case Type::UByteTyID:
+      rv.SByteVal = ((char(*)())(intptr_t)FPtr)();
+      return rv;
+    case Type::ShortTyID:
+    case Type::UShortTyID:
+      rv.ShortVal = ((short(*)())(intptr_t)FPtr)();
+      return rv;
     case Type::VoidTyID:
-      rv.Int32Val = ((int(*)())(intptr_t)FPtr)();
+    case Type::IntTyID:
+    case Type::UIntTyID:
+      rv.IntVal = ((int(*)())(intptr_t)FPtr)();
+      return rv;
+    case Type::LongTyID:
+    case Type::ULongTyID:
+      rv.LongVal = ((int64_t(*)())(intptr_t)FPtr)();
       return rv;
     case Type::FloatTyID:
       rv.FloatVal = ((float(*)())(intptr_t)FPtr)();
@@ -194,32 +195,25 @@ GenericValue JIT::runFunction(Function *F,
     const GenericValue &AV = ArgValues[i];
     switch (ArgTy->getTypeID()) {
     default: assert(0 && "Unknown argument type for function call!");
-    case Type::IntegerTyID: {
-      unsigned BitWidth = cast<IntegerType>(ArgTy)->getBitWidth();
-      if (BitWidth == 1)
-        C = ConstantInt::get(ArgTy, AV.Int1Val);
-      else if (BitWidth <= 8)
-        C = ConstantInt::get(ArgTy, AV.Int8Val);
-      else if (BitWidth <= 16)
-        C = ConstantInt::get(ArgTy, AV.Int16Val);
-      else if (BitWidth <= 32)
-        C = ConstantInt::get(ArgTy, AV.Int32Val); 
-      else if (BitWidth <= 64)
-        C = ConstantInt::get(ArgTy, AV.Int64Val);
-      else
-        assert(0 && "Integer types > 64 bits not supported");
-      break;
-    }
+    case Type::BoolTyID:   C = ConstantBool::get(AV.BoolVal); break;
+    case Type::SByteTyID:  C = ConstantInt::get(ArgTy, AV.SByteVal);  break;
+    case Type::UByteTyID:  C = ConstantInt::get(ArgTy, AV.UByteVal);  break;
+    case Type::ShortTyID:  C = ConstantInt::get(ArgTy, AV.ShortVal);  break;
+    case Type::UShortTyID: C = ConstantInt::get(ArgTy, AV.UShortVal); break;
+    case Type::IntTyID:    C = ConstantInt::get(ArgTy, AV.IntVal);    break;
+    case Type::UIntTyID:   C = ConstantInt::get(ArgTy, AV.UIntVal);   break;
+    case Type::LongTyID:   C = ConstantInt::get(ArgTy, AV.LongVal);   break;
+    case Type::ULongTyID:  C = ConstantInt::get(ArgTy, AV.ULongVal);  break;
     case Type::FloatTyID:  C = ConstantFP ::get(ArgTy, AV.FloatVal);  break;
     case Type::DoubleTyID: C = ConstantFP ::get(ArgTy, AV.DoubleVal); break;
     case Type::PointerTyID:
       void *ArgPtr = GVTOP(AV);
       if (sizeof(void*) == 4) {
-        C = ConstantInt::get(Type::Int32Ty, (int)(intptr_t)ArgPtr);
+        C = ConstantInt::get(Type::IntTy, (int)(intptr_t)ArgPtr);
       } else {
-        C = ConstantInt::get(Type::Int64Ty, (intptr_t)ArgPtr);
+        C = ConstantInt::get(Type::LongTy, (intptr_t)ArgPtr);
       }
-      C = ConstantExpr::getIntToPtr(C, ArgTy);  // Cast the integer to pointer
+      C = ConstantExpr::getCast(C, ArgTy);  // Cast the integer to pointer
       break;
     }
     Args.push_back(C);
@@ -285,13 +279,13 @@ void *JIT::getPointerToFunction(Function *F) {
     
     std::string ErrorMsg;
     if (MP->materializeFunction(F, &ErrorMsg)) {
-      cerr << "Error reading function '" << F->getName()
-           << "' from bytecode file: " << ErrorMsg << "\n";
+      std::cerr << "Error reading function '" << F->getName()
+                << "' from bytecode file: " << ErrorMsg << "\n";
       abort();
     }
   }
 
-  if (F->isDeclaration()) {
+  if (F->isExternal()) {
     void *Addr = getPointerToNamedFunction(F->getName());
     addGlobalMapping(F, Addr);
     return Addr;
@@ -314,11 +308,11 @@ void *JIT::getOrEmitGlobalVariable(const GlobalVariable *GV) {
   if (Ptr) return Ptr;
 
   // If the global is external, just remember the address.
-  if (GV->isDeclaration()) {
-#if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_4) && \
-    ((MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_4) || \
-     (MAC_OS_X_VERSION_MIN_REQUIRED == MAC_OS_X_VERSION_10_4 && \
-      __APPLE_CC__ >= 5330))
+  if (GV->isExternal()) {
+#ifdef __APPLE__
+#if (MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_4) || \
+    (MAC_OS_X_VERSION_MIN_REQUIRED == MAC_OS_X_VERSION_10_4 && \
+     __APPLE_CC__ >= 5330)
     // Apple gcc defaults to -fuse-cxa-atexit (i.e. calls __cxa_atexit instead
     // of atexit). It passes the address of linker generated symbol __dso_handle
     // to the function.
@@ -326,10 +320,11 @@ void *JIT::getOrEmitGlobalVariable(const GlobalVariable *GV) {
     if (GV->getName() == "__dso_handle")
       return (void*)&__dso_handle;
 #endif
+#endif
     Ptr = sys::DynamicLibrary::SearchForAddressOfSymbol(GV->getName().c_str());
     if (Ptr == 0) {
-      cerr << "Could not resolve external global address: "
-           << GV->getName() << "\n";
+      std::cerr << "Could not resolve external global address: "
+                << GV->getName() << "\n";
       abort();
     }
   } else {
@@ -338,7 +333,7 @@ void *JIT::getOrEmitGlobalVariable(const GlobalVariable *GV) {
     // compilation.
     const Type *GlobalType = GV->getType()->getElementType();
     size_t S = getTargetData()->getTypeSize(GlobalType);
-    size_t A = getTargetData()->getTypeAlignmentPref(GlobalType);
+    size_t A = getTargetData()->getTypeAlignment(GlobalType);
     if (A <= 8) {
       Ptr = malloc(S);
     } else {

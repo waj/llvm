@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -domtree -break-crit-edges -analyze -domtree | grep '3.*%brtrue$'
+; RUN: llvm-as < %s | opt -domtree -break-crit-edges -analyze -domtree | grep '3.*%brtrue$'
 ; PR932
 implementation   ; Functions:
 

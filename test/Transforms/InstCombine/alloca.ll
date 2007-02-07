@@ -1,6 +1,6 @@
 ; Zero byte allocas should be deleted.
 
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | not grep alloca
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep alloca
 
 declare void %use(...)
 void %test() {
@@ -10,18 +10,5 @@ void %test() {
 	call void(...)* %use(int* %Y)
 	%Z = alloca {}
 	call void(...)* %use({}* %Z)
-	ret void
-}
-
-void %test2() {
-	%A = alloca int    ;; dead.
-	store int 123, int* %A
-	ret void
-}
-
-void %test3() {
-	%A = alloca {int}    ;; dead.
-	%B = getelementptr {int}* %A, int 0, uint 0
-	store int 123, int* %B
 	ret void
 }

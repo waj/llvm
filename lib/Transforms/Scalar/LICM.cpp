@@ -33,7 +33,6 @@
 
 #define DEBUG_TYPE "licm"
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Instructions.h"
 #include "llvm/Target/TargetData.h"
@@ -41,27 +40,29 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AliasSetTracker.h"
 #include "llvm/Analysis/Dominators.h"
-#include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/Compiler.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
-
-STATISTIC(NumSunk      , "Number of instructions sunk out of loop");
-STATISTIC(NumHoisted   , "Number of instructions hoisted out of loop");
-STATISTIC(NumMovedLoads, "Number of load insts hoisted or sunk");
-STATISTIC(NumMovedCalls, "Number of call insts hoisted or sunk");
-STATISTIC(NumPromoted  , "Number of memory locations promoted to registers");
 
 namespace {
   cl::opt<bool>
   DisablePromotion("disable-licm-promotion", cl::Hidden,
                    cl::desc("Disable memory promotion in LICM pass"));
 
-  struct VISIBILITY_HIDDEN LICM : public FunctionPass {
+  Statistic<> NumSunk("licm", "Number of instructions sunk out of loop");
+  Statistic<> NumHoisted("licm", "Number of instructions hoisted out of loop");
+  Statistic<> NumMovedLoads("licm", "Number of load insts hoisted or sunk");
+  Statistic<> NumMovedCalls("licm", "Number of call insts hoisted or sunk");
+  Statistic<> NumPromoted("licm",
+                          "Number of memory locations promoted to registers");
+
+  struct LICM : public FunctionPass {
     virtual bool runOnFunction(Function &F);
 
     /// This transformation requires natural loop information & requires that
@@ -384,9 +385,8 @@ bool LICM::canSinkOrHoistInst(Instruction &I) {
     return false;
   }
 
-  // Otherwise these instructions are hoistable/sinkable
-  return isa<BinaryOperator>(I) || isa<CastInst>(I) ||
-         isa<SelectInst>(I) || isa<GetElementPtrInst>(I) || isa<CmpInst>(I);
+  return isa<BinaryOperator>(I) || isa<ShiftInst>(I) || isa<CastInst>(I) ||
+         isa<SelectInst>(I) || isa<GetElementPtrInst>(I);
 }
 
 /// isNotUsedInLoop - Return true if the only users of this instruction are
@@ -430,7 +430,7 @@ bool LICM::isLoopInvariantInst(Instruction &I) {
 /// position, and may either delete it or move it to outside of the loop.
 ///
 void LICM::sink(Instruction &I) {
-  DOUT << "LICM sinking instruction: " << I;
+  DEBUG(std::cerr << "LICM sinking instruction: " << I);
 
   std::vector<BasicBlock*> ExitBlocks;
   CurLoop->getExitBlocks(ExitBlocks);
@@ -565,7 +565,8 @@ void LICM::sink(Instruction &I) {
 /// that is safe to hoist, this instruction is called to do the dirty work.
 ///
 void LICM::hoist(Instruction &I) {
-  DOUT << "LICM hoisting to " << Preheader->getName() << ": " << I;
+  DEBUG(std::cerr << "LICM hoisting to " << Preheader->getName()
+                  << ": " << I);
 
   // Remove the instruction from its current basic block... but don't delete the
   // instruction.
@@ -784,7 +785,7 @@ void LICM::FindPromotableValuesInLoop(
         for (AliasSet::iterator I = AS.begin(), E = AS.end(); I != E; ++I)
           ValueToAllocaMap.insert(std::make_pair(I->first, AI));
 
-        DOUT << "LICM: Promoting value: " << *V << "\n";
+        DEBUG(std::cerr << "LICM: Promoting value: " << *V << "\n");
       }
     }
   }

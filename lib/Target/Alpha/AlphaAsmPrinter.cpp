@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "asm-printer"
 #include "Alpha.h"
 #include "AlphaInstrInfo.h"
 #include "AlphaTargetMachine.h"
@@ -22,22 +21,31 @@
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Mangler.h"
 #include "llvm/ADT/Statistic.h"
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(EmittedInsts, "Number of machine instrs printed");
-
 namespace {
+  Statistic<> EmittedInsts("asm-printer", "Number of machine instrs printed");
+  
   struct VISIBILITY_HIDDEN AlphaAsmPrinter : public AsmPrinter {
 
     /// Unique incrementer for label values for referencing Global values.
     ///
+    unsigned LabelNumber;
 
     AlphaAsmPrinter(std::ostream &o, TargetMachine &tm, const TargetAsmInfo *T)
-      : AsmPrinter(o, tm, T) {
+       : AsmPrinter(o, tm, T), LabelNumber(0) {
     }
+
+    /// We name each basic block in a Function with a unique number, so
+    /// that we can consistently refer to them later. This is cleared
+    /// at the beginning of each call to runOnMachineFunction().
+    ///
+    typedef std::map<const Value *, unsigned> ValueMapTy;
+    ValueMapTy NumberForBB;
+    std::string CurSection;
 
     virtual const char *getPassName() const {
       return "Alpha Assembly Printer";
@@ -46,6 +54,7 @@ namespace {
     void printOp(const MachineOperand &MO, bool IsCallOp = false);
     void printOperand(const MachineInstr *MI, int opNum);
     void printBaseOffsetPair (const MachineInstr *MI, int i, bool brackets=true);
+    void printMachineInstruction(const MachineInstr *MI);
     bool runOnMachineFunction(MachineFunction &F);
     bool doInitialization(Module &M);
     bool doFinalization(Module &M);
@@ -95,7 +104,7 @@ void AlphaAsmPrinter::printOp(const MachineOperand &MO, bool IsCallOp) {
     return;
 
   case MachineOperand::MO_Immediate:
-    cerr << "printOp() does not handle immediate values\n";
+    std::cerr << "printOp() does not handle immediate values\n";
     abort();
     return;
 
@@ -127,6 +136,20 @@ void AlphaAsmPrinter::printOp(const MachineOperand &MO, bool IsCallOp) {
   }
 }
 
+/// printMachineInstruction -- Print out a single Alpha MI to
+/// the current output stream.
+///
+void AlphaAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
+  ++EmittedInsts;
+  if (printInstruction(MI))
+    return; // Printer was automatically generated
+
+  assert(0 && "Unhandled instruction in asm writer!");
+  abort();
+  return;
+}
+
+
 /// runOnMachineFunction - This uses the printMachineInstruction()
 /// method to print assembly for each instruction.
 ///
@@ -154,7 +177,7 @@ bool AlphaAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
      break;
   case Function::WeakLinkage:
   case Function::LinkOnceLinkage:
-    O << TAI->getWeakRefDirective() << CurrentFnName << "\n";
+    O << "\t.weak " << CurrentFnName << "\n";
     break;
   }
 
@@ -165,21 +188,16 @@ bool AlphaAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   // Print out code for the function.
   for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
        I != E; ++I) {
-    if (I != MF.begin()) {
-      printBasicBlockLabel(I, true);
-      O << '\n';
-    }
+    printBasicBlockLabel(I, true);
+    O << '\n';
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
       // Print the assembly for the instruction.
-      ++EmittedInsts;
       O << "\t";
-      if (!printInstruction(II)) {
-        assert(0 && "Unhandled instruction in asm writer!");
-        abort();
-      }
+      printMachineInstruction(II);
     }
   }
+  ++LabelNumber;
 
   O << "\t.end " << CurrentFnName << "\n";
 
@@ -190,10 +208,11 @@ bool AlphaAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 bool AlphaAsmPrinter::doInitialization(Module &M)
 {
   AsmPrinter::doInitialization(M);
-  if(TM.getSubtarget<AlphaSubtarget>().hasCT())
-    O << "\t.arch ev6\n"; //This might need to be ev67, so leave this test here
-  else
+  if(TM.getSubtarget<AlphaSubtarget>().hasF2I() 
+     || TM.getSubtarget<AlphaSubtarget>().hasCT())
     O << "\t.arch ev6\n";
+  else
+    O << "\t.arch ev56\n";
   O << "\t.set noat\n";
   return false;
 }
@@ -211,7 +230,7 @@ bool AlphaAsmPrinter::doFinalization(Module &M) {
       std::string name = Mang->getValueName(I);
       Constant *C = I->getInitializer();
       unsigned Size = TD->getTypeSize(C->getType());
-      //      unsigned Align = TD->getPreferredTypeAlignmentShift(C->getType());
+      //      unsigned Align = TD->getTypeAlignmentShift(C->getType());
       unsigned Align = TD->getPreferredAlignmentLog(I);
 
       if (C->isNullValue() &&
@@ -245,13 +264,13 @@ bool AlphaAsmPrinter::doFinalization(Module &M) {
                               "\t.section .data", I);
           break;
         case GlobalValue::GhostLinkage:
-          cerr << "GhostLinkage cannot appear in AlphaAsmPrinter!\n";
+          std::cerr << "GhostLinkage cannot appear in AlphaAsmPrinter!\n";
           abort();
         case GlobalValue::DLLImportLinkage:
-          cerr << "DLLImport linkage is not supported by this target!\n";
+          std::cerr << "DLLImport linkage is not supported by this target!\n";
           abort();
         case GlobalValue::DLLExportLinkage:
-          cerr << "DLLExport linkage is not supported by this target!\n";
+          std::cerr << "DLLExport linkage is not supported by this target!\n";
           abort();
         default:
           assert(0 && "Unknown linkage type!");
@@ -263,13 +282,6 @@ bool AlphaAsmPrinter::doFinalization(Module &M) {
         O << name << ":\n";
         EmitGlobalConstant(C);
       }
-    }
-
-  for (Module::const_iterator I = M.begin(), E = M.end(); I != E; ++I)
-    if (I->hasExternalWeakLinkage()) {
-      O << "\n\n";
-      std::string name = Mang->getValueName(I);
-      O << "\t.weak " << name << "\n";
     }
 
   AsmPrinter::doFinalization(M);

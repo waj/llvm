@@ -4,7 +4,7 @@
 ; removed even though there were uses still around.  Now the uses are filled
 ; in with a dummy value before the PHI is deleted.
 ;
-; RUN: llvm-upgrade < %s | llvm-as | opt -adce
+; RUN: llvm-as < %s | opt -adce
 	
 %node_t = type { double*, %node_t*, %node_t**, double**, double*, int, int }
 
@@ -23,7 +23,7 @@ bb1:					;[#uses=2]
 
 bb2:					;[#uses=3]
 	%reg109 = phi %node_t* [ %reg110, %bb2 ], [ %reg107, %bb1 ]		; <%node_t*> [#uses=1]
-	%reg212 = getelementptr %node_t* %reg109, long 0, uint 1		; <%node_t**> [#uses=1]
+	%reg212 = getelementptr %node_t* %reg109, long 0, ubyte 1		; <%node_t**> [#uses=1]
 	%reg110 = load %node_t** %reg212		; <%node_t*> [#uses=2]
 	%cond213 = setne %node_t* %reg110, null		; <bool> [#uses=1]
 	br bool %cond213, label %bb2, label %bb3

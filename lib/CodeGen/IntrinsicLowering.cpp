@@ -7,29 +7,30 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the IntrinsicLowering class.
+// This file implements the default intrinsic lowering implementation.
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/CodeGen/IntrinsicLowering.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Module.h"
 #include "llvm/Instructions.h"
 #include "llvm/Type.h"
-#include "llvm/CodeGen/IntrinsicLowering.h"
-#include "llvm/Support/Streams.h"
-#include "llvm/Target/TargetData.h"
+#include <iostream>
+
 using namespace llvm;
 
 template <class ArgIt>
-static void EnsureFunctionExists(Module &M, const char *Name,
-                                 ArgIt ArgBegin, ArgIt ArgEnd,
-                                 const Type *RetTy) {
-  // Insert a correctly-typed definition now.
+static Function *EnsureFunctionExists(Module &M, const char *Name,
+                                      ArgIt ArgBegin, ArgIt ArgEnd,
+                                      const Type *RetTy) {
+  if (Function *F = M.getNamedFunction(Name)) return F;
+  // It doesn't already exist in the program, insert a new definition now.
   std::vector<const Type *> ParamTys;
   for (ArgIt I = ArgBegin; I != ArgEnd; ++I)
     ParamTys.push_back(I->getType());
-  M.getOrInsertFunction(Name, FunctionType::get(RetTy, ParamTys, false));
+  return M.getOrInsertFunction(Name, FunctionType::get(RetTy, ParamTys, false));
 }
 
 /// ReplaceCallWith - This function is used when we want to lower an intrinsic
@@ -39,34 +40,56 @@ static void EnsureFunctionExists(Module &M, const char *Name,
 template <class ArgIt>
 static CallInst *ReplaceCallWith(const char *NewFn, CallInst *CI,
                                  ArgIt ArgBegin, ArgIt ArgEnd,
-                                 const Type *RetTy, Constant *&FCache) {
+                                 const Type *RetTy, Function *&FCache) {
   if (!FCache) {
     // If we haven't already looked up this function, check to see if the
     // program already contains a function with this name.
     Module *M = CI->getParent()->getParent()->getParent();
-    // Get or insert the definition now.
-    std::vector<const Type *> ParamTys;
-    for (ArgIt I = ArgBegin; I != ArgEnd; ++I)
-      ParamTys.push_back((*I)->getType());
-    FCache = M->getOrInsertFunction(NewFn,
-                                    FunctionType::get(RetTy, ParamTys, false));
-  }
+    FCache = M->getNamedFunction(NewFn);
+    if (!FCache) {
+      // It doesn't already exist in the program, insert a new definition now.
+      std::vector<const Type *> ParamTys;
+      for (ArgIt I = ArgBegin; I != ArgEnd; ++I)
+        ParamTys.push_back((*I)->getType());
+      FCache = M->getOrInsertFunction(NewFn,
+                                     FunctionType::get(RetTy, ParamTys, false));
+    }
+   }
 
-  std::vector<Value*> Operands(ArgBegin, ArgEnd);
-  CallInst *NewCI = new CallInst(FCache, Operands, CI->getName(), CI);
-  if (!CI->use_empty())
-    CI->replaceAllUsesWith(NewCI);
+  const FunctionType *FT = FCache->getFunctionType();
+  std::vector<Value*> Operands;
+  unsigned ArgNo = 0;
+  for (ArgIt I = ArgBegin; I != ArgEnd && ArgNo != FT->getNumParams();
+       ++I, ++ArgNo) {
+    Value *Arg = *I;
+    if (Arg->getType() != FT->getParamType(ArgNo))
+      Arg = new CastInst(Arg, FT->getParamType(ArgNo), Arg->getName(), CI);
+    Operands.push_back(Arg);
+  }
+  // Pass nulls into any additional arguments...
+  for (; ArgNo != FT->getNumParams(); ++ArgNo)
+    Operands.push_back(Constant::getNullValue(FT->getParamType(ArgNo)));
+
+  std::string Name = CI->getName(); CI->setName("");
+  if (FT->getReturnType() == Type::VoidTy) Name.clear();
+  CallInst *NewCI = new CallInst(FCache, Operands, Name, CI);
+  if (!CI->use_empty()) {
+    Value *V = NewCI;
+    if (CI->getType() != NewCI->getType())
+      V = new CastInst(NewCI, CI->getType(), Name, CI);
+    CI->replaceAllUsesWith(V);
+  }
   return NewCI;
 }
 
-void IntrinsicLowering::AddPrototypes(Module &M) {
+void DefaultIntrinsicLowering::AddPrototypes(Module &M) {
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
-    if (I->isDeclaration() && !I->use_empty())
+    if (I->isExternal() && !I->use_empty())
       switch (I->getIntrinsicID()) {
       default: break;
       case Intrinsic::setjmp:
         EnsureFunctionExists(M, "setjmp", I->arg_begin(), I->arg_end(),
-                             Type::Int32Ty);
+                             Type::IntTy);
         break;
       case Intrinsic::longjmp:
         EnsureFunctionExists(M, "longjmp", I->arg_begin(), I->arg_end(),
@@ -78,23 +101,25 @@ void IntrinsicLowering::AddPrototypes(Module &M) {
         break;
       case Intrinsic::memcpy_i32:
       case Intrinsic::memcpy_i64:
-        M.getOrInsertFunction("memcpy", PointerType::get(Type::Int8Ty),
-                              PointerType::get(Type::Int8Ty), 
-                              PointerType::get(Type::Int8Ty), 
-                              TD.getIntPtrType(), (Type *)0);
+        EnsureFunctionExists(M, "memcpy", I->arg_begin(), --I->arg_end(),
+                             I->arg_begin()->getType());
         break;
       case Intrinsic::memmove_i32:
       case Intrinsic::memmove_i64:
-        M.getOrInsertFunction("memmove", PointerType::get(Type::Int8Ty),
-                              PointerType::get(Type::Int8Ty), 
-                              PointerType::get(Type::Int8Ty), 
-                              TD.getIntPtrType(), (Type *)0);
+        EnsureFunctionExists(M, "memmove", I->arg_begin(), --I->arg_end(),
+                             I->arg_begin()->getType());
         break;
       case Intrinsic::memset_i32:
       case Intrinsic::memset_i64:
-        M.getOrInsertFunction("memset", PointerType::get(Type::Int8Ty),
-                              PointerType::get(Type::Int8Ty), Type::Int32Ty, 
-                              TD.getIntPtrType(), (Type *)0);
+        M.getOrInsertFunction("memset", PointerType::get(Type::SByteTy),
+                              PointerType::get(Type::SByteTy),
+                              Type::IntTy, (--(--I->arg_end()))->getType(),
+                              (Type *)0);
+        break;
+      case Intrinsic::isunordered_f32:
+      case Intrinsic::isunordered_f64:
+        EnsureFunctionExists(M, "isunordered", I->arg_begin(), I->arg_end(),
+                             Type::BoolTy);
         break;
       case Intrinsic::sqrt_f32:
       case Intrinsic::sqrt_f64:
@@ -113,32 +138,38 @@ void IntrinsicLowering::AddPrototypes(Module &M) {
 static Value *LowerBSWAP(Value *V, Instruction *IP) {
   assert(V->getType()->isInteger() && "Can't bswap a non-integer type!");
 
+  const Type *DestTy = V->getType();
+  
+  // Force to unsigned so that the shift rights are logical.
+  if (DestTy->isSigned())
+    V = new CastInst(V, DestTy->getUnsignedVersion(), V->getName(), IP);
+
   unsigned BitSize = V->getType()->getPrimitiveSizeInBits();
   
   switch(BitSize) {
   default: assert(0 && "Unhandled type size of value to byteswap!");
   case 16: {
-    Value *Tmp1 = BinaryOperator::createShl(V,
-                                ConstantInt::get(V->getType(),8),"bswap.2",IP);
-    Value *Tmp2 = BinaryOperator::createLShr(V,
-                                ConstantInt::get(V->getType(),8),"bswap.1",IP);
+    Value *Tmp1 = new ShiftInst(Instruction::Shl, V,
+                                ConstantInt::get(Type::UByteTy,8),"bswap.2",IP);
+    Value *Tmp2 = new ShiftInst(Instruction::Shr, V,
+                                ConstantInt::get(Type::UByteTy,8),"bswap.1",IP);
     V = BinaryOperator::createOr(Tmp1, Tmp2, "bswap.i16", IP);
     break;
   }
   case 32: {
-    Value *Tmp4 = BinaryOperator::createShl(V,
-                              ConstantInt::get(V->getType(),24),"bswap.4", IP);
-    Value *Tmp3 = BinaryOperator::createShl(V,
-                              ConstantInt::get(V->getType(),8),"bswap.3",IP);
-    Value *Tmp2 = BinaryOperator::createLShr(V,
-                              ConstantInt::get(V->getType(),8),"bswap.2",IP);
-    Value *Tmp1 = BinaryOperator::createLShr(V,
-                              ConstantInt::get(V->getType(),24),"bswap.1", IP);
+    Value *Tmp4 = new ShiftInst(Instruction::Shl, V,
+                              ConstantInt::get(Type::UByteTy,24),"bswap.4", IP);
+    Value *Tmp3 = new ShiftInst(Instruction::Shl, V,
+                                ConstantInt::get(Type::UByteTy,8),"bswap.3",IP);
+    Value *Tmp2 = new ShiftInst(Instruction::Shr, V,
+                                ConstantInt::get(Type::UByteTy,8),"bswap.2",IP);
+    Value *Tmp1 = new ShiftInst(Instruction::Shr, V,
+                              ConstantInt::get(Type::UByteTy,24),"bswap.1", IP);
     Tmp3 = BinaryOperator::createAnd(Tmp3, 
-                                     ConstantInt::get(Type::Int32Ty, 0xFF0000),
+                                     ConstantInt::get(Type::UIntTy, 0xFF0000),
                                      "bswap.and3", IP);
     Tmp2 = BinaryOperator::createAnd(Tmp2, 
-                                     ConstantInt::get(Type::Int32Ty, 0xFF00),
+                                     ConstantInt::get(Type::UIntTy, 0xFF00),
                                      "bswap.and2", IP);
     Tmp4 = BinaryOperator::createOr(Tmp4, Tmp3, "bswap.or1", IP);
     Tmp2 = BinaryOperator::createOr(Tmp2, Tmp1, "bswap.or2", IP);
@@ -146,40 +177,40 @@ static Value *LowerBSWAP(Value *V, Instruction *IP) {
     break;
   }
   case 64: {
-    Value *Tmp8 = BinaryOperator::createShl(V,
-                              ConstantInt::get(V->getType(),56),"bswap.8", IP);
-    Value *Tmp7 = BinaryOperator::createShl(V,
-                              ConstantInt::get(V->getType(),40),"bswap.7", IP);
-    Value *Tmp6 = BinaryOperator::createShl(V,
-                              ConstantInt::get(V->getType(),24),"bswap.6", IP);
-    Value *Tmp5 = BinaryOperator::createShl(V,
-                              ConstantInt::get(V->getType(),8),"bswap.5", IP);
-    Value* Tmp4 = BinaryOperator::createLShr(V,
-                              ConstantInt::get(V->getType(),8),"bswap.4", IP);
-    Value* Tmp3 = BinaryOperator::createLShr(V,
-                              ConstantInt::get(V->getType(),24),"bswap.3", IP);
-    Value* Tmp2 = BinaryOperator::createLShr(V,
-                              ConstantInt::get(V->getType(),40),"bswap.2", IP);
-    Value* Tmp1 = BinaryOperator::createLShr(V,
-                              ConstantInt::get(V->getType(),56),"bswap.1", IP);
+    Value *Tmp8 = new ShiftInst(Instruction::Shl, V,
+                              ConstantInt::get(Type::UByteTy,56),"bswap.8", IP);
+    Value *Tmp7 = new ShiftInst(Instruction::Shl, V,
+                              ConstantInt::get(Type::UByteTy,40),"bswap.7", IP);
+    Value *Tmp6 = new ShiftInst(Instruction::Shl, V,
+                              ConstantInt::get(Type::UByteTy,24),"bswap.6", IP);
+    Value *Tmp5 = new ShiftInst(Instruction::Shl, V,
+                                ConstantInt::get(Type::UByteTy,8),"bswap.5",IP);
+    Value *Tmp4 = new ShiftInst(Instruction::Shr, V,
+                                ConstantInt::get(Type::UByteTy,8),"bswap.4",IP);
+    Value *Tmp3 = new ShiftInst(Instruction::Shr, V,
+                              ConstantInt::get(Type::UByteTy,24),"bswap.3", IP);
+    Value *Tmp2 = new ShiftInst(Instruction::Shr, V,
+                              ConstantInt::get(Type::UByteTy,40),"bswap.2", IP);
+    Value *Tmp1 = new ShiftInst(Instruction::Shr, V,
+                              ConstantInt::get(Type::UByteTy,56),"bswap.1", IP);
     Tmp7 = BinaryOperator::createAnd(Tmp7,
-                             ConstantInt::get(Type::Int64Ty, 
+                             ConstantInt::get(Type::ULongTy, 
                                0xFF000000000000ULL),
                              "bswap.and7", IP);
     Tmp6 = BinaryOperator::createAnd(Tmp6,
-                             ConstantInt::get(Type::Int64Ty, 0xFF0000000000ULL),
+                             ConstantInt::get(Type::ULongTy, 0xFF0000000000ULL),
                              "bswap.and6", IP);
     Tmp5 = BinaryOperator::createAnd(Tmp5,
-                             ConstantInt::get(Type::Int64Ty, 0xFF00000000ULL),
+                             ConstantInt::get(Type::ULongTy, 0xFF00000000ULL),
                              "bswap.and5", IP);
     Tmp4 = BinaryOperator::createAnd(Tmp4,
-                             ConstantInt::get(Type::Int64Ty, 0xFF000000ULL),
+                             ConstantInt::get(Type::ULongTy, 0xFF000000ULL),
                              "bswap.and4", IP);
     Tmp3 = BinaryOperator::createAnd(Tmp3,
-                             ConstantInt::get(Type::Int64Ty, 0xFF0000ULL),
+                             ConstantInt::get(Type::ULongTy, 0xFF0000ULL),
                              "bswap.and3", IP);
     Tmp2 = BinaryOperator::createAnd(Tmp2,
-                             ConstantInt::get(Type::Int64Ty, 0xFF00ULL),
+                             ConstantInt::get(Type::ULongTy, 0xFF00ULL),
                              "bswap.and2", IP);
     Tmp8 = BinaryOperator::createOr(Tmp8, Tmp7, "bswap.or1", IP);
     Tmp6 = BinaryOperator::createOr(Tmp6, Tmp5, "bswap.or2", IP);
@@ -191,6 +222,9 @@ static Value *LowerBSWAP(Value *V, Instruction *IP) {
     break;
   }
   }
+  
+  if (V->getType() != DestTy)
+    V = new CastInst(V, DestTy, V->getName(), IP);
   return V;
 }
 
@@ -205,30 +239,47 @@ static Value *LowerCTPOP(Value *V, Instruction *IP) {
     0x0000FFFF0000FFFFULL, 0x00000000FFFFFFFFULL
   };
 
-  unsigned BitSize = V->getType()->getPrimitiveSizeInBits();
+  const Type *DestTy = V->getType();
 
+  // Force to unsigned so that the shift rights are logical.
+  if (DestTy->isSigned())
+    V = new CastInst(V, DestTy->getUnsignedVersion(), V->getName(), IP);
+
+  unsigned BitSize = V->getType()->getPrimitiveSizeInBits();
   for (unsigned i = 1, ct = 0; i != BitSize; i <<= 1, ++ct) {
-    Value *MaskCst = ConstantInt::get(V->getType(), MaskValues[ct]);
+    Value *MaskCst =
+      ConstantExpr::getCast(ConstantInt::get(Type::ULongTy, MaskValues[ct]),
+                                             V->getType());
     Value *LHS = BinaryOperator::createAnd(V, MaskCst, "cppop.and1", IP);
-    Value *VShift = BinaryOperator::createLShr(V,
-                      ConstantInt::get(V->getType(), i), "ctpop.sh", IP);
+    Value *VShift = new ShiftInst(Instruction::Shr, V,
+                      ConstantInt::get(Type::UByteTy, i), "ctpop.sh", IP);
     Value *RHS = BinaryOperator::createAnd(VShift, MaskCst, "cppop.and2", IP);
     V = BinaryOperator::createAdd(LHS, RHS, "ctpop.step", IP);
   }
 
+  if (V->getType() != DestTy)
+    V = new CastInst(V, DestTy, V->getName(), IP);
   return V;
 }
 
 /// LowerCTLZ - Emit the code to lower ctlz of V before the specified
 /// instruction IP.
 static Value *LowerCTLZ(Value *V, Instruction *IP) {
+  const Type *DestTy = V->getType();
+
+  // Force to unsigned so that the shift rights are logical.
+  if (DestTy->isSigned())
+    V = new CastInst(V, DestTy->getUnsignedVersion(), V->getName(), IP);
 
   unsigned BitSize = V->getType()->getPrimitiveSizeInBits();
   for (unsigned i = 1; i != BitSize; i <<= 1) {
-    Value *ShVal = ConstantInt::get(V->getType(), i);
-    ShVal = BinaryOperator::createLShr(V, ShVal, "ctlz.sh", IP);
+    Value *ShVal = ConstantInt::get(Type::UByteTy, i);
+    ShVal = new ShiftInst(Instruction::Shr, V, ShVal, "ctlz.sh", IP);
     V = BinaryOperator::createOr(V, ShVal, "ctlz.step", IP);
   }
+
+  if (V->getType() != DestTy)
+    V = new CastInst(V, DestTy, V->getName(), IP);
 
   V = BinaryOperator::createNot(V, "", IP);
   return LowerCTPOP(V, IP);
@@ -236,18 +287,18 @@ static Value *LowerCTLZ(Value *V, Instruction *IP) {
 
 
 
-void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
+void DefaultIntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
   Function *Callee = CI->getCalledFunction();
   assert(Callee && "Cannot lower an indirect call!");
 
   switch (Callee->getIntrinsicID()) {
   case Intrinsic::not_intrinsic:
-    cerr << "Cannot lower a call to a non-intrinsic function '"
-         << Callee->getName() << "'!\n";
+    std::cerr << "Cannot lower a call to a non-intrinsic function '"
+              << Callee->getName() << "'!\n";
     abort();
   default:
-    cerr << "Error: Code generator does not support intrinsic function '"
-         << Callee->getName() << "'!\n";
+    std::cerr << "Error: Code generator does not support intrinsic function '"
+              << Callee->getName() << "'!\n";
     abort();
 
     // The setjmp/longjmp intrinsics should only exist in the code if it was
@@ -255,9 +306,9 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
     // by the lowerinvoke pass.  In both cases, the right thing to do is to
     // convert the call to an explicit setjmp or longjmp call.
   case Intrinsic::setjmp: {
-    static Constant *SetjmpFCache = 0;
+    static Function *SetjmpFCache = 0;
     Value *V = ReplaceCallWith("setjmp", CI, CI->op_begin()+1, CI->op_end(),
-                               Type::Int32Ty, SetjmpFCache);
+                               Type::IntTy, SetjmpFCache);
     if (CI->getType() != Type::VoidTy)
       CI->replaceAllUsesWith(V);
     break;
@@ -268,7 +319,7 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
      break;
 
   case Intrinsic::longjmp: {
-    static Constant *LongjmpFCache = 0;
+    static Function *LongjmpFCache = 0;
     ReplaceCallWith("longjmp", CI, CI->op_begin()+1, CI->op_end(),
                     Type::VoidTy, LongjmpFCache);
     break;
@@ -276,9 +327,9 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
 
   case Intrinsic::siglongjmp: {
     // Insert the call to abort
-    static Constant *AbortFCache = 0;
-    ReplaceCallWith("abort", CI, CI->op_end(), CI->op_end(), 
-                    Type::VoidTy, AbortFCache);
+    static Function *AbortFCache = 0;
+    ReplaceCallWith("abort", CI, CI->op_end(), CI->op_end(), Type::VoidTy,
+                    AbortFCache);
     break;
   }
   case Intrinsic::ctpop_i8:
@@ -319,9 +370,9 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
   case Intrinsic::stackrestore: {
     static bool Warned = false;
     if (!Warned)
-      cerr << "WARNING: this target does not support the llvm.stack"
-           << (Callee->getIntrinsicID() == Intrinsic::stacksave ?
-               "save" : "restore") << " intrinsic.\n";
+      std::cerr << "WARNING: this target does not support the llvm.stack"
+       << (Callee->getIntrinsicID() == Intrinsic::stacksave ?
+           "save" : "restore") << " intrinsic.\n";
     Warned = true;
     if (Callee->getIntrinsicID() == Intrinsic::stacksave)
       CI->replaceAllUsesWith(Constant::getNullValue(CI->getType()));
@@ -330,9 +381,9 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
     
   case Intrinsic::returnaddress:
   case Intrinsic::frameaddress:
-    cerr << "WARNING: this target does not support the llvm."
-         << (Callee->getIntrinsicID() == Intrinsic::returnaddress ?
-             "return" : "frame") << "address intrinsic.\n";
+    std::cerr << "WARNING: this target does not support the llvm."
+              << (Callee->getIntrinsicID() == Intrinsic::returnaddress ?
+                  "return" : "frame") << "address intrinsic.\n";
     CI->replaceAllUsesWith(ConstantPointerNull::get(
                                             cast<PointerType>(CI->getType())));
     break;
@@ -343,9 +394,9 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
   case Intrinsic::pcmarker:
     break;    // Simply strip out pcmarker on unsupported architectures
   case Intrinsic::readcyclecounter: {
-    cerr << "WARNING: this target does not support the llvm.readcyclecoun"
-         << "ter intrinsic.  It is being lowered to a constant 0\n";
-    CI->replaceAllUsesWith(ConstantInt::get(Type::Int64Ty, 0));
+    std::cerr << "WARNING: this target does not support the llvm.readcyclecoun"
+              << "ter intrinsic.  It is being lowered to a constant 0\n";
+    CI->replaceAllUsesWith(ConstantInt::get(Type::ULongTy, 0));
     break;
   }
 
@@ -358,72 +409,53 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
 
   case Intrinsic::memcpy_i32:
   case Intrinsic::memcpy_i64: {
-    static Constant *MemcpyFCache = 0;
-    Value *Size = CI->getOperand(3);
-    const Type *IntPtr = TD.getIntPtrType();
-    if (Size->getType()->getPrimitiveSizeInBits() <
-        IntPtr->getPrimitiveSizeInBits())
-      Size = new ZExtInst(Size, IntPtr, "", CI);
-    else if (Size->getType()->getPrimitiveSizeInBits() >
-             IntPtr->getPrimitiveSizeInBits())
-      Size = new TruncInst(Size, IntPtr, "", CI);
-    Value *Ops[3];
-    Ops[0] = CI->getOperand(1);
-    Ops[1] = CI->getOperand(2);
-    Ops[2] = Size;
-    ReplaceCallWith("memcpy", CI, Ops, Ops+3, CI->getOperand(1)->getType(),
-                    MemcpyFCache);
+    // The memcpy intrinsic take an extra alignment argument that the memcpy
+    // libc function does not.
+    static Function *MemcpyFCache = 0;
+    ReplaceCallWith("memcpy", CI, CI->op_begin()+1, CI->op_end()-1,
+                    (*(CI->op_begin()+1))->getType(), MemcpyFCache);
     break;
   }
   case Intrinsic::memmove_i32: 
   case Intrinsic::memmove_i64: {
-    static Constant *MemmoveFCache = 0;
-    Value *Size = CI->getOperand(3);
-    const Type *IntPtr = TD.getIntPtrType();
-    if (Size->getType()->getPrimitiveSizeInBits() <
-        IntPtr->getPrimitiveSizeInBits())
-      Size = new ZExtInst(Size, IntPtr, "", CI);
-    else if (Size->getType()->getPrimitiveSizeInBits() >
-             IntPtr->getPrimitiveSizeInBits())
-      Size = new TruncInst(Size, IntPtr, "", CI);
-    Value *Ops[3];
-    Ops[0] = CI->getOperand(1);
-    Ops[1] = CI->getOperand(2);
-    Ops[2] = Size;
-    ReplaceCallWith("memmove", CI, Ops, Ops+3, CI->getOperand(1)->getType(),
-                    MemmoveFCache);
+    // The memmove intrinsic take an extra alignment argument that the memmove
+    // libc function does not.
+    static Function *MemmoveFCache = 0;
+    ReplaceCallWith("memmove", CI, CI->op_begin()+1, CI->op_end()-1,
+                    (*(CI->op_begin()+1))->getType(), MemmoveFCache);
     break;
   }
   case Intrinsic::memset_i32:
   case Intrinsic::memset_i64: {
-    static Constant *MemsetFCache = 0;
-    Value *Size = CI->getOperand(3);
-    const Type *IntPtr = TD.getIntPtrType();
-    if (Size->getType()->getPrimitiveSizeInBits() <
-        IntPtr->getPrimitiveSizeInBits())
-      Size = new ZExtInst(Size, IntPtr, "", CI);
-    else if (Size->getType()->getPrimitiveSizeInBits() >
-             IntPtr->getPrimitiveSizeInBits())
-      Size = new TruncInst(Size, IntPtr, "", CI);
-    Value *Ops[3];
-    Ops[0] = CI->getOperand(1);
-    // Extend the amount to i32.
-    Ops[1] = new ZExtInst(CI->getOperand(2), Type::Int32Ty, "", CI);
-    Ops[2] = Size;
-    ReplaceCallWith("memset", CI, Ops, Ops+3, CI->getOperand(1)->getType(),
-                    MemsetFCache);
+    // The memset intrinsic take an extra alignment argument that the memset
+    // libc function does not.
+    static Function *MemsetFCache = 0;
+    ReplaceCallWith("memset", CI, CI->op_begin()+1, CI->op_end()-1,
+                    (*(CI->op_begin()+1))->getType(), MemsetFCache);
     break;
   }
-  case Intrinsic::sqrt_f32: {
-    static Constant *sqrtfFCache = 0;
-    ReplaceCallWith("sqrtf", CI, CI->op_begin()+1, CI->op_end(),
-                    Type::FloatTy, sqrtfFCache);
+  case Intrinsic::isunordered_f32:
+  case Intrinsic::isunordered_f64: {
+    Value *L = CI->getOperand(1);
+    Value *R = CI->getOperand(2);
+
+    Value *LIsNan = new SetCondInst(Instruction::SetNE, L, L, "LIsNan", CI);
+    Value *RIsNan = new SetCondInst(Instruction::SetNE, R, R, "RIsNan", CI);
+    CI->replaceAllUsesWith(
+      BinaryOperator::create(Instruction::Or, LIsNan, RIsNan,
+                             "isunordered", CI));
     break;
   }
+  case Intrinsic::sqrt_f32:
   case Intrinsic::sqrt_f64: {
-    static Constant *sqrtFCache = 0;
-    ReplaceCallWith("sqrt", CI, CI->op_begin()+1, CI->op_end(),
-                    Type::DoubleTy, sqrtFCache);
+    static Function *sqrtFCache = 0;
+    static Function *sqrtfFCache = 0;
+    if(CI->getType() == Type::FloatTy)
+      ReplaceCallWith("sqrtf", CI, CI->op_begin()+1, CI->op_end(),
+                      Type::FloatTy, sqrtfFCache);
+    else
+      ReplaceCallWith("sqrt", CI, CI->op_begin()+1, CI->op_end(),
+                      Type::DoubleTy, sqrtFCache);
     break;
   }
   }

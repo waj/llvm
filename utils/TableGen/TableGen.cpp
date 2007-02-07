@@ -17,7 +17,6 @@
 
 #include "Record.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/System/Signals.h"
 #include "llvm/Support/FileUtilities.h"
 #include "CodeEmitterGen.h"
@@ -100,12 +99,12 @@ int main(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv);
   ParseFile(InputFilename, IncludeDirs);
 
-  std::ostream *Out = cout.stream();
+  std::ostream *Out = &std::cout;
   if (OutputFilename != "-") {
     Out = new std::ofstream(OutputFilename.c_str());
 
     if (!Out->good()) {
-      cerr << argv[0] << ": error opening " << OutputFilename << "!\n";
+      std::cerr << argv[0] << ": error opening " << OutputFilename << "!\n";
       return 1;
     }
 
@@ -165,22 +164,22 @@ int main(int argc, char **argv) {
       return 1;
     }
   } catch (const std::string &Error) {
-    cerr << argv[0] << ": " << Error << "\n";
-    if (Out != cout.stream()) {
+    std::cerr << argv[0] << ": " << Error << "\n";
+    if (Out != &std::cout) {
       delete Out;                             // Close the file
       std::remove(OutputFilename.c_str());    // Remove the file, it's broken
     }
     return 1;
   } catch (...) {
-    cerr << argv[0] << ": Unknown unexpected exception occurred.\n";
-    if (Out != cout.stream()) {
+    std::cerr << argv[0] << ": Unknown unexpected exception occurred.\n";
+    if (Out != &std::cout) {
       delete Out;                             // Close the file
       std::remove(OutputFilename.c_str());    // Remove the file, it's broken
     }
     return 2;
   }
 
-  if (Out != cout.stream()) {
+  if (Out != &std::cout) {
     delete Out;                               // Close the file
   }
   return 0;

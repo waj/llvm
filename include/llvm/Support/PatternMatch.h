@@ -10,7 +10,7 @@
 // This file provides a simple and efficient mechanism for performing general
 // tree-based pattern matches on the LLVM IR.  The power of these routines is
 // that it allows you to write concise patterns that are expressive and easy to
-// understand.  The other major advantage of this is that it allows you to
+// understand.  The other major advantage of this is that is allows to you
 // trivially capture/bind elements in the pattern to variables.  For example,
 // you can do something like this:
 //
@@ -166,55 +166,15 @@ inline BinaryOp_match<LHS, RHS, Instruction::Xor> m_Xor(const LHS &L,
 }
 
 template<typename LHS, typename RHS>
-inline BinaryOp_match<LHS, RHS, Instruction::Shl> m_Shl(const LHS &L, 
-                                                        const RHS &R) {
-  return BinaryOp_match<LHS, RHS, Instruction::Shl>(L, R);
+inline BinaryOp_match<LHS, RHS, Instruction::Shl, 
+                      ShiftInst> m_Shl(const LHS &L, const RHS &R) {
+  return BinaryOp_match<LHS, RHS, Instruction::Shl, ShiftInst>(L, R);
 }
 
 template<typename LHS, typename RHS>
-inline BinaryOp_match<LHS, RHS, Instruction::LShr> m_LShr(const LHS &L, 
-                                                          const RHS &R) {
-  return BinaryOp_match<LHS, RHS, Instruction::LShr>(L, R);
-}
-
-template<typename LHS, typename RHS>
-inline BinaryOp_match<LHS, RHS, Instruction::AShr> m_AShr(const LHS &L, 
-                                                          const RHS &R) {
-  return BinaryOp_match<LHS, RHS, Instruction::AShr>(L, R);
-}
-
-//===----------------------------------------------------------------------===//
-// Matchers for either AShr or LShr .. for convenience
-//
-template<typename LHS_t, typename RHS_t, typename ConcreteTy = BinaryOperator>
-struct Shr_match {
-  LHS_t L;
-  RHS_t R;
-
-  Shr_match(const LHS_t &LHS, const RHS_t &RHS) : L(LHS), R(RHS) {}
-
-  template<typename OpTy>
-  bool match(OpTy *V) {
-    if (V->getValueType() == Value::InstructionVal + Instruction::LShr ||
-        V->getValueType() == Value::InstructionVal + Instruction::AShr) {
-      ConcreteTy *I = cast<ConcreteTy>(V);
-      return (I->getOpcode() == Instruction::AShr ||
-              I->getOpcode() == Instruction::LShr) &&
-             L.match(I->getOperand(0)) &&
-             R.match(I->getOperand(1));
-    }
-    if (ConstantExpr *CE = dyn_cast<ConstantExpr>(V))
-      return (CE->getOpcode() == Instruction::LShr ||
-              CE->getOpcode() == Instruction::AShr) &&
-             L.match(CE->getOperand(0)) &&
-             R.match(CE->getOperand(1));
-    return false;
-  }
-};
-
-template<typename LHS, typename RHS>
-inline Shr_match<LHS, RHS> m_Shr(const LHS &L, const RHS &R) {
-  return Shr_match<LHS, RHS>(L, R);
+inline BinaryOp_match<LHS, RHS, Instruction::Shr, 
+                      ShiftInst> m_Shr(const LHS &L, const RHS &R) {
+  return BinaryOp_match<LHS, RHS, Instruction::Shr, ShiftInst>(L, R);
 }
 
 //===----------------------------------------------------------------------===//
@@ -248,62 +208,61 @@ struct BinaryOpClass_match {
 };
 
 template<typename LHS, typename RHS>
-inline BinaryOpClass_match<LHS, RHS, BinaryOperator, Instruction::BinaryOps>
-m_Shift(Instruction::BinaryOps &Op, const LHS &L, const RHS &R) {
+inline BinaryOpClass_match<LHS, RHS, SetCondInst, Instruction::BinaryOps>
+m_SetCond(Instruction::BinaryOps &Op, const LHS &L, const RHS &R) {
   return BinaryOpClass_match<LHS, RHS, 
-                             BinaryOperator, Instruction::BinaryOps>(Op, L, R);
+                             SetCondInst, Instruction::BinaryOps>(Op, L, R);
 }
 
 template<typename LHS, typename RHS>
-inline BinaryOpClass_match<LHS, RHS, BinaryOperator, Instruction::BinaryOps>
+inline BinaryOpClass_match<LHS, RHS, ShiftInst, Instruction::OtherOps>
+m_Shift(Instruction::OtherOps &Op, const LHS &L, const RHS &R) {
+  return BinaryOpClass_match<LHS, RHS, 
+                             ShiftInst, Instruction::OtherOps>(Op, L, R);
+}
+
+template<typename LHS, typename RHS>
+inline BinaryOpClass_match<LHS, RHS, ShiftInst, Instruction::OtherOps>
 m_Shift(const LHS &L, const RHS &R) {
-  Instruction::BinaryOps Op; 
+  Instruction::OtherOps Op; 
   return BinaryOpClass_match<LHS, RHS, 
-                             BinaryOperator, Instruction::BinaryOps>(Op, L, R);
-}
-
-//===----------------------------------------------------------------------===//
-// Matchers for CmpInst classes
-//
-
-template<typename LHS_t, typename RHS_t, typename Class, typename PredicateTy>
-struct CmpClass_match {
-  PredicateTy &Predicate;
-  LHS_t L;
-  RHS_t R;
-
-  CmpClass_match(PredicateTy &Pred, const LHS_t &LHS,
-                 const RHS_t &RHS)
-    : Predicate(Pred), L(LHS), R(RHS) {}
-
-  template<typename OpTy>
-  bool match(OpTy *V) {
-    if (Class *I = dyn_cast<Class>(V))
-      if (L.match(I->getOperand(0)) && R.match(I->getOperand(1))) {
-        Predicate = I->getPredicate();
-        return true;
-      }
-    return false;
-  }
-};
-
-template<typename LHS, typename RHS>
-inline CmpClass_match<LHS, RHS, ICmpInst, ICmpInst::Predicate>
-m_ICmp(ICmpInst::Predicate &Pred, const LHS &L, const RHS &R) {
-  return CmpClass_match<LHS, RHS,
-                        ICmpInst, ICmpInst::Predicate>(Pred, L, R);
-}
-
-template<typename LHS, typename RHS>
-inline CmpClass_match<LHS, RHS, FCmpInst, FCmpInst::Predicate>
-m_FCmp(FCmpInst::Predicate &Pred, const LHS &L, const RHS &R) {
-  return CmpClass_match<LHS, RHS,
-                        FCmpInst, FCmpInst::Predicate>(Pred, L, R);
+                             ShiftInst, Instruction::OtherOps>(Op, L, R);
 }
 
 //===----------------------------------------------------------------------===//
 // Matchers for unary operators
 //
+
+template<typename LHS_t>
+struct neg_match {
+  LHS_t L;
+
+  neg_match(const LHS_t &LHS) : L(LHS) {}
+
+  template<typename OpTy>
+  bool match(OpTy *V) {
+    if (Instruction *I = dyn_cast<Instruction>(V))
+      if (I->getOpcode() == Instruction::Sub)
+        return matchIfNeg(I->getOperand(0), I->getOperand(1));
+    if (ConstantExpr *CE = dyn_cast<ConstantExpr>(V))
+      if (CE->getOpcode() == Instruction::Sub)
+        return matchIfNeg(CE->getOperand(0), CE->getOperand(1));
+    if (ConstantInt *CI = dyn_cast<ConstantInt>(V))
+      return L.match(ConstantExpr::getNeg(CI));
+    return false;
+  }
+private:
+  bool matchIfNeg(Value *LHS, Value *RHS) {
+    if (!LHS->getType()->isFloatingPoint())
+      return LHS == Constant::getNullValue(LHS->getType()) && L.match(RHS);
+    else
+      return LHS == ConstantFP::get(LHS->getType(), -0.0) && L.match(RHS);
+  }
+};
+
+template<typename LHS>
+inline neg_match<LHS> m_Neg(const LHS &L) { return L; }
+
 
 template<typename LHS_t>
 struct not_match {
@@ -325,9 +284,9 @@ struct not_match {
   }
 private:
   bool matchIfNot(Value *LHS, Value *RHS) {
-    if (ConstantInt *CI = dyn_cast<ConstantInt>(RHS))
+    if (ConstantIntegral *CI = dyn_cast<ConstantIntegral>(RHS))
       return CI->isAllOnesValue() && L.match(LHS);
-    else if (ConstantInt *CI = dyn_cast<ConstantInt>(LHS))
+    else if (ConstantIntegral *CI = dyn_cast<ConstantIntegral>(LHS))
       return CI->isAllOnesValue() && L.match(RHS);
     return false;
   }
@@ -335,6 +294,38 @@ private:
 
 template<typename LHS>
 inline not_match<LHS> m_Not(const LHS &L) { return L; }
+
+
+template<typename Op_t>
+struct cast_match {
+  Op_t Op;
+  const Type **DestTy;
+  
+  cast_match(const Op_t &op, const Type **destTy) : Op(op), DestTy(destTy) {}
+  
+  template<typename OpTy>
+  bool match(OpTy *V) {
+    if (CastInst *I = dyn_cast<CastInst>(V)) {
+      if (DestTy) *DestTy = I->getType();
+      return Op.match(I->getOperand(0));
+    } else if (ConstantExpr *CE = dyn_cast<ConstantExpr>(V)) {
+      if (CE->getOpcode() == Instruction::Cast) {
+        if (DestTy) *DestTy = CE->getType();
+        return Op.match(CE->getOperand(0));
+      }
+    }
+    return false;
+  }
+};
+
+template<typename Op_t>
+inline cast_match<Op_t> m_Cast(const Op_t &Op, const Type *&Ty) {
+  return cast_match<Op_t>(Op, &Ty);
+}
+template<typename Op_t>
+inline cast_match<Op_t> m_Cast(const Op_t &Op) {
+  return cast_match<Op_t>(Op, 0);
+}
 
 
 //===----------------------------------------------------------------------===//

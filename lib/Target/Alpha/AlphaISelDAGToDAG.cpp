@@ -22,13 +22,14 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Constants.h"
-#include "llvm/DerivedTypes.h"
 #include "llvm/GlobalValue.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include <algorithm>
+#include <iostream>
 #include <queue>
 #include <set>
 using namespace llvm;
@@ -114,7 +115,7 @@ namespace {
       unsigned at = CountLeadingZeros_64(x);
       uint64_t complow = 1 << (63 - at);
       uint64_t comphigh = 1 << (64 - at);
-      //cerr << x << ":" << complow << ":" << comphigh << "\n";
+      //std::cerr << x << ":" << complow << ":" << comphigh << "\n";
       if (abs(complow - x) <= abs(comphigh - x))
         return complow;
       else
@@ -323,7 +324,7 @@ SDNode *AlphaDAGToDAGISel::Select(SDOperand Op) {
       //	val32 >= IMM_LOW  + IMM_LOW  * IMM_MULT) //always true
       break; //(zext (LDAH (LDA)))
     //Else use the constant pool
-    ConstantInt *C = ConstantInt::get(Type::Int64Ty, uval);
+    ConstantInt *C = ConstantInt::get(Type::ULongTy, uval);
     SDOperand CPI = CurDAG->getTargetConstantPool(C, MVT::i64);
     SDNode *Tmp = CurDAG->getTargetNode(Alpha::LDAHr, MVT::i64, CPI,
                                         getGlobalBaseReg());
@@ -350,54 +351,48 @@ SDNode *AlphaDAGToDAGISel::Select(SDOperand Op) {
 
   case ISD::SETCC:
     if (MVT::isFloatingPoint(N->getOperand(0).Val->getValueType(0))) {
-      ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
-
       unsigned Opc = Alpha::WTF;
+      ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
       bool rev = false;
-      bool inv = false;
+      bool isNE = false;
       switch(CC) {
       default: DEBUG(N->dump()); assert(0 && "Unknown FP comparison!");
-      case ISD::SETEQ: case ISD::SETOEQ: case ISD::SETUEQ:
-	Opc = Alpha::CMPTEQ; break;
-      case ISD::SETLT: case ISD::SETOLT: case ISD::SETULT: 
-	Opc = Alpha::CMPTLT; break;
-      case ISD::SETLE: case ISD::SETOLE: case ISD::SETULE: 
-	Opc = Alpha::CMPTLE; break;
-      case ISD::SETGT: case ISD::SETOGT: case ISD::SETUGT: 
-	Opc = Alpha::CMPTLT; rev = true; break;
-      case ISD::SETGE: case ISD::SETOGE: case ISD::SETUGE: 
-	Opc = Alpha::CMPTLE; rev = true; break;
-      case ISD::SETNE: case ISD::SETONE: case ISD::SETUNE:
-	Opc = Alpha::CMPTEQ; inv = true; break;
-      case ISD::SETO:
-	Opc = Alpha::CMPTUN; inv = true; break;
-      case ISD::SETUO:
-	Opc = Alpha::CMPTUN; break;
+      case ISD::SETEQ: case ISD::SETOEQ: case ISD::SETUEQ: Opc = Alpha::CMPTEQ; break;
+      case ISD::SETLT: case ISD::SETOLT: case ISD::SETULT: Opc = Alpha::CMPTLT; break;
+      case ISD::SETLE: case ISD::SETOLE: case ISD::SETULE: Opc = Alpha::CMPTLE; break;
+      case ISD::SETGT: case ISD::SETOGT: case ISD::SETUGT: Opc = Alpha::CMPTLT; rev = true; break;
+      case ISD::SETGE: case ISD::SETOGE: case ISD::SETUGE: Opc = Alpha::CMPTLE; rev = true; break;
+      case ISD::SETNE: case ISD::SETONE: case ISD::SETUNE: Opc = Alpha::CMPTEQ; isNE = true; break;
       };
-      SDOperand tmp1 = N->getOperand(rev?1:0);
-      SDOperand tmp2 = N->getOperand(rev?0:1);
+      SDOperand tmp1 = N->getOperand(0);
+      SDOperand tmp2 = N->getOperand(1);
       AddToISelQueue(tmp1);
       AddToISelQueue(tmp2);
-      SDNode *cmp = CurDAG->getTargetNode(Opc, MVT::f64, tmp1, tmp2);
-      if (inv) 
+      SDNode *cmp = CurDAG->getTargetNode(Opc, MVT::f64, 
+                                          rev?tmp2:tmp1,
+                                          rev?tmp1:tmp2);
+      if (isNE) 
         cmp = CurDAG->getTargetNode(Alpha::CMPTEQ, MVT::f64, SDOperand(cmp, 0), 
                                     CurDAG->getRegister(Alpha::F31, MVT::f64));
-      switch(CC) {
-      case ISD::SETUEQ: case ISD::SETULT: case ISD::SETULE:
-      case ISD::SETUNE: case ISD::SETUGT: case ISD::SETUGE:
-	{
-	  SDNode* cmp2 = CurDAG->getTargetNode(Alpha::CMPTUN, MVT::f64, tmp1, tmp2);
-	  cmp = CurDAG->getTargetNode(Alpha::ADDT, MVT::f64, 
-				      SDOperand(cmp2, 0), SDOperand(cmp, 0));
-	  break;
-	}
-      default: break;
+      
+      SDOperand LD;
+      if (AlphaLowering.hasITOF()) {
+        LD = CurDAG->getNode(AlphaISD::FTOIT_, MVT::i64, SDOperand(cmp, 0));
+      } else {
+        int FrameIdx =
+          CurDAG->getMachineFunction().getFrameInfo()->CreateStackObject(8, 8);
+        SDOperand FI = CurDAG->getFrameIndex(FrameIdx, MVT::i64);
+        SDOperand ST =
+          SDOperand(CurDAG->getTargetNode(Alpha::STT, MVT::Other, 
+                                          SDOperand(cmp, 0), FI,
+                                          CurDAG->getRegister(Alpha::R31, MVT::i64)), 0);
+        LD = SDOperand(CurDAG->getTargetNode(Alpha::LDQ, MVT::i64, FI, 
+                                             CurDAG->getRegister(Alpha::R31, MVT::i64),
+                                             ST), 0);
       }
-
-      SDNode* LD = CurDAG->getTargetNode(Alpha::FTOIT, MVT::i64, SDOperand(cmp, 0));
       return CurDAG->getTargetNode(Alpha::CMPULT, MVT::i64, 
                                    CurDAG->getRegister(Alpha::R31, MVT::i64),
-                                   SDOperand(LD,0));
+                                   LD);
     }
     break;
 
@@ -410,6 +405,7 @@ SDNode *AlphaDAGToDAGISel::Select(SDOperand Op) {
       // so that things like this can be caught in fall though code
       //move int to fp
       bool isDouble = N->getValueType(0) == MVT::f64;
+      SDOperand LD;
       SDOperand cond = N->getOperand(0);
       SDOperand TV = N->getOperand(1);
       SDOperand FV = N->getOperand(2);
@@ -417,9 +413,21 @@ SDNode *AlphaDAGToDAGISel::Select(SDOperand Op) {
       AddToISelQueue(TV);
       AddToISelQueue(FV);
       
-      SDNode* LD = CurDAG->getTargetNode(Alpha::ITOFT, MVT::f64, cond);
+      if (AlphaLowering.hasITOF()) {
+	LD = CurDAG->getNode(AlphaISD::ITOFT_, MVT::f64, cond);
+      } else {
+	int FrameIdx =
+	  CurDAG->getMachineFunction().getFrameInfo()->CreateStackObject(8, 8);
+	SDOperand FI = CurDAG->getFrameIndex(FrameIdx, MVT::i64);
+	SDOperand ST =
+          SDOperand(CurDAG->getTargetNode(Alpha::STQ, MVT::Other,
+                                          cond, FI, CurDAG->getRegister(Alpha::R31, MVT::i64)), 0);
+	LD = SDOperand(CurDAG->getTargetNode(Alpha::LDT, MVT::f64, FI,
+                                             CurDAG->getRegister(Alpha::R31, MVT::i64),
+                                             ST), 0);
+      }
       return CurDAG->getTargetNode(isDouble?Alpha::FCMOVNET:Alpha::FCMOVNES,
-                                   MVT::f64, FV, TV, SDOperand(LD,0));
+                                   MVT::f64, FV, TV, LD);
     }
     break;
 

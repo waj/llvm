@@ -22,16 +22,13 @@
 #include "llvm/Function.h"
 #include "llvm/ModuleProvider.h"
 #include "llvm/Bytecode/Analyzer.h"
-#include "llvm/ADT/SmallVector.h"
 #include <utility>
+#include <map>
 #include <setjmp.h>
 
 namespace llvm {
 
-// Forward declarations
-class BytecodeHandler; 
-class TypeSymbolTable; 
-class ValueSymbolTable; 
+class BytecodeHandler; ///< Forward declare the handler interface
 
 /// This class defines the interface for parsing a buffer of bytecode. The
 /// parser itself takes no action except to call the various functions of
@@ -140,15 +137,12 @@ public:
 /// @name Methods
 /// @{
 public:
-  typedef size_t BCDecompressor_t(const char *, size_t, char*&, std::string*);
-
   /// @returns true if an error occurred
   /// @brief Main interface to parsing a bytecode buffer.
   bool ParseBytecode(
      volatile BufPtr Buf,         ///< Beginning of the bytecode buffer
      unsigned Length,             ///< Length of the bytecode buffer
      const std::string &ModuleID, ///< An identifier for the module constructed.
-     BCDecompressor_t *Decompressor = 0, ///< Optional decompressor.
      std::string* ErrMsg = 0      ///< Optional place for error message 
   );
 
@@ -187,7 +181,7 @@ public:
   /// @brief Release our hold on the generated module
   Module* releaseModule(std::string *ErrInfo = 0) {
     // Since we're losing control of this Module, we must hand it back complete
-    Module *M = ModuleProvider::releaseModule(ErrInfo);
+    Module *M = ModuleProvider::releaseModule();
     freeState();
     return M;
   }
@@ -205,17 +199,20 @@ protected:
   /// @brief Parse the ModuleGlobalInfo block
   void ParseModuleGlobalInfo();
 
-  /// @brief Parse a value symbol table
-  void ParseTypeSymbolTable(TypeSymbolTable *ST);
-
-  /// @brief Parse a value symbol table
-  void ParseValueSymbolTable(Function* Func, ValueSymbolTable *ST);
+  /// @brief Parse a symbol table
+  void ParseSymbolTable( Function* Func, SymbolTable *ST);
 
   /// @brief Parse functions lazily.
   void ParseFunctionLazily();
 
   ///  @brief Parse a function body
   void ParseFunctionBody(Function* Func);
+
+  /// @brief Parse the type list portion of a compaction table
+  void ParseCompactionTypes(unsigned NumEntries);
+
+  /// @brief Parse a compaction table
+  void ParseCompactionTable();
 
   /// @brief Parse global types
   void ParseGlobalTypes();
@@ -229,9 +226,21 @@ protected:
     Function* F   ///< The function into which BBs will be inserted
   );
 
+  /// Convert previous opcode values into the current value and/or construct
+  /// the instruction. This function handles all *abnormal* cases for 
+  /// instruction generation based on obsolete opcode values. The normal cases 
+  /// are handled by the ParseInstruction function.
+  Instruction* handleObsoleteOpcodes(
+    unsigned &opcode,   ///< The old opcode, possibly updated by this function
+    std::vector<unsigned> &Oprnds, ///< The operands to the instruction
+    unsigned &iType,    ///< The type code from the bytecode file
+    const Type* InstTy, ///< The type of the instruction
+    BasicBlock* BB      ///< The basic block to insert into, if we need to
+  );
+
   /// @brief Parse a single instruction.
   void ParseInstruction(
-    SmallVector <unsigned, 8>& Args,   ///< The arguments to be filled in
+    std::vector<unsigned>& Args,   ///< The arguments to be filled in
     BasicBlock* BB             ///< The BB the instruction goes in
   );
 
@@ -273,6 +282,93 @@ private:
   /// Information about the module, extracted from the bytecode revision number.
   ///
   unsigned char RevisionNum;        // The rev # itself
+
+  /// Flags to distinguish LLVM 1.0 & 1.1 bytecode formats (revision #0)
+
+  /// Revision #0 had an explicit alignment of data only for the
+  /// ModuleGlobalInfo block.  This was fixed to be like all other blocks in 1.2
+  bool hasInconsistentModuleGlobalInfo;
+
+  /// Revision #0 also explicitly encoded zero values for primitive types like
+  /// int/sbyte/etc.
+  bool hasExplicitPrimitiveZeros;
+
+  // Flags to control features specific the LLVM 1.2 and before (revision #1)
+
+  /// LLVM 1.2 and earlier required that getelementptr structure indices were
+  /// ubyte constants and that sequential type indices were longs.
+  bool hasRestrictedGEPTypes;
+
+  /// LLVM 1.2 and earlier had class Type deriving from Value and the Type
+  /// objects were located in the "Type Type" plane of various lists in read
+  /// by the bytecode reader. In LLVM 1.3 this is no longer the case. Types are
+  /// completely distinct from Values. Consequently, Types are written in fixed
+  /// locations in LLVM 1.3. This flag indicates that the older Type derived
+  /// from Value style of bytecode file is being read.
+  bool hasTypeDerivedFromValue;
+
+  /// LLVM 1.2 and earlier encoded block headers as two uint (8 bytes), one for
+  /// the size and one for the type. This is a bit wasteful, especially for
+  /// small files where the 8 bytes per block is a large fraction of the total
+  /// block size. In LLVM 1.3, the block type and length are encoded into a
+  /// single uint32 by restricting the number of block types (limit 31) and the
+  /// maximum size of a block (limit 2^27-1=134,217,727). Note that the module
+  /// block still uses the 8-byte format so the maximum size of a file can be
+  /// 2^32-1 bytes long.
+  bool hasLongBlockHeaders;
+
+  /// LLVM 1.2 and earlier wrote type slot numbers as vbr_uint32. In LLVM 1.3
+  /// this has been reduced to vbr_uint24. It shouldn't make much difference
+  /// since we haven't run into a module with > 24 million types, but for safety
+  /// the 24-bit restriction has been enforced in 1.3 to free some bits in
+  /// various places and to ensure consistency. In particular, global vars are
+  /// restricted to 24-bits.
+  bool has32BitTypes;
+
+  /// LLVM 1.2 and earlier did not provide a target triple nor a list of
+  /// libraries on which the bytecode is dependent. LLVM 1.3 provides these
+  /// features, for use in future versions of LLVM.
+  bool hasNoDependentLibraries;
+
+  /// LLVM 1.3 and earlier caused blocks and other fields to start on 32-bit
+  /// aligned boundaries. This can lead to as much as 30% bytecode size overhead
+  /// in various corner cases (lots of long instructions). In LLVM 1.4,
+  /// alignment of bytecode fields was done away with completely.
+  bool hasAlignment;
+
+  // In version 4 and earlier, the bytecode format did not support the 'undef'
+  // constant.
+  bool hasNoUndefValue;
+
+  // In version 4 and earlier, the bytecode format did not save space for flags
+  // in the global info block for functions.
+  bool hasNoFlagsForFunctions;
+
+  // In version 4 and earlier, there was no opcode space reserved for the
+  // unreachable instruction.
+  bool hasNoUnreachableInst;
+
+  // In version 5 and prior, instructions were signless. In version 6, 
+  // instructions became signed. For example in version 5 we have the DIV 
+  // instruction but in version 6 we have FDIV, SDIV and UDIV to replace it. 
+  // This causes a renumbering of the instruction codes in version 6 that must 
+  // be dealt with when reading old bytecode files.
+  bool hasSignlessInstructions;
+
+  /// In release 1.7 we changed intrinsic functions to not be overloaded. There
+  /// is no bytecode change for this, but to optimize the auto-upgrade of calls
+  /// to intrinsic functions, we save a mapping of old function definitions to
+  /// the new ones so call instructions can be upgraded efficiently.
+  std::map<Function*,Function*> upgradedFunctions;
+
+  /// CompactionTypes - If a compaction table is active in the current function,
+  /// this is the mapping that it contains.  We keep track of what resolved type
+  /// it is as well as what global type entry it is.
+  std::vector<std::pair<const Type*, unsigned> > CompactionTypes;
+
+  /// @brief If a compaction table is active in the current function,
+  /// this is the mapping that it contains.
+  std::vector<std::vector<Value*> > CompactionValues;
 
   /// @brief This vector is used to deal with forward references to types in
   /// a module.
@@ -347,17 +443,32 @@ private:
   /// @brief Converts a type slot number to its Type*
   const Type *getType(unsigned ID);
 
-  /// @brief Read in a type id and turn it into a Type* 
-  inline const Type* readType();
+  /// @brief Converts a pre-sanitized type slot number to its Type* and
+  /// sanitizes the type id.
+  inline const Type* getSanitizedType(unsigned& ID );
+
+  /// @brief Read in and get a sanitized type id
+  inline const Type* readSanitizedType();
 
   /// @brief Converts a Type* to its type slot number
   unsigned getTypeSlot(const Type *Ty);
 
+  /// @brief Converts a normal type slot number to a compacted type slot num.
+  unsigned getCompactionTypeSlot(unsigned type);
+
   /// @brief Gets the global type corresponding to the TypeId
   const Type *getGlobalTableType(unsigned TypeId);
 
+  /// This is just like getTypeSlot, but when a compaction table is in use,
+  /// it is ignored.
+  unsigned getGlobalTableTypeSlot(const Type *Ty);
+
   /// @brief Get a value from its typeid and slot number
   Value* getValue(unsigned TypeID, unsigned num, bool Create = true);
+
+  /// @brief Get a value from its type and slot number, ignoring compaction
+  /// tables.
+  Value *getGlobalTableValue(unsigned TyID, unsigned SlotNo);
 
   /// @brief Get a basic block for current function
   BasicBlock *getBasicBlock(unsigned ID);
@@ -393,20 +504,6 @@ private:
 
   BytecodeReader(const BytecodeReader &);  // DO NOT IMPLEMENT
   void operator=(const BytecodeReader &);  // DO NOT IMPLEMENT
-
-  // This enum provides the values of the well-known type slots that are always
-  // emitted as the first few types in the table by the BytecodeWriter class.
-  enum WellKnownTypeSlots {
-    VoidTypeSlot = 0, ///< TypeID == VoidTyID
-    FloatTySlot  = 1, ///< TypeID == FloatTyID
-    DoubleTySlot = 2, ///< TypeID == DoubleTyID
-    LabelTySlot  = 3, ///< TypeID == LabelTyID
-    BoolTySlot   = 4, ///< TypeID == IntegerTyID, width = 1
-    Int8TySlot   = 5, ///< TypeID == IntegerTyID, width = 8
-    Int16TySlot  = 6, ///< TypeID == IntegerTyID, width = 16
-    Int32TySlot  = 7, ///< TypeID == IntegerTyID, width = 32
-    Int64TySlot  = 8  ///< TypeID == IntegerTyID, width = 64
-  };
 
 /// @}
 /// @name Reader Primitives
@@ -452,6 +549,12 @@ private:
 
   /// @brief Read a bytecode block header
   inline void read_block(unsigned &Type, unsigned &Size);
+
+  /// @brief Read a type identifier and sanitize it.
+  inline bool read_typeid(unsigned &TypeId);
+
+  /// @brief Recalculate type ID for pre 1.3 bytecode files.
+  inline bool sanitizeTypeId(unsigned &TypeId );
 /// @}
 };
 

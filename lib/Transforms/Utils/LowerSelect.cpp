@@ -24,13 +24,15 @@
 #include "llvm/Instructions.h"
 #include "llvm/Pass.h"
 #include "llvm/Type.h"
-#include "llvm/Support/Compiler.h"
+#include "llvm/ADT/Statistic.h"
 using namespace llvm;
 
 namespace {
+  Statistic<> NumLowered("lowerselect","Number of select instructions lowered");
+
   /// LowerSelect - Turn select instructions into conditional branches.
   ///
-  class VISIBILITY_HIDDEN LowerSelect : public FunctionPass {
+  class LowerSelect : public FunctionPass {
     bool OnlyFP;   // Only lower FP select instructions?
   public:
     LowerSelect(bool onlyfp = false) : OnlyFP(onlyfp) {}

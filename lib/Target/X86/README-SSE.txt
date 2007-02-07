@@ -4,6 +4,30 @@
 
 //===---------------------------------------------------------------------===//
 
+There are serious issues folding loads into "scalar sse" intrinsics.  For
+example, this:
+
+float minss4( float x, float *y ) { 
+  return _mm_cvtss_f32(_mm_min_ss(_mm_set_ss(x),_mm_set_ss(*y)));
+}
+
+compiles to:
+
+_minss4:
+        subl $4, %esp
+        movl 12(%esp), %eax
+***     movss 8(%esp), %xmm0
+***     movss (%eax), %xmm1
+***     minss %xmm1, %xmm0
+        movss %xmm0, (%esp)
+        flds (%esp)
+        addl $4, %esp
+        ret
+
+Each operand of the minss is a load.  At least one should be folded!
+
+//===---------------------------------------------------------------------===//
+
 Expand libm rounding functions inline:  Significant speedups possible.
 http://gcc.gnu.org/ml/gcc-patches/2006-10/msg00909.html
 
@@ -141,6 +165,17 @@ This will be solved when we go to a dynamic programming based isel.
 
 //===---------------------------------------------------------------------===//
 
+Should generate min/max for stuff like:
+
+void minf(float a, float b, float *X) {
+  *X = a <= b ? a : b;
+}
+
+Make use of floating point min / max instructions. Perhaps introduce ISD::FMIN
+and ISD::FMAX node types?
+
+//===---------------------------------------------------------------------===//
+
 Lower memcpy / memset to a series of SSE 128 bit move instructions when it's
 feasible.
 
@@ -187,6 +222,29 @@ of a v4sf value.
 
 Better codegen for vector_shuffles like this { x, 0, 0, 0 } or { x, 0, x, 0}.
 Perhaps use pxor / xorp* to clear a XMM register first?
+
+//===---------------------------------------------------------------------===//
+
+Better codegen for:
+
+void f(float a, float b, vector float * out) { *out = (vector float){ a, 0.0, 0.0, b}; }
+void f(float a, float b, vector float * out) { *out = (vector float){ a, b, 0.0, 0}; }
+
+For the later we generate:
+
+_f:
+        pxor %xmm0, %xmm0
+        movss 8(%esp), %xmm1
+        movaps %xmm0, %xmm2
+        unpcklps %xmm1, %xmm2
+        movss 4(%esp), %xmm1
+        unpcklps %xmm0, %xmm1
+        unpcklps %xmm2, %xmm1
+        movl 12(%esp), %eax
+        movaps %xmm1, (%eax)
+        ret
+
+This seems like it should use shufps, one for each of a & b.
 
 //===---------------------------------------------------------------------===//
 
@@ -522,11 +580,32 @@ Add hooks to commute some CMPP operations.
 
 //===---------------------------------------------------------------------===//
 
-Apply the same transformation that merged four float into a single 128-bit load
-to loads from constant pool.
+Implement some missing insert/extract element operations without going through
+the stack.  Testcase here:
+CodeGen/X86/vec_ins_extract.ll
+corresponds to this C code:
+
+typedef float vectorfloat __attribute__((vector_size(16)));
+void test(vectorfloat *F, float f) {
+  vectorfloat G = *F + *F;
+  *((float*)&G) = f;
+  *F = G + G;
+}
+void test2(vectorfloat *F, float f) {
+  vectorfloat G = *F + *F;
+  ((float*)&G)[2] = f;
+  *F = G + G;
+}
+void test3(vectorfloat *F, float *f) {
+  vectorfloat G = *F + *F;
+  *f = ((float*)&G)[2];
+}
+void test4(vectorfloat *F, float *f) {
+  vectorfloat G = *F + *F;
+  *f = *((float*)&G);
+}
 
 //===---------------------------------------------------------------------===//
 
-Floating point max / min are commutable when -enable-unsafe-fp-path is
-specified. We should turn int_x86_sse_max_ss and X86ISD::FMIN etc. into other
-nodes which are selected to max / min instructions that are marked commutable.
+Apply the same transformation that merged four float into a single 128-bit load
+to loads from constant pool.

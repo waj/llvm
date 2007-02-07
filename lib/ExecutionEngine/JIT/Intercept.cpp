@@ -18,6 +18,7 @@
 #include "JIT.h"
 #include "llvm/System/DynamicLibrary.h"
 #include "llvm/Config/config.h"
+#include <iostream>
 using namespace llvm;
 
 // AtExitHandlers - List of functions to call when the program exits,
@@ -114,8 +115,8 @@ void *JIT::getPointerToNamedFunction(const std::string &Name) {
     if (Ptr) return Ptr;
   }
 
-  cerr << "ERROR: Program used external function '" << Name
-       << "' which could not be resolved!\n";
+  std::cerr << "ERROR: Program used external function '" << Name
+            << "' which could not be resolved!\n";
   abort();
   return 0;
 }

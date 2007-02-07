@@ -19,8 +19,8 @@
 #include "llvm/Analysis/ProfileInfo.h"
 #include "llvm/Analysis/ProfileInfoLoader.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/Streams.h"
+#include <iostream>
+
 using namespace llvm;
 
 namespace {
@@ -29,7 +29,7 @@ namespace {
                       cl::value_desc("filename"),
                       cl::desc("Profile file loaded by -profile-loader"));
 
-  class VISIBILITY_HIDDEN LoaderPass : public ModulePass, public ProfileInfo {
+  class LoaderPass : public ModulePass, public ProfileInfo {
     std::string Filename;
   public:
     LoaderPass(const std::string &filename = "")
@@ -77,8 +77,8 @@ bool LoaderPass::runOnModule(Module &M) {
     TerminatorInst *TI = BB->getTerminator();
     if (SuccNum >= TI->getNumSuccessors()) {
       if (!PrintedWarning) {
-        cerr << "WARNING: profile information is inconsistent with "
-             << "the current program!\n";
+        std::cerr << "WARNING: profile information is inconsistent with "
+                  << "the current program!\n";
         PrintedWarning = true;
       }
     } else {

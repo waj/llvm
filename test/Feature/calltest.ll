@@ -1,10 +1,11 @@
-; RUN: llvm-upgrade < %s | llvm-as | llvm-dis > %t1.ll
+; RUN: llvm-as %s -o - | llvm-dis > %t1.ll
 ; RUN: llvm-as %t1.ll -o - | llvm-dis > %t2.ll
 ; RUN: diff %t1.ll %t2.ll
 
 %FunTy = type int(int)
 
-declare int "test"(int)   ; Test forward declaration merging
+declare int "test"(...)   ; Test differences of prototype
+declare int "test"()      ; Differ only by vararg
 
 implementation
 

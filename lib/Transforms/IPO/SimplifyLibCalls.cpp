@@ -26,21 +26,22 @@
 #include "llvm/ADT/hash_map"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Config/config.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Transforms/IPO.h"
 using namespace llvm;
 
+namespace {
+
 /// This statistic keeps track of the total number of library calls that have
 /// been simplified regardless of which call it is.
-STATISTIC(SimplifiedLibCalls, "Number of library calls simplified");
+Statistic<> SimplifiedLibCalls("simplify-libcalls",
+  "Number of library calls simplified");
 
-namespace {
-  // Forward declarations
-  class LibCallOptimization;
-  class SimplifyLibCalls;
-  
+// Forward declarations
+class LibCallOptimization;
+class SimplifyLibCalls;
+
 /// This list is populated by the constructor for LibCallOptimization class.
 /// Therefore all subclasses are registered here at static initialization time
 /// and this list is what the SimplifyLibCalls pass uses to apply the individual
@@ -63,22 +64,22 @@ static LibCallOptimization *OptList = 0;
 /// generally short-circuit actually calling the function if there's a simpler
 /// way (e.g. strlen(X) can be reduced to a constant if X is a constant global).
 /// @brief Base class for library call optimizations
-class VISIBILITY_HIDDEN LibCallOptimization {
+class LibCallOptimization {
   LibCallOptimization **Prev, *Next;
   const char *FunctionName; ///< Name of the library call we optimize
 #ifndef NDEBUG
-  Statistic occurrences; ///< debug statistic (-debug-only=simplify-libcalls)
+  Statistic<> occurrences; ///< debug statistic (-debug-only=simplify-libcalls)
 #endif
 public:
   /// The \p fname argument must be the name of the library function being
   /// optimized by the subclass.
   /// @brief Constructor that registers the optimization.
   LibCallOptimization(const char *FName, const char *Description)
-    : FunctionName(FName) {
-      
+    : FunctionName(FName)
 #ifndef NDEBUG
-    occurrences.construct("simplify-libcalls", Description);
+    , occurrences("simplify-libcalls", Description)
 #endif
+  {
     // Register this optimizer in the list of optimizations.
     Next = OptList;
     OptList = this;
@@ -143,7 +144,7 @@ public:
 /// validate the call (ValidateLibraryCall). If it is validated, then
 /// the OptimizeCall method is also called.
 /// @brief A ModulePass for optimizing well-known function calls.
-class VISIBILITY_HIDDEN SimplifyLibCalls : public ModulePass {
+class SimplifyLibCalls : public ModulePass {
 public:
   /// We need some target data for accurate signature details that are
   /// target dependent. So we require target data in our AnalysisUsage.
@@ -178,7 +179,7 @@ public:
         // because they live in a runtime library somewhere and were (probably)
         // not compiled by LLVM.  So, we only act on external functions that
         // have external or dllimport linkage and non-empty uses.
-        if (!FI->isDeclaration() ||
+        if (!FI->isExternal() ||
             !(FI->hasExternalLinkage() || FI->hasDLLImportLinkage()) ||
             FI->use_empty())
           continue;
@@ -223,44 +224,44 @@ public:
   const Type* getIntPtrType() const { return TD->getIntPtrType(); }
 
   /// @brief Return a Function* for the putchar libcall
-  Constant *get_putchar() {
+  Function* get_putchar() {
     if (!putchar_func)
-      putchar_func = 
-        M->getOrInsertFunction("putchar", Type::Int32Ty, Type::Int32Ty, NULL);
+      putchar_func = M->getOrInsertFunction("putchar", Type::IntTy, Type::IntTy,
+                                            NULL);
     return putchar_func;
   }
 
   /// @brief Return a Function* for the puts libcall
-  Constant *get_puts() {
+  Function* get_puts() {
     if (!puts_func)
-      puts_func = M->getOrInsertFunction("puts", Type::Int32Ty,
-                                         PointerType::get(Type::Int8Ty),
+      puts_func = M->getOrInsertFunction("puts", Type::IntTy,
+                                         PointerType::get(Type::SByteTy),
                                          NULL);
     return puts_func;
   }
 
   /// @brief Return a Function* for the fputc libcall
-  Constant *get_fputc(const Type* FILEptr_type) {
+  Function* get_fputc(const Type* FILEptr_type) {
     if (!fputc_func)
-      fputc_func = M->getOrInsertFunction("fputc", Type::Int32Ty, Type::Int32Ty,
+      fputc_func = M->getOrInsertFunction("fputc", Type::IntTy, Type::IntTy,
                                           FILEptr_type, NULL);
     return fputc_func;
   }
 
   /// @brief Return a Function* for the fputs libcall
-  Constant *get_fputs(const Type* FILEptr_type) {
+  Function* get_fputs(const Type* FILEptr_type) {
     if (!fputs_func)
-      fputs_func = M->getOrInsertFunction("fputs", Type::Int32Ty,
-                                          PointerType::get(Type::Int8Ty),
+      fputs_func = M->getOrInsertFunction("fputs", Type::IntTy,
+                                          PointerType::get(Type::SByteTy),
                                           FILEptr_type, NULL);
     return fputs_func;
   }
 
   /// @brief Return a Function* for the fwrite libcall
-  Constant *get_fwrite(const Type* FILEptr_type) {
+  Function* get_fwrite(const Type* FILEptr_type) {
     if (!fwrite_func)
       fwrite_func = M->getOrInsertFunction("fwrite", TD->getIntPtrType(),
-                                           PointerType::get(Type::Int8Ty),
+                                           PointerType::get(Type::SByteTy),
                                            TD->getIntPtrType(),
                                            TD->getIntPtrType(),
                                            FILEptr_type, NULL);
@@ -268,68 +269,68 @@ public:
   }
 
   /// @brief Return a Function* for the sqrt libcall
-  Constant *get_sqrt() {
+  Function* get_sqrt() {
     if (!sqrt_func)
       sqrt_func = M->getOrInsertFunction("sqrt", Type::DoubleTy, 
                                          Type::DoubleTy, NULL);
     return sqrt_func;
   }
 
-  /// @brief Return a Function* for the strcpy libcall
-  Constant *get_strcpy() {
+  /// @brief Return a Function* for the strlen libcall
+  Function* get_strcpy() {
     if (!strcpy_func)
       strcpy_func = M->getOrInsertFunction("strcpy",
-                                           PointerType::get(Type::Int8Ty),
-                                           PointerType::get(Type::Int8Ty),
-                                           PointerType::get(Type::Int8Ty),
+                                           PointerType::get(Type::SByteTy),
+                                           PointerType::get(Type::SByteTy),
+                                           PointerType::get(Type::SByteTy),
                                            NULL);
     return strcpy_func;
   }
 
   /// @brief Return a Function* for the strlen libcall
-  Constant *get_strlen() {
+  Function* get_strlen() {
     if (!strlen_func)
       strlen_func = M->getOrInsertFunction("strlen", TD->getIntPtrType(),
-                                           PointerType::get(Type::Int8Ty),
+                                           PointerType::get(Type::SByteTy),
                                            NULL);
     return strlen_func;
   }
 
   /// @brief Return a Function* for the memchr libcall
-  Constant *get_memchr() {
+  Function* get_memchr() {
     if (!memchr_func)
       memchr_func = M->getOrInsertFunction("memchr",
-                                           PointerType::get(Type::Int8Ty),
-                                           PointerType::get(Type::Int8Ty),
-                                           Type::Int32Ty, TD->getIntPtrType(),
+                                           PointerType::get(Type::SByteTy),
+                                           PointerType::get(Type::SByteTy),
+                                           Type::IntTy, TD->getIntPtrType(),
                                            NULL);
     return memchr_func;
   }
 
   /// @brief Return a Function* for the memcpy libcall
-  Constant *get_memcpy() {
+  Function* get_memcpy() {
     if (!memcpy_func) {
-      const Type *SBP = PointerType::get(Type::Int8Ty);
-      const char *N = TD->getIntPtrType() == Type::Int32Ty ?
+      const Type *SBP = PointerType::get(Type::SByteTy);
+      const char *N = TD->getIntPtrType() == Type::UIntTy ?
                             "llvm.memcpy.i32" : "llvm.memcpy.i64";
       memcpy_func = M->getOrInsertFunction(N, Type::VoidTy, SBP, SBP,
-                                           TD->getIntPtrType(), Type::Int32Ty,
+                                           TD->getIntPtrType(), Type::UIntTy,
                                            NULL);
     }
     return memcpy_func;
   }
 
-  Constant *getUnaryFloatFunction(const char *Name, Constant *&Cache) {
+  Function *getUnaryFloatFunction(const char *Name, Function *&Cache) {
     if (!Cache)
       Cache = M->getOrInsertFunction(Name, Type::FloatTy, Type::FloatTy, NULL);
     return Cache;
   }
   
-  Constant *get_floorf() { return getUnaryFloatFunction("floorf", floorf_func);}
-  Constant *get_ceilf()  { return getUnaryFloatFunction( "ceilf",  ceilf_func);}
-  Constant *get_roundf() { return getUnaryFloatFunction("roundf", roundf_func);}
-  Constant *get_rintf()  { return getUnaryFloatFunction( "rintf",  rintf_func);}
-  Constant *get_nearbyintf() { return getUnaryFloatFunction("nearbyintf",
+  Function *get_floorf() { return getUnaryFloatFunction("floorf", floorf_func);}
+  Function *get_ceilf()  { return getUnaryFloatFunction( "ceilf",  ceilf_func);}
+  Function *get_roundf() { return getUnaryFloatFunction("roundf", roundf_func);}
+  Function *get_rintf()  { return getUnaryFloatFunction( "rintf",  rintf_func);}
+  Function *get_nearbyintf() { return getUnaryFloatFunction("nearbyintf",
                                                             nearbyintf_func); }
 private:
   /// @brief Reset our cached data for a new Module
@@ -355,13 +356,13 @@ private:
 
 private:
   /// Caches for function pointers.
-  Constant *putchar_func, *puts_func;
-  Constant *fputc_func, *fputs_func, *fwrite_func;
-  Constant *memcpy_func, *memchr_func;
-  Constant *sqrt_func;
-  Constant *strcpy_func, *strlen_func;
-  Constant *floorf_func, *ceilf_func, *roundf_func;
-  Constant *rintf_func, *nearbyintf_func;
+  Function *putchar_func, *puts_func;
+  Function *fputc_func, *fputs_func, *fwrite_func;
+  Function *memcpy_func, *memchr_func;
+  Function* sqrt_func;
+  Function *strcpy_func, *strlen_func;
+  Function *floorf_func, *ceilf_func, *roundf_func;
+  Function *rintf_func, *nearbyintf_func;
   Module *M;             ///< Cached Module
   TargetData *TD;        ///< Cached TargetData
 };
@@ -384,16 +385,15 @@ ModulePass *llvm::createSimplifyLibCallsPass() {
 namespace {
 
 // Forward declare utility functions.
-static bool getConstantStringLength(Value* V, uint64_t& len, 
-                                    ConstantArray** A = 0 );
-static Value *CastToCStr(Value *V, Instruction &IP);
+bool getConstantStringLength(Value* V, uint64_t& len, ConstantArray** A = 0 );
+Value *CastToCStr(Value *V, Instruction &IP);
 
 /// This LibCallOptimization will find instances of a call to "exit" that occurs
 /// within the "main" function and change it to a simple "ret" instruction with
 /// the same value passed to the exit function. When this is done, it splits the
 /// basic block at the exit(3) call and deletes the call instruction.
 /// @brief Replace calls to exit in main with a simple return
-struct VISIBILITY_HIDDEN ExitInMainOptimization : public LibCallOptimization {
+struct ExitInMainOptimization : public LibCallOptimization {
   ExitInMainOptimization() : LibCallOptimization("exit",
       "Number of 'exit' calls simplified") {}
 
@@ -449,7 +449,7 @@ struct VISIBILITY_HIDDEN ExitInMainOptimization : public LibCallOptimization {
 /// of the constant string. Both of these calls are further reduced, if possible
 /// on subsequent passes.
 /// @brief Simplify the strcat library function.
-struct VISIBILITY_HIDDEN StrCatOptimization : public LibCallOptimization {
+struct StrCatOptimization : public LibCallOptimization {
 public:
   /// @brief Default constructor
   StrCatOptimization() : LibCallOptimization("strcat",
@@ -459,12 +459,12 @@ public:
 
   /// @brief Make sure that the "strcat" function has the right prototype
   virtual bool ValidateCalledFunction(const Function* f, SimplifyLibCalls& SLC){
-    if (f->getReturnType() == PointerType::get(Type::Int8Ty))
+    if (f->getReturnType() == PointerType::get(Type::SByteTy))
       if (f->arg_size() == 2)
       {
         Function::const_arg_iterator AI = f->arg_begin();
-        if (AI++->getType() == PointerType::get(Type::Int8Ty))
-          if (AI->getType() == PointerType::get(Type::Int8Ty))
+        if (AI++->getType() == PointerType::get(Type::SByteTy))
+          if (AI->getType() == PointerType::get(Type::SByteTy))
           {
             // Indicate this is a suitable call type.
             return true;
@@ -507,8 +507,10 @@ public:
     // Now that we have the destination's length, we must index into the
     // destination's pointer to get the actual memcpy destination (end of
     // the string .. we're concatenating).
+    std::vector<Value*> idx;
+    idx.push_back(strlen_inst);
     GetElementPtrInst* gep =
-      new GetElementPtrInst(dest, strlen_inst, dest->getName()+".indexed", ci);
+      new GetElementPtrInst(dest,idx,dest->getName()+".indexed",ci);
 
     // We have enough information to now generate the memcpy call to
     // do the concatenation for us.
@@ -516,7 +518,7 @@ public:
     vals.push_back(gep); // destination
     vals.push_back(ci->getOperand(2)); // source
     vals.push_back(ConstantInt::get(SLC.getIntPtrType(),len)); // length
-    vals.push_back(ConstantInt::get(Type::Int32Ty,1)); // alignment
+    vals.push_back(ConstantInt::get(Type::UIntTy,1)); // alignment
     new CallInst(SLC.get_memcpy(), vals, "", ci);
 
     // Finally, substitute the first operand of the strcat call for the
@@ -532,14 +534,14 @@ public:
 /// function.  It optimizes out cases where the arguments are both constant
 /// and the result can be determined statically.
 /// @brief Simplify the strcmp library function.
-struct VISIBILITY_HIDDEN StrChrOptimization : public LibCallOptimization {
+struct StrChrOptimization : public LibCallOptimization {
 public:
   StrChrOptimization() : LibCallOptimization("strchr",
       "Number of 'strchr' calls simplified") {}
 
   /// @brief Make sure that the "strchr" function has the right prototype
   virtual bool ValidateCalledFunction(const Function* f, SimplifyLibCalls& SLC){
-    if (f->getReturnType() == PointerType::get(Type::Int8Ty) &&
+    if (f->getReturnType() == PointerType::get(Type::SByteTy) &&
         f->arg_size() == 2)
       return true;
     return false;
@@ -555,21 +557,21 @@ public:
     // If it is, get the length and data, otherwise return false.
     uint64_t len = 0;
     ConstantArray* CA = 0;
-    if (!getConstantStringLength(ci->getOperand(1), len, &CA))
+    if (!getConstantStringLength(ci->getOperand(1),len,&CA))
       return false;
 
     // Check that the second argument to strchr is a constant int. If it isn't
     // a constant signed integer, we can try an alternate optimization
     ConstantInt* CSI = dyn_cast<ConstantInt>(ci->getOperand(2));
-    if (!CSI) {
+    if (!CSI || CSI->getType()->isUnsigned() ) {
       // The second operand is not constant, or not signed. Just lower this to 
       // memchr since we know the length of the string since it is constant.
-      Constant *f = SLC.get_memchr();
+      Function* f = SLC.get_memchr();
       std::vector<Value*> args;
       args.push_back(ci->getOperand(1));
       args.push_back(ci->getOperand(2));
-      args.push_back(ConstantInt::get(SLC.getIntPtrType(), len));
-      ci->replaceAllUsesWith(new CallInst(f, args, ci->getName(), ci));
+      args.push_back(ConstantInt::get(SLC.getIntPtrType(),len));
+      ci->replaceAllUsesWith( new CallInst(f,args,ci->getName(),ci));
       ci->eraseFromParent();
       return true;
     }
@@ -596,13 +598,14 @@ public:
     // strchr(s,c)  -> offset_of_in(c,s)
     //    (if c is a constant integer and s is a constant string)
     if (char_found) {
-      Value* Idx = ConstantInt::get(Type::Int64Ty,offset);
-      GetElementPtrInst* GEP = new GetElementPtrInst(ci->getOperand(1), Idx, 
+      std::vector<Value*> indices;
+      indices.push_back(ConstantInt::get(Type::ULongTy,offset));
+      GetElementPtrInst* GEP = new GetElementPtrInst(ci->getOperand(1),indices,
           ci->getOperand(1)->getName()+".strchr",ci);
       ci->replaceAllUsesWith(GEP);
     } else {
       ci->replaceAllUsesWith(
-          ConstantPointerNull::get(PointerType::get(Type::Int8Ty)));
+          ConstantPointerNull::get(PointerType::get(Type::SByteTy)));
     }
     ci->eraseFromParent();
     return true;
@@ -613,14 +616,14 @@ public:
 /// function.  It optimizes out cases where one or both arguments are constant
 /// and the result can be determined statically.
 /// @brief Simplify the strcmp library function.
-struct VISIBILITY_HIDDEN StrCmpOptimization : public LibCallOptimization {
+struct StrCmpOptimization : public LibCallOptimization {
 public:
   StrCmpOptimization() : LibCallOptimization("strcmp",
       "Number of 'strcmp' calls simplified") {}
 
   /// @brief Make sure that the "strcmp" function has the right prototype
   virtual bool ValidateCalledFunction(const Function *F, SimplifyLibCalls &SLC){
-    return F->getReturnType() == Type::Int32Ty && F->arg_size() == 2;
+    return F->getReturnType() == Type::IntTy && F->arg_size() == 2;
   }
 
   /// @brief Perform the strcmp optimization
@@ -632,7 +635,7 @@ public:
     Value* s2 = ci->getOperand(2);
     if (s1 == s2) {
       // strcmp(x,x)  -> 0
-      ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,0));
+      ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,0));
       ci->eraseFromParent();
       return true;
     }
@@ -647,8 +650,7 @@ public:
         LoadInst* load =
           new LoadInst(CastToCStr(s2,*ci), ci->getName()+".load",ci);
         CastInst* cast =
-          CastInst::create(Instruction::SExt, load, Type::Int32Ty, 
-                           ci->getName()+".int", ci);
+          new CastInst(load,Type::IntTy,ci->getName()+".int",ci);
         ci->replaceAllUsesWith(cast);
         ci->eraseFromParent();
         return true;
@@ -665,8 +667,7 @@ public:
         LoadInst* load =
           new LoadInst(CastToCStr(s1,*ci),ci->getName()+".val",ci);
         CastInst* cast =
-          CastInst::create(Instruction::SExt, load, Type::Int32Ty, 
-                           ci->getName()+".int", ci);
+          new CastInst(load,Type::IntTy,ci->getName()+".int",ci);
         ci->replaceAllUsesWith(cast);
         ci->eraseFromParent();
         return true;
@@ -678,7 +679,7 @@ public:
       std::string str1 = A1->getAsString();
       std::string str2 = A2->getAsString();
       int result = strcmp(str1.c_str(), str2.c_str());
-      ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,result));
+      ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,result));
       ci->eraseFromParent();
       return true;
     }
@@ -690,14 +691,14 @@ public:
 /// function.  It optimizes out cases where one or both arguments are constant
 /// and the result can be determined statically.
 /// @brief Simplify the strncmp library function.
-struct VISIBILITY_HIDDEN StrNCmpOptimization : public LibCallOptimization {
+struct StrNCmpOptimization : public LibCallOptimization {
 public:
   StrNCmpOptimization() : LibCallOptimization("strncmp",
       "Number of 'strncmp' calls simplified") {}
 
   /// @brief Make sure that the "strncmp" function has the right prototype
   virtual bool ValidateCalledFunction(const Function* f, SimplifyLibCalls& SLC){
-    if (f->getReturnType() == Type::Int32Ty && f->arg_size() == 3)
+    if (f->getReturnType() == Type::IntTy && f->arg_size() == 3)
       return true;
     return false;
   }
@@ -711,7 +712,7 @@ public:
     Value* s2 = ci->getOperand(2);
     if (s1 == s2) {
       // strncmp(x,x,l)  -> 0
-      ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,0));
+      ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,0));
       ci->eraseFromParent();
       return true;
     }
@@ -725,7 +726,7 @@ public:
       len_arg = len_CI->getZExtValue();
       if (len_arg == 0) {
         // strncmp(x,y,0)   -> 0
-        ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,0));
+        ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,0));
         ci->eraseFromParent();
         return true;
       }
@@ -740,8 +741,7 @@ public:
         // strncmp("",x) -> *x
         LoadInst* load = new LoadInst(s1,ci->getName()+".load",ci);
         CastInst* cast =
-          CastInst::create(Instruction::SExt, load, Type::Int32Ty, 
-                           ci->getName()+".int", ci);
+          new CastInst(load,Type::IntTy,ci->getName()+".int",ci);
         ci->replaceAllUsesWith(cast);
         ci->eraseFromParent();
         return true;
@@ -757,8 +757,7 @@ public:
         // strncmp(x,"") -> *x
         LoadInst* load = new LoadInst(s2,ci->getName()+".val",ci);
         CastInst* cast =
-          CastInst::create(Instruction::SExt, load, Type::Int32Ty, 
-                           ci->getName()+".int", ci);
+          new CastInst(load,Type::IntTy,ci->getName()+".int",ci);
         ci->replaceAllUsesWith(cast);
         ci->eraseFromParent();
         return true;
@@ -770,7 +769,7 @@ public:
       std::string str1 = A1->getAsString();
       std::string str2 = A2->getAsString();
       int result = strncmp(str1.c_str(), str2.c_str(), len_arg);
-      ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,result));
+      ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,result));
       ci->eraseFromParent();
       return true;
     }
@@ -783,18 +782,18 @@ public:
 /// (1) If src and dest are the same and not volatile, just return dest
 /// (2) If the src is a constant then we can convert to llvm.memmove
 /// @brief Simplify the strcpy library function.
-struct VISIBILITY_HIDDEN StrCpyOptimization : public LibCallOptimization {
+struct StrCpyOptimization : public LibCallOptimization {
 public:
   StrCpyOptimization() : LibCallOptimization("strcpy",
       "Number of 'strcpy' calls simplified") {}
 
   /// @brief Make sure that the "strcpy" function has the right prototype
   virtual bool ValidateCalledFunction(const Function* f, SimplifyLibCalls& SLC){
-    if (f->getReturnType() == PointerType::get(Type::Int8Ty))
+    if (f->getReturnType() == PointerType::get(Type::SByteTy))
       if (f->arg_size() == 2) {
         Function::const_arg_iterator AI = f->arg_begin();
-        if (AI++->getType() == PointerType::get(Type::Int8Ty))
-          if (AI->getType() == PointerType::get(Type::Int8Ty)) {
+        if (AI++->getType() == PointerType::get(Type::SByteTy))
+          if (AI->getType() == PointerType::get(Type::SByteTy)) {
             // Indicate this is a suitable call type.
             return true;
           }
@@ -829,7 +828,7 @@ public:
     // If the constant string's length is zero we can optimize this by just
     // doing a store of 0 at the first byte of the destination
     if (len == 0) {
-      new StoreInst(ConstantInt::get(Type::Int8Ty,0),ci->getOperand(1),ci);
+      new StoreInst(ConstantInt::get(Type::SByteTy,0),ci->getOperand(1),ci);
       ci->replaceAllUsesWith(dest);
       ci->eraseFromParent();
       return true;
@@ -845,7 +844,7 @@ public:
     vals.push_back(dest); // destination
     vals.push_back(src); // source
     vals.push_back(ConstantInt::get(SLC.getIntPtrType(),len)); // length
-    vals.push_back(ConstantInt::get(Type::Int32Ty,1)); // alignment
+    vals.push_back(ConstantInt::get(Type::UIntTy,1)); // alignment
     new CallInst(SLC.get_memcpy(), vals, "", ci);
 
     // Finally, substitute the first operand of the strcat call for the
@@ -861,7 +860,7 @@ public:
 /// function by replacing it with a constant value if the string provided to
 /// it is a constant array.
 /// @brief Simplify the strlen library function.
-struct VISIBILITY_HIDDEN StrLenOptimization : public LibCallOptimization {
+struct StrLenOptimization : public LibCallOptimization {
   StrLenOptimization() : LibCallOptimization("strlen",
       "Number of 'strlen' calls simplified") {}
 
@@ -871,7 +870,7 @@ struct VISIBILITY_HIDDEN StrLenOptimization : public LibCallOptimization {
     if (f->getReturnType() == SLC.getTargetData()->getIntPtrType())
       if (f->arg_size() == 1)
         if (Function::const_arg_iterator AI = f->arg_begin())
-          if (AI->getType() == PointerType::get(Type::Int8Ty))
+          if (AI->getType() == PointerType::get(Type::SByteTy))
             return true;
     return false;
   }
@@ -881,13 +880,13 @@ struct VISIBILITY_HIDDEN StrLenOptimization : public LibCallOptimization {
   {
     // Make sure we're dealing with an sbyte* here.
     Value* str = ci->getOperand(1);
-    if (str->getType() != PointerType::get(Type::Int8Ty))
+    if (str->getType() != PointerType::get(Type::SByteTy))
       return false;
 
     // Does the call to strlen have exactly one use?
     if (ci->hasOneUse())
-      // Is that single use a icmp operator?
-      if (ICmpInst* bop = dyn_cast<ICmpInst>(ci->use_back()))
+      // Is that single use a binary operator?
+      if (BinaryOperator* bop = dyn_cast<BinaryOperator>(ci->use_back()))
         // Is it compared against a constant integer?
         if (ConstantInt* CI = dyn_cast<ConstantInt>(bop->getOperand(1)))
         {
@@ -896,15 +895,15 @@ struct VISIBILITY_HIDDEN StrLenOptimization : public LibCallOptimization {
 
           // If its compared against length 0 with == or !=
           if (val == 0 &&
-              (bop->getPredicate() == ICmpInst::ICMP_EQ ||
-               bop->getPredicate() == ICmpInst::ICMP_NE))
+              (bop->getOpcode() == Instruction::SetEQ ||
+               bop->getOpcode() == Instruction::SetNE))
           {
             // strlen(x) != 0 -> *x != 0
             // strlen(x) == 0 -> *x == 0
             LoadInst* load = new LoadInst(str,str->getName()+".first",ci);
-            ICmpInst* rbop = new ICmpInst(bop->getPredicate(), load, 
-                                          ConstantInt::get(Type::Int8Ty,0),
-                                          bop->getName()+".strlen", ci);
+            BinaryOperator* rbop = BinaryOperator::create(bop->getOpcode(),
+              load, ConstantInt::get(Type::SByteTy,0),
+              bop->getName()+".strlen", ci);
             bop->replaceAllUsesWith(rbop);
             bop->eraseFromParent();
             ci->eraseFromParent();
@@ -919,7 +918,10 @@ struct VISIBILITY_HIDDEN StrLenOptimization : public LibCallOptimization {
 
     // strlen("xyz") -> 3 (for example)
     const Type *Ty = SLC.getTargetData()->getIntPtrType();
-    ci->replaceAllUsesWith(ConstantInt::get(Ty, len));
+    if (Ty->isSigned())
+      ci->replaceAllUsesWith(ConstantInt::get(Ty, len));
+    else
+      ci->replaceAllUsesWith(ConstantInt::get(Ty, len));
      
     ci->eraseFromParent();
     return true;
@@ -932,14 +934,13 @@ static bool IsOnlyUsedInEqualsZeroComparison(Instruction *I) {
   for (Value::use_iterator UI = I->use_begin(), E = I->use_end();
        UI != E; ++UI) {
     Instruction *User = cast<Instruction>(*UI);
-    if (ICmpInst *IC = dyn_cast<ICmpInst>(User)) {
-      if ((IC->getPredicate() == ICmpInst::ICMP_NE ||
-           IC->getPredicate() == ICmpInst::ICMP_EQ) &&
-          isa<Constant>(IC->getOperand(1)) &&
-          cast<Constant>(IC->getOperand(1))->isNullValue())
+    if (User->getOpcode() == Instruction::SetNE ||
+        User->getOpcode() == Instruction::SetEQ) {
+      if (isa<Constant>(User->getOperand(1)) && 
+          cast<Constant>(User->getOperand(1))->isNullValue())
         continue;
     } else if (CastInst *CI = dyn_cast<CastInst>(User))
-      if (CI->getType() == Type::Int1Ty)
+      if (CI->getType() == Type::BoolTy)
         continue;
     // Unknown instruction.
     return false;
@@ -949,7 +950,7 @@ static bool IsOnlyUsedInEqualsZeroComparison(Instruction *I) {
 
 /// This memcmpOptimization will simplify a call to the memcmp library
 /// function.
-struct VISIBILITY_HIDDEN memcmpOptimization : public LibCallOptimization {
+struct memcmpOptimization : public LibCallOptimization {
   /// @brief Default Constructor
   memcmpOptimization()
     : LibCallOptimization("memcmp", "Number of 'memcmp' calls simplified") {}
@@ -995,17 +996,14 @@ struct VISIBILITY_HIDDEN memcmpOptimization : public LibCallOptimization {
       return true;
     case 1: {
       // memcmp(S1,S2,1) -> *(ubyte*)S1 - *(ubyte*)S2
-      const Type *UCharPtr = PointerType::get(Type::Int8Ty);
-      CastInst *Op1Cast = CastInst::create(
-          Instruction::BitCast, LHS, UCharPtr, LHS->getName(), CI);
-      CastInst *Op2Cast = CastInst::create(
-          Instruction::BitCast, RHS, UCharPtr, RHS->getName(), CI);
+      const Type *UCharPtr = PointerType::get(Type::UByteTy);
+      CastInst *Op1Cast = new CastInst(LHS, UCharPtr, LHS->getName(), CI);
+      CastInst *Op2Cast = new CastInst(RHS, UCharPtr, RHS->getName(), CI);
       Value *S1V = new LoadInst(Op1Cast, LHS->getName()+".val", CI);
       Value *S2V = new LoadInst(Op2Cast, RHS->getName()+".val", CI);
       Value *RV = BinaryOperator::createSub(S1V, S2V, CI->getName()+".diff",CI);
       if (RV->getType() != CI->getType())
-        RV = CastInst::createIntegerCast(RV, CI->getType(), false, 
-                                         RV->getName(), CI);
+        RV = new CastInst(RV, CI->getType(), RV->getName(), CI);
       CI->replaceAllUsesWith(RV);
       CI->eraseFromParent();
       return true;
@@ -1015,16 +1013,14 @@ struct VISIBILITY_HIDDEN memcmpOptimization : public LibCallOptimization {
         // TODO: IF both are aligned, use a short load/compare.
       
         // memcmp(S1,S2,2) -> S1[0]-S2[0] | S1[1]-S2[1] iff only ==/!= 0 matters
-        const Type *UCharPtr = PointerType::get(Type::Int8Ty);
-        CastInst *Op1Cast = CastInst::create(
-            Instruction::BitCast, LHS, UCharPtr, LHS->getName(), CI);
-        CastInst *Op2Cast = CastInst::create(
-            Instruction::BitCast, RHS, UCharPtr, RHS->getName(), CI);
+        const Type *UCharPtr = PointerType::get(Type::UByteTy);
+        CastInst *Op1Cast = new CastInst(LHS, UCharPtr, LHS->getName(), CI);
+        CastInst *Op2Cast = new CastInst(RHS, UCharPtr, RHS->getName(), CI);
         Value *S1V1 = new LoadInst(Op1Cast, LHS->getName()+".val1", CI);
         Value *S2V1 = new LoadInst(Op2Cast, RHS->getName()+".val1", CI);
         Value *D1 = BinaryOperator::createSub(S1V1, S2V1,
                                               CI->getName()+".d1", CI);
-        Constant *One = ConstantInt::get(Type::Int32Ty, 1);
+        Constant *One = ConstantInt::get(Type::IntTy, 1);
         Value *G1 = new GetElementPtrInst(Op1Cast, One, "next1v", CI);
         Value *G2 = new GetElementPtrInst(Op2Cast, One, "next2v", CI);
         Value *S1V2 = new LoadInst(G1, LHS->getName()+".val2", CI);
@@ -1033,8 +1029,7 @@ struct VISIBILITY_HIDDEN memcmpOptimization : public LibCallOptimization {
                                               CI->getName()+".d1", CI);
         Value *Or = BinaryOperator::createOr(D1, D2, CI->getName()+".res", CI);
         if (Or->getType() != CI->getType())
-          Or = CastInst::createIntegerCast(Or, CI->getType(), false /*ZExt*/, 
-                                           Or->getName(), CI);
+          Or = new CastInst(Or, CI->getType(), Or->getName(), CI);
         CI->replaceAllUsesWith(Or);
         CI->eraseFromParent();
         return true;
@@ -1054,7 +1049,7 @@ struct VISIBILITY_HIDDEN memcmpOptimization : public LibCallOptimization {
 /// bytes depending on the length of the string and the alignment. Additional
 /// optimizations are possible in code generation (sequence of immediate store)
 /// @brief Simplify the memcpy library function.
-struct VISIBILITY_HIDDEN LLVMMemCpyMoveOptzn : public LibCallOptimization {
+struct LLVMMemCpyMoveOptzn : public LibCallOptimization {
   LLVMMemCpyMoveOptzn(const char* fname, const char* desc)
   : LibCallOptimization(fname, desc) {}
 
@@ -1090,26 +1085,26 @@ struct VISIBILITY_HIDDEN LLVMMemCpyMoveOptzn : public LibCallOptimization {
     // Get the type we will cast to, based on size of the string
     Value* dest = ci->getOperand(1);
     Value* src = ci->getOperand(2);
-    const Type* castType = 0;
+    Type* castType = 0;
     switch (len)
     {
       case 0:
         // memcpy(d,s,0,a) -> noop
         ci->eraseFromParent();
         return true;
-      case 1: castType = Type::Int8Ty; break;
-      case 2: castType = Type::Int16Ty; break;
-      case 4: castType = Type::Int32Ty; break;
-      case 8: castType = Type::Int64Ty; break;
+      case 1: castType = Type::SByteTy; break;
+      case 2: castType = Type::ShortTy; break;
+      case 4: castType = Type::IntTy; break;
+      case 8: castType = Type::LongTy; break;
       default:
         return false;
     }
 
     // Cast source and dest to the right sized primitive and then load/store
-    CastInst* SrcCast = CastInst::create(Instruction::BitCast,
-        src, PointerType::get(castType), src->getName()+".cast", ci);
-    CastInst* DestCast = CastInst::create(Instruction::BitCast,
-        dest, PointerType::get(castType),dest->getName()+".cast", ci);
+    CastInst* SrcCast =
+      new CastInst(src,PointerType::get(castType),src->getName()+".cast",ci);
+    CastInst* DestCast =
+      new CastInst(dest,PointerType::get(castType),dest->getName()+".cast",ci);
     LoadInst* LI = new LoadInst(SrcCast,SrcCast->getName()+".val",ci);
     new StoreInst(LI, DestCast, ci);
     ci->eraseFromParent();
@@ -1131,7 +1126,7 @@ LLVMMemCpyMoveOptzn LLVMMemMoveOptimizer64("llvm.memmove.i64",
 /// This LibCallOptimization will simplify a call to the memset library
 /// function by expanding it out to a single store of size 0, 1, 2, 4, or 8
 /// bytes depending on the length argument.
-struct VISIBILITY_HIDDEN LLVMMemSetOptimization : public LibCallOptimization {
+struct LLVMMemSetOptimization : public LibCallOptimization {
   /// @brief Default Constructor
   LLVMMemSetOptimization(const char *Name) : LibCallOptimization(Name,
       "Number of 'llvm.memset' calls simplified") {}
@@ -1182,7 +1177,7 @@ struct VISIBILITY_HIDDEN LLVMMemSetOptimization : public LibCallOptimization {
     ConstantInt* FILL = dyn_cast<ConstantInt>(ci->getOperand(2));
     if (!FILL)
       return false;
-    if (FILL->getType() != Type::Int8Ty)
+    if (FILL->getType() != Type::UByteTy)
       return false;
 
     // memset(s,c,n) -> store s, c (for n=1,2,4,8)
@@ -1194,21 +1189,21 @@ struct VISIBILITY_HIDDEN LLVMMemSetOptimization : public LibCallOptimization {
     // Get the type we will cast to, based on size of memory area to fill, and
     // and the value we will store there.
     Value* dest = ci->getOperand(1);
-    const Type* castType = 0;
+    Type* castType = 0;
     switch (len) {
       case 1:
-        castType = Type::Int8Ty;
+        castType = Type::UByteTy;
         break;
       case 2:
-        castType = Type::Int16Ty;
+        castType = Type::UShortTy;
         fill_value |= fill_char << 8;
         break;
       case 4:
-        castType = Type::Int32Ty;
+        castType = Type::UIntTy;
         fill_value |= fill_char << 8 | fill_char << 16 | fill_char << 24;
         break;
       case 8:
-        castType = Type::Int64Ty;
+        castType = Type::ULongTy;
         fill_value |= fill_char << 8 | fill_char << 16 | fill_char << 24;
         fill_value |= fill_char << 32 | fill_char << 40 | fill_char << 48;
         fill_value |= fill_char << 56;
@@ -1218,8 +1213,8 @@ struct VISIBILITY_HIDDEN LLVMMemSetOptimization : public LibCallOptimization {
     }
 
     // Cast dest to the right sized primitive and then load/store
-    CastInst* DestCast = new BitCastInst(dest, PointerType::get(castType), 
-                                         dest->getName()+".cast", ci);
+    CastInst* DestCast =
+      new CastInst(dest,PointerType::get(castType),dest->getName()+".cast",ci);
     new StoreInst(ConstantInt::get(castType,fill_value),DestCast, ci);
     ci->eraseFromParent();
     return true;
@@ -1234,7 +1229,7 @@ LLVMMemSetOptimization MemSet64Optimizer("llvm.memset.i64");
 /// function. It looks for cases where the result of pow is well known and
 /// substitutes the appropriate value.
 /// @brief Simplify the pow library function.
-struct VISIBILITY_HIDDEN PowOptimization : public LibCallOptimization {
+struct PowOptimization : public LibCallOptimization {
 public:
   /// @brief Default Constructor
   PowOptimization() : LibCallOptimization("pow",
@@ -1295,7 +1290,7 @@ public:
 /// function. It looks for cases where the result of printf is not used and the
 /// operation can be reduced to something simpler.
 /// @brief Simplify the printf library function.
-struct VISIBILITY_HIDDEN PrintfOptimization : public LibCallOptimization {
+struct PrintfOptimization : public LibCallOptimization {
 public:
   /// @brief Default Constructor
   PrintfOptimization() : LibCallOptimization("printf",
@@ -1343,10 +1338,13 @@ public:
           return false;
 
         // printf("%s\n",str) -> puts(str)
+        Function* puts_func = SLC.get_puts();
+        if (!puts_func)
+          return false;
         std::vector<Value*> args;
-        new CallInst(SLC.get_puts(), CastToCStr(ci->getOperand(2), *ci),
-                     ci->getName(), ci);
-        ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty, len));
+        args.push_back(CastToCStr(ci->getOperand(2), *ci));
+        new CallInst(puts_func,args,ci->getName(),ci);
+        ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,len));
         break;
       }
       case 'c':
@@ -1355,10 +1353,13 @@ public:
         if (len != 2)
           return false;
 
-        CastInst *Char = CastInst::createSExtOrBitCast(
-            ci->getOperand(2), Type::Int32Ty, CI->getName()+".int", ci);
-        new CallInst(SLC.get_putchar(), Char, "", ci);
-        ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty, 1));
+        Function* putchar_func = SLC.get_putchar();
+        if (!putchar_func)
+          return false;
+        CastInst* cast = new CastInst(ci->getOperand(2), Type::IntTy,
+                                      CI->getName()+".int", ci);
+        new CallInst(putchar_func, cast, "", ci);
+        ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy, 1));
         break;
       }
       default:
@@ -1373,7 +1374,7 @@ public:
 /// function. It looks for cases where the result of fprintf is not used and the
 /// operation can be reduced to something simpler.
 /// @brief Simplify the fprintf library function.
-struct VISIBILITY_HIDDEN FPrintFOptimization : public LibCallOptimization {
+struct FPrintFOptimization : public LibCallOptimization {
 public:
   /// @brief Default Constructor
   FPrintFOptimization() : LibCallOptimization("fprintf",
@@ -1417,10 +1418,14 @@ public:
 
       // fprintf(file,fmt) -> fwrite(fmt,strlen(fmt),file)
       const Type* FILEptr_type = ci->getOperand(1)->getType();
+      Function* fwrite_func = SLC.get_fwrite(FILEptr_type);
+      if (!fwrite_func)
+        return false;
 
       // Make sure that the fprintf() and fwrite() functions both take the
       // same type of char pointer.
-      if (ci->getOperand(2)->getType() != PointerType::get(Type::Int8Ty))
+      if (ci->getOperand(2)->getType() !=
+          fwrite_func->getFunctionType()->getParamType(0))
         return false;
 
       std::vector<Value*> args;
@@ -1428,8 +1433,8 @@ public:
       args.push_back(ConstantInt::get(SLC.getIntPtrType(),len));
       args.push_back(ConstantInt::get(SLC.getIntPtrType(),1));
       args.push_back(ci->getOperand(1));
-      new CallInst(SLC.get_fwrite(FILEptr_type), args, ci->getName(), ci);
-      ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,len));
+      new CallInst(fwrite_func,args,ci->getName(),ci);
+      ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,len));
       ci->eraseFromParent();
       return true;
     }
@@ -1454,20 +1459,27 @@ public:
         if (getConstantStringLength(ci->getOperand(3), len, &CA)) {
           // fprintf(file,"%s",str) -> fwrite(str,strlen(str),1,file)
           const Type* FILEptr_type = ci->getOperand(1)->getType();
+          Function* fwrite_func = SLC.get_fwrite(FILEptr_type);
+          if (!fwrite_func)
+            return false;
           std::vector<Value*> args;
           args.push_back(CastToCStr(ci->getOperand(3), *ci));
-          args.push_back(ConstantInt::get(SLC.getIntPtrType(), len));
-          args.push_back(ConstantInt::get(SLC.getIntPtrType(), 1));
+          args.push_back(ConstantInt::get(SLC.getIntPtrType(),len));
+          args.push_back(ConstantInt::get(SLC.getIntPtrType(),1));
           args.push_back(ci->getOperand(1));
-          new CallInst(SLC.get_fwrite(FILEptr_type), args, ci->getName(), ci);
-          ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty, len));
+          new CallInst(fwrite_func,args,ci->getName(),ci);
+          ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,len));
         } else {
           // fprintf(file,"%s",str) -> fputs(str,file)
           const Type* FILEptr_type = ci->getOperand(1)->getType();
-          new CallInst(SLC.get_fputs(FILEptr_type),
-                       CastToCStr(ci->getOperand(3), *ci),
-                       ci->getOperand(1), ci->getName(),ci);
-          ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,len));
+          Function* fputs_func = SLC.get_fputs(FILEptr_type);
+          if (!fputs_func)
+            return false;
+          std::vector<Value*> args;
+          args.push_back(CastToCStr(ci->getOperand(3), *ci));
+          args.push_back(ci->getOperand(1));
+          new CallInst(fputs_func,args,ci->getName(),ci);
+          ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,len));
         }
         break;
       }
@@ -1475,10 +1487,13 @@ public:
       {
         // fprintf(file,"%c",c) -> fputc(c,file)
         const Type* FILEptr_type = ci->getOperand(1)->getType();
-        CastInst* cast = CastInst::createSExtOrBitCast(
-            ci->getOperand(3), Type::Int32Ty, CI->getName()+".int", ci);
-        new CallInst(SLC.get_fputc(FILEptr_type), cast,ci->getOperand(1),"",ci);
-        ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,1));
+        Function* fputc_func = SLC.get_fputc(FILEptr_type);
+        if (!fputc_func)
+          return false;
+        CastInst* cast = new CastInst(ci->getOperand(3), Type::IntTy,
+                                      CI->getName()+".int", ci);
+        new CallInst(fputc_func,cast,ci->getOperand(1),"",ci);
+        ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,1));
         break;
       }
       default:
@@ -1493,7 +1508,7 @@ public:
 /// function. It looks for cases where the result of sprintf is not used and the
 /// operation can be reduced to something simpler.
 /// @brief Simplify the sprintf library function.
-struct VISIBILITY_HIDDEN SPrintFOptimization : public LibCallOptimization {
+struct SPrintFOptimization : public LibCallOptimization {
 public:
   /// @brief Default Constructor
   SPrintFOptimization() : LibCallOptimization("sprintf",
@@ -1502,7 +1517,7 @@ public:
   /// @brief Make sure that the "fprintf" function has the right prototype
   virtual bool ValidateCalledFunction(const Function *f, SimplifyLibCalls &SLC){
     // Just make sure this has at least 2 arguments
-    return (f->getReturnType() == Type::Int32Ty && f->arg_size() >= 2);
+    return (f->getReturnType() == Type::IntTy && f->arg_size() >= 2);
   }
 
   /// @brief Perform the sprintf optimization.
@@ -1521,8 +1536,8 @@ public:
     if (ci->getNumOperands() == 3) {
       if (len == 0) {
         // If the length is 0, we just need to store a null byte
-        new StoreInst(ConstantInt::get(Type::Int8Ty,0),ci->getOperand(1),ci);
-        ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,0));
+        new StoreInst(ConstantInt::get(Type::SByteTy,0),ci->getOperand(1),ci);
+        ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,0));
         ci->eraseFromParent();
         return true;
       }
@@ -1542,13 +1557,16 @@ public:
       len++;
 
       // sprintf(str,fmt) -> llvm.memcpy(str,fmt,strlen(fmt),1)
+      Function* memcpy_func = SLC.get_memcpy();
+      if (!memcpy_func)
+        return false;
       std::vector<Value*> args;
       args.push_back(ci->getOperand(1));
       args.push_back(ci->getOperand(2));
       args.push_back(ConstantInt::get(SLC.getIntPtrType(),len));
-      args.push_back(ConstantInt::get(Type::Int32Ty,1));
-      new CallInst(SLC.get_memcpy(), args, "", ci);
-      ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,len));
+      args.push_back(ConstantInt::get(Type::UIntTy,1));
+      new CallInst(memcpy_func,args,"",ci);
+      ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,len));
       ci->eraseFromParent();
       return true;
     }
@@ -1568,27 +1586,29 @@ public:
     switch (CI->getZExtValue()) {
     case 's': {
       // sprintf(dest,"%s",str) -> llvm.memcpy(dest, str, strlen(str)+1, 1)
-      Value *Len = new CallInst(SLC.get_strlen(),
-                                CastToCStr(ci->getOperand(3), *ci),
+      Function* strlen_func = SLC.get_strlen();
+      Function* memcpy_func = SLC.get_memcpy();
+      if (!strlen_func || !memcpy_func)
+        return false;
+      
+      Value *Len = new CallInst(strlen_func, CastToCStr(ci->getOperand(3), *ci),
                                 ci->getOperand(3)->getName()+".len", ci);
       Value *Len1 = BinaryOperator::createAdd(Len,
                                             ConstantInt::get(Len->getType(), 1),
                                               Len->getName()+"1", ci);
       if (Len1->getType() != SLC.getIntPtrType())
-        Len1 = CastInst::createIntegerCast(Len1, SLC.getIntPtrType(), false,
-                                           Len1->getName(), ci);
+        Len1 = new CastInst(Len1, SLC.getIntPtrType(), Len1->getName(), ci);
       std::vector<Value*> args;
       args.push_back(CastToCStr(ci->getOperand(1), *ci));
       args.push_back(CastToCStr(ci->getOperand(3), *ci));
       args.push_back(Len1);
-      args.push_back(ConstantInt::get(Type::Int32Ty,1));
-      new CallInst(SLC.get_memcpy(), args, "", ci);
+      args.push_back(ConstantInt::get(Type::UIntTy,1));
+      new CallInst(memcpy_func, args, "", ci);
       
       // The strlen result is the unincremented number of bytes in the string.
       if (!ci->use_empty()) {
         if (Len->getType() != ci->getType())
-          Len = CastInst::createIntegerCast(Len, ci->getType(), false, 
-                                            Len->getName(), ci);
+          Len = new CastInst(Len, ci->getType(), Len->getName(), ci);
         ci->replaceAllUsesWith(Len);
       }
       ci->eraseFromParent();
@@ -1596,14 +1616,13 @@ public:
     }
     case 'c': {
       // sprintf(dest,"%c",chr) -> store chr, dest
-      CastInst* cast = CastInst::createTruncOrBitCast(
-          ci->getOperand(3), Type::Int8Ty, "char", ci);
+      CastInst* cast = new CastInst(ci->getOperand(3),Type::SByteTy,"char",ci);
       new StoreInst(cast, ci->getOperand(1), ci);
       GetElementPtrInst* gep = new GetElementPtrInst(ci->getOperand(1),
-        ConstantInt::get(Type::Int32Ty,1),ci->getOperand(1)->getName()+".end",
+        ConstantInt::get(Type::UIntTy,1),ci->getOperand(1)->getName()+".end",
         ci);
-      new StoreInst(ConstantInt::get(Type::Int8Ty,0),gep,ci);
-      ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,1));
+      new StoreInst(ConstantInt::get(Type::SByteTy,0),gep,ci);
+      ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,1));
       ci->eraseFromParent();
       return true;
     }
@@ -1616,7 +1635,7 @@ public:
 /// function. It looks for cases where the result of fputs is not used and the
 /// operation can be reduced to something simpler.
 /// @brief Simplify the puts library function.
-struct VISIBILITY_HIDDEN PutsOptimization : public LibCallOptimization {
+struct PutsOptimization : public LibCallOptimization {
 public:
   /// @brief Default Constructor
   PutsOptimization() : LibCallOptimization("fputs",
@@ -1648,24 +1667,29 @@ public:
       {
         // fputs(s,F)  -> fputc(s[0],F)  (if s is constant and strlen(s) == 1)
         const Type* FILEptr_type = ci->getOperand(2)->getType();
+        Function* fputc_func = SLC.get_fputc(FILEptr_type);
+        if (!fputc_func)
+          return false;
         LoadInst* loadi = new LoadInst(ci->getOperand(1),
           ci->getOperand(1)->getName()+".byte",ci);
-        CastInst* casti = new SExtInst(loadi, Type::Int32Ty, 
-                                       loadi->getName()+".int", ci);
-        new CallInst(SLC.get_fputc(FILEptr_type), casti,
-                     ci->getOperand(2), "", ci);
+        CastInst* casti = new CastInst(loadi,Type::IntTy,
+          loadi->getName()+".int",ci);
+        new CallInst(fputc_func,casti,ci->getOperand(2),"",ci);
         break;
       }
       default:
       {
         // fputs(s,F)  -> fwrite(s,1,len,F) (if s is constant and strlen(s) > 1)
         const Type* FILEptr_type = ci->getOperand(2)->getType();
+        Function* fwrite_func = SLC.get_fwrite(FILEptr_type);
+        if (!fwrite_func)
+          return false;
         std::vector<Value*> parms;
         parms.push_back(ci->getOperand(1));
         parms.push_back(ConstantInt::get(SLC.getIntPtrType(),len));
         parms.push_back(ConstantInt::get(SLC.getIntPtrType(),1));
         parms.push_back(ci->getOperand(2));
-        new CallInst(SLC.get_fwrite(FILEptr_type), parms, "", ci);
+        new CallInst(fwrite_func,parms,"",ci);
         break;
       }
     }
@@ -1677,7 +1701,7 @@ public:
 /// This LibCallOptimization will simplify calls to the "isdigit" library
 /// function. It simply does range checks the parameter explicitly.
 /// @brief Simplify the isdigit library function.
-struct VISIBILITY_HIDDEN isdigitOptimization : public LibCallOptimization {
+struct isdigitOptimization : public LibCallOptimization {
 public:
   isdigitOptimization() : LibCallOptimization("isdigit",
       "Number of 'isdigit' calls simplified") {}
@@ -1694,31 +1718,33 @@ public:
       // isdigit(c)   -> 0 or 1, if 'c' is constant
       uint64_t val = CI->getZExtValue();
       if (val >= '0' && val <='9')
-        ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,1));
+        ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,1));
       else
-        ci->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty,0));
+        ci->replaceAllUsesWith(ConstantInt::get(Type::IntTy,0));
       ci->eraseFromParent();
       return true;
     }
 
     // isdigit(c)   -> (unsigned)c - '0' <= 9
-    CastInst* cast = CastInst::createIntegerCast(ci->getOperand(1),
-        Type::Int32Ty, false/*ZExt*/, ci->getOperand(1)->getName()+".uint", ci);
+    CastInst* cast =
+      new CastInst(ci->getOperand(1),Type::UIntTy,
+        ci->getOperand(1)->getName()+".uint",ci);
     BinaryOperator* sub_inst = BinaryOperator::createSub(cast,
-        ConstantInt::get(Type::Int32Ty,0x30),
+        ConstantInt::get(Type::UIntTy,0x30),
         ci->getOperand(1)->getName()+".sub",ci);
-    ICmpInst* setcond_inst = new ICmpInst(ICmpInst::ICMP_ULE,sub_inst,
-        ConstantInt::get(Type::Int32Ty,9),
+    SetCondInst* setcond_inst = new SetCondInst(Instruction::SetLE,sub_inst,
+        ConstantInt::get(Type::UIntTy,9),
         ci->getOperand(1)->getName()+".cmp",ci);
-    CastInst* c2 = new ZExtInst(setcond_inst, Type::Int32Ty, 
-        ci->getOperand(1)->getName()+".isdigit", ci);
+    CastInst* c2 =
+      new CastInst(setcond_inst,Type::IntTy,
+        ci->getOperand(1)->getName()+".isdigit",ci);
     ci->replaceAllUsesWith(c2);
     ci->eraseFromParent();
     return true;
   }
 } isdigitOptimizer;
 
-struct VISIBILITY_HIDDEN isasciiOptimization : public LibCallOptimization {
+struct isasciiOptimization : public LibCallOptimization {
 public:
   isasciiOptimization()
     : LibCallOptimization("isascii", "Number of 'isascii' calls simplified") {}
@@ -1732,11 +1758,13 @@ public:
   virtual bool OptimizeCall(CallInst *CI, SimplifyLibCalls &SLC) {
     // isascii(c)   -> (unsigned)c < 128
     Value *V = CI->getOperand(1);
-    Value *Cmp = new ICmpInst(ICmpInst::ICMP_ULT, V, 
-                              ConstantInt::get(V->getType(), 128), 
-                              V->getName()+".isascii", CI);
+    if (V->getType()->isSigned())
+      V = new CastInst(V, V->getType()->getUnsignedVersion(), V->getName(), CI);
+    Value *Cmp = BinaryOperator::createSetLT(V, ConstantInt::get(V->getType(),
+                                                                  128),
+                                             V->getName()+".isascii", CI);
     if (Cmp->getType() != CI->getType())
-      Cmp = new BitCastInst(Cmp, CI->getType(), Cmp->getName(), CI);
+      Cmp = new CastInst(Cmp, CI->getType(), Cmp->getName(), CI);
     CI->replaceAllUsesWith(Cmp);
     CI->eraseFromParent();
     return true;
@@ -1748,7 +1776,7 @@ public:
 /// function. It simply does the corresponding and operation to restrict the
 /// range of values to the ASCII character set (0-127).
 /// @brief Simplify the toascii library function.
-struct VISIBILITY_HIDDEN ToAsciiOptimization : public LibCallOptimization {
+struct ToAsciiOptimization : public LibCallOptimization {
 public:
   /// @brief Default Constructor
   ToAsciiOptimization() : LibCallOptimization("toascii",
@@ -1777,7 +1805,7 @@ public:
 /// optimization is to compute the result at compile time if the argument is
 /// a constant.
 /// @brief Simplify the ffs library function.
-struct VISIBILITY_HIDDEN FFSOptimization : public LibCallOptimization {
+struct FFSOptimization : public LibCallOptimization {
 protected:
   /// @brief Subclass Constructor
   FFSOptimization(const char* funcName, const char* description)
@@ -1791,7 +1819,7 @@ public:
   /// @brief Make sure that the "ffs" function has the right prototype
   virtual bool ValidateCalledFunction(const Function *F, SimplifyLibCalls &SLC){
     // Just make sure this has 2 arguments
-    return F->arg_size() == 1 && F->getReturnType() == Type::Int32Ty;
+    return F->arg_size() == 1 && F->getReturnType() == Type::IntTy;
   }
 
   /// @brief Perform the ffs optimization.
@@ -1809,7 +1837,7 @@ public:
           val >>= 1;
         }
       }
-      TheCall->replaceAllUsesWith(ConstantInt::get(Type::Int32Ty, result));
+      TheCall->replaceAllUsesWith(ConstantInt::get(Type::IntTy, result));
       TheCall->eraseFromParent();
       return true;
     }
@@ -1818,34 +1846,27 @@ public:
     // ffsl(x)  -> x == 0 ? 0 : llvm.cttz(x)+1
     // ffsll(x) -> x == 0 ? 0 : llvm.cttz(x)+1
     const Type *ArgType = TheCall->getOperand(1)->getType();
+    ArgType = ArgType->getUnsignedVersion();
     const char *CTTZName;
-    assert(ArgType->getTypeID() == Type::IntegerTyID &&
-           "llvm.cttz argument is not an integer?");
-    unsigned BitWidth = cast<IntegerType>(ArgType)->getBitWidth();
-    if (BitWidth == 8)
-      CTTZName = "llvm.cttz.i8";
-    else if (BitWidth == 16)
-      CTTZName = "llvm.cttz.i16"; 
-    else if (BitWidth == 32)
-      CTTZName = "llvm.cttz.i32";
-    else {
-      assert(BitWidth == 64 && "Unknown bitwidth");
-      CTTZName = "llvm.cttz.i64";
+    switch (ArgType->getTypeID()) {
+    default: assert(0 && "Unknown unsigned type!");
+    case Type::UByteTyID : CTTZName = "llvm.cttz.i8" ; break;
+    case Type::UShortTyID: CTTZName = "llvm.cttz.i16"; break;
+    case Type::UIntTyID  : CTTZName = "llvm.cttz.i32"; break;
+    case Type::ULongTyID : CTTZName = "llvm.cttz.i64"; break;
     }
     
-    Constant *F = SLC.getModule()->getOrInsertFunction(CTTZName, ArgType,
+    Function *F = SLC.getModule()->getOrInsertFunction(CTTZName, ArgType,
                                                        ArgType, NULL);
-    Value *V = CastInst::createIntegerCast(TheCall->getOperand(1), ArgType, 
-                                           false/*ZExt*/, "tmp", TheCall);
+    Value *V = new CastInst(TheCall->getOperand(1), ArgType, "tmp", TheCall);
     Value *V2 = new CallInst(F, V, "tmp", TheCall);
-    V2 = CastInst::createIntegerCast(V2, Type::Int32Ty, false/*ZExt*/, 
-                                     "tmp", TheCall);
-    V2 = BinaryOperator::createAdd(V2, ConstantInt::get(Type::Int32Ty, 1),
+    V2 = new CastInst(V2, Type::IntTy, "tmp", TheCall);
+    V2 = BinaryOperator::createAdd(V2, ConstantInt::get(Type::IntTy, 1),
                                    "tmp", TheCall);
-    Value *Cond = new ICmpInst(ICmpInst::ICMP_EQ, V, 
-                               Constant::getNullValue(V->getType()), "tmp", 
-                               TheCall);
-    V2 = new SelectInst(Cond, ConstantInt::get(Type::Int32Ty, 0), V2,
+    Value *Cond = 
+      BinaryOperator::createSetEQ(V, Constant::getNullValue(V->getType()),
+                                  "tmp", TheCall);
+    V2 = new SelectInst(Cond, ConstantInt::get(Type::IntTy, 0), V2,
                         TheCall->getName(), TheCall);
     TheCall->replaceAllUsesWith(V2);
     TheCall->eraseFromParent();
@@ -1857,7 +1878,7 @@ public:
 /// calls. It simply uses FFSOptimization for which the transformation is
 /// identical.
 /// @brief Simplify the ffsl library function.
-struct VISIBILITY_HIDDEN FFSLOptimization : public FFSOptimization {
+struct FFSLOptimization : public FFSOptimization {
 public:
   /// @brief Default Constructor
   FFSLOptimization() : FFSOptimization("ffsl",
@@ -1869,7 +1890,7 @@ public:
 /// calls. It simply uses FFSOptimization for which the transformation is
 /// identical.
 /// @brief Simplify the ffsl library function.
-struct VISIBILITY_HIDDEN FFSLLOptimization : public FFSOptimization {
+struct FFSLLOptimization : public FFSOptimization {
 public:
   /// @brief Default Constructor
   FFSLLOptimization() : FFSOptimization("ffsll",
@@ -1894,12 +1915,12 @@ struct UnaryDoubleFPOptimizer : public LibCallOptimization {
   /// when the target supports the destination function and where there can be
   /// no precision loss.
   static bool ShrinkFunctionToFloatVersion(CallInst *CI, SimplifyLibCalls &SLC,
-                                           Constant *(SimplifyLibCalls::*FP)()){
+                                           Function *(SimplifyLibCalls::*FP)()){
     if (CastInst *Cast = dyn_cast<CastInst>(CI->getOperand(1)))
       if (Cast->getOperand(0)->getType() == Type::FloatTy) {
         Value *New = new CallInst((SLC.*FP)(), Cast->getOperand(0),
                                   CI->getName(), CI);
-        New = new FPExtInst(New, Type::DoubleTy, CI->getName(), CI);
+        New = new CastInst(New, Type::DoubleTy, CI->getName(), CI);
         CI->replaceAllUsesWith(New);
         CI->eraseFromParent();
         if (Cast->use_empty())
@@ -1911,7 +1932,7 @@ struct UnaryDoubleFPOptimizer : public LibCallOptimization {
 };
 
 
-struct VISIBILITY_HIDDEN FloorOptimization : public UnaryDoubleFPOptimizer {
+struct FloorOptimization : public UnaryDoubleFPOptimizer {
   FloorOptimization()
     : UnaryDoubleFPOptimizer("floor", "Number of 'floor' calls simplified") {}
   
@@ -1925,7 +1946,7 @@ struct VISIBILITY_HIDDEN FloorOptimization : public UnaryDoubleFPOptimizer {
   }
 } FloorOptimizer;
 
-struct VISIBILITY_HIDDEN CeilOptimization : public UnaryDoubleFPOptimizer {
+struct CeilOptimization : public UnaryDoubleFPOptimizer {
   CeilOptimization()
   : UnaryDoubleFPOptimizer("ceil", "Number of 'ceil' calls simplified") {}
   
@@ -1939,7 +1960,7 @@ struct VISIBILITY_HIDDEN CeilOptimization : public UnaryDoubleFPOptimizer {
   }
 } CeilOptimizer;
 
-struct VISIBILITY_HIDDEN RoundOptimization : public UnaryDoubleFPOptimizer {
+struct RoundOptimization : public UnaryDoubleFPOptimizer {
   RoundOptimization()
   : UnaryDoubleFPOptimizer("round", "Number of 'round' calls simplified") {}
   
@@ -1953,7 +1974,7 @@ struct VISIBILITY_HIDDEN RoundOptimization : public UnaryDoubleFPOptimizer {
   }
 } RoundOptimizer;
 
-struct VISIBILITY_HIDDEN RintOptimization : public UnaryDoubleFPOptimizer {
+struct RintOptimization : public UnaryDoubleFPOptimizer {
   RintOptimization()
   : UnaryDoubleFPOptimizer("rint", "Number of 'rint' calls simplified") {}
   
@@ -1967,7 +1988,7 @@ struct VISIBILITY_HIDDEN RintOptimization : public UnaryDoubleFPOptimizer {
   }
 } RintOptimizer;
 
-struct VISIBILITY_HIDDEN NearByIntOptimization : public UnaryDoubleFPOptimizer {
+struct NearByIntOptimization : public UnaryDoubleFPOptimizer {
   NearByIntOptimization()
   : UnaryDoubleFPOptimizer("nearbyint",
                            "Number of 'nearbyint' calls simplified") {}
@@ -1992,8 +2013,7 @@ struct VISIBILITY_HIDDEN NearByIntOptimization : public UnaryDoubleFPOptimizer {
 /// of the null-terminated string. If false is returned, the conditions were
 /// not met and len is set to 0.
 /// @brief Get the length of a constant string (null-terminated array).
-static bool getConstantStringLength(Value *V, uint64_t &len, ConstantArray **CA)
-{
+bool getConstantStringLength(Value *V, uint64_t &len, ConstantArray **CA) {
   assert(V != 0 && "Invalid args to getConstantStringLength");
   len = 0; // make sure we initialize this
   User* GEP = 0;
@@ -2082,12 +2102,10 @@ static bool getConstantStringLength(Value *V, uint64_t &len, ConstantArray **CA)
 /// CastToCStr - Return V if it is an sbyte*, otherwise cast it to sbyte*,
 /// inserting the cast before IP, and return the cast.
 /// @brief Cast a value to a "C" string.
-static Value *CastToCStr(Value *V, Instruction &IP) {
-  assert(isa<PointerType>(V->getType()) && 
-         "Can't cast non-pointer type to C string type");
-  const Type *SBPTy = PointerType::get(Type::Int8Ty);
+Value *CastToCStr(Value *V, Instruction &IP) {
+  const Type *SBPTy = PointerType::get(Type::SByteTy);
   if (V->getType() != SBPTy)
-    return new BitCastInst(V, SBPTy, V->getName(), &IP);
+    return new CastInst(V, SBPTy, V->getName(), &IP);
   return V;
 }
 

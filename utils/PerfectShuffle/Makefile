@@ -9,6 +9,5 @@
 
 LEVEL = ../..
 TOOLNAME = llvm-PerfectShuffle
-NO_INSTALL = 1
 include $(LEVEL)/Makefile.common
 

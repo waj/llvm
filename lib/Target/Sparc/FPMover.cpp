@@ -11,21 +11,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "fpmover"
 #include "Sparc.h"
 #include "SparcSubtarget.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/Debug.h"
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(NumFpDs , "Number of instructions translated");
-STATISTIC(NoopFpDs, "Number of noop instructions removed");
-
 namespace {
+  Statistic<> NumFpDs("fpmover", "Number of instructions translated");
+  Statistic<> NoopFpDs("fpmover", "Number of noop instructions removed");
+
   struct FPMover : public MachineFunctionPass {
     /// Target machine description which we query for reg. names, data
     /// layout, etc.
@@ -96,24 +95,22 @@ bool FPMover::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
       getDoubleRegPair(DestDReg, EvenDestReg, OddDestReg);
       getDoubleRegPair(SrcDReg, EvenSrcReg, OddSrcReg);
 
-      const TargetInstrInfo *TII = TM.getInstrInfo();
       if (MI->getOpcode() == SP::FpMOVD)
-        MI->setInstrDescriptor(TII->get(SP::FMOVS));
+        MI->setOpcode(SP::FMOVS);
       else if (MI->getOpcode() == SP::FpNEGD)
-        MI->setInstrDescriptor(TII->get(SP::FNEGS));
+        MI->setOpcode(SP::FNEGS);
       else if (MI->getOpcode() == SP::FpABSD)
-        MI->setInstrDescriptor(TII->get(SP::FABSS));
+        MI->setOpcode(SP::FABSS);
       else
         assert(0 && "Unknown opcode!");
         
       MI->getOperand(0).setReg(EvenDestReg);
       MI->getOperand(1).setReg(EvenSrcReg);
-      DOUT << "FPMover: the modified instr is: " << *MI;
+      DEBUG(std::cerr << "FPMover: the modified instr is: " << *MI);
       // Insert copy for the other half of the double.
       if (DestDReg != SrcDReg) {
-        MI = BuildMI(MBB, I, TM.getInstrInfo()->get(SP::FMOVS), OddDestReg)
-          .addReg(OddSrcReg);
-        DOUT << "FPMover: the inserted instr is: " << *MI;
+        MI = BuildMI(MBB, I, SP::FMOVS, 1, OddDestReg).addReg(OddSrcReg);
+        DEBUG(std::cerr << "FPMover: the inserted instr is: " << *MI);
       }
       ++NumFpDs;
     }

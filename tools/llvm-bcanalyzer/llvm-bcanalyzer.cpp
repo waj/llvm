@@ -32,8 +32,6 @@
 #include "llvm/Analysis/Verifier.h"
 #include "llvm/Bytecode/Analyzer.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compressor.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/System/Signals.h"
 #include <fstream>
 #include <iostream>
@@ -50,8 +48,8 @@ static cl::opt<bool> NoDetails ("nodetails", cl::desc("Skip detailed output"));
 static cl::opt<bool> Dump      ("dump", cl::desc("Dump low level bytecode trace"));
 static cl::opt<bool> Verify    ("verify", cl::desc("Progressively verify module"));
 
-int main(int argc, char **argv) {
-  llvm_shutdown_obj X;  // Call llvm_shutdown() on exit.
+int
+main(int argc, char **argv) {
   try {
     cl::ParseCommandLineOptions(argc, argv,
       " llvm-bcanalyzer Analysis of ByteCode Dumper\n");
@@ -67,9 +65,7 @@ int main(int argc, char **argv) {
     bca.progressiveVerify = Verify;
 
     /// Analyze the bytecode file
-    Module* M = AnalyzeBytecodeFile(InputFilename, bca, 
-                                    Compressor::decompressToNewBuffer,
-                                    &ErrorMessage, (Dump?Out:0));
+    Module* M = AnalyzeBytecodeFile(InputFilename, bca, &ErrorMessage, (Dump?Out:0));
 
     // All that bcanalyzer does is write the gathered statistics to the output
     PrintBytecodeAnalysis(bca,*Out);

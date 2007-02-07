@@ -1,9 +1,8 @@
 ; Make sure that the compare instruction occurs after the increment to avoid
-; having overlapping live ranges that result in copies.  We want the setcc 
-; instruction immediately before the conditional branch.
+; having overlapping live ranges that result in copies.  We want the setcc instruction
+; immediately before the conditional branch.
 ;
-; RUN: llvm-upgrade < %s | llvm-as | opt -loop-reduce | llvm-dis | \
-; RUN:    %prcontext 'br i1' 1 | grep icmp
+; RUN: llvm-as < %s | opt -loop-reduce | llvm-dis | %prcontext 'br bool' 1 | grep set
 
 void %foo(float* %D, uint %E) {
 entry:

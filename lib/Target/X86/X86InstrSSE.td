@@ -18,20 +18,14 @@
 // SSE specific DAG Nodes.
 //===----------------------------------------------------------------------===//
 
-def SDTX86FPShiftOp : SDTypeProfile<1, 2, [ SDTCisSameAs<0, 1>,
-                                            SDTCisFP<0>, SDTCisInt<2> ]>;
-
 def X86loadp   : SDNode<"X86ISD::LOAD_PACK", SDTLoad, [SDNPHasChain]>;
 def X86loadu   : SDNode<"X86ISD::LOAD_UA",   SDTLoad, [SDNPHasChain]>;
 def X86fmin    : SDNode<"X86ISD::FMIN",      SDTFPBinOp>;
 def X86fmax    : SDNode<"X86ISD::FMAX",      SDTFPBinOp>;
 def X86fand    : SDNode<"X86ISD::FAND",      SDTFPBinOp,
                         [SDNPCommutative, SDNPAssociative]>;
-def X86for     : SDNode<"X86ISD::FOR",       SDTFPBinOp,
-                        [SDNPCommutative, SDNPAssociative]>;
 def X86fxor    : SDNode<"X86ISD::FXOR",      SDTFPBinOp,
                         [SDNPCommutative, SDNPAssociative]>;
-def X86fsrl    : SDNode<"X86ISD::FSRL",      SDTX86FPShiftOp>;
 def X86comi    : SDNode<"X86ISD::COMI",      SDTX86CmpTest,
                         [SDNPHasChain, SDNPOutFlag]>;
 def X86ucomi   : SDNode<"X86ISD::UCOMI",     SDTX86CmpTest,
@@ -116,10 +110,6 @@ def SSE_splat_lo_mask : PatLeaf<(build_vector), [{
 
 def MOVHLPS_shuffle_mask : PatLeaf<(build_vector), [{
   return X86::isMOVHLPSMask(N);
-}]>;
-
-def MOVHLPS_v_undef_shuffle_mask : PatLeaf<(build_vector), [{
-  return X86::isMOVHLPS_v_undef_Mask(N);
 }]>;
 
 def MOVHP_shuffle_mask : PatLeaf<(build_vector), [{
@@ -387,7 +377,6 @@ defm SUB : scalar_sse12_fp_binop_rm<0x5C, "sub", fsub,
                                     int_x86_sse_sub_ss, int_x86_sse2_sub_sd>;
 defm DIV : scalar_sse12_fp_binop_rm<0x5E, "div", fdiv,
                                     int_x86_sse_div_ss, int_x86_sse2_div_sd>;
-
 defm MAX : scalar_sse12_fp_binop_rm<0x5F, "max", X86fmax,
                                     int_x86_sse_max_ss, int_x86_sse2_max_sd>;
 defm MIN : scalar_sse12_fp_binop_rm<0x5D, "min", X86fmin,
@@ -613,11 +602,9 @@ def FsANDPDrr : PDI<0x54, MRMSrcReg, (ops FR64:$dst, FR64:$src1, FR64:$src2),
                   "andpd {$src2, $dst|$dst, $src2}",
                   [(set FR64:$dst, (X86fand FR64:$src1, FR64:$src2))]>;
 def FsORPSrr  : PSI<0x56, MRMSrcReg, (ops FR32:$dst, FR32:$src1, FR32:$src2),
-                  "orps {$src2, $dst|$dst, $src2}",
-                  [(set FR32:$dst, (X86for FR32:$src1, FR32:$src2))]>;
+                  "orps {$src2, $dst|$dst, $src2}", []>;
 def FsORPDrr  : PDI<0x56, MRMSrcReg, (ops FR64:$dst, FR64:$src1, FR64:$src2),
-                  "orpd {$src2, $dst|$dst, $src2}",
-                  [(set FR64:$dst, (X86for FR64:$src1, FR64:$src2))]>;
+                  "orpd {$src2, $dst|$dst, $src2}", []>;
 def FsXORPSrr : PSI<0x57, MRMSrcReg, (ops FR32:$dst, FR32:$src1, FR32:$src2),
                   "xorps {$src2, $dst|$dst, $src2}",
                   [(set FR32:$dst, (X86fxor FR32:$src1, FR32:$src2))]>;
@@ -634,13 +621,9 @@ def FsANDPDrm : PDI<0x54, MRMSrcMem, (ops FR64:$dst, FR64:$src1, f128mem:$src2),
                   [(set FR64:$dst, (X86fand FR64:$src1,
                                     (X86loadpf64 addr:$src2)))]>;
 def FsORPSrm  : PSI<0x56, MRMSrcMem, (ops FR32:$dst, FR32:$src1, f128mem:$src2),
-                  "orps {$src2, $dst|$dst, $src2}",
-                  [(set FR32:$dst, (X86for FR32:$src1,
-                                    (X86loadpf32 addr:$src2)))]>;
+                  "orps {$src2, $dst|$dst, $src2}", []>;
 def FsORPDrm  : PDI<0x56, MRMSrcMem, (ops FR64:$dst, FR64:$src1, f128mem:$src2),
-                  "orpd {$src2, $dst|$dst, $src2}",
-                  [(set FR64:$dst, (X86for FR64:$src1,
-                                    (X86loadpf64 addr:$src2)))]>;
+                  "orpd {$src2, $dst|$dst, $src2}", []>;
 def FsXORPSrm : PSI<0x57, MRMSrcMem, (ops FR32:$dst, FR32:$src1, f128mem:$src2),
                   "xorps {$src2, $dst|$dst, $src2}",
                   [(set FR32:$dst, (X86fxor FR32:$src1,
@@ -1376,8 +1359,6 @@ let Predicates = [HasSSE2] in {
             (v2i64 (PSLLDQri VR128:$src1, (PSxLDQ_imm imm:$src2)))>;
   def : Pat<(int_x86_sse2_psrl_dq VR128:$src1, imm:$src2),
             (v2i64 (PSRLDQri VR128:$src1, (PSxLDQ_imm imm:$src2)))>;
-  def : Pat<(v2f64 (X86fsrl VR128:$src1, i32immSExt8:$src2)),
-            (v2f64 (PSRLDQri VR128:$src1, (PSxLDQ_imm imm:$src2)))>;
 }
 
 // Logical
@@ -1696,26 +1677,17 @@ def MOVDI2PDIrm : PDI<0x6E, MRMSrcMem, (ops VR128:$dst, i32mem:$src),
                       "movd {$src, $dst|$dst, $src}",
                       [(set VR128:$dst,
                         (v4i32 (scalar_to_vector (loadi32 addr:$src))))]>;
-
-def MOVDI2SSrr  : PDI<0x6E, MRMSrcReg, (ops FR32:$dst, GR32:$src),
-                      "movd {$src, $dst|$dst, $src}",
-                      [(set FR32:$dst, (bitconvert GR32:$src))]>;
-
-def MOVDI2SSrm  : PDI<0x6E, MRMSrcMem, (ops FR32:$dst, i32mem:$src),
-                      "movd {$src, $dst|$dst, $src}",
-                      [(set FR32:$dst, (bitconvert (loadi32 addr:$src)))]>;
-
 // SSE2 instructions with XS prefix
+def MOVQI2PQIrr : I<0x7E, MRMSrcReg, (ops VR128:$dst, VR64:$src),
+                    "movq {$src, $dst|$dst, $src}",
+                    [(set VR128:$dst,
+                      (v2i64 (scalar_to_vector VR64:$src)))]>, XS,
+                  Requires<[HasSSE2]>;
 def MOVQI2PQIrm : I<0x7E, MRMSrcMem, (ops VR128:$dst, i64mem:$src),
                     "movq {$src, $dst|$dst, $src}",
                     [(set VR128:$dst,
                       (v2i64 (scalar_to_vector (loadi64 addr:$src))))]>, XS,
                   Requires<[HasSSE2]>;
-def MOVPQI2QImr : PDI<0xD6, MRMDestMem, (ops i64mem:$dst, VR128:$src),
-                      "movq {$src, $dst|$dst, $src}",
-                      [(store (i64 (vector_extract (v2i64 VR128:$src),
-                                    (iPTR 0))), addr:$dst)]>;
-
 // FIXME: may not be able to eliminate this movss with coalescing the src and
 // dest register classes are different. We really want to write this pattern
 // like this:
@@ -1745,14 +1717,6 @@ def MOVPDI2DImr  : PDI<0x7E, MRMDestMem, (ops i32mem:$dst, VR128:$src),
                        "movd {$src, $dst|$dst, $src}",
                        [(store (i32 (vector_extract (v4i32 VR128:$src),
                                      (iPTR 0))), addr:$dst)]>;
-
-def MOVSS2DIrr  : PDI<0x7E, MRMDestReg, (ops GR32:$dst, FR32:$src),
-                      "movd {$src, $dst|$dst, $src}",
-                      [(set GR32:$dst, (bitconvert FR32:$src))]>;
-def MOVSS2DImr  : PDI<0x7E, MRMDestMem, (ops i32mem:$dst, FR32:$src),
-                      "movd {$src, $dst|$dst, $src}",
-                      [(store (i32 (bitconvert FR32:$src)), addr:$dst)]>;
-
 
 // Move to lower bits of a VR128, leaving upper bits alone.
 // Three operand (but two address) aliases.
@@ -1998,16 +1962,16 @@ def : Pat<(v4i32 (vector_shuffle VR128:$src1, VR128:$src2,
                   MOVHLPS_shuffle_mask)),
           (MOVHLPSrr VR128:$src1, VR128:$src2)>;
 
-// vector_shuffle v1, undef <2, ?, ?, ?> using MOVHLPS
+// vector_shuffle v1, undef <2, 3, ?, ?> using MOVHLPS
 def : Pat<(v4f32 (vector_shuffle VR128:$src1, (undef),
-                  MOVHLPS_v_undef_shuffle_mask)),
+                  UNPCKH_shuffle_mask)),
           (MOVHLPSrr VR128:$src1, VR128:$src1)>;
 def : Pat<(v4i32 (vector_shuffle VR128:$src1, (undef),
-                  MOVHLPS_v_undef_shuffle_mask)),
+                  UNPCKH_shuffle_mask)),
           (MOVHLPSrr VR128:$src1, VR128:$src1)>;
 }
 
-let AddedComplexity = 20 in {
+  let AddedComplexity = 20 in {
 // vector_shuffle v1, (load v2) <4, 5, 2, 3> using MOVLPS
 // vector_shuffle v1, (load v2) <0, 1, 4, 5> using MOVHPS
 def : Pat<(v4f32 (vector_shuffle VR128:$src1, (loadv4f32 addr:$src2),

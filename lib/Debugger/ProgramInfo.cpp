@@ -23,6 +23,8 @@
 #include "llvm/Debugger/SourceLanguage.h"
 #include "llvm/Support/SlowOperationInformer.h"
 #include "llvm/ADT/STLExtras.h"
+#include <iostream>
+
 using namespace llvm;
 
 /// getGlobalVariablesUsing - Return all of the global variables which have the
@@ -179,8 +181,8 @@ void SourceFunctionInfo::getSourceLocation(unsigned &RetLineNo,
             if (SD) {             // We found the first stop point!
               // This is just a sanity check.
               if (getSourceFile().getDescriptor() != SD)
-                cout << "WARNING: first line of function is not in the"
-                     << " file that the function descriptor claims it is in.\n";
+                std::cout << "WARNING: first line of function is not in the"
+                  " file that the function descriptor claims it is in.\n";
               break;
             }
           }

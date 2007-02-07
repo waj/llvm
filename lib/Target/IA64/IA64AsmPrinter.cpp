@@ -16,22 +16,23 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "asm-printer"
 #include "IA64.h"
 #include "IA64TargetMachine.h"
 #include "llvm/Module.h"
 #include "llvm/Type.h"
+#include "llvm/Assembly/Writer.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/Mangler.h"
 #include "llvm/ADT/Statistic.h"
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(EmittedInsts, "Number of machine instrs printed");
-
 namespace {
+  Statistic<> EmittedInsts("asm-printer", "Number of machine instrs printed");
+  
   struct IA64AsmPrinter : public AsmPrinter {
     std::set<std::string> ExternalFunctionNames, ExternalObjectNames;
 
@@ -193,17 +194,17 @@ void IA64AsmPrinter::printOp(const MachineOperand &MO,
     bool Needfptr=false; // if we're computing an address @ltoff(X), do
                          // we need to decorate it so it becomes
                          // @ltoff(@fptr(X)) ?
-    if (F && !isBRCALLinsn /*&& F->isDeclaration()*/)
+    if (F && !isBRCALLinsn /*&& F->isExternal()*/)
       Needfptr=true;
 
     // if this is the target of a call instruction, we should define
     // the function somewhere (GNU gas has no problem without this, but
     // Intel ias rightly complains of an 'undefined symbol')
 
-    if (F /*&& isBRCALLinsn*/ && F->isDeclaration())
+    if (F /*&& isBRCALLinsn*/ && F->isExternal())
       ExternalFunctionNames.insert(Mang->getValueName(MO.getGlobal()));
     else
-      if (GV->isDeclaration()) // e.g. stuff like 'stdin'
+      if (GV->isExternal()) // e.g. stuff like 'stdin'
         ExternalObjectNames.insert(Mang->getValueName(MO.getGlobal()));
 
     if (!isBRCALLinsn)
@@ -272,7 +273,7 @@ bool IA64AsmPrinter::doFinalization(Module &M) {
       std::string name = Mang->getValueName(I);
       Constant *C = I->getInitializer();
       unsigned Size = TD->getTypeSize(C->getType());
-      unsigned Align = TD->getPreferredTypeAlignmentShift(C->getType());
+      unsigned Align = TD->getTypeAlignmentShift(C->getType());
       
       if (C->isNullValue() &&
           (I->hasLinkOnceLinkage() || I->hasInternalLinkage() ||
@@ -281,12 +282,14 @@ bool IA64AsmPrinter::doFinalization(Module &M) {
         if (I->hasInternalLinkage()) {
           O << "\t.lcomm " << name << "#," << TD->getTypeSize(C->getType())
           << "," << (1 << Align);
-          O << "\n";
+          O << "\t\t// ";
         } else {
           O << "\t.common " << name << "#," << TD->getTypeSize(C->getType())
           << "," << (1 << Align);
-          O << "\n";
+          O << "\t\t// ";
         }
+        WriteAsOperand(O, I, true, true, &M);
+        O << "\n";
       } else {
         switch (I->getLinkage()) {
           case GlobalValue::LinkOnceLinkage:
@@ -308,13 +311,13 @@ bool IA64AsmPrinter::doFinalization(Module &M) {
             SwitchToDataSection(C->isNullValue() ? ".bss" : ".data", I);
             break;
           case GlobalValue::GhostLinkage:
-            cerr << "GhostLinkage cannot appear in IA64AsmPrinter!\n";
+            std::cerr << "GhostLinkage cannot appear in IA64AsmPrinter!\n";
             abort();
           case GlobalValue::DLLImportLinkage:
-            cerr << "DLLImport linkage is not supported by this target!\n";
+            std::cerr << "DLLImport linkage is not supported by this target!\n";
             abort();
           case GlobalValue::DLLExportLinkage:
-            cerr << "DLLExport linkage is not supported by this target!\n";
+            std::cerr << "DLLExport linkage is not supported by this target!\n";
             abort();
           default:
             assert(0 && "Unknown linkage type!");            
@@ -323,7 +326,11 @@ bool IA64AsmPrinter::doFinalization(Module &M) {
         EmitAlignment(Align);
         O << "\t.type " << name << ",@object\n";
         O << "\t.size " << name << "," << Size << "\n";
-        O << name << ":\t\t\t\t// " << *C << "\n";
+        O << name << ":\t\t\t\t// ";
+        WriteAsOperand(O, I, true, true, &M);
+        O << " = ";
+        WriteAsOperand(O, C, false, false, &M);
+        O << "\n";
         EmitGlobalConstant(C);
       }
     }

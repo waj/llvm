@@ -31,11 +31,14 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/ADT/Statistic.h"
 #include <climits>
+#include <iostream>
 #include <queue>
 using namespace llvm;
 
-STATISTIC(NumNoops , "Number of noops inserted");
-STATISTIC(NumStalls, "Number of pipeline stalls");
+namespace {
+  static Statistic<> NumNoops ("scheduler", "Number of noops inserted");
+  static Statistic<> NumStalls("scheduler", "Number of pipeline stalls");
+}
 
 static RegisterScheduler
   tdListDAGScheduler("list-td", "  Top-down list scheduler",
@@ -90,7 +93,7 @@ HazardRecognizer::~HazardRecognizer() {}
 
 /// Schedule - Schedule the DAG using list scheduling.
 void ScheduleDAGList::Schedule() {
-  DOUT << "********** List Scheduling **********\n";
+  DEBUG(std::cerr << "********** List Scheduling **********\n");
   
   // Build scheduling units.
   BuildSchedUnits();
@@ -101,9 +104,9 @@ void ScheduleDAGList::Schedule() {
   
   AvailableQueue->releaseState();
   
-  DOUT << "*** Final schedule ***\n";
+  DEBUG(std::cerr << "*** Final schedule ***\n");
   DEBUG(dumpSchedule());
-  DOUT << "\n";
+  DEBUG(std::cerr << "\n");
   
   // Emit in scheduled order
   EmitSchedule();
@@ -152,7 +155,7 @@ void ScheduleDAGList::ReleaseSucc(SUnit *SuccSU, bool isChain) {
 /// count of its successors. If a successor pending count is zero, add it to
 /// the Available queue.
 void ScheduleDAGList::ScheduleNodeTopDown(SUnit *SU, unsigned CurCycle) {
-  DOUT << "*** Scheduling [" << CurCycle << "]: ";
+  DEBUG(std::cerr << "*** Scheduling [" << CurCycle << "]: ");
   DEBUG(SU->dump(&DAG));
   
   Sequence.push_back(SU);
@@ -256,7 +259,7 @@ void ScheduleDAGList::ListScheduleTopDown() {
     } else if (!HasNoopHazards) {
       // Otherwise, we have a pipeline stall, but no other problem, just advance
       // the current cycle and try again.
-      DOUT << "*** Advancing cycle, no work to do\n";
+      DEBUG(std::cerr << "*** Advancing cycle, no work to do\n");
       HazardRec->AdvanceCycle();
       ++NumStalls;
       ++CurCycle;
@@ -264,7 +267,7 @@ void ScheduleDAGList::ListScheduleTopDown() {
       // Otherwise, we have no instructions to issue and we have instructions
       // that will fault if we don't do this right.  This is the case for
       // processors without pipeline interlocks and other cases.
-      DOUT << "*** Emitting noop\n";
+      DEBUG(std::cerr << "*** Emitting noop\n");
       HazardRec->EmitNoop();
       Sequence.push_back(0);   // NULL SUnit* -> noop
       ++NumNoops;
@@ -278,9 +281,9 @@ void ScheduleDAGList::ListScheduleTopDown() {
   for (unsigned i = 0, e = SUnits.size(); i != e; ++i) {
     if (SUnits[i].NumPredsLeft != 0 || SUnits[i].NumChainPredsLeft != 0) {
       if (!AnyNotSched)
-        cerr << "*** List scheduling failed! ***\n";
+        std::cerr << "*** List scheduling failed! ***\n";
       SUnits[i].dump(&DAG);
-      cerr << "has not been scheduled!\n";
+      std::cerr << "has not been scheduled!\n";
       AnyNotSched = true;
     }
   }
@@ -328,7 +331,7 @@ public:
     LatencyPriorityQueue() : Queue(latency_sort(this)) {
     }
     
-    void initNodes(DenseMap<SDNode*, SUnit*> &sumap,
+    void initNodes(std::map<SDNode*, SUnit*> &sumap,
                    std::vector<SUnit> &sunits) {
       SUnits = &sunits;
       // Calculate node priorities.

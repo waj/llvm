@@ -17,8 +17,9 @@
 #include "llvm/System/Signals.h"
 #include "llvm/System/Process.h"
 #include <fstream>
-#include <ostream>
+#include <iostream>
 #include <iomanip>
+
 using namespace llvm;
 
 // Write an integer using variable bit rate encoding. This saves a few bytes
@@ -153,11 +154,7 @@ Archive::fillHeader(const ArchiveMember &mbr, ArchiveMemberHeader& hdr,
 bool
 Archive::addFileBefore(const sys::Path& filePath, iterator where, 
                         std::string* ErrMsg) {
-  if (!filePath.exists()) {
-    if (ErrMsg)
-      *ErrMsg = "Can not add a non-existent file to archive";
-    return true;
-  }
+  assert(filePath.exists() && "Can't add a non-existent file");
 
   ArchiveMember* mbr = new ArchiveMember(this);
 
@@ -225,10 +222,8 @@ Archive::writeMember(
     std::string FullMemberName = archPath.toString() + "(" +
       member.getPath().toString()
       + ")";
-    ModuleProvider* MP = 
-      GetBytecodeSymbols((const unsigned char*)data,fSize,
-                         FullMemberName, symbols,
-                         Compressor::decompressToNewBuffer, ErrMsg);
+    ModuleProvider* MP = GetBytecodeSymbols(
+      (const unsigned char*)data,fSize,FullMemberName, symbols, ErrMsg);
 
     // If the bytecode parsed successfully
     if ( MP ) {
@@ -391,11 +386,8 @@ Archive::writeToDisk(bool CreateSymbolTable, bool TruncateNames, bool Compress,
 {
   // Make sure they haven't opened up the file, not loaded it,
   // but are now trying to write it which would wipe out the file.
-  if (members.empty() && mapfile->size() > 8) {
-    if (ErrMsg)
-      *ErrMsg = "Can't write an archive not opened for writing";
-    return true;
-  }
+  assert(!(members.empty() && mapfile->size() > 8) &&
+         "Can't write an archive not opened for writing");
 
   // Create a temporary file to store the archive in
   sys::Path TmpArchive = archPath;

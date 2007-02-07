@@ -18,7 +18,7 @@
 #ifndef LLVM_ANALYSIS_TRACE_H
 #define LLVM_ANALYSIS_TRACE_H
 
-#include "llvm/Support/Streams.h"
+#include <iosfwd>
 #include <vector>
 #include <cassert>
 
@@ -107,7 +107,6 @@ public:
   /// print - Write trace to output stream.
   ///
   void print (std::ostream &O) const;
-  void print (std::ostream *O) const { if (O) print(*O); }
 
   /// dump - Debugger convenience method; writes trace to standard error
   /// output stream.

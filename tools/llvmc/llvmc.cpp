@@ -17,16 +17,17 @@
 #include "CompilerDriver.h"
 #include "Configuration.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/System/Signals.h"
+#include "llvm/Support/CommandLine.h"
 #include <iostream>
+
 using namespace llvm;
 
+namespace {
 //===----------------------------------------------------------------------===//
 //===          PHASE OPTIONS
 //===----------------------------------------------------------------------===//
-static cl::opt<CompilerDriver::Phases> FinalPhase(cl::Optional,
+cl::opt<CompilerDriver::Phases> FinalPhase(cl::Optional,
   cl::desc("Choose final phase of compilation:"),
   cl::init(CompilerDriver::LINKING),
   cl::values(
@@ -45,7 +46,7 @@ static cl::opt<CompilerDriver::Phases> FinalPhase(cl::Optional,
 //===----------------------------------------------------------------------===//
 //===          OPTIMIZATION OPTIONS
 //===----------------------------------------------------------------------===//
-static cl::opt<CompilerDriver::OptimizationLevels> OptLevel(cl::ZeroOrMore,
+cl::opt<CompilerDriver::OptimizationLevels> OptLevel(cl::ZeroOrMore,
   cl::desc("Choose level of optimization to apply:"),
   cl::init(CompilerDriver::OPT_FAST_COMPILE),
   cl::values(
@@ -69,48 +70,48 @@ static cl::opt<CompilerDriver::OptimizationLevels> OptLevel(cl::ZeroOrMore,
 //===          TOOL OPTIONS
 //===----------------------------------------------------------------------===//
 
-static cl::list<std::string> PreprocessorToolOpts("Tpre", cl::ZeroOrMore,
+cl::list<std::string> PreprocessorToolOpts("Tpre", cl::ZeroOrMore,
   cl::desc("Pass specific options to the pre-processor"),
   cl::value_desc("option"));
 
-static cl::alias PreprocessorToolOptsAlias("Wp,", cl::ZeroOrMore,
+cl::alias PreprocessorToolOptsAlias("Wp,", cl::ZeroOrMore,
   cl::desc("Alias for -Tpre"), cl::aliasopt(PreprocessorToolOpts));
 
-static cl::list<std::string> TranslatorToolOpts("Ttrn", cl::ZeroOrMore,
+cl::list<std::string> TranslatorToolOpts("Ttrn", cl::ZeroOrMore,
   cl::desc("Pass specific options to the assembler"),
   cl::value_desc("option"));
 
-static cl::list<std::string> AssemblerToolOpts("Tasm", cl::ZeroOrMore,
+cl::list<std::string> AssemblerToolOpts("Tasm", cl::ZeroOrMore,
   cl::desc("Pass specific options to the assembler"),
   cl::value_desc("option"));
 
-static cl::alias AssemblerToolOptsAlias("Wa,", cl::ZeroOrMore,
+cl::alias AssemblerToolOptsAlias("Wa,", cl::ZeroOrMore,
   cl::desc("Alias for -Tasm"), cl::aliasopt(AssemblerToolOpts));
 
-static cl::list<std::string> OptimizerToolOpts("Topt", cl::ZeroOrMore,
+cl::list<std::string> OptimizerToolOpts("Topt", cl::ZeroOrMore,
   cl::desc("Pass specific options to the optimizer"),
   cl::value_desc("option"));
 
-static cl::list<std::string> LinkerToolOpts("Tlnk", cl::ZeroOrMore,
+cl::list<std::string> LinkerToolOpts("Tlnk", cl::ZeroOrMore,
   cl::desc("Pass specific options to the linker"),
   cl::value_desc("option"));
 
-static cl::alias LinkerToolOptsAlias("Wl,", cl::ZeroOrMore,
+cl::alias LinkerToolOptsAlias("Wl,", cl::ZeroOrMore,
   cl::desc("Alias for -Tlnk"), cl::aliasopt(LinkerToolOpts));
 
-static cl::list<std::string> fOpts("f", cl::ZeroOrMore, cl::Prefix,
+cl::list<std::string> fOpts("f", cl::ZeroOrMore, cl::Prefix,
   cl::desc("Pass through -f options to compiler tools"),
   cl::value_desc("option"));
 
-static cl::list<std::string> MOpts("M", cl::ZeroOrMore, cl::Prefix,
+cl::list<std::string> MOpts("M", cl::ZeroOrMore, cl::Prefix,
   cl::desc("Pass through -M options to compiler tools"),
   cl::value_desc("option"));
 
-static cl::list<std::string> WOpts("W", cl::ZeroOrMore, cl::Prefix,
+cl::list<std::string> WOpts("W", cl::ZeroOrMore, cl::Prefix,
   cl::desc("Pass through -W options to compiler tools"),
   cl::value_desc("option"));
 
-static cl::list<std::string> BOpt("B", cl::ZeroOrMore, cl::Prefix,
+cl::list<std::string> BOpt("B", cl::ZeroOrMore, cl::Prefix,
   cl::desc("Specify path to find llvmc sub-tools"),
   cl::value_desc("dir"));
 
@@ -118,17 +119,17 @@ static cl::list<std::string> BOpt("B", cl::ZeroOrMore, cl::Prefix,
 //===          INPUT OPTIONS
 //===----------------------------------------------------------------------===//
 
-static cl::list<std::string> LibPaths("L", cl::Prefix,
+cl::list<std::string> LibPaths("L", cl::Prefix,
   cl::desc("Specify a library search path"), cl::value_desc("dir"));
 
-static cl::list<std::string> Libraries("l", cl::Prefix,
+cl::list<std::string> Libraries("l", cl::Prefix,
   cl::desc("Specify base name of libraries to link to"), cl::value_desc("lib"));
 
-static cl::list<std::string> Includes("I", cl::Prefix,
+cl::list<std::string> Includes("I", cl::Prefix,
   cl::desc("Specify location to search for included source"),
   cl::value_desc("dir"));
 
-static cl::list<std::string> Defines("D", cl::Prefix,
+cl::list<std::string> Defines("D", cl::Prefix,
   cl::desc("Specify a pre-processor symbol to define"),
   cl::value_desc("symbol"));
 
@@ -136,22 +137,22 @@ static cl::list<std::string> Defines("D", cl::Prefix,
 //===          OUTPUT OPTIONS
 //===----------------------------------------------------------------------===//
 
-static cl::opt<std::string> OutputFilename("o",
+cl::opt<std::string> OutputFilename("o",
   cl::desc("Override output filename"), cl::value_desc("file"));
 
-static cl::opt<std::string> OutputMachine("m", cl::Prefix,
+cl::opt<std::string> OutputMachine("m", cl::Prefix,
   cl::desc("Specify a target machine"), cl::value_desc("machine"));
 
-static cl::opt<bool> Native("native", cl::init(false),
+cl::opt<bool> Native("native", cl::init(false),
   cl::desc("Generative native code instead of bytecode"));
 
-static cl::opt<bool> DebugOutput("g", cl::init(false),
+cl::opt<bool> DebugOutput("g", cl::init(false),
   cl::desc("Generate objects that include debug symbols"));
 
-static cl::opt<bool> StripOutput("strip", cl::init(false),
+cl::opt<bool> StripOutput("strip", cl::init(false),
   cl::desc("Strip all symbols from linked output file"));
 
-static cl::opt<std::string> PrintFileName("print-fname", cl::Optional,
+cl::opt<std::string> PrintFileName("print-fname", cl::Optional,
   cl::value_desc("file"),
   cl::desc("Print the full path for the option's value"));
 
@@ -159,28 +160,28 @@ static cl::opt<std::string> PrintFileName("print-fname", cl::Optional,
 //===          INFORMATION OPTIONS
 //===----------------------------------------------------------------------===//
 
-static cl::opt<bool> DryRun("dry-run", cl::Optional, cl::init(false),
+cl::opt<bool> DryRun("dry-run", cl::Optional, cl::init(false),
   cl::desc("Do everything but perform the compilation actions"));
 
-static cl::alias DryRunAlias("y", cl::Optional,
+cl::alias DryRunAlias("y", cl::Optional,
   cl::desc("Alias for -dry-run"), cl::aliasopt(DryRun));
 
-static cl::opt<bool> Verbose("verbose", cl::Optional, cl::init(false),
+cl::opt<bool> Verbose("verbose", cl::Optional, cl::init(false),
   cl::desc("Print out each action taken"));
 
-static cl::alias VerboseAlias("v", cl::Optional,
+cl::alias VerboseAlias("v", cl::Optional,
   cl::desc("Alias for -verbose"), cl::aliasopt(Verbose));
 
-static cl::opt<bool> Debug("debug", cl::Optional, cl::init(false),
+cl::opt<bool> Debug("debug", cl::Optional, cl::init(false),
   cl::Hidden, cl::desc("Print out debugging information"));
 
-static cl::alias DebugAlias("d", cl::Optional,
+cl::alias DebugAlias("d", cl::Optional,
   cl::desc("Alias for -debug"), cl::aliasopt(Debug));
 
-static cl::opt<bool> TimeActions("time-actions", cl::Optional, cl::init(false),
+cl::opt<bool> TimeActions("time-actions", cl::Optional, cl::init(false),
   cl::desc("Print execution time for each action taken"));
 
-static cl::opt<bool> ShowStats("stats", cl::Optional, cl::init(false),
+cl::opt<bool> ShowStats("stats", cl::Optional, cl::init(false),
   cl::desc("Print statistics accumulated during optimization"));
 
 //===----------------------------------------------------------------------===//
@@ -214,7 +215,7 @@ static cl::list<std::string> Languages("x", cl::ZeroOrMore,
 //===----------------------------------------------------------------------===//
 //===          GetFileType - determine type of a file
 //===----------------------------------------------------------------------===//
-static const std::string GetFileType(const std::string& fname, unsigned pos) {
+const std::string GetFileType(const std::string& fname, unsigned pos) {
   static std::vector<std::string>::iterator langIt = Languages.begin();
   static std::string CurrLang = "";
 
@@ -235,7 +236,9 @@ static const std::string GetFileType(const std::string& fname, unsigned pos) {
   return fname.substr(fname.rfind('.', fname.size()) + 1);
 }
 
-static void handleTerminatingOptions(CompilerDriver* CD) {
+} // end anonymous namespace
+
+void handleTerminatingOptions(CompilerDriver* CD) {
   if (!PrintFileName.empty()) {
     sys::Path path = CD->GetPathForLinkageItem(PrintFileName, false);
     std::string p = path.toString();
@@ -249,7 +252,6 @@ static void handleTerminatingOptions(CompilerDriver* CD) {
 
 /// @brief The main program for llvmc
 int main(int argc, char **argv) {
-  llvm_shutdown_obj X;  // Call llvm_shutdown() on exit.
   // Make sure we print stack trace if we get bad signals
   sys::PrintStackTraceOnErrorSignal();
 

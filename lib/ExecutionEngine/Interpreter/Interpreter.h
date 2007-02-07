@@ -21,6 +21,7 @@
 #include "llvm/Support/CallSite.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Support/DataTypes.h"
+#include <iostream>
 
 namespace llvm {
 
@@ -136,26 +137,13 @@ public:
   void visitSwitchInst(SwitchInst &I);
 
   void visitBinaryOperator(BinaryOperator &I);
-  void visitICmpInst(ICmpInst &I);
-  void visitFCmpInst(FCmpInst &I);
   void visitAllocationInst(AllocationInst &I);
   void visitFreeInst(FreeInst &I);
   void visitLoadInst(LoadInst &I);
   void visitStoreInst(StoreInst &I);
   void visitGetElementPtrInst(GetElementPtrInst &I);
   void visitPHINode(PHINode &PN) { assert(0 && "PHI nodes already handled!"); }
-  void visitTruncInst(TruncInst &I);
-  void visitZExtInst(ZExtInst &I);
-  void visitSExtInst(SExtInst &I);
-  void visitFPTruncInst(FPTruncInst &I);
-  void visitFPExtInst(FPExtInst &I);
-  void visitUIToFPInst(UIToFPInst &I);
-  void visitSIToFPInst(SIToFPInst &I);
-  void visitFPToUIInst(FPToUIInst &I);
-  void visitFPToSIInst(FPToSIInst &I);
-  void visitPtrToIntInst(PtrToIntInst &I);
-  void visitIntToPtrInst(IntToPtrInst &I);
-  void visitBitCastInst(BitCastInst &I);
+  void visitCastInst(CastInst &I);
   void visitSelectInst(SelectInst &I);
 
 
@@ -165,13 +153,11 @@ public:
   void visitUnwindInst(UnwindInst &I);
   void visitUnreachableInst(UnreachableInst &I);
 
-  void visitShl(BinaryOperator &I);
-  void visitLShr(BinaryOperator &I);
-  void visitAShr(BinaryOperator &I);
-
+  void visitShl(ShiftInst &I);
+  void visitShr(ShiftInst &I);
   void visitVAArgInst(VAArgInst &I);
   void visitInstruction(Instruction &I) {
-    cerr << I;
+    std::cerr << I;
     assert(0 && "Instruction not interpretable yet!");
   }
 
@@ -205,47 +191,11 @@ private:  // Helper functions
   void initializeExternalFunctions();
   GenericValue getConstantExprValue(ConstantExpr *CE, ExecutionContext &SF);
   GenericValue getOperandValue(Value *V, ExecutionContext &SF);
-  GenericValue executeTruncInst(Value *SrcVal, const Type *DstTy,
-                                ExecutionContext &SF);
-  GenericValue executeSExtInst(Value *SrcVal, const Type *DstTy,
-                               ExecutionContext &SF);
-  GenericValue executeZExtInst(Value *SrcVal, const Type *DstTy,
-                               ExecutionContext &SF);
-  GenericValue executeFPTruncInst(Value *SrcVal, const Type *DstTy,
-                                  ExecutionContext &SF);
-  GenericValue executeFPExtInst(Value *SrcVal, const Type *DstTy,
-                                ExecutionContext &SF);
-  GenericValue executeFPToUIInst(Value *SrcVal, const Type *DstTy,
-                                 ExecutionContext &SF);
-  GenericValue executeFPToSIInst(Value *SrcVal, const Type *DstTy,
-                                 ExecutionContext &SF);
-  GenericValue executeUIToFPInst(Value *SrcVal, const Type *DstTy,
-                                 ExecutionContext &SF);
-  GenericValue executeSIToFPInst(Value *SrcVal, const Type *DstTy,
-                                 ExecutionContext &SF);
-  GenericValue executePtrToIntInst(Value *SrcVal, const Type *DstTy,
-                                   ExecutionContext &SF);
-  GenericValue executeIntToPtrInst(Value *SrcVal, const Type *DstTy,
-                                   ExecutionContext &SF);
-  GenericValue executeBitCastInst(Value *SrcVal, const Type *DstTy,
-                                  ExecutionContext &SF);
-  GenericValue executeCastOperation(Instruction::CastOps opcode, Value *SrcVal, 
-                                    const Type *Ty, ExecutionContext &SF);
+  GenericValue executeCastOperation(Value *SrcVal, const Type *Ty,
+                                    ExecutionContext &SF);
   void popStackAndReturnValueToCaller(const Type *RetTy, GenericValue Result);
-
 };
 
-inline void maskToBitWidth(GenericValue& GV, unsigned BitWidth) {
-  uint64_t BitMask = (1ull << BitWidth) - 1;
-  if (BitWidth <= 8)
-    GV.Int8Val &= BitMask;
-  else if (BitWidth <= 16)
-    GV.Int16Val &= BitMask;
-  else if (BitWidth <= 32)
-    GV.Int32Val &= BitMask;
-  else 
-    GV.Int64Val &= BitMask;
-}
 } // End llvm namespace
 
 #endif

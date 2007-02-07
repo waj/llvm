@@ -19,13 +19,10 @@
 
 namespace llvm {
 
-class TargetInstrInfo;
 class Type;
 
 struct AlphaRegisterInfo : public AlphaGenRegisterInfo {
-  const TargetInstrInfo &TII;
-
-  AlphaRegisterInfo(const TargetInstrInfo &tii);
+  AlphaRegisterInfo();
 
   /// Code Generation virtual methods...
   void storeRegToStackSlot(MachineBasicBlock &MBB,
@@ -45,11 +42,9 @@ struct AlphaRegisterInfo : public AlphaGenRegisterInfo {
                     unsigned DestReg, unsigned SrcReg,
                     const TargetRegisterClass *RC) const;
 
-  const unsigned *getCalleeSavedRegs() const;
+  const unsigned *getCalleeSaveRegs() const;
 
-  const TargetRegisterClass* const* getCalleeSavedRegClasses() const;
-
-  bool hasFP(const MachineFunction &MF) const;
+  const TargetRegisterClass* const* getCalleeSaveRegClasses() const;
 
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,

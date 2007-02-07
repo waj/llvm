@@ -1,11 +1,9 @@
 ; Do not remove the invoke!
 ;
-; RUN: llvm-upgrade < %s | llvm-as | opt -simplifycfg -disable-output
+; RUN: llvm-as < %s | opt -simplifycfg -disable-output
 
 int %test() {
-	%A = invoke int %test() to label %Ret except label %Ret2
+	%A = invoke int %test() to label %Ret except label %Ret
 Ret:
 	ret int %A
-Ret2:
-	ret int undef
 }

@@ -237,6 +237,11 @@ public:
   unsigned isLoadFromStackSlot(MachineInstr *MI, int &FrameIndex) const;
   unsigned isStoreToStackSlot(MachineInstr *MI, int &FrameIndex) const;
   
+  /// getDWARF_LABELOpcode - Return the opcode of the target's DWARF_LABEL
+  /// instruction if it has one.  This is used by codegen passes that update
+  /// DWARF line number info as they modify the code.
+  virtual unsigned getDWARF_LABELOpcode() const;
+  
   /// convertToThreeAddress - This method must be implemented by targets that
   /// set the M_CONVERTIBLE_TO_3_ADDR flag.  When this flag is set, the target
   /// may be able to convert a two-address instruction into a true
@@ -247,9 +252,7 @@ public:
   /// This method returns a null pointer if the transformation cannot be
   /// performed, otherwise it returns the new instruction.
   ///
-  virtual MachineInstr *convertToThreeAddress(MachineFunction::iterator &MFI,
-                                              MachineBasicBlock::iterator &MBBI,
-                                              LiveVariables &LV) const;
+  virtual MachineInstr *convertToThreeAddress(MachineInstr *TA) const;
 
   /// commuteInstruction - We have a few instructions that must be hacked on to
   /// commute them.
@@ -272,8 +275,8 @@ public:
   // getBaseOpcodeFor - This function returns the "base" X86 opcode for the
   // specified opcode number.
   //
-  unsigned char getBaseOpcodeFor(const TargetInstrDescriptor *TID) const {
-    return TID->TSFlags >> X86II::OpcodeShift;
+  unsigned char getBaseOpcodeFor(unsigned Opcode) const {
+    return get(Opcode).TSFlags >> X86II::OpcodeShift;
   }
 };
 

@@ -143,6 +143,7 @@ public:
   void visitFunction  (Function &F) {}
   void visitBasicBlock(BasicBlock &BB) {}
 
+
   // Define instruction specific visitor functions that can be overridden to
   // handle SPECIFIC instructions.  These functions automatically define
   // visitMul to proxy to visitBinaryOperator for instance in case the user does
@@ -167,8 +168,7 @@ public:
   RetTy visitInvokeInst(InvokeInst &I)              { DELEGATE(TerminatorInst);}
   RetTy visitUnwindInst(UnwindInst &I)              { DELEGATE(TerminatorInst);}
   RetTy visitUnreachableInst(UnreachableInst &I)    { DELEGATE(TerminatorInst);}
-  RetTy visitICmpInst(ICmpInst &I)                  { DELEGATE(CmpInst);}
-  RetTy visitFCmpInst(FCmpInst &I)                  { DELEGATE(CmpInst);}
+  RetTy visitSetCondInst(SetCondInst &I)            { DELEGATE(BinaryOperator);}
   RetTy visitMallocInst(MallocInst &I)              { DELEGATE(AllocationInst);}
   RetTy visitAllocaInst(AllocaInst &I)              { DELEGATE(AllocationInst);}
   RetTy visitFreeInst(FreeInst     &I)              { DELEGATE(Instruction); }
@@ -176,22 +176,12 @@ public:
   RetTy visitStoreInst(StoreInst   &I)              { DELEGATE(Instruction); }
   RetTy visitGetElementPtrInst(GetElementPtrInst &I){ DELEGATE(Instruction); }
   RetTy visitPHINode(PHINode       &I)              { DELEGATE(Instruction); }
-  RetTy visitTruncInst(TruncInst &I)                { DELEGATE(CastInst); }
-  RetTy visitZExtInst(ZExtInst &I)                  { DELEGATE(CastInst); }
-  RetTy visitSExtInst(SExtInst &I)                  { DELEGATE(CastInst); }
-  RetTy visitFPTruncInst(FPTruncInst &I)            { DELEGATE(CastInst); }
-  RetTy visitFPExtInst(FPExtInst &I)                { DELEGATE(CastInst); }
-  RetTy visitFPToUIInst(FPToUIInst &I)              { DELEGATE(CastInst); }
-  RetTy visitFPToSIInst(FPToSIInst &I)              { DELEGATE(CastInst); }
-  RetTy visitUIToFPInst(UIToFPInst &I)              { DELEGATE(CastInst); }
-  RetTy visitSIToFPInst(SIToFPInst &I)              { DELEGATE(CastInst); }
-  RetTy visitPtrToIntInst(PtrToIntInst &I)          { DELEGATE(CastInst); }
-  RetTy visitIntToPtrInst(IntToPtrInst &I)          { DELEGATE(CastInst); }
-  RetTy visitBitCastInst(BitCastInst &I)            { DELEGATE(CastInst); }
+  RetTy visitCastInst(CastInst     &I)              { DELEGATE(Instruction); }
   RetTy visitSelectInst(SelectInst &I)              { DELEGATE(Instruction); }
   RetTy visitCallInst(CallInst     &I)              { DELEGATE(Instruction); }
+  RetTy visitShiftInst(ShiftInst   &I)              { DELEGATE(Instruction); }
   RetTy visitVAArgInst(VAArgInst   &I)              { DELEGATE(Instruction); }
-  RetTy visitExtractElementInst(ExtractElementInst &I) { DELEGATE(Instruction);}
+  RetTy visitExtractElementInst(ExtractElementInst &I) { DELEGATE(Instruction); }
   RetTy visitInsertElementInst(InsertElementInst &I) { DELEGATE(Instruction); }
   RetTy visitShuffleVectorInst(ShuffleVectorInst &I) { DELEGATE(Instruction); }
 
@@ -202,8 +192,6 @@ public:
   RetTy visitTerminatorInst(TerminatorInst &I) { DELEGATE(Instruction); }
   RetTy visitBinaryOperator(BinaryOperator &I) { DELEGATE(Instruction); }
   RetTy visitAllocationInst(AllocationInst &I) { DELEGATE(Instruction); }
-  RetTy visitCmpInst(CmpInst &I)               { DELEGATE(Instruction); }
-  RetTy visitCastInst(CastInst &I)             { DELEGATE(Instruction); }
 
   // If the user wants a 'default' case, they can choose to override this
   // function.  If this function is not overloaded in the users subclass, then

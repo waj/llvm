@@ -13,8 +13,7 @@
 
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/DataTypes.h"
-#include "llvm/Support/Streams.h"
-#include <ostream>
+#include <iostream>
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -103,6 +102,6 @@ void BumpPtrAllocator::PrintStats() const {
   for (; R; R = R->getNext(), ++NumRegions)
     BytesUsed += R->getNumBytesAllocated();
 
-  cerr << "\nNumber of memory regions: " << NumRegions << "\n";
-  cerr << "Bytes allocated: " << BytesUsed << "\n";
+  std::cerr << "\nNumber of memory regions: " << NumRegions << "\n";
+  std::cerr << "Bytes allocated: " << BytesUsed << "\n";
 }

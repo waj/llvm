@@ -19,6 +19,7 @@
 #define LLVM_CODEGEN_MACHINEPASSREGISTRY_H
 
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/Support/CommandLine.h"
 
 namespace llvm {

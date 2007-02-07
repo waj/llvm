@@ -28,9 +28,9 @@
 #include "llvm/Target/TargetData.h"
 #include "llvm/Support/InstIterator.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/Streams.h"
+#include <iostream>
 #include <set>
+
 using namespace llvm;
 
 namespace {
@@ -45,7 +45,7 @@ namespace {
   cl::opt<bool> PrintRef("print-ref", cl::ReallyHidden);
   cl::opt<bool> PrintModRef("print-modref", cl::ReallyHidden);
 
-  class VISIBILITY_HIDDEN AAEval : public FunctionPass {
+  class AAEval : public FunctionPass {
     unsigned NoAlias, MayAlias, MustAlias;
     unsigned NoModRef, Mod, Ref, ModRef;
 
@@ -79,9 +79,9 @@ FunctionPass *llvm::createAAEvalPass() { return new AAEval(); }
 static inline void PrintResults(const char *Msg, bool P, Value *V1, Value *V2,
                                 Module *M) {
   if (P) {
-    cerr << "  " << Msg << ":\t";
-    WriteAsOperand(*cerr.stream(), V1, true, M) << ", ";
-    WriteAsOperand(*cerr.stream(), V2, true, M) << "\n";
+    std::cerr << "  " << Msg << ":\t";
+    WriteAsOperand(std::cerr, V1, true, true, M) << ", ";
+    WriteAsOperand(std::cerr, V2, true, true, M) << "\n";
   }
 }
 
@@ -89,9 +89,9 @@ static inline void
 PrintModRefResults(const char *Msg, bool P, Instruction *I, Value *Ptr,
                    Module *M) {
   if (P) {
-    cerr << "  " << Msg << ":  Ptr: ";
-    WriteAsOperand(*cerr.stream(), Ptr, true, M);
-    cerr << "\t<->" << *I;
+    std::cerr << "  " << Msg << ":  Ptr: ";
+    WriteAsOperand(std::cerr, Ptr, true, true, M);
+    std::cerr << "\t<->" << *I;
   }
 }
 
@@ -125,8 +125,8 @@ bool AAEval::runOnFunction(Function &F) {
 
   if (PrintNoAlias || PrintMayAlias || PrintMustAlias ||
       PrintNoModRef || PrintMod || PrintRef || PrintModRef)
-    cerr << "Function: " << F.getName() << ": " << Pointers.size()
-         << " pointers, " << CallSites.size() << " call sites\n";
+    std::cerr << "Function: " << F.getName() << ": " << Pointers.size()
+              << " pointers, " << CallSites.size() << " call sites\n";
 
   // iterate over the worklist, and run the full (n^2)/2 disambiguations
   for (std::set<Value *>::iterator I1 = Pointers.begin(), E = Pointers.end();
@@ -151,7 +151,7 @@ bool AAEval::runOnFunction(Function &F) {
         PrintResults("MustAlias", PrintMustAlias, *I1, *I2, F.getParent());
         ++MustAlias; break;
       default:
-        cerr << "Unknown alias query result!\n";
+        std::cerr << "Unknown alias query result!\n";
       }
     }
   }
@@ -181,7 +181,7 @@ bool AAEval::runOnFunction(Function &F) {
         PrintModRefResults("  ModRef", PrintModRef, I, *V, F.getParent());
         ++ModRef; break;
       default:
-        cerr << "Unknown alias query result!\n";
+        std::cerr << "Unknown alias query result!\n";
       }
     }
   }
@@ -190,45 +190,45 @@ bool AAEval::runOnFunction(Function &F) {
 }
 
 static void PrintPercent(unsigned Num, unsigned Sum) {
-  cerr << "(" << Num*100ULL/Sum << "."
+  std::cerr << "(" << Num*100ULL/Sum << "."
             << ((Num*1000ULL/Sum) % 10) << "%)\n";
 }
 
 bool AAEval::doFinalization(Module &M) {
   unsigned AliasSum = NoAlias + MayAlias + MustAlias;
-  cerr << "===== Alias Analysis Evaluator Report =====\n";
+  std::cerr << "===== Alias Analysis Evaluator Report =====\n";
   if (AliasSum == 0) {
-    cerr << "  Alias Analysis Evaluator Summary: No pointers!\n";
+    std::cerr << "  Alias Analysis Evaluator Summary: No pointers!\n";
   } else {
-    cerr << "  " << AliasSum << " Total Alias Queries Performed\n";
-    cerr << "  " << NoAlias << " no alias responses ";
+    std::cerr << "  " << AliasSum << " Total Alias Queries Performed\n";
+    std::cerr << "  " << NoAlias << " no alias responses ";
     PrintPercent(NoAlias, AliasSum);
-    cerr << "  " << MayAlias << " may alias responses ";
+    std::cerr << "  " << MayAlias << " may alias responses ";
     PrintPercent(MayAlias, AliasSum);
-    cerr << "  " << MustAlias << " must alias responses ";
+    std::cerr << "  " << MustAlias << " must alias responses ";
     PrintPercent(MustAlias, AliasSum);
-    cerr << "  Alias Analysis Evaluator Pointer Alias Summary: "
-         << NoAlias*100/AliasSum  << "%/" << MayAlias*100/AliasSum << "%/"
-         << MustAlias*100/AliasSum << "%\n";
+    std::cerr << "  Alias Analysis Evaluator Pointer Alias Summary: "
+              << NoAlias*100/AliasSum  << "%/" << MayAlias*100/AliasSum << "%/"
+              << MustAlias*100/AliasSum << "%\n";
   }
 
   // Display the summary for mod/ref analysis
   unsigned ModRefSum = NoModRef + Mod + Ref + ModRef;
   if (ModRefSum == 0) {
-    cerr << "  Alias Analysis Mod/Ref Evaluator Summary: no mod/ref!\n";
+    std::cerr << "  Alias Analysis Mod/Ref Evaluator Summary: no mod/ref!\n";
   } else {
-    cerr << "  " << ModRefSum << " Total ModRef Queries Performed\n";
-    cerr << "  " << NoModRef << " no mod/ref responses ";
+    std::cerr << "  " << ModRefSum << " Total ModRef Queries Performed\n";
+    std::cerr << "  " << NoModRef << " no mod/ref responses ";
     PrintPercent(NoModRef, ModRefSum);
-    cerr << "  " << Mod << " mod responses ";
+    std::cerr << "  " << Mod << " mod responses ";
     PrintPercent(Mod, ModRefSum);
-    cerr << "  " << Ref << " ref responses ";
+    std::cerr << "  " << Ref << " ref responses ";
     PrintPercent(Ref, ModRefSum);
-    cerr << "  " << ModRef << " mod & ref responses ";
+    std::cerr << "  " << ModRef << " mod & ref responses ";
     PrintPercent(ModRef, ModRefSum);
-    cerr << "  Alias Analysis Evaluator Mod/Ref Summary: "
-         << NoModRef*100/ModRefSum  << "%/" << Mod*100/ModRefSum << "%/"
-         << Ref*100/ModRefSum << "%/" << ModRef*100/ModRefSum << "%\n";
+    std::cerr << "  Alias Analysis Evaluator Mod/Ref Summary: "
+              << NoModRef*100/ModRefSum  << "%/" << Mod*100/ModRefSum << "%/"
+              << Ref*100/ModRefSum << "%/" << ModRef*100/ModRefSum << "%\n";
   }
 
   return false;

@@ -16,25 +16,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "dce"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Instruction.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/InstIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include <set>
 using namespace llvm;
 
-STATISTIC(DIEEliminated, "Number of insts removed by DIE pass");
-STATISTIC(DCEEliminated, "Number of insts removed");
-
 namespace {
+  Statistic<> DIEEliminated("die", "Number of insts removed");
+  Statistic<> DCEEliminated("dce", "Number of insts removed");
+
   //===--------------------------------------------------------------------===//
   // DeadInstElimination pass implementation
   //
-  struct VISIBILITY_HIDDEN DeadInstElimination : public BasicBlockPass {
+
+  struct DeadInstElimination : public BasicBlockPass {
     virtual bool runOnBasicBlock(BasicBlock &BB) {
       bool Changed = false;
       for (BasicBlock::iterator DI = BB.begin(); DI != BB.end(); )
@@ -54,15 +53,16 @@ namespace {
   RegisterPass<DeadInstElimination> X("die", "Dead Instruction Elimination");
 }
 
-Pass *llvm::createDeadInstEliminationPass() {
+FunctionPass *llvm::createDeadInstEliminationPass() {
   return new DeadInstElimination();
 }
 
 
+//===----------------------------------------------------------------------===//
+// DeadCodeElimination pass implementation
+//
+
 namespace {
-  //===--------------------------------------------------------------------===//
-  // DeadCodeElimination pass implementation
-  //
   struct DCE : public FunctionPass {
     virtual bool runOnFunction(Function &F);
 

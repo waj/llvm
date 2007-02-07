@@ -1,5 +1,5 @@
 ; This shouldn't crash
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=alpha
+; RUN: llvm-as < %s | llc -march=alpha
 
 ; ModuleID = 'bugpoint-reduced-simplified.bc'
 target endian = little

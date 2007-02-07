@@ -28,7 +28,6 @@
 
 %{
 #include "llvm/Config/config.h"
-#include "llvm/Support/Streams.h"
 #include "Record.h"
 typedef std::pair<llvm::Record*, std::vector<llvm::Init*>*> SubClassRefTy;
 #include "FileParser.h"
@@ -64,17 +63,14 @@ struct IncludeRec {
 static std::vector<IncludeRec> IncludeStack;
 
 std::ostream &err() {
-  if (IncludeStack.empty()) {
-    cerr << "At end of input: ";
-    return *cerr.stream();
-  }
+  if (IncludeStack.empty())
+    return std::cerr << "At end of input: ";
 
   for (unsigned i = 0, e = IncludeStack.size()-1; i != e; ++i)
-    cerr << "Included from " << IncludeStack[i].Filename << ":"
-         << IncludeStack[i].LineNo << ":\n";
-  cerr << "Parsing " << IncludeStack.back().Filename << ":"
-       << Filelineno << ": ";
-  return *cerr.stream();
+    std::cerr << "Included from " << IncludeStack[i].Filename << ":"
+              << IncludeStack[i].LineNo << ":\n";
+  return std::cerr << "Parsing " << IncludeStack.back().Filename << ":"
+                   << Filelineno << ": ";
 }
 
 /// ParseFile - this function begins the parsing of the specified tablegen file.
@@ -86,7 +82,7 @@ void ParseFile(const std::string &Filename,
     F = fopen(Filename.c_str(), "r");
 
     if (F == 0) {
-      cerr << "Could not open input file '" + Filename + "'!\n";
+      std::cerr << "Could not open input file '" + Filename + "'!\n";
       exit (1);
     }
     IncludeStack.push_back(IncludeRec(Filename, F));
@@ -118,7 +114,7 @@ static void HandleInclude(const char *Buffer) {
   }
   assert(Length >= 2 && "Double quotes not found?");
   std::string Filename(Buffer+1, Buffer+Length-1);
-  //cerr << "Filename = '" << Filename << "'\n";
+  //std::cerr << "Filename = '" << Filename << "'\n";
 
   // Save the line number and lex buffer of the includer...
   IncludeStack.back().LineNo = Filelineno;

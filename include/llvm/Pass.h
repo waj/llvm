@@ -29,9 +29,7 @@
 #ifndef LLVM_PASS_H
 #define LLVM_PASS_H
 
-#include "llvm/Support/Streams.h"
 #include <vector>
-#include <deque>
 #include <map>
 #include <iosfwd>
 #include <typeinfo>
@@ -46,28 +44,14 @@ class Module;
 class AnalysisUsage;
 class PassInfo;
 class ImmutablePass;
+template<class Trait> class PassManagerT;
 class BasicBlockPassManager;
+class FunctionPassManagerT;
 class ModulePassManager;
-class PMStack;
-class AnalysisResolver;
-class PMDataManager;
+struct AnalysisResolver;
 
 // AnalysisID - Use the PassInfo to identify a pass...
 typedef const PassInfo* AnalysisID;
-
-/// Different types of internal pass managers. External pass managers
-/// (PassManager and FunctionPassManager) are not represented here.
-/// Ordering of pass manager types is important here.
-enum PassManagerType {
-  PMT_Unknown = 0,
-  PMT_ModulePassManager = 1, /// MPPassManager 
-  PMT_CallGraphPassManager,  /// CGPassManager
-  PMT_FunctionPassManager,   /// FPPassManager
-  PMT_LoopPassManager,       /// LPPassManager
-  PMT_BasicBlockPassManager  /// BBPassManager
-};
-
-typedef enum PassManagerType PassManagerType;
 
 //===----------------------------------------------------------------------===//
 /// Pass interface - Implemented by all 'passes'.  Subclass this if you are an
@@ -75,7 +59,8 @@ typedef enum PassManagerType PassManagerType;
 /// constrained passes described below.
 ///
 class Pass {
-  AnalysisResolver *Resolver;  // Used to resolve analysis
+  friend struct AnalysisResolver;
+  AnalysisResolver *Resolver;  // AnalysisResolver this pass is owned by...
   const PassInfo *PassInfoCache;
 
   // AnalysisImpls - This keeps track of which passes implement the interfaces
@@ -116,14 +101,8 @@ public:
   /// ignored.
   ///
   virtual void print(std::ostream &O, const Module *M) const;
-  void print(std::ostream *O, const Module *M) const { if (O) print(*O, M); }
   void dump() const; // dump - call print(std::cerr, 0);
 
-  virtual void assignPassManager(PMStack &PMS, 
-				 PassManagerType T = PMT_Unknown) {}
-  // Access AnalysisResolver
-  inline void setResolver(AnalysisResolver *AR) { Resolver = AR; }
-  inline AnalysisResolver *getResolver() { return Resolver; }
 
   /// getAnalysisUsage - This function should be overriden by passes that need
   /// analysis information to do their job.  If a pass specifies that it uses a
@@ -150,6 +129,8 @@ public:
   // dumpPassStructure - Implement the -debug-passes=PassStructure option
   virtual void dumpPassStructure(unsigned Offset = 0);
 
+
+  // getPassInfo - Static method to get the pass information from a class name.
   template<typename AnalysisClass>
   static const PassInfo *getClassPassInfo() {
     return lookupPassInfo(typeid(AnalysisClass));
@@ -183,11 +164,46 @@ public:
   /// getAnalysisUsage function.
   ///
   template<typename AnalysisType>
-  AnalysisType &getAnalysis() const; // Defined in PassAnalysisSupport.h
+  AnalysisType &getAnalysis() const {
+    assert(Resolver && "Pass has not been inserted into a PassManager object!");
+    const PassInfo *PI = getClassPassInfo<AnalysisType>();
+    return getAnalysisID<AnalysisType>(PI);
+  }
 
   template<typename AnalysisType>
-  AnalysisType &getAnalysisID(const PassInfo *PI) const;
-    
+  AnalysisType &getAnalysisID(const PassInfo *PI) const {
+    assert(Resolver && "Pass has not been inserted into a PassManager object!");
+    assert(PI && "getAnalysis for unregistered pass!");
+
+    // PI *must* appear in AnalysisImpls.  Because the number of passes used
+    // should be a small number, we just do a linear search over a (dense)
+    // vector.
+    Pass *ResultPass = 0;
+    for (unsigned i = 0; ; ++i) {
+      assert(i != AnalysisImpls.size() &&
+             "getAnalysis*() called on an analysis that was not "
+             "'required' by pass!");
+      if (AnalysisImpls[i].first == PI) {
+        ResultPass = AnalysisImpls[i].second;
+        break;
+      }
+    }
+
+    // Because the AnalysisType may not be a subclass of pass (for
+    // AnalysisGroups), we must use dynamic_cast here to potentially adjust the
+    // return pointer (because the class may multiply inherit, once from pass,
+    // once from AnalysisType).
+    //
+    AnalysisType *Result = dynamic_cast<AnalysisType*>(ResultPass);
+    assert(Result && "Pass does not implement interface required!");
+    return *Result;
+  }
+
+private:
+  template<typename Trait> friend class PassManagerT;
+  friend class ModulePassManager;
+  friend class FunctionPassManagerT;
+  friend class BasicBlockPassManager;
 };
 
 inline std::ostream &operator<<(std::ostream &OS, const Pass &P) {
@@ -208,10 +224,7 @@ public:
   virtual bool runPass(Module &M) { return runOnModule(M); }
   virtual bool runPass(BasicBlock&) { return false; }
 
-  virtual void assignPassManager(PMStack &PMS, 
-				 PassManagerType T = PMT_ModulePassManager);
-  // Force out-of-line virtual method.
-  virtual ~ModulePass();
+  virtual void addToPassManager(ModulePassManager *PM, AnalysisUsage &AU);
 };
 
 
@@ -234,8 +247,10 @@ public:
   ///
   virtual bool runOnModule(Module &M) { return false; }
 
-  // Force out-of-line virtual method.
-  virtual ~ImmutablePass();
+private:
+  template<typename Trait> friend class PassManagerT;
+  friend class ModulePassManager;
+  virtual void addToPassManager(ModulePassManager *PM, AnalysisUsage &AU);
 };
 
 //===----------------------------------------------------------------------===//
@@ -247,7 +262,7 @@ public:
 ///  2. Optimizing a function does not cause the addition or removal of any
 ///     functions in the module
 ///
-class FunctionPass : public Pass {
+class FunctionPass : public ModulePass {
 public:
   /// doInitialization - Virtual method overridden by subclasses to do
   /// any necessary per-module initialization.
@@ -275,8 +290,13 @@ public:
   ///
   bool run(Function &F);
 
-  virtual void assignPassManager(PMStack &PMS, 
-				 PassManagerType T = PMT_FunctionPassManager);
+protected:
+  template<typename Trait> friend class PassManagerT;
+  friend class ModulePassManager;
+  friend class FunctionPassManagerT;
+  friend class BasicBlockPassManager;
+  virtual void addToPassManager(ModulePassManager *PM, AnalysisUsage &AU);
+  virtual void addToPassManager(FunctionPassManagerT *PM, AnalysisUsage &AU);
 };
 
 
@@ -291,7 +311,7 @@ public:
 ///      other basic block in the function.
 ///   3. Optimizations conform to all of the constraints of FunctionPasses.
 ///
-class BasicBlockPass : public Pass {
+class BasicBlockPass : public FunctionPass {
 public:
   /// doInitialization - Virtual method overridden by subclasses to do
   /// any necessary per-module initialization.
@@ -330,36 +350,16 @@ public:
   virtual bool runPass(Module &M) { return false; }
   virtual bool runPass(BasicBlock &BB);
 
-  virtual void assignPassManager(PMStack &PMS, 
-				 PassManagerType T = PMT_BasicBlockPassManager);
-};
-
-/// PMStack
-/// Top level pass manager (see PasManager.cpp) maintains active Pass Managers 
-/// using PMStack. Each Pass implements assignPassManager() to connect itself
-/// with appropriate manager. assignPassManager() walks PMStack to find
-/// suitable manager.
-///
-/// PMStack is just a wrapper around standard deque that overrides pop() and
-/// push() methods.
-class PMStack {
-public:
-  typedef std::deque<PMDataManager *>::reverse_iterator iterator;
-  iterator begin() { return S.rbegin(); }
-  iterator end() { return S.rend(); }
-
-  void handleLastUserOverflow();
-
-  void pop();
-  inline PMDataManager *top() { return S.back(); }
-  void push(Pass *P);
-  inline bool empty() { return S.empty(); }
-
-  void dump();
 private:
-  std::deque<PMDataManager *> S;
+  template<typename Trait> friend class PassManagerT;
+  friend class FunctionPassManagerT;
+  friend class BasicBlockPassManager;
+  virtual void addToPassManager(ModulePassManager *PM, AnalysisUsage &AU) {
+    FunctionPass::addToPassManager(PM, AU);
+  }
+  virtual void addToPassManager(FunctionPassManagerT *PM, AnalysisUsage &AU);
+  virtual void addToPassManager(BasicBlockPassManager *PM,AnalysisUsage &AU);
 };
-
 
 /// If the user specifies the -time-passes argument on an LLVM tool command line
 /// then the value of this boolean will be true, otherwise false.

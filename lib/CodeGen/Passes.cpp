@@ -14,6 +14,7 @@
 
 #include "llvm/CodeGen/RegAllocRegistry.h"
 #include "llvm/CodeGen/Passes.h"
+#include <iostream>
 
 using namespace llvm;
 

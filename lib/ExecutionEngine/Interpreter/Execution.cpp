@@ -20,12 +20,14 @@
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/MathExtras.h"
-#include <cmath>
+#include <cmath>  // For fmod
 using namespace llvm;
 
-STATISTIC(NumDynamicInsts, "Number of dynamic instructions executed");
-static Interpreter *TheEE = 0;
+namespace {
+  Statistic<> NumDynamicInsts("lli", "Number of dynamic instructions executed");
+
+  Interpreter *TheEE = 0;
+}
 
 
 //===----------------------------------------------------------------------===//
@@ -56,53 +58,30 @@ static GenericValue executeOrInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty);
 static GenericValue executeXorInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty);
-static GenericValue executeCmpInst(unsigned predicate, GenericValue Src1, 
-                                   GenericValue Src2, const Type *Ty);
+static GenericValue executeSetEQInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty);
+static GenericValue executeSetNEInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty);
+static GenericValue executeSetLTInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty);
+static GenericValue executeSetGTInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty);
+static GenericValue executeSetLEInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty);
+static GenericValue executeSetGEInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty);
 static GenericValue executeShlInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty);
-static GenericValue executeLShrInst(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty);
-static GenericValue executeAShrInst(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty);
+static GenericValue executeShrInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty);
 static GenericValue executeSelectInst(GenericValue Src1, GenericValue Src2,
                                       GenericValue Src3);
-
-inline uint64_t doSignExtension(uint64_t Val, const IntegerType* ITy) {
-  // Determine if the value is signed or not
-  bool isSigned = (Val & (1 << (ITy->getBitWidth()-1))) != 0;
-  // If its signed, extend the sign bits
-  if (isSigned)
-    Val |= ~ITy->getBitMask();
-  return Val;
-}
 
 GenericValue Interpreter::getConstantExprValue (ConstantExpr *CE,
                                                 ExecutionContext &SF) {
   switch (CE->getOpcode()) {
-  case Instruction::Trunc:   
-      return executeTruncInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::ZExt:
-      return executeZExtInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::SExt:
-      return executeSExtInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::FPTrunc:
-      return executeFPTruncInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::FPExt:
-      return executeFPExtInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::UIToFP:
-      return executeUIToFPInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::SIToFP:
-      return executeSIToFPInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::FPToUI:
-      return executeFPToUIInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::FPToSI:
-      return executeFPToSIInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::PtrToInt:
-      return executePtrToIntInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::IntToPtr:
-      return executeIntToPtrInst(CE->getOperand(0), CE->getType(), SF);
-  case Instruction::BitCast:
-      return executeBitCastInst(CE->getOperand(0), CE->getType(), SF);
+  case Instruction::Cast:
+    return executeCastOperation(CE->getOperand(0), CE->getType(), SF);
   case Instruction::GetElementPtr:
     return executeGEPOperation(CE->getOperand(0), gep_type_begin(CE),
                                gep_type_end(CE), SF);
@@ -154,30 +133,44 @@ GenericValue Interpreter::getConstantExprValue (ConstantExpr *CE,
     return executeXorInst(getOperandValue(CE->getOperand(0), SF),
                           getOperandValue(CE->getOperand(1), SF),
                           CE->getOperand(0)->getType());
-  case Instruction::FCmp:
-  case Instruction::ICmp:
-    return executeCmpInst(CE->getPredicate(),
-                          getOperandValue(CE->getOperand(0), SF),
-                          getOperandValue(CE->getOperand(1), SF),
-                          CE->getOperand(0)->getType());
+  case Instruction::SetEQ:
+    return executeSetEQInst(getOperandValue(CE->getOperand(0), SF),
+                            getOperandValue(CE->getOperand(1), SF),
+                            CE->getOperand(0)->getType());
+  case Instruction::SetNE:
+    return executeSetNEInst(getOperandValue(CE->getOperand(0), SF),
+                            getOperandValue(CE->getOperand(1), SF),
+                            CE->getOperand(0)->getType());
+  case Instruction::SetLE:
+    return executeSetLEInst(getOperandValue(CE->getOperand(0), SF),
+                            getOperandValue(CE->getOperand(1), SF),
+                            CE->getOperand(0)->getType());
+  case Instruction::SetGE:
+    return executeSetGEInst(getOperandValue(CE->getOperand(0), SF),
+                            getOperandValue(CE->getOperand(1), SF),
+                            CE->getOperand(0)->getType());
+  case Instruction::SetLT:
+    return executeSetLTInst(getOperandValue(CE->getOperand(0), SF),
+                            getOperandValue(CE->getOperand(1), SF),
+                            CE->getOperand(0)->getType());
+  case Instruction::SetGT:
+    return executeSetGTInst(getOperandValue(CE->getOperand(0), SF),
+                            getOperandValue(CE->getOperand(1), SF),
+                            CE->getOperand(0)->getType());
   case Instruction::Shl:
     return executeShlInst(getOperandValue(CE->getOperand(0), SF),
                           getOperandValue(CE->getOperand(1), SF),
                           CE->getOperand(0)->getType());
-  case Instruction::LShr:
-    return executeLShrInst(getOperandValue(CE->getOperand(0), SF),
-                           getOperandValue(CE->getOperand(1), SF),
-                           CE->getOperand(0)->getType());
-  case Instruction::AShr:
-    return executeAShrInst(getOperandValue(CE->getOperand(0), SF),
-                           getOperandValue(CE->getOperand(1), SF),
-                           CE->getOperand(0)->getType());
+  case Instruction::Shr:
+    return executeShrInst(getOperandValue(CE->getOperand(0), SF),
+                          getOperandValue(CE->getOperand(1), SF),
+                          CE->getOperand(0)->getType());
   case Instruction::Select:
     return executeSelectInst(getOperandValue(CE->getOperand(0), SF),
                              getOperandValue(CE->getOperand(1), SF),
                              getOperandValue(CE->getOperand(2), SF));
   default:
-    cerr << "Unhandled ConstantExpr: " << *CE << "\n";
+    std::cerr << "Unhandled ConstantExpr: " << *CE << "\n";
     abort();
     return GenericValue();
   }
@@ -210,76 +203,22 @@ void Interpreter::initializeExecutionEngine() {
 #define IMPLEMENT_BINARY_OPERATOR(OP, TY) \
    case Type::TY##TyID: Dest.TY##Val = Src1.TY##Val OP Src2.TY##Val; break
 
-#define IMPLEMENT_INTEGER_BINOP(OP, TY) \
-   case Type::IntegerTyID: { \
-     unsigned BitWidth = cast<IntegerType>(TY)->getBitWidth(); \
-     if (BitWidth == 1) \
-       Dest.Int1Val = Src1.Int1Val OP Src2.Int1Val; \
-     else if (BitWidth <= 8) \
-       Dest.Int8Val = Src1.Int8Val OP Src2.Int8Val; \
-     else if (BitWidth <= 16) \
-       Dest.Int16Val = Src1.Int16Val OP Src2.Int16Val; \
-     else if (BitWidth <= 32) \
-       Dest.Int32Val = Src1.Int32Val OP Src2.Int32Val; \
-     else if (BitWidth <= 64) \
-       Dest.Int64Val = Src1.Int64Val OP Src2.Int64Val; \
-     else \
-      cerr << "Integer types > 64 bits not supported: " << *Ty << "\n"; \
-     maskToBitWidth(Dest, BitWidth); \
-     break; \
-   }
-
-#define IMPLEMENT_SIGNED_BINOP(OP, TY) \
-   if (const IntegerType *ITy = dyn_cast<IntegerType>(TY)) { \
-     unsigned BitWidth = ITy->getBitWidth(); \
-     if (BitWidth <= 8) \
-       Dest.Int8Val  = ((int8_t)Src1.Int8Val)   OP ((int8_t)Src2.Int8Val); \
-     else if (BitWidth <= 16) \
-       Dest.Int16Val = ((int16_t)Src1.Int16Val) OP ((int16_t)Src2.Int16Val); \
-     else if (BitWidth <= 32) \
-       Dest.Int32Val = ((int32_t)Src1.Int32Val) OP ((int32_t)Src2.Int32Val); \
-     else if (BitWidth <= 64) \
-       Dest.Int64Val = ((int64_t)Src1.Int64Val) OP ((int64_t)Src2.Int64Val); \
-     else { \
-      cerr << "Integer types > 64 bits not supported: " << *Ty << "\n"; \
-       abort(); \
-     } \
-     maskToBitWidth(Dest, BitWidth); \
-   } else { \
-    cerr << "Unhandled type for " #OP " operator: " << *Ty << "\n"; \
-    abort(); \
-   }
-
-#define IMPLEMENT_UNSIGNED_BINOP(OP, TY) \
-   if (const IntegerType *ITy = dyn_cast<IntegerType>(TY)) { \
-     unsigned BitWidth = ITy->getBitWidth(); \
-     if (BitWidth <= 8) \
-       Dest.Int8Val  = ((uint8_t)Src1.Int8Val)   OP ((uint8_t)Src2.Int8Val); \
-     else if (BitWidth <= 16) \
-       Dest.Int16Val = ((uint16_t)Src1.Int16Val) OP ((uint16_t)Src2.Int16Val); \
-     else if (BitWidth <= 32) \
-       Dest.Int32Val = ((uint32_t)Src1.Int32Val) OP ((uint32_t)Src2.Int32Val); \
-     else if (BitWidth <= 64) \
-       Dest.Int64Val = ((uint64_t)Src1.Int64Val) OP ((uint64_t)Src2.Int64Val); \
-     else { \
-      cerr << "Integer types > 64 bits not supported: " << *Ty << "\n"; \
-       abort(); \
-     } \
-     maskToBitWidth(Dest, BitWidth); \
-   } else { \
-    cerr << "Unhandled type for " #OP " operator: " << *Ty << "\n"; \
-    abort(); \
-  }
-
 static GenericValue executeAddInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
   switch (Ty->getTypeID()) {
-    IMPLEMENT_INTEGER_BINOP(+, Ty);
+    IMPLEMENT_BINARY_OPERATOR(+, UByte);
+    IMPLEMENT_BINARY_OPERATOR(+, SByte);
+    IMPLEMENT_BINARY_OPERATOR(+, UShort);
+    IMPLEMENT_BINARY_OPERATOR(+, Short);
+    IMPLEMENT_BINARY_OPERATOR(+, UInt);
+    IMPLEMENT_BINARY_OPERATOR(+, Int);
+    IMPLEMENT_BINARY_OPERATOR(+, ULong);
+    IMPLEMENT_BINARY_OPERATOR(+, Long);
     IMPLEMENT_BINARY_OPERATOR(+, Float);
     IMPLEMENT_BINARY_OPERATOR(+, Double);
   default:
-    cerr << "Unhandled type for Add instruction: " << *Ty << "\n";
+    std::cout << "Unhandled type for Add instruction: " << *Ty << "\n";
     abort();
   }
   return Dest;
@@ -289,11 +228,18 @@ static GenericValue executeSubInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
   switch (Ty->getTypeID()) {
-    IMPLEMENT_INTEGER_BINOP(-, Ty);
+    IMPLEMENT_BINARY_OPERATOR(-, UByte);
+    IMPLEMENT_BINARY_OPERATOR(-, SByte);
+    IMPLEMENT_BINARY_OPERATOR(-, UShort);
+    IMPLEMENT_BINARY_OPERATOR(-, Short);
+    IMPLEMENT_BINARY_OPERATOR(-, UInt);
+    IMPLEMENT_BINARY_OPERATOR(-, Int);
+    IMPLEMENT_BINARY_OPERATOR(-, ULong);
+    IMPLEMENT_BINARY_OPERATOR(-, Long);
     IMPLEMENT_BINARY_OPERATOR(-, Float);
     IMPLEMENT_BINARY_OPERATOR(-, Double);
   default:
-    cerr << "Unhandled type for Sub instruction: " << *Ty << "\n";
+    std::cout << "Unhandled type for Sub instruction: " << *Ty << "\n";
     abort();
   }
   return Dest;
@@ -303,27 +249,53 @@ static GenericValue executeMulInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
   switch (Ty->getTypeID()) {
-    IMPLEMENT_INTEGER_BINOP(*, Ty);
+    IMPLEMENT_BINARY_OPERATOR(*, UByte);
+    IMPLEMENT_BINARY_OPERATOR(*, SByte);
+    IMPLEMENT_BINARY_OPERATOR(*, UShort);
+    IMPLEMENT_BINARY_OPERATOR(*, Short);
+    IMPLEMENT_BINARY_OPERATOR(*, UInt);
+    IMPLEMENT_BINARY_OPERATOR(*, Int);
+    IMPLEMENT_BINARY_OPERATOR(*, ULong);
+    IMPLEMENT_BINARY_OPERATOR(*, Long);
     IMPLEMENT_BINARY_OPERATOR(*, Float);
     IMPLEMENT_BINARY_OPERATOR(*, Double);
   default:
-    cerr << "Unhandled type for Mul instruction: " << *Ty << "\n";
+    std::cout << "Unhandled type for Mul instruction: " << *Ty << "\n";
     abort();
   }
   return Dest;
 }
 
+#define IMPLEMENT_SIGNLESS_BINOP(OP, TY1, TY2) \
+   case Type::TY2##TyID: IMPLEMENT_BINARY_OPERATOR(OP, TY1)
+
 static GenericValue executeUDivInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
-  IMPLEMENT_UNSIGNED_BINOP(/,Ty)
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SIGNLESS_BINOP(/, UByte,  SByte);
+    IMPLEMENT_SIGNLESS_BINOP(/, UShort, Short);
+    IMPLEMENT_SIGNLESS_BINOP(/, UInt,   Int);
+    IMPLEMENT_SIGNLESS_BINOP(/, ULong,  Long);
+  default:
+    std::cout << "Unhandled type for UDiv instruction: " << *Ty << "\n";
+    abort();
+  }
   return Dest;
 }
 
 static GenericValue executeSDivInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
-  IMPLEMENT_SIGNED_BINOP(/,Ty)
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SIGNLESS_BINOP(/, SByte, UByte);
+    IMPLEMENT_SIGNLESS_BINOP(/, Short, UShort);
+    IMPLEMENT_SIGNLESS_BINOP(/, Int,   UInt);
+    IMPLEMENT_SIGNLESS_BINOP(/, Long,  ULong);
+  default:
+    std::cout << "Unhandled type for SDiv instruction: " << *Ty << "\n";
+    abort();
+  }
   return Dest;
 }
 
@@ -334,7 +306,7 @@ static GenericValue executeFDivInst(GenericValue Src1, GenericValue Src2,
     IMPLEMENT_BINARY_OPERATOR(/, Float);
     IMPLEMENT_BINARY_OPERATOR(/, Double);
   default:
-    cerr << "Unhandled type for FDiv instruction: " << *Ty << "\n";
+    std::cout << "Unhandled type for Div instruction: " << *Ty << "\n";
     abort();
   }
   return Dest;
@@ -343,14 +315,30 @@ static GenericValue executeFDivInst(GenericValue Src1, GenericValue Src2,
 static GenericValue executeURemInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
-  IMPLEMENT_UNSIGNED_BINOP(%, Ty)
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SIGNLESS_BINOP(%, UByte,  SByte);
+    IMPLEMENT_SIGNLESS_BINOP(%, UShort, Short);
+    IMPLEMENT_SIGNLESS_BINOP(%, UInt,   Int);
+    IMPLEMENT_SIGNLESS_BINOP(%, ULong,  Long);
+  default:
+    std::cout << "Unhandled type for URem instruction: " << *Ty << "\n";
+    abort();
+  }
   return Dest;
 }
 
 static GenericValue executeSRemInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
-  IMPLEMENT_SIGNED_BINOP(%, Ty)
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SIGNLESS_BINOP(%, SByte, UByte);
+    IMPLEMENT_SIGNLESS_BINOP(%, Short, UShort);
+    IMPLEMENT_SIGNLESS_BINOP(%, Int,   UInt);
+    IMPLEMENT_SIGNLESS_BINOP(%, Long,  ULong);
+  default:
+    std::cout << "Unhandled type for Rem instruction: " << *Ty << "\n";
+    abort();
+  }
   return Dest;
 }
 
@@ -365,7 +353,7 @@ static GenericValue executeFRemInst(GenericValue Src1, GenericValue Src2,
     Dest.DoubleVal = fmod(Src1.DoubleVal, Src2.DoubleVal);
     break;
   default:
-    cerr << "Unhandled type for Rem instruction: " << *Ty << "\n";
+    std::cout << "Unhandled type for Rem instruction: " << *Ty << "\n";
     abort();
   }
   return Dest;
@@ -374,469 +362,206 @@ static GenericValue executeFRemInst(GenericValue Src1, GenericValue Src2,
 static GenericValue executeAndInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
-  IMPLEMENT_UNSIGNED_BINOP(&, Ty)
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_BINARY_OPERATOR(&, Bool);
+    IMPLEMENT_BINARY_OPERATOR(&, UByte);
+    IMPLEMENT_BINARY_OPERATOR(&, SByte);
+    IMPLEMENT_BINARY_OPERATOR(&, UShort);
+    IMPLEMENT_BINARY_OPERATOR(&, Short);
+    IMPLEMENT_BINARY_OPERATOR(&, UInt);
+    IMPLEMENT_BINARY_OPERATOR(&, Int);
+    IMPLEMENT_BINARY_OPERATOR(&, ULong);
+    IMPLEMENT_BINARY_OPERATOR(&, Long);
+  default:
+    std::cout << "Unhandled type for And instruction: " << *Ty << "\n";
+    abort();
+  }
   return Dest;
 }
 
 static GenericValue executeOrInst(GenericValue Src1, GenericValue Src2,
                                   const Type *Ty) {
   GenericValue Dest;
-  IMPLEMENT_UNSIGNED_BINOP(|, Ty)
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_BINARY_OPERATOR(|, Bool);
+    IMPLEMENT_BINARY_OPERATOR(|, UByte);
+    IMPLEMENT_BINARY_OPERATOR(|, SByte);
+    IMPLEMENT_BINARY_OPERATOR(|, UShort);
+    IMPLEMENT_BINARY_OPERATOR(|, Short);
+    IMPLEMENT_BINARY_OPERATOR(|, UInt);
+    IMPLEMENT_BINARY_OPERATOR(|, Int);
+    IMPLEMENT_BINARY_OPERATOR(|, ULong);
+    IMPLEMENT_BINARY_OPERATOR(|, Long);
+  default:
+    std::cout << "Unhandled type for Or instruction: " << *Ty << "\n";
+    abort();
+  }
   return Dest;
 }
 
 static GenericValue executeXorInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
-  IMPLEMENT_UNSIGNED_BINOP(^, Ty)
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_BINARY_OPERATOR(^, Bool);
+    IMPLEMENT_BINARY_OPERATOR(^, UByte);
+    IMPLEMENT_BINARY_OPERATOR(^, SByte);
+    IMPLEMENT_BINARY_OPERATOR(^, UShort);
+    IMPLEMENT_BINARY_OPERATOR(^, Short);
+    IMPLEMENT_BINARY_OPERATOR(^, UInt);
+    IMPLEMENT_BINARY_OPERATOR(^, Int);
+    IMPLEMENT_BINARY_OPERATOR(^, ULong);
+    IMPLEMENT_BINARY_OPERATOR(^, Long);
+  default:
+    std::cout << "Unhandled type for Xor instruction: " << *Ty << "\n";
+    abort();
+  }
   return Dest;
 }
 
-#define IMPLEMENT_SIGNED_ICMP(OP, TY) \
-   case Type::IntegerTyID: {  \
-     const IntegerType* ITy = cast<IntegerType>(TY); \
-     unsigned BitWidth = ITy->getBitWidth(); \
-     int64_t LHS = 0, RHS = 0; \
-     if (BitWidth <= 8) { \
-       LHS = int64_t(doSignExtension(uint64_t(Src1.Int8Val), ITy)); \
-       RHS = int64_t(doSignExtension(uint64_t(Src2.Int8Val), ITy)); \
-     } else if (BitWidth <= 16) { \
-       LHS = int64_t(doSignExtension(uint64_t(Src1.Int16Val), ITy)); \
-       RHS = int64_t(doSignExtension(uint64_t(Src2.Int16Val), ITy)); \
-    } else if (BitWidth <= 32) { \
-       LHS = int64_t(doSignExtension(uint64_t(Src1.Int32Val), ITy)); \
-       RHS = int64_t(doSignExtension(uint64_t(Src2.Int32Val), ITy)); \
-    } else if (BitWidth <= 64) { \
-       LHS = int64_t(doSignExtension(uint64_t(Src1.Int64Val), ITy)); \
-       RHS = int64_t(doSignExtension(uint64_t(Src2.Int64Val), ITy)); \
-    } else { \
-      cerr << "Integer types > 64 bits not supported: " << *Ty << "\n"; \
-       abort(); \
-     } \
-     Dest.Int1Val = LHS OP RHS; \
-     break; \
-   }
-
-#define IMPLEMENT_UNSIGNED_ICMP(OP, TY) \
-   case Type::IntegerTyID: { \
-     unsigned BitWidth = cast<IntegerType>(TY)->getBitWidth(); \
-     if (BitWidth == 1) \
-       Dest.Int1Val = ((uint8_t)Src1.Int1Val)   OP ((uint8_t)Src2.Int1Val); \
-     else if (BitWidth <= 8) \
-       Dest.Int1Val = ((uint8_t)Src1.Int8Val)   OP ((uint8_t)Src2.Int8Val); \
-     else if (BitWidth <= 16) \
-       Dest.Int1Val = ((uint16_t)Src1.Int16Val) OP ((uint16_t)Src2.Int16Val); \
-     else if (BitWidth <= 32) \
-       Dest.Int1Val = ((uint32_t)Src1.Int32Val) OP ((uint32_t)Src2.Int32Val); \
-     else if (BitWidth <= 64) \
-       Dest.Int1Val = ((uint64_t)Src1.Int64Val) OP ((uint64_t)Src2.Int64Val); \
-     else { \
-      cerr << "Integer types > 64 bits not supported: " << *Ty << "\n"; \
-       abort(); \
-     } \
-     maskToBitWidth(Dest, BitWidth); \
-     break; \
-   }
+#define IMPLEMENT_SETCC(OP, TY) \
+   case Type::TY##TyID: Dest.BoolVal = Src1.TY##Val OP Src2.TY##Val; break
 
 // Handle pointers specially because they must be compared with only as much
 // width as the host has.  We _do not_ want to be comparing 64 bit values when
 // running on a 32-bit target, otherwise the upper 32 bits might mess up
 // comparisons if they contain garbage.
-#define IMPLEMENT_POINTER_ICMP(OP) \
+#define IMPLEMENT_POINTERSETCC(OP) \
    case Type::PointerTyID: \
-        Dest.Int1Val = (void*)(intptr_t)Src1.PointerVal OP \
+        Dest.BoolVal = (void*)(intptr_t)Src1.PointerVal OP \
                        (void*)(intptr_t)Src2.PointerVal; break
 
-static GenericValue executeICMP_EQ(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_UNSIGNED_ICMP(==, Ty);
-    IMPLEMENT_POINTER_ICMP(==);
-  default:
-    cerr << "Unhandled type for ICMP_EQ predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeICMP_NE(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_UNSIGNED_ICMP(!=, Ty);
-    IMPLEMENT_POINTER_ICMP(!=);
-  default:
-    cerr << "Unhandled type for ICMP_NE predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeICMP_ULT(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_UNSIGNED_ICMP(<, Ty);
-    IMPLEMENT_POINTER_ICMP(<);
-  default:
-    cerr << "Unhandled type for ICMP_ULT predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeICMP_SLT(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_SIGNED_ICMP(<, Ty);
-    IMPLEMENT_POINTER_ICMP(<);
-  default:
-    cerr << "Unhandled type for ICMP_SLT predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeICMP_UGT(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_UNSIGNED_ICMP(>, Ty);
-    IMPLEMENT_POINTER_ICMP(>);
-  default:
-    cerr << "Unhandled type for ICMP_UGT predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeICMP_SGT(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_SIGNED_ICMP(>, Ty);
-    IMPLEMENT_POINTER_ICMP(>);
-  default:
-    cerr << "Unhandled type for ICMP_SGT predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeICMP_ULE(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_UNSIGNED_ICMP(<=, Ty);
-    IMPLEMENT_POINTER_ICMP(<=);
-  default:
-    cerr << "Unhandled type for ICMP_ULE predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeICMP_SLE(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_SIGNED_ICMP(<=, Ty);
-    IMPLEMENT_POINTER_ICMP(<=);
-  default:
-    cerr << "Unhandled type for ICMP_SLE predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeICMP_UGE(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_UNSIGNED_ICMP(>=,Ty);
-    IMPLEMENT_POINTER_ICMP(>=);
-  default:
-    cerr << "Unhandled type for ICMP_UGE predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeICMP_SGE(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_SIGNED_ICMP(>=, Ty);
-    IMPLEMENT_POINTER_ICMP(>=);
-  default:
-    cerr << "Unhandled type for ICMP_SGE predicate: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-void Interpreter::visitICmpInst(ICmpInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  const Type *Ty    = I.getOperand(0)->getType();
-  GenericValue Src1 = getOperandValue(I.getOperand(0), SF);
-  GenericValue Src2 = getOperandValue(I.getOperand(1), SF);
-  GenericValue R;   // Result
-  
-  switch (I.getPredicate()) {
-  case ICmpInst::ICMP_EQ:  R = executeICMP_EQ(Src1,  Src2, Ty); break;
-  case ICmpInst::ICMP_NE:  R = executeICMP_NE(Src1,  Src2, Ty); break;
-  case ICmpInst::ICMP_ULT: R = executeICMP_ULT(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_SLT: R = executeICMP_SLT(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_UGT: R = executeICMP_UGT(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_SGT: R = executeICMP_SGT(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_ULE: R = executeICMP_ULE(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_SLE: R = executeICMP_SLE(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_UGE: R = executeICMP_UGE(Src1, Src2, Ty); break;
-  case ICmpInst::ICMP_SGE: R = executeICMP_SGE(Src1, Src2, Ty); break;
-  default:
-    cerr << "Don't know how to handle this ICmp predicate!\n-->" << I;
-    abort();
-  }
- 
-  SetValue(&I, R, SF);
-}
-
-#define IMPLEMENT_FCMP(OP, TY) \
-   case Type::TY##TyID: Dest.Int1Val = Src1.TY##Val OP Src2.TY##Val; break
-
-static GenericValue executeFCMP_OEQ(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_FCMP(==, Float);
-    IMPLEMENT_FCMP(==, Double);
-  default:
-    cerr << "Unhandled type for FCmp EQ instruction: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeFCMP_ONE(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_FCMP(!=, Float);
-    IMPLEMENT_FCMP(!=, Double);
-
-  default:
-    cerr << "Unhandled type for FCmp NE instruction: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeFCMP_OLE(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_FCMP(<=, Float);
-    IMPLEMENT_FCMP(<=, Double);
-  default:
-    cerr << "Unhandled type for FCmp LE instruction: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeFCMP_OGE(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_FCMP(>=, Float);
-    IMPLEMENT_FCMP(>=, Double);
-  default:
-    cerr << "Unhandled type for FCmp GE instruction: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeFCMP_OLT(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  switch (Ty->getTypeID()) {
-    IMPLEMENT_FCMP(<, Float);
-    IMPLEMENT_FCMP(<, Double);
-  default:
-    cerr << "Unhandled type for FCmp LT instruction: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-static GenericValue executeFCMP_OGT(GenericValue Src1, GenericValue Src2,
+static GenericValue executeSetEQInst(GenericValue Src1, GenericValue Src2,
                                      const Type *Ty) {
   GenericValue Dest;
   switch (Ty->getTypeID()) {
-    IMPLEMENT_FCMP(>, Float);
-    IMPLEMENT_FCMP(>, Double);
+    IMPLEMENT_SETCC(==, UByte);
+    IMPLEMENT_SETCC(==, SByte);
+    IMPLEMENT_SETCC(==, UShort);
+    IMPLEMENT_SETCC(==, Short);
+    IMPLEMENT_SETCC(==, UInt);
+    IMPLEMENT_SETCC(==, Int);
+    IMPLEMENT_SETCC(==, ULong);
+    IMPLEMENT_SETCC(==, Long);
+    IMPLEMENT_SETCC(==, Float);
+    IMPLEMENT_SETCC(==, Double);
+    IMPLEMENT_POINTERSETCC(==);
   default:
-    cerr << "Unhandled type for FCmp GT instruction: " << *Ty << "\n";
+    std::cout << "Unhandled type for SetEQ instruction: " << *Ty << "\n";
     abort();
   }
   return Dest;
 }
 
-#define IMPLEMENT_UNORDERED(TY, X,Y) \
-   if (TY == Type::FloatTy) \
-     if (X.FloatVal != X.FloatVal || Y.FloatVal != Y.FloatVal) { \
-       Dest.Int1Val = true; \
-       return Dest; \
-     } \
-   else if (X.DoubleVal != X.DoubleVal || Y.DoubleVal != Y.DoubleVal) { \
-     Dest.Int1Val = true; \
-     return Dest; \
-   }
-
-
-static GenericValue executeFCMP_UEQ(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  IMPLEMENT_UNORDERED(Ty, Src1, Src2)
-  return executeFCMP_OEQ(Src1, Src2, Ty);
-}
-
-static GenericValue executeFCMP_UNE(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  IMPLEMENT_UNORDERED(Ty, Src1, Src2)
-  return executeFCMP_ONE(Src1, Src2, Ty);
-}
-
-static GenericValue executeFCMP_ULE(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  IMPLEMENT_UNORDERED(Ty, Src1, Src2)
-  return executeFCMP_OLE(Src1, Src2, Ty);
-}
-
-static GenericValue executeFCMP_UGE(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  IMPLEMENT_UNORDERED(Ty, Src1, Src2)
-  return executeFCMP_OGE(Src1, Src2, Ty);
-}
-
-static GenericValue executeFCMP_ULT(GenericValue Src1, GenericValue Src2,
-                                   const Type *Ty) {
-  GenericValue Dest;
-  IMPLEMENT_UNORDERED(Ty, Src1, Src2)
-  return executeFCMP_OLT(Src1, Src2, Ty);
-}
-
-static GenericValue executeFCMP_UGT(GenericValue Src1, GenericValue Src2,
+static GenericValue executeSetNEInst(GenericValue Src1, GenericValue Src2,
                                      const Type *Ty) {
   GenericValue Dest;
-  IMPLEMENT_UNORDERED(Ty, Src1, Src2)
-  return executeFCMP_OGT(Src1, Src2, Ty);
-}
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SETCC(!=, UByte);
+    IMPLEMENT_SETCC(!=, SByte);
+    IMPLEMENT_SETCC(!=, UShort);
+    IMPLEMENT_SETCC(!=, Short);
+    IMPLEMENT_SETCC(!=, UInt);
+    IMPLEMENT_SETCC(!=, Int);
+    IMPLEMENT_SETCC(!=, ULong);
+    IMPLEMENT_SETCC(!=, Long);
+    IMPLEMENT_SETCC(!=, Float);
+    IMPLEMENT_SETCC(!=, Double);
+    IMPLEMENT_POINTERSETCC(!=);
 
-static GenericValue executeFCMP_ORD(GenericValue Src1, GenericValue Src2,
-                                     const Type *Ty) {
-  GenericValue Dest;
-  if (Ty == Type::FloatTy)
-    Dest.Int1Val = (Src1.FloatVal == Src1.FloatVal && 
-                    Src2.FloatVal == Src2.FloatVal);
-  else
-    Dest.Int1Val = (Src1.DoubleVal == Src1.DoubleVal && 
-                    Src2.DoubleVal == Src2.DoubleVal);
+  default:
+    std::cout << "Unhandled type for SetNE instruction: " << *Ty << "\n";
+    abort();
+  }
   return Dest;
 }
 
-static GenericValue executeFCMP_UNO(GenericValue Src1, GenericValue Src2,
+static GenericValue executeSetLEInst(GenericValue Src1, GenericValue Src2,
                                      const Type *Ty) {
   GenericValue Dest;
-  if (Ty == Type::FloatTy)
-    Dest.Int1Val = (Src1.FloatVal != Src1.FloatVal || 
-                    Src2.FloatVal != Src2.FloatVal);
-  else
-    Dest.Int1Val = (Src1.DoubleVal != Src1.DoubleVal || 
-                    Src2.DoubleVal != Src2.DoubleVal);
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SETCC(<=, UByte);
+    IMPLEMENT_SETCC(<=, SByte);
+    IMPLEMENT_SETCC(<=, UShort);
+    IMPLEMENT_SETCC(<=, Short);
+    IMPLEMENT_SETCC(<=, UInt);
+    IMPLEMENT_SETCC(<=, Int);
+    IMPLEMENT_SETCC(<=, ULong);
+    IMPLEMENT_SETCC(<=, Long);
+    IMPLEMENT_SETCC(<=, Float);
+    IMPLEMENT_SETCC(<=, Double);
+    IMPLEMENT_POINTERSETCC(<=);
+  default:
+    std::cout << "Unhandled type for SetLE instruction: " << *Ty << "\n";
+    abort();
+  }
   return Dest;
 }
 
-void Interpreter::visitFCmpInst(FCmpInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  const Type *Ty    = I.getOperand(0)->getType();
-  GenericValue Src1 = getOperandValue(I.getOperand(0), SF);
-  GenericValue Src2 = getOperandValue(I.getOperand(1), SF);
-  GenericValue R;   // Result
-  
-  switch (I.getPredicate()) {
-  case FCmpInst::FCMP_FALSE: R.Int1Val = false; break;
-  case FCmpInst::FCMP_TRUE:  R.Int1Val = true; break;
-  case FCmpInst::FCMP_ORD:   R = executeFCMP_ORD(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_UNO:   R = executeFCMP_UNO(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_UEQ:   R = executeFCMP_UEQ(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_OEQ:   R = executeFCMP_OEQ(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_UNE:   R = executeFCMP_UNE(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_ONE:   R = executeFCMP_ONE(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_ULT:   R = executeFCMP_ULT(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_OLT:   R = executeFCMP_OLT(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_UGT:   R = executeFCMP_UGT(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_OGT:   R = executeFCMP_OGT(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_ULE:   R = executeFCMP_ULE(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_OLE:   R = executeFCMP_OLE(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_UGE:   R = executeFCMP_UGE(Src1, Src2, Ty); break;
-  case FCmpInst::FCMP_OGE:   R = executeFCMP_OGE(Src1, Src2, Ty); break;
+static GenericValue executeSetGEInst(GenericValue Src1, GenericValue Src2,
+                                     const Type *Ty) {
+  GenericValue Dest;
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SETCC(>=, UByte);
+    IMPLEMENT_SETCC(>=, SByte);
+    IMPLEMENT_SETCC(>=, UShort);
+    IMPLEMENT_SETCC(>=, Short);
+    IMPLEMENT_SETCC(>=, UInt);
+    IMPLEMENT_SETCC(>=, Int);
+    IMPLEMENT_SETCC(>=, ULong);
+    IMPLEMENT_SETCC(>=, Long);
+    IMPLEMENT_SETCC(>=, Float);
+    IMPLEMENT_SETCC(>=, Double);
+    IMPLEMENT_POINTERSETCC(>=);
   default:
-    cerr << "Don't know how to handle this FCmp predicate!\n-->" << I;
+    std::cout << "Unhandled type for SetGE instruction: " << *Ty << "\n";
     abort();
   }
- 
-  SetValue(&I, R, SF);
+  return Dest;
 }
 
-static GenericValue executeCmpInst(unsigned predicate, GenericValue Src1, 
-                                   GenericValue Src2, const Type *Ty) {
-  GenericValue Result;
-  switch (predicate) {
-  case ICmpInst::ICMP_EQ:    return executeICMP_EQ(Src1, Src2, Ty);
-  case ICmpInst::ICMP_NE:    return executeICMP_NE(Src1, Src2, Ty);
-  case ICmpInst::ICMP_UGT:   return executeICMP_UGT(Src1, Src2, Ty);
-  case ICmpInst::ICMP_SGT:   return executeICMP_SGT(Src1, Src2, Ty);
-  case ICmpInst::ICMP_ULT:   return executeICMP_ULT(Src1, Src2, Ty);
-  case ICmpInst::ICMP_SLT:   return executeICMP_SLT(Src1, Src2, Ty);
-  case ICmpInst::ICMP_UGE:   return executeICMP_UGE(Src1, Src2, Ty);
-  case ICmpInst::ICMP_SGE:   return executeICMP_SGE(Src1, Src2, Ty);
-  case ICmpInst::ICMP_ULE:   return executeICMP_ULE(Src1, Src2, Ty);
-  case ICmpInst::ICMP_SLE:   return executeICMP_SLE(Src1, Src2, Ty);
-  case FCmpInst::FCMP_ORD:   return executeFCMP_ORD(Src1, Src2, Ty);
-  case FCmpInst::FCMP_UNO:   return executeFCMP_UNO(Src1, Src2, Ty);
-  case FCmpInst::FCMP_OEQ:   return executeFCMP_OEQ(Src1, Src2, Ty);
-  case FCmpInst::FCMP_UEQ:   return executeFCMP_UEQ(Src1, Src2, Ty);
-  case FCmpInst::FCMP_ONE:   return executeFCMP_ONE(Src1, Src2, Ty);
-  case FCmpInst::FCMP_UNE:   return executeFCMP_UNE(Src1, Src2, Ty);
-  case FCmpInst::FCMP_OLT:   return executeFCMP_OLT(Src1, Src2, Ty);
-  case FCmpInst::FCMP_ULT:   return executeFCMP_ULT(Src1, Src2, Ty);
-  case FCmpInst::FCMP_OGT:   return executeFCMP_OGT(Src1, Src2, Ty);
-  case FCmpInst::FCMP_UGT:   return executeFCMP_UGT(Src1, Src2, Ty);
-  case FCmpInst::FCMP_OLE:   return executeFCMP_OLE(Src1, Src2, Ty);
-  case FCmpInst::FCMP_ULE:   return executeFCMP_ULE(Src1, Src2, Ty);
-  case FCmpInst::FCMP_OGE:   return executeFCMP_OGE(Src1, Src2, Ty);
-  case FCmpInst::FCMP_UGE:   return executeFCMP_UGE(Src1, Src2, Ty);
-  case FCmpInst::FCMP_FALSE: { 
-    GenericValue Result;
-    Result.Int1Val = false; 
-    return Result;
-  }
-  case FCmpInst::FCMP_TRUE: {
-    GenericValue Result;
-    Result.Int1Val = true;
-    return Result;
-  }
+static GenericValue executeSetLTInst(GenericValue Src1, GenericValue Src2,
+                                     const Type *Ty) {
+  GenericValue Dest;
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SETCC(<, UByte);
+    IMPLEMENT_SETCC(<, SByte);
+    IMPLEMENT_SETCC(<, UShort);
+    IMPLEMENT_SETCC(<, Short);
+    IMPLEMENT_SETCC(<, UInt);
+    IMPLEMENT_SETCC(<, Int);
+    IMPLEMENT_SETCC(<, ULong);
+    IMPLEMENT_SETCC(<, Long);
+    IMPLEMENT_SETCC(<, Float);
+    IMPLEMENT_SETCC(<, Double);
+    IMPLEMENT_POINTERSETCC(<);
   default:
-    cerr << "Unhandled Cmp predicate\n";
+    std::cout << "Unhandled type for SetLT instruction: " << *Ty << "\n";
     abort();
   }
+  return Dest;
+}
+
+static GenericValue executeSetGTInst(GenericValue Src1, GenericValue Src2,
+                                     const Type *Ty) {
+  GenericValue Dest;
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SETCC(>, UByte);
+    IMPLEMENT_SETCC(>, SByte);
+    IMPLEMENT_SETCC(>, UShort);
+    IMPLEMENT_SETCC(>, Short);
+    IMPLEMENT_SETCC(>, UInt);
+    IMPLEMENT_SETCC(>, Int);
+    IMPLEMENT_SETCC(>, ULong);
+    IMPLEMENT_SETCC(>, Long);
+    IMPLEMENT_SETCC(>, Float);
+    IMPLEMENT_SETCC(>, Double);
+    IMPLEMENT_POINTERSETCC(>);
+  default:
+    std::cout << "Unhandled type for SetGT instruction: " << *Ty << "\n";
+    abort();
+  }
+  return Dest;
 }
 
 void Interpreter::visitBinaryOperator(BinaryOperator &I) {
@@ -859,8 +584,14 @@ void Interpreter::visitBinaryOperator(BinaryOperator &I) {
   case Instruction::And:   R = executeAndInst  (Src1, Src2, Ty); break;
   case Instruction::Or:    R = executeOrInst   (Src1, Src2, Ty); break;
   case Instruction::Xor:   R = executeXorInst  (Src1, Src2, Ty); break;
+  case Instruction::SetEQ: R = executeSetEQInst(Src1, Src2, Ty); break;
+  case Instruction::SetNE: R = executeSetNEInst(Src1, Src2, Ty); break;
+  case Instruction::SetLE: R = executeSetLEInst(Src1, Src2, Ty); break;
+  case Instruction::SetGE: R = executeSetGEInst(Src1, Src2, Ty); break;
+  case Instruction::SetLT: R = executeSetLTInst(Src1, Src2, Ty); break;
+  case Instruction::SetGT: R = executeSetGTInst(Src1, Src2, Ty); break;
   default:
-    cerr << "Don't know how to handle this binary operator!\n-->" << I;
+    std::cout << "Don't know how to handle this binary operator!\n-->" << I;
     abort();
   }
 
@@ -869,7 +600,7 @@ void Interpreter::visitBinaryOperator(BinaryOperator &I) {
 
 static GenericValue executeSelectInst(GenericValue Src1, GenericValue Src2,
                                       GenericValue Src3) {
-  return Src1.Int1Val ? Src2 : Src3;
+  return Src1.BoolVal ? Src2 : Src3;
 }
 
 void Interpreter::visitSelectInst(SelectInst &I) {
@@ -892,7 +623,7 @@ void Interpreter::exitCalled(GenericValue GV) {
   // the stack before interpreting atexit handlers.
   ECStack.clear ();
   runAtExitHandlers ();
-  exit (GV.Int32Val);
+  exit (GV.IntVal);
 }
 
 /// Pop the last stack frame off of ECStack and then copy the result
@@ -909,7 +640,7 @@ void Interpreter::popStackAndReturnValueToCaller (const Type *RetTy,
   ECStack.pop_back();
 
   if (ECStack.empty()) {  // Finished main.  Put result into exit code...
-    if (RetTy && RetTy->isInteger()) {          // Nonvoid return type?
+    if (RetTy && RetTy->isIntegral()) {          // Nonvoid return type?
       ExitValue = Result;   // Capture the exit value of the program
     } else {
       memset(&ExitValue, 0, sizeof(ExitValue));
@@ -961,7 +692,7 @@ void Interpreter::visitUnwindInst(UnwindInst &I) {
 }
 
 void Interpreter::visitUnreachableInst(UnreachableInst &I) {
-  cerr << "ERROR: Program executed an 'unreachable' instruction!\n";
+  std::cerr << "ERROR: Program executed an 'unreachable' instruction!\n";
   abort();
 }
 
@@ -972,7 +703,7 @@ void Interpreter::visitBranchInst(BranchInst &I) {
   Dest = I.getSuccessor(0);          // Uncond branches have a fixed dest...
   if (!I.isUnconditional()) {
     Value *Cond = I.getCondition();
-    if (getOperandValue(Cond, SF).Int1Val == 0) // If false cond...
+    if (getOperandValue(Cond, SF).BoolVal == 0) // If false cond...
       Dest = I.getSuccessor(1);
   }
   SwitchToNewBasicBlock(Dest, SF);
@@ -986,8 +717,8 @@ void Interpreter::visitSwitchInst(SwitchInst &I) {
   // Check to see if any of the cases match...
   BasicBlock *Dest = 0;
   for (unsigned i = 2, e = I.getNumOperands(); i != e; i += 2)
-    if (executeICMP_EQ(CondVal,
-                       getOperandValue(I.getOperand(i), SF), ElTy).Int1Val) {
+    if (executeSetEQInst(CondVal,
+                         getOperandValue(I.getOperand(i), SF), ElTy).BoolVal) {
       Dest = cast<BasicBlock>(I.getOperand(i+1));
       break;
     }
@@ -1044,7 +775,7 @@ void Interpreter::visitAllocationInst(AllocationInst &I) {
   const Type *Ty = I.getType()->getElementType();  // Type to be allocated
 
   // Get the number of elements being allocated by the array...
-  unsigned NumElements = getOperandValue(I.getOperand(0), SF).Int32Val;
+  unsigned NumElements = getOperandValue(I.getOperand(0), SF).UIntVal;
 
   // Allocate enough memory to hold the type...
   void *Memory = malloc(NumElements * (size_t)TD.getTypeSize(Ty));
@@ -1088,15 +819,18 @@ GenericValue Interpreter::executeGEPOperation(Value *Ptr, gep_type_iterator I,
       // Get the index number for the array... which must be long type...
       GenericValue IdxGV = getOperandValue(I.getOperand(), SF);
 
-      int64_t Idx;
-      unsigned BitWidth = 
-        cast<IntegerType>(I.getOperand()->getType())->getBitWidth();
-      if (BitWidth == 32)
-        Idx = (int64_t)(int32_t)IdxGV.Int32Val;
-      else if (BitWidth == 64)
-        Idx = (int64_t)IdxGV.Int64Val;
-      else 
-        assert(0 && "Invalid index type for getelementptr");
+      uint64_t Idx;
+      switch (I.getOperand()->getType()->getTypeID()) {
+      default: assert(0 && "Illegal getelementptr index for sequential type!");
+      case Type::SByteTyID:  Idx = IdxGV.SByteVal; break;
+      case Type::ShortTyID:  Idx = IdxGV.ShortVal; break;
+      case Type::IntTyID:    Idx = IdxGV.IntVal; break;
+      case Type::LongTyID:   Idx = IdxGV.LongVal; break;
+      case Type::UByteTyID:  Idx = IdxGV.UByteVal; break;
+      case Type::UShortTyID: Idx = IdxGV.UShortVal; break;
+      case Type::UIntTyID:   Idx = IdxGV.UIntVal; break;
+      case Type::ULongTyID:  Idx = IdxGV.ULongVal; break;
+      }
       Total += PointerTy(TD.getTypeSize(ST->getElementType())*Idx);
     }
   }
@@ -1137,7 +871,7 @@ void Interpreter::visitCallSite(CallSite CS) {
 
   // Check to see if this is an intrinsic function call...
   if (Function *F = CS.getCalledFunction())
-   if (F->isDeclaration ())
+   if (F->isExternal ())
     switch (F->getIntrinsicID()) {
     case Intrinsic::not_intrinsic:
       break;
@@ -1184,13 +918,19 @@ void Interpreter::visitCallSite(CallSite CS) {
     // this by zero or sign extending the value as appropriate according to the
     // source type.
     const Type *Ty = V->getType();
-    if (Ty->isInteger()) {
-      if (Ty->getPrimitiveSizeInBits() == 1)
-        ArgVals.back().Int32Val = ArgVals.back().Int1Val;
-      else if (Ty->getPrimitiveSizeInBits() <= 8)
-        ArgVals.back().Int32Val = ArgVals.back().Int8Val;
-      else if (Ty->getPrimitiveSizeInBits() <= 16)
-        ArgVals.back().Int32Val = ArgVals.back().Int16Val;
+    if (Ty->isIntegral() && Ty->getPrimitiveSize() < 4) {
+      if (Ty == Type::ShortTy)
+        ArgVals.back().IntVal = ArgVals.back().ShortVal;
+      else if (Ty == Type::UShortTy)
+        ArgVals.back().UIntVal = ArgVals.back().UShortVal;
+      else if (Ty == Type::SByteTy)
+        ArgVals.back().IntVal = ArgVals.back().SByteVal;
+      else if (Ty == Type::UByteTy)
+        ArgVals.back().UIntVal = ArgVals.back().UByteVal;
+      else if (Ty == Type::BoolTy)
+        ArgVals.back().UIntVal = ArgVals.back().BoolVal;
+      else
+        assert(0 && "Unknown type!");
     }
   }
 
@@ -1200,82 +940,47 @@ void Interpreter::visitCallSite(CallSite CS) {
   callFunction((Function*)GVTOP(SRC), ArgVals);
 }
 
+#define IMPLEMENT_SHIFT(OP, TY) \
+   case Type::TY##TyID: Dest.TY##Val = Src1.TY##Val OP Src2.UByteVal; break
+
 static GenericValue executeShlInst(GenericValue Src1, GenericValue Src2,
                                    const Type *Ty) {
   GenericValue Dest;
-  if (const IntegerType *ITy = cast<IntegerType>(Ty)) {
-    unsigned BitWidth = ITy->getBitWidth();
-    if (BitWidth <= 8)
-      Dest.Int8Val  = ((uint8_t)Src1.Int8Val)   << ((uint32_t)Src2.Int8Val);
-    else if (BitWidth <= 16)
-      Dest.Int16Val = ((uint16_t)Src1.Int16Val) << ((uint32_t)Src2.Int8Val);
-    else if (BitWidth <= 32)
-      Dest.Int32Val = ((uint32_t)Src1.Int32Val) << ((uint32_t)Src2.Int8Val);
-    else if (BitWidth <= 64)
-      Dest.Int64Val = ((uint64_t)Src1.Int64Val) << ((uint32_t)Src2.Int8Val);
-    else {
-      cerr << "Integer types > 64 bits not supported: " << *Ty << "\n";
-      abort();
-    }
-    maskToBitWidth(Dest, BitWidth);
-  } else {
-    cerr << "Unhandled type for Shl instruction: " << *Ty << "\n";
-    abort();
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SHIFT(<<, UByte);
+    IMPLEMENT_SHIFT(<<, SByte);
+    IMPLEMENT_SHIFT(<<, UShort);
+    IMPLEMENT_SHIFT(<<, Short);
+    IMPLEMENT_SHIFT(<<, UInt);
+    IMPLEMENT_SHIFT(<<, Int);
+    IMPLEMENT_SHIFT(<<, ULong);
+    IMPLEMENT_SHIFT(<<, Long);
+  default:
+    std::cout << "Unhandled type for Shl instruction: " << *Ty << "\n";
   }
   return Dest;
 }
 
-static GenericValue executeLShrInst(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
+static GenericValue executeShrInst(GenericValue Src1, GenericValue Src2,
+                                   const Type *Ty) {
   GenericValue Dest;
-  if (const IntegerType *ITy = cast<IntegerType>(Ty)) {
-    unsigned BitWidth = ITy->getBitWidth();
-    if (BitWidth <= 8)
-      Dest.Int8Val = ((uint8_t)Src1.Int8Val)   >> ((uint32_t)Src2.Int8Val);
-    else if (BitWidth <= 16)
-      Dest.Int16Val = ((uint16_t)Src1.Int16Val) >> ((uint32_t)Src2.Int8Val);
-    else if (BitWidth <= 32)
-      Dest.Int32Val = ((uint32_t)Src1.Int32Val) >> ((uint32_t)Src2.Int8Val);
-    else if (BitWidth <= 64)
-      Dest.Int64Val = ((uint64_t)Src1.Int64Val) >> ((uint32_t)Src2.Int8Val);
-    else {
-      cerr << "Integer types > 64 bits not supported: " << *Ty << "\n";
-      abort();
-    }
-    maskToBitWidth(Dest, BitWidth);
-  } else {
-    cerr << "Unhandled type for LShr instruction: " << *Ty << "\n";
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_SHIFT(>>, UByte);
+    IMPLEMENT_SHIFT(>>, SByte);
+    IMPLEMENT_SHIFT(>>, UShort);
+    IMPLEMENT_SHIFT(>>, Short);
+    IMPLEMENT_SHIFT(>>, UInt);
+    IMPLEMENT_SHIFT(>>, Int);
+    IMPLEMENT_SHIFT(>>, ULong);
+    IMPLEMENT_SHIFT(>>, Long);
+  default:
+    std::cout << "Unhandled type for Shr instruction: " << *Ty << "\n";
     abort();
   }
   return Dest;
 }
 
-static GenericValue executeAShrInst(GenericValue Src1, GenericValue Src2,
-                                    const Type *Ty) {
-  GenericValue Dest;
-  if (const IntegerType *ITy = cast<IntegerType>(Ty)) {
-    unsigned BitWidth = ITy->getBitWidth();
-    if (BitWidth <= 8)
-      Dest.Int8Val  = ((int8_t)Src1.Int8Val)   >> ((int32_t)Src2.Int8Val);
-    else if (BitWidth <= 16)
-      Dest.Int16Val = ((int16_t)Src1.Int16Val) >> ((int32_t)Src2.Int8Val);
-    else if (BitWidth <= 32)
-      Dest.Int32Val = ((int32_t)Src1.Int32Val) >> ((int32_t)Src2.Int8Val);
-    else if (BitWidth <= 64)
-      Dest.Int64Val = ((int64_t)Src1.Int64Val) >> ((int32_t)Src2.Int8Val);
-    else {
-      cerr << "Integer types > 64 bits not supported: " << *Ty << "\n"; \
-      abort();
-    } 
-    maskToBitWidth(Dest, BitWidth);
-  } else { 
-    cerr << "Unhandled type for AShr instruction: " << *Ty << "\n";
-    abort();
-  }
-  return Dest;
-}
-
-void Interpreter::visitShl(BinaryOperator &I) {
+void Interpreter::visitShl(ShiftInst &I) {
   ExecutionContext &SF = ECStack.back();
   const Type *Ty    = I.getOperand(0)->getType();
   GenericValue Src1 = getOperandValue(I.getOperand(0), SF);
@@ -1285,382 +990,77 @@ void Interpreter::visitShl(BinaryOperator &I) {
   SetValue(&I, Dest, SF);
 }
 
-void Interpreter::visitLShr(BinaryOperator &I) {
+void Interpreter::visitShr(ShiftInst &I) {
   ExecutionContext &SF = ECStack.back();
   const Type *Ty    = I.getOperand(0)->getType();
   GenericValue Src1 = getOperandValue(I.getOperand(0), SF);
   GenericValue Src2 = getOperandValue(I.getOperand(1), SF);
   GenericValue Dest;
-  Dest = executeLShrInst (Src1, Src2, Ty);
+  Dest = executeShrInst (Src1, Src2, Ty);
   SetValue(&I, Dest, SF);
 }
 
-void Interpreter::visitAShr(BinaryOperator &I) {
-  ExecutionContext &SF = ECStack.back();
-  const Type *Ty    = I.getOperand(0)->getType();
-  GenericValue Src1 = getOperandValue(I.getOperand(0), SF);
-  GenericValue Src2 = getOperandValue(I.getOperand(1), SF);
-  GenericValue Dest;
-  Dest = executeAShrInst (Src1, Src2, Ty);
-  SetValue(&I, Dest, SF);
-}
+#define IMPLEMENT_CAST(DTY, DCTY, STY) \
+   case Type::STY##TyID: Dest.DTY##Val = DCTY Src.STY##Val; break;
 
-#define INTEGER_ASSIGN(DEST, BITWIDTH, VAL)     \
-  {                                             \
-    uint64_t Mask = (1ull << BITWIDTH) - 1;     \
-    if (BITWIDTH == 1) {                        \
-      Dest.Int1Val = (bool) (VAL & Mask);       \
-    } else if (BITWIDTH <= 8) {                 \
-      Dest.Int8Val = (uint8_t) (VAL & Mask);    \
-    } else if (BITWIDTH <= 16) {                \
-      Dest.Int16Val = (uint16_t) (VAL & Mask);  \
-    } else if (BITWIDTH <= 32) {                \
-      Dest.Int32Val = (uint32_t) (VAL & Mask);  \
-    } else                                      \
-      Dest.Int64Val = (uint64_t) (VAL & Mask);  \
+#define IMPLEMENT_CAST_CASE_START(DESTTY, DESTCTY)    \
+  case Type::DESTTY##TyID:                      \
+    switch (SrcTy->getTypeID()) {          \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, Bool);    \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, UByte);   \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, SByte);   \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, UShort);  \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, Short);   \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, UInt);    \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, Int);     \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, ULong);   \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, Long);    \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, Pointer);
+
+#define IMPLEMENT_CAST_CASE_FP_IMP(DESTTY, DESTCTY) \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, Float);   \
+      IMPLEMENT_CAST(DESTTY, DESTCTY, Double)
+
+#define IMPLEMENT_CAST_CASE_END()    \
+    default: std::cout << "Unhandled cast: " << *SrcTy << " to " << *Ty << "\n"; \
+      abort();                                  \
+    }                                           \
+    break
+
+#define IMPLEMENT_CAST_CASE(DESTTY, DESTCTY) \
+   IMPLEMENT_CAST_CASE_START(DESTTY, DESTCTY);   \
+   IMPLEMENT_CAST_CASE_FP_IMP(DESTTY, DESTCTY); \
+   IMPLEMENT_CAST_CASE_END()
+
+GenericValue Interpreter::executeCastOperation(Value *SrcVal, const Type *Ty,
+                                               ExecutionContext &SF) {
+  const Type *SrcTy = SrcVal->getType();
+  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
+
+  switch (Ty->getTypeID()) {
+    IMPLEMENT_CAST_CASE(UByte  , (unsigned char));
+    IMPLEMENT_CAST_CASE(SByte  , (  signed char));
+    IMPLEMENT_CAST_CASE(UShort , (unsigned short));
+    IMPLEMENT_CAST_CASE(Short  , (  signed short));
+    IMPLEMENT_CAST_CASE(UInt   , (unsigned int ));
+    IMPLEMENT_CAST_CASE(Int    , (  signed int ));
+    IMPLEMENT_CAST_CASE(ULong  , (uint64_t));
+    IMPLEMENT_CAST_CASE(Long   , ( int64_t));
+    IMPLEMENT_CAST_CASE(Pointer, (PointerTy));
+    IMPLEMENT_CAST_CASE(Float  , (float));
+    IMPLEMENT_CAST_CASE(Double , (double));
+    IMPLEMENT_CAST_CASE(Bool   , (bool));
+  default:
+    std::cout << "Unhandled dest type for cast instruction: " << *Ty << "\n";
+    abort();
   }
 
-GenericValue Interpreter::executeTruncInst(Value *SrcVal, const Type *DstTy,
-                                           ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  const IntegerType *DITy = cast<IntegerType>(DstTy);
-  const IntegerType *SITy = cast<IntegerType>(SrcTy);
-  unsigned DBitWidth = DITy->getBitWidth();
-  unsigned SBitWidth = SITy->getBitWidth();
-  assert(SBitWidth <= 64 && DBitWidth <= 64  && 
-         "Integer types > 64 bits not supported");
-  assert(SBitWidth > DBitWidth && "Invalid truncate");
-
-  // Mask the source value to its actual bit width. This ensures that any
-  // high order bits are cleared.
-  uint64_t Mask = (1ULL << DBitWidth) - 1;
-  uint64_t MaskedVal = 0;
-  if (SBitWidth <= 8)
-    MaskedVal = Src.Int8Val  & Mask;
-  else if (SBitWidth <= 16)
-    MaskedVal = Src.Int16Val & Mask;
-  else if (SBitWidth <= 32)
-    MaskedVal = Src.Int32Val & Mask;
-  else 
-    MaskedVal = Src.Int64Val & Mask;
-
-  INTEGER_ASSIGN(Dest, DBitWidth, MaskedVal);
   return Dest;
 }
 
-GenericValue Interpreter::executeSExtInst(Value *SrcVal, const Type *DstTy,
-                                          ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  const IntegerType *DITy = cast<IntegerType>(DstTy);
-  const IntegerType *SITy = cast<IntegerType>(SrcTy);
-  unsigned DBitWidth = DITy->getBitWidth();
-  unsigned SBitWidth = SITy->getBitWidth();
-  assert(SBitWidth <= 64 && DBitWidth <= 64  && 
-         "Integer types > 64 bits not supported");
-  assert(SBitWidth < DBitWidth && "Invalid sign extend");
-
-  // Normalize to a 64-bit value.
-  uint64_t Normalized = 0;
-  if (SBitWidth <= 8)
-    Normalized = Src.Int8Val;
-  else if (SBitWidth <= 16)
-    Normalized = Src.Int16Val;
-  else if (SBitWidth <= 32)
-    Normalized = Src.Int32Val;
-  else 
-    Normalized = Src.Int64Val;
-
-  Normalized = doSignExtension(Normalized, SITy);
-
-  // Now that we have a sign extended value, assign it to the destination
-  INTEGER_ASSIGN(Dest, DBitWidth, Normalized);
-  return Dest;
-}
-
-GenericValue Interpreter::executeZExtInst(Value *SrcVal, const Type *DstTy,
-                                          ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  const IntegerType *DITy = cast<IntegerType>(DstTy);
-  const IntegerType *SITy = cast<IntegerType>(SrcTy);
-  unsigned DBitWidth = DITy->getBitWidth();
-  unsigned SBitWidth = SITy->getBitWidth();
-  assert(SBitWidth <= 64 && DBitWidth <= 64  && 
-         "Integer types > 64 bits not supported");
-  assert(SBitWidth < DBitWidth && "Invalid sign extend");
-  uint64_t Extended = 0;
-  if (SBitWidth == 1)
-    // For sign extension from bool, we must extend the source bits.
-    Extended = (uint64_t) (Src.Int1Val & 1);
-  else if (SBitWidth <= 8)
-    Extended = (uint64_t) (uint8_t)Src.Int8Val;
-  else if (SBitWidth <= 16)
-    Extended = (uint64_t) (uint16_t)Src.Int16Val;
-  else if (SBitWidth <= 32)
-    Extended = (uint64_t) (uint32_t)Src.Int32Val;
-  else 
-    Extended = (uint64_t) Src.Int64Val;
-
-  // Now that we have a sign extended value, assign it to the destination
-  INTEGER_ASSIGN(Dest, DBitWidth, Extended);
-  return Dest;
-}
-
-GenericValue Interpreter::executeFPTruncInst(Value *SrcVal, const Type *DstTy,
-                                             ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  assert(SrcTy == Type::DoubleTy && DstTy == Type::FloatTy &&
-         "Invalid FPTrunc instruction");
-  Dest.FloatVal = (float) Src.DoubleVal;
-  return Dest;
-}
-
-GenericValue Interpreter::executeFPExtInst(Value *SrcVal, const Type *DstTy,
-                                           ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  assert(SrcTy == Type::FloatTy && DstTy == Type::DoubleTy &&
-         "Invalid FPTrunc instruction");
-  Dest.DoubleVal = (double) Src.FloatVal;
-  return Dest;
-}
-
-GenericValue Interpreter::executeFPToUIInst(Value *SrcVal, const Type *DstTy,
-                                            ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  const IntegerType *DITy = cast<IntegerType>(DstTy);
-  unsigned DBitWidth = DITy->getBitWidth();
-  assert(DBitWidth <= 64  && "Integer types > 64 bits not supported");
-  assert(SrcTy->isFloatingPoint() && "Invalid FPToUI instruction");
-  uint64_t Converted = 0;
-  if (SrcTy->getTypeID() == Type::FloatTyID)
-    Converted = (uint64_t) Src.FloatVal;
-  else
-    Converted = (uint64_t) Src.DoubleVal;
-
-  INTEGER_ASSIGN(Dest, DBitWidth, Converted);
-  return Dest;
-}
-
-GenericValue Interpreter::executeFPToSIInst(Value *SrcVal, const Type *DstTy,
-                                            ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  const IntegerType *DITy = cast<IntegerType>(DstTy);
-  unsigned DBitWidth = DITy->getBitWidth();
-  assert(DBitWidth <= 64  && "Integer types > 64 bits not supported");
-  assert(SrcTy->isFloatingPoint() && "Invalid FPToSI instruction");
-  int64_t Converted = 0;
-  if (SrcTy->getTypeID() == Type::FloatTyID)
-    Converted = (int64_t) Src.FloatVal;
-  else
-    Converted = (int64_t) Src.DoubleVal;
-
-  INTEGER_ASSIGN(Dest, DBitWidth, Converted);
-  return Dest;
-}
-
-GenericValue Interpreter::executeUIToFPInst(Value *SrcVal, const Type *DstTy,
-                                            ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  const IntegerType *SITy = cast<IntegerType>(SrcTy);
-  unsigned SBitWidth = SITy->getBitWidth();
-  assert(SBitWidth <= 64  && "Integer types > 64 bits not supported");
-  assert(DstTy->isFloatingPoint() && "Invalid UIToFP instruction");
-  uint64_t Converted = 0;
-  if (SBitWidth == 1)
-    Converted = (uint64_t) Src.Int1Val;
-  else if (SBitWidth <= 8)
-    Converted = (uint64_t) Src.Int8Val;
-  else if (SBitWidth <= 16)
-    Converted = (uint64_t) Src.Int16Val;
-  else if (SBitWidth <= 32)
-    Converted = (uint64_t) Src.Int32Val;
-  else 
-    Converted = (uint64_t) Src.Int64Val;
-
-  if (DstTy->getTypeID() == Type::FloatTyID)
-    Dest.FloatVal = (float) Converted;
-  else
-    Dest.DoubleVal = (double) Converted;
-  return Dest;
-}
-
-GenericValue Interpreter::executeSIToFPInst(Value *SrcVal, const Type *DstTy,
-                                            ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  const IntegerType *SITy = cast<IntegerType>(SrcTy);
-  unsigned SBitWidth = SITy->getBitWidth();
-  assert(SBitWidth <= 64  && "Integer types > 64 bits not supported");
-  assert(DstTy->isFloatingPoint() && "Invalid SIToFP instruction");
-  int64_t Converted = 0;
-  if (SBitWidth == 1)
-    Converted = 0LL - Src.Int1Val;
-  else if (SBitWidth <= 8)
-    Converted = (int64_t) (int8_t)Src.Int8Val;
-  else if (SBitWidth <= 16)
-    Converted = (int64_t) (int16_t)Src.Int16Val;
-  else if (SBitWidth <= 32)
-    Converted = (int64_t) (int32_t)Src.Int32Val;
-  else 
-    Converted = (int64_t) Src.Int64Val;
-
-  if (DstTy->getTypeID() == Type::FloatTyID)
-    Dest.FloatVal = (float) Converted;
-  else
-    Dest.DoubleVal = (double) Converted;
-  return Dest;
-}
-
-GenericValue Interpreter::executePtrToIntInst(Value *SrcVal, const Type *DstTy,
-                                              ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  const IntegerType *DITy = cast<IntegerType>(DstTy);
-  unsigned DBitWidth = DITy->getBitWidth();
-  assert(DBitWidth <= 64  && "Integer types > 64 bits not supported");
-  assert(isa<PointerType>(SrcTy) && "Invalid PtrToInt instruction");
-  INTEGER_ASSIGN(Dest, DBitWidth, (intptr_t) Src.PointerVal);
-  return Dest;
-}
-
-GenericValue Interpreter::executeIntToPtrInst(Value *SrcVal, const Type *DstTy,
-                                              ExecutionContext &SF) {
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  const IntegerType *SITy = cast<IntegerType>(SrcTy);
-  unsigned SBitWidth = SITy->getBitWidth();
-  assert(SBitWidth <= 64  && "Integer types > 64 bits not supported");
-  assert(isa<PointerType>(DstTy) && "Invalid PtrToInt instruction");
-  uint64_t Converted = 0;
-  if (SBitWidth == 1)
-    Converted = (uint64_t) Src.Int1Val;
-  else if (SBitWidth <= 8)
-    Converted = (uint64_t) Src.Int8Val;
-  else if (SBitWidth <= 16)
-    Converted = (uint64_t) Src.Int16Val;
-  else if (SBitWidth <= 32)
-    Converted = (uint64_t) Src.Int32Val;
-  else 
-    Converted = (uint64_t) Src.Int64Val;
-
-  Dest.PointerVal = (PointerTy) Converted;
-  return Dest;
-}
-
-GenericValue Interpreter::executeBitCastInst(Value *SrcVal, const Type *DstTy,
-                                             ExecutionContext &SF) {
-  
-  const Type *SrcTy = SrcVal->getType();
-  GenericValue Dest, Src = getOperandValue(SrcVal, SF);
-  if (isa<PointerType>(DstTy)) {
-    assert(isa<PointerType>(SrcTy) && "Invalid BitCast");
-    Dest.PointerVal = Src.PointerVal;
-  } else if (DstTy->isInteger()) {
-    const IntegerType *DITy = cast<IntegerType>(DstTy);
-    unsigned DBitWidth = DITy->getBitWidth();
-    if (SrcTy == Type::FloatTy) {
-      Dest.Int32Val = FloatToBits(Src.FloatVal);
-    } else if (SrcTy == Type::DoubleTy) {
-      Dest.Int64Val = DoubleToBits(Src.DoubleVal);
-    } else if (SrcTy->isInteger()) {
-      const IntegerType *SITy = cast<IntegerType>(SrcTy);
-      unsigned SBitWidth = SITy->getBitWidth();
-      assert(SBitWidth <= 64  && "Integer types > 64 bits not supported");
-      assert(SBitWidth == DBitWidth && "Invalid BitCast");
-      if (SBitWidth == 1)
-        Dest.Int1Val = Src.Int1Val;
-      else if (SBitWidth <= 8)
-        Dest.Int8Val =  Src.Int8Val;
-      else if (SBitWidth <= 16)
-        Dest.Int16Val = Src.Int16Val;
-      else if (SBitWidth <= 32)
-        Dest.Int32Val = Src.Int32Val;
-      else 
-        Dest.Int64Val = Src.Int64Val;
-      maskToBitWidth(Dest, DBitWidth);
-    } else 
-      assert(0 && "Invalid BitCast");
-  } else if (DstTy == Type::FloatTy) {
-    if (SrcTy->isInteger())
-      Dest.FloatVal = BitsToFloat(Src.Int32Val);
-    else
-      Dest.FloatVal = Src.FloatVal;
-  } else if (DstTy == Type::DoubleTy) {
-    if (SrcTy->isInteger())
-      Dest.DoubleVal = BitsToDouble(Src.Int64Val);
-    else
-      Dest.DoubleVal = Src.DoubleVal;
-  } else
-    assert(0 && "Invalid Bitcast");
-
-  return Dest;
-}
-
-void Interpreter::visitTruncInst(TruncInst &I) {
+void Interpreter::visitCastInst(CastInst &I) {
   ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeTruncInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitSExtInst(SExtInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeSExtInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitZExtInst(ZExtInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeZExtInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitFPTruncInst(FPTruncInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeFPTruncInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitFPExtInst(FPExtInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeFPExtInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitUIToFPInst(UIToFPInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeUIToFPInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitSIToFPInst(SIToFPInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeSIToFPInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitFPToUIInst(FPToUIInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeFPToUIInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitFPToSIInst(FPToSIInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeFPToSIInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitPtrToIntInst(PtrToIntInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executePtrToIntInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitIntToPtrInst(IntToPtrInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeIntToPtrInst(I.getOperand(0), I.getType(), SF), SF);
-}
-
-void Interpreter::visitBitCastInst(BitCastInst &I) {
-  ExecutionContext &SF = ECStack.back();
-  SetValue(&I, executeBitCastInst(I.getOperand(0), I.getType(), SF), SF);
+  SetValue(&I, executeCastOperation(I.getOperand(0), I.getType(), SF), SF);
 }
 
 #define IMPLEMENT_VAARG(TY) \
@@ -1677,27 +1077,20 @@ void Interpreter::visitVAArgInst(VAArgInst &I) {
    .VarArgs[VAList.UIntPairVal.second];
   const Type *Ty = I.getType();
   switch (Ty->getTypeID()) {
-    case Type::IntegerTyID: {
-      unsigned BitWidth = cast<IntegerType>(Ty)->getBitWidth();
-      if (BitWidth == 1)
-        Dest.Int1Val = Src.Int1Val;
-      else if (BitWidth <= 8)
-        Dest.Int8Val = Src.Int8Val;
-      else if (BitWidth <= 16)
-        Dest.Int16Val = Src.Int16Val;
-      else if (BitWidth <= 32)
-        Dest.Int32Val = Src.Int32Val;
-      else if (BitWidth <= 64)
-        Dest.Int64Val = Src.Int64Val;
-      else
-        assert("Integer types > 64 bits not supported");
-      maskToBitWidth(Dest, BitWidth);
-    }
+    IMPLEMENT_VAARG(UByte);
+    IMPLEMENT_VAARG(SByte);
+    IMPLEMENT_VAARG(UShort);
+    IMPLEMENT_VAARG(Short);
+    IMPLEMENT_VAARG(UInt);
+    IMPLEMENT_VAARG(Int);
+    IMPLEMENT_VAARG(ULong);
+    IMPLEMENT_VAARG(Long);
     IMPLEMENT_VAARG(Pointer);
     IMPLEMENT_VAARG(Float);
     IMPLEMENT_VAARG(Double);
+    IMPLEMENT_VAARG(Bool);
   default:
-    cerr << "Unhandled dest type for vaarg instruction: " << *Ty << "\n";
+    std::cout << "Unhandled dest type for vaarg instruction: " << *Ty << "\n";
     abort();
   }
 
@@ -1726,7 +1119,7 @@ void Interpreter::callFunction(Function *F,
   StackFrame.CurFunction = F;
 
   // Special handling for external functions.
-  if (F->isDeclaration()) {
+  if (F->isExternal()) {
     GenericValue Result = callExternalFunction (F, ArgVals);
     // Simulate a 'ret' instruction of the appropriate type.
     popStackAndReturnValueToCaller (F->getReturnType (), Result);
@@ -1760,7 +1153,7 @@ void Interpreter::run() {
     // Track the number of dynamic instructions executed.
     ++NumDynamicInsts;
 
-    DOUT << "About to interpret: " << I;
+    DEBUG(std::cerr << "About to interpret: " << I);
     visit(I);   // Dispatch to one of the visit* methods...
   }
 }

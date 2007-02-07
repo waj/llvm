@@ -18,10 +18,10 @@
 #include "llvm/Instructions.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/Analysis/ConstantFolding.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/MathExtras.h"
 #include <cerrno>
+#include <cmath>
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -31,9 +31,8 @@ using namespace llvm;
 /// doConstantPropagation - If an instruction references constants, try to fold
 /// them together...
 ///
-bool llvm::doConstantPropagation(BasicBlock::iterator &II,
-                                 const TargetData *TD) {
-  if (Constant *C = ConstantFoldInstruction(II, TD)) {
+bool llvm::doConstantPropagation(BasicBlock::iterator &II) {
+  if (Constant *C = ConstantFoldInstruction(II)) {
     // Replaces all of the uses of a variable with uses of the constant.
     II->replaceAllUsesWith(C);
 
@@ -43,6 +42,101 @@ bool llvm::doConstantPropagation(BasicBlock::iterator &II,
   }
 
   return false;
+}
+
+/// ConstantFoldInstruction - Attempt to constant fold the specified
+/// instruction.  If successful, the constant result is returned, if not, null
+/// is returned.  Note that this function can only fail when attempting to fold
+/// instructions like loads and stores, which have no constant expression form.
+///
+Constant *llvm::ConstantFoldInstruction(Instruction *I) {
+  if (PHINode *PN = dyn_cast<PHINode>(I)) {
+    if (PN->getNumIncomingValues() == 0)
+      return Constant::getNullValue(PN->getType());
+
+    Constant *Result = dyn_cast<Constant>(PN->getIncomingValue(0));
+    if (Result == 0) return 0;
+
+    // Handle PHI nodes specially here...
+    for (unsigned i = 1, e = PN->getNumIncomingValues(); i != e; ++i)
+      if (PN->getIncomingValue(i) != Result && PN->getIncomingValue(i) != PN)
+        return 0;   // Not all the same incoming constants...
+
+    // If we reach here, all incoming values are the same constant.
+    return Result;
+  }
+
+  Constant *Op0 = 0, *Op1 = 0;
+  switch (I->getNumOperands()) {
+  default:
+  case 2:
+    Op1 = dyn_cast<Constant>(I->getOperand(1));
+    if (Op1 == 0) return 0;        // Not a constant?, can't fold
+  case 1:
+    Op0 = dyn_cast<Constant>(I->getOperand(0));
+    if (Op0 == 0) return 0;        // Not a constant?, can't fold
+    break;
+  case 0: return 0;
+  }
+
+  if (isa<BinaryOperator>(I) || isa<ShiftInst>(I)) {
+    if (Constant *Op0 = dyn_cast<Constant>(I->getOperand(0)))
+      if (Constant *Op1 = dyn_cast<Constant>(I->getOperand(1)))
+        return ConstantExpr::get(I->getOpcode(), Op0, Op1);
+    return 0;  // Operands not constants.
+  }
+
+  // Scan the operand list, checking to see if the are all constants, if so,
+  // hand off to ConstantFoldInstOperands.
+  std::vector<Constant*> Ops;
+  for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
+    if (Constant *Op = dyn_cast<Constant>(I->getOperand(i)))
+      Ops.push_back(Op);
+    else
+      return 0;  // All operands not constant!
+
+  return ConstantFoldInstOperands(I->getOpcode(), I->getType(), Ops);
+}
+
+/// ConstantFoldInstOperands - Attempt to constant fold an instruction with the
+/// specified opcode and operands.  If successful, the constant result is
+/// returned, if not, null is returned.  Note that this function can fail when
+/// attempting to fold instructions like loads and stores, which have no
+/// constant expression form.
+///
+Constant *llvm::ConstantFoldInstOperands(unsigned Opc, const Type *DestTy,
+                                         const std::vector<Constant*> &Ops) {
+  if (Opc >= Instruction::BinaryOpsBegin && Opc < Instruction::BinaryOpsEnd)
+    return ConstantExpr::get(Opc, Ops[0], Ops[1]);
+  
+  switch (Opc) {
+  default: return 0;
+  case Instruction::Call:
+    if (Function *F = dyn_cast<Function>(Ops[0])) {
+      if (canConstantFoldCallTo(F)) {
+        std::vector<Constant*> Args(Ops.begin()+1, Ops.end());
+        return ConstantFoldCall(F, Args);
+      }
+    }
+    return 0;
+  case Instruction::Shl:
+  case Instruction::Shr:
+    return ConstantExpr::get(Opc, Ops[0], Ops[1]);
+  case Instruction::Cast:
+    return ConstantExpr::getCast(Ops[0], DestTy);
+  case Instruction::Select:
+    return ConstantExpr::getSelect(Ops[0], Ops[1], Ops[2]);
+  case Instruction::ExtractElement:
+    return ConstantExpr::getExtractElement(Ops[0], Ops[1]);
+  case Instruction::InsertElement:
+    return ConstantExpr::getInsertElement(Ops[0], Ops[1], Ops[2]);
+  case Instruction::ShuffleVector:
+    return ConstantExpr::getShuffleVector(Ops[0], Ops[1], Ops[2]);
+  case Instruction::GetElementPtr:
+    return ConstantExpr::getGetElementPtr(Ops[0],
+                                          std::vector<Constant*>(Ops.begin()+1, 
+                                                                 Ops.end()));
+  }
 }
 
 // ConstantFoldTerminator - If a terminator instruction is predicated on a
@@ -58,11 +152,11 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB) {
     BasicBlock *Dest1 = cast<BasicBlock>(BI->getOperand(0));
     BasicBlock *Dest2 = cast<BasicBlock>(BI->getOperand(1));
 
-    if (ConstantInt *Cond = dyn_cast<ConstantInt>(BI->getCondition())) {
+    if (ConstantBool *Cond = dyn_cast<ConstantBool>(BI->getCondition())) {
       // Are we branching on constant?
       // YES.  Change to unconditional branch...
-      BasicBlock *Destination = Cond->getZExtValue() ? Dest1 : Dest2;
-      BasicBlock *OldDest     = Cond->getZExtValue() ? Dest2 : Dest1;
+      BasicBlock *Destination = Cond->getValue() ? Dest1 : Dest2;
+      BasicBlock *OldDest     = Cond->getValue() ? Dest2 : Dest1;
 
       //cerr << "Function: " << T->getParent()->getParent()
       //     << "\nRemoving branch from " << T->getParent()
@@ -152,8 +246,8 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB) {
     } else if (SI->getNumSuccessors() == 2) {
       // Otherwise, we can fold this switch into a conditional branch
       // instruction if it has only one non-default destination.
-      Value *Cond = new ICmpInst(ICmpInst::ICMP_EQ, SI->getCondition(),
-                                 SI->getSuccessorValue(1), "cond", SI);
+      Value *Cond = new SetCondInst(Instruction::SetEQ, SI->getCondition(),
+                                    SI->getSuccessorValue(1), "cond", SI);
       // Insert the new branch...
       new BranchInst(SI->getSuccessor(1), SI->getSuccessor(0), Cond, SI);
 
@@ -163,6 +257,64 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB) {
     }
   }
   return false;
+}
+
+/// ConstantFoldLoadThroughGEPConstantExpr - Given a constant and a
+/// getelementptr constantexpr, return the constant value being addressed by the
+/// constant expression, or null if something is funny and we can't decide.
+Constant *llvm::ConstantFoldLoadThroughGEPConstantExpr(Constant *C, 
+                                                       ConstantExpr *CE) {
+  if (CE->getOperand(1) != Constant::getNullValue(CE->getOperand(1)->getType()))
+    return 0;  // Do not allow stepping over the value!
+  
+  // Loop over all of the operands, tracking down which value we are
+  // addressing...
+  gep_type_iterator I = gep_type_begin(CE), E = gep_type_end(CE);
+  for (++I; I != E; ++I)
+    if (const StructType *STy = dyn_cast<StructType>(*I)) {
+      ConstantInt *CU = cast<ConstantInt>(I.getOperand());
+      assert(CU->getZExtValue() < STy->getNumElements() &&
+             "Struct index out of range!");
+      unsigned El = (unsigned)CU->getZExtValue();
+      if (ConstantStruct *CS = dyn_cast<ConstantStruct>(C)) {
+        C = CS->getOperand(El);
+      } else if (isa<ConstantAggregateZero>(C)) {
+        C = Constant::getNullValue(STy->getElementType(El));
+      } else if (isa<UndefValue>(C)) {
+        C = UndefValue::get(STy->getElementType(El));
+      } else {
+        return 0;
+      }
+    } else if (ConstantInt *CI = dyn_cast<ConstantInt>(I.getOperand())) {
+      if (const ArrayType *ATy = dyn_cast<ArrayType>(*I)) {
+        if (CI->getZExtValue() >= ATy->getNumElements())
+         return 0;
+        if (ConstantArray *CA = dyn_cast<ConstantArray>(C))
+          C = CA->getOperand(CI->getZExtValue());
+        else if (isa<ConstantAggregateZero>(C))
+          C = Constant::getNullValue(ATy->getElementType());
+        else if (isa<UndefValue>(C))
+          C = UndefValue::get(ATy->getElementType());
+        else
+          return 0;
+      } else if (const PackedType *PTy = dyn_cast<PackedType>(*I)) {
+        if (CI->getZExtValue() >= PTy->getNumElements())
+          return 0;
+        if (ConstantPacked *CP = dyn_cast<ConstantPacked>(C))
+          C = CP->getOperand(CI->getZExtValue());
+        else if (isa<ConstantAggregateZero>(C))
+          C = Constant::getNullValue(PTy->getElementType());
+        else if (isa<UndefValue>(C))
+          C = UndefValue::get(PTy->getElementType());
+        else
+          return 0;
+      } else {
+        return 0;
+      }
+    } else {
+      return 0;
+    }
+  return C;
 }
 
 

@@ -20,11 +20,10 @@
 
 #include "llvm/CodeGen/LiveInterval.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/Target/MRegisterInfo.h"
 #include <algorithm>
+#include <iostream>
 #include <map>
-#include <ostream>
 using namespace llvm;
 
 // An example for liveAt():
@@ -467,12 +466,13 @@ void LiveInterval::MergeValueNumberInto(unsigned V1, unsigned V2) {
   }
 }
 
+
 std::ostream& llvm::operator<<(std::ostream& os, const LiveRange &LR) {
   return os << '[' << LR.start << ',' << LR.end << ':' << LR.ValId << ")";
 }
 
 void LiveRange::dump() const {
-  cerr << *this << "\n";
+  std::cerr << *this << "\n";
 }
 
 void LiveInterval::print(std::ostream &OS, const MRegisterInfo *MRI) const {
@@ -508,10 +508,5 @@ void LiveInterval::print(std::ostream &OS, const MRegisterInfo *MRI) const {
 }
 
 void LiveInterval::dump() const {
-  cerr << *this << "\n";
-}
-
-
-void LiveRange::print(std::ostream &os) const {
-  os << *this;
+  std::cerr << *this << "\n";
 }

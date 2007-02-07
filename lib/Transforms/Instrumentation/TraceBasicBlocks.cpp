@@ -13,7 +13,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "ProfilingUtils.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Module.h"
@@ -21,13 +20,14 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Instructions.h"
-#include "llvm/Support/Compiler.h"
+#include "ProfilingUtils.h"
 #include "llvm/Support/Debug.h"
 #include <set>
+#include <iostream>
 using namespace llvm;
 
 namespace {
-  class VISIBILITY_HIDDEN TraceBasicBlocks : public ModulePass {
+  class TraceBasicBlocks : public ModulePass {
     bool runOnModule(Module &M);
   };
 
@@ -43,26 +43,27 @@ ModulePass *llvm::createTraceBasicBlockPass()
 static void InsertInstrumentationCall (BasicBlock *BB,
                                        const std::string FnName,
                                        unsigned BBNumber) {
-  DOUT << "InsertInstrumentationCall (\"" << BB->getName ()
-       << "\", \"" << FnName << "\", " << BBNumber << ")\n";
+  DEBUG (std::cerr << "InsertInstrumentationCall (\"" << BB->getName ()
+                   << "\", \"" << FnName << "\", " << BBNumber << ")\n");
   Module &M = *BB->getParent ()->getParent ();
-  Constant *InstrFn = M.getOrInsertFunction (FnName, Type::VoidTy,
-                                             Type::Int32Ty, (Type *)0);
-  
-  // Insert the call after any alloca or PHI instructions.
+  Function *InstrFn = M.getOrInsertFunction (FnName, Type::VoidTy,
+                                             Type::UIntTy, (Type *)0);
+  std::vector<Value*> Args (1);
+  Args[0] = ConstantInt::get (Type::UIntTy, BBNumber);
+
+  // Insert the call after any alloca or PHI instructions...
   BasicBlock::iterator InsertPos = BB->begin();
   while (isa<AllocaInst>(InsertPos) || isa<PHINode>(InsertPos))
     ++InsertPos;
 
-  new CallInst(InstrFn, ConstantInt::get (Type::Int32Ty, BBNumber),
-               "", InsertPos);
+  new CallInst (InstrFn, Args, "", InsertPos);
 }
 
 bool TraceBasicBlocks::runOnModule(Module &M) {
-  Function *Main = M.getFunction("main");
+  Function *Main = M.getMainFunction();
   if (Main == 0) {
-    cerr << "WARNING: cannot insert basic-block trace instrumentation"
-         << " into a module with no main function!\n";
+    std::cerr << "WARNING: cannot insert basic-block trace instrumentation"
+              << " into a module with no main function!\n";
     return false;  // No main, no instrumentation!
   }
 

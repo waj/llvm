@@ -2,7 +2,7 @@
 ; node in the exception destination, and the inlined function contains an 
 ; unwind instruction.
 
-; RUN: llvm-upgrade < %s | llvm-as | opt -inline -disable-output
+; RUN: llvm-as < %s | opt -inline -disable-output
 
 implementation
 

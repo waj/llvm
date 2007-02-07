@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -licm | llvm-dis | %prcontext volatile 1 | grep Loop
+; RUN: llvm-as < %s | opt -licm | llvm-dis | %prcontext volatile 1 | grep Loop
 
 %X = global int 7
 

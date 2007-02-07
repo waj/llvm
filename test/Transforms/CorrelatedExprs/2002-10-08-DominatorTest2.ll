@@ -1,5 +1,5 @@
 ; Simple test to make sure dominators are updated properly
-; RUN: llvm-upgrade < %s | llvm-as | opt -cee
+; RUN: llvm-as < %s | opt -cee
 
 implementation   ; Functions:
 

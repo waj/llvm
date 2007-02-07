@@ -198,7 +198,7 @@ should be constructed. In general, here's what I learned:
     <li><em>Create your blocks early.</em> While writing your compiler, you 
     will encounter several situations where you know apriori that you will
     need several blocks. For example, if-then-else, switch, while, and for
-    statements in C/C++ all need multiple blocks for expression in LLVM. 
+    statements in C/C++ all need multiple blocks for expression in LVVM. 
     The rule is, create them early.</li>
     <li><em>Terminate your blocks early.</em> This just reduces the chances 
     that you forget to terminate your blocks which is required (go 
@@ -229,7 +229,7 @@ in a single function using LLVM in the following way: </p>
 <pre>
 using namespace llvm;
 BasicBlock*
-MyCompiler::handle_if( BasicBlock* bb, ICmpInst* condition )
+MyCompiler::handle_if( BasicBlock* bb, SetCondInst* condition )
 {
     // Create the blocks to contain code in the structure of if/then/else
     BasicBlock* then_bb = new BasicBlock(); 
@@ -1298,16 +1298,11 @@ remainder of the story.
 <div class="doc_subsection"> <a name="directory">Directory Structure</a></div>
 <div class="doc_text">
 <p>The source code, test programs, and sample programs can all be found
-in the LLVM repository named <tt>llvm-stacker</tt> This should be checked out to
-the <tt>projects</tt> directory so that it will auto-configure. To do that, make
-sure you have the llvm sources in <tt><i>llvm</i></tt> 
-(see <a href="GettingStarted.html">Getting Started</a>) and then use these 
-commands:<pre>
-    cd <i>llvm</i>/projects
-    cvs co llvm-stacker</pre>
-</p>
-<p>Under the <tt>projects/llvm-stacker</tt> directory you will find the
-implementation of the Stacker compiler, as follows:</p>
+under the LLVM "projects" directory. You will need to obtain the LLVM sources
+to find it (either via anonymous CVS or a tarball. See the 
+<a href="GettingStarted.html">Getting Started</a> document).</p>
+<p>Under the "projects" directory there is a directory named "Stacker". That
+directory contains everything, as follows:</p>
 <ul>
     <li><em>lib</em> - contains most of the source code
     <ul>
@@ -1325,32 +1320,32 @@ implementation of the Stacker compiler, as follows:</p>
 <!-- ======================================================================= -->
 <div class="doc_subsection"><a name="lexer"></a>The Lexer</div>
 <div class="doc_text">
-<p>See projects/llvm-stacker/lib/compiler/Lexer.l</p>
+<p>See projects/Stacker/lib/compiler/Lexer.l</p>
 </div>
 <!-- ======================================================================= -->
 <div class="doc_subsection"><a name="parser"></a>The Parser</div>
 <div class="doc_text">
-<p>See projects/llvm-stacker/lib/compiler/StackerParser.y</p>
+<p>See projects/Stacker/lib/compiler/StackerParser.y</p>
 </div>
 <!-- ======================================================================= -->
 <div class="doc_subsection"><a name="compiler"></a>The Compiler</div>
 <div class="doc_text">
-<p>See projects/llvm-stacker/lib/compiler/StackerCompiler.cpp</p>
+<p>See projects/Stacker/lib/compiler/StackerCompiler.cpp</p>
 </div>
 <!-- ======================================================================= -->
 <div class="doc_subsection"><a name="runtime"></a>The Runtime</div>
 <div class="doc_text">
-<p>See projects/llvm-stacker/lib/runtime/stacker_rt.c</p>
+<p>See projects/Stacker/lib/runtime/stacker_rt.c</p>
 </div>
 <!-- ======================================================================= -->
 <div class="doc_subsection"><a name="driver"></a>Compiler Driver</div>
 <div class="doc_text">
-<p>See projects/llvm-stacker/tools/stkrc/stkrc.cpp</p>
+<p>See projects/Stacker/tools/stkrc/stkrc.cpp</p>
 </div>
 <!-- ======================================================================= -->
 <div class="doc_subsection"><a name="tests"></a>Test Programs</div>
 <div class="doc_text">
-<p>See projects/llvm-stacker/test/*.st</p>
+<p>See projects/Stacker/test/*.st</p>
 </div>
 <!-- ======================================================================= -->
 <div class="doc_subsection"> <a name="exercise">Exercise</a></div>

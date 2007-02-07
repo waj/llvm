@@ -23,15 +23,15 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "RSProfiling.h"
 #include "ProfilingUtils.h"
+#include <iostream>
+
 using namespace llvm;
 
 namespace {
-  class VISIBILITY_HIDDEN FunctionProfiler : public RSProfilers_std {
+  class FunctionProfiler : public RSProfilers_std {
     bool runOnModule(Module &M);
   };
 
@@ -46,19 +46,19 @@ ModulePass *llvm::createFunctionProfilerPass() {
 }
 
 bool FunctionProfiler::runOnModule(Module &M) {
-  Function *Main = M.getFunction("main");
+  Function *Main = M.getMainFunction();
   if (Main == 0) {
-    cerr << "WARNING: cannot insert function profiling into a module"
-         << " with no main function!\n";
+    std::cerr << "WARNING: cannot insert function profiling into a module"
+              << " with no main function!\n";
     return false;  // No main, no instrumentation!
   }
 
   unsigned NumFunctions = 0;
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
-    if (!I->isDeclaration())
+    if (!I->isExternal())
       ++NumFunctions;
 
-  const Type *ATy = ArrayType::get(Type::Int32Ty, NumFunctions);
+  const Type *ATy = ArrayType::get(Type::UIntTy, NumFunctions);
   GlobalVariable *Counters =
     new GlobalVariable(ATy, false, GlobalValue::InternalLinkage,
                        Constant::getNullValue(ATy), "FuncProfCounters", &M);
@@ -66,7 +66,7 @@ bool FunctionProfiler::runOnModule(Module &M) {
   // Instrument all of the functions...
   unsigned i = 0;
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
-    if (!I->isDeclaration())
+    if (!I->isExternal())
       // Insert counter at the start of the function
       IncrementCounterInBlock(I->begin(), i++, Counters);
 
@@ -89,10 +89,10 @@ namespace {
 ModulePass *llvm::createBlockProfilerPass() { return new BlockProfiler(); }
 
 bool BlockProfiler::runOnModule(Module &M) {
-  Function *Main = M.getFunction("main");
+  Function *Main = M.getMainFunction();
   if (Main == 0) {
-    cerr << "WARNING: cannot insert block profiling into a module"
-         << " with no main function!\n";
+    std::cerr << "WARNING: cannot insert block profiling into a module"
+              << " with no main function!\n";
     return false;  // No main, no instrumentation!
   }
 
@@ -100,7 +100,7 @@ bool BlockProfiler::runOnModule(Module &M) {
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
     NumBlocks += I->size();
 
-  const Type *ATy = ArrayType::get(Type::Int32Ty, NumBlocks);
+  const Type *ATy = ArrayType::get(Type::UIntTy, NumBlocks);
   GlobalVariable *Counters =
     new GlobalVariable(ATy, false, GlobalValue::InternalLinkage,
                        Constant::getNullValue(ATy), "BlockProfCounters", &M);

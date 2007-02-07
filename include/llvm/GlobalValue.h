@@ -27,34 +27,25 @@ class Module;
 class GlobalValue : public Constant {
   GlobalValue(const GlobalValue &);             // do not implement
 public:
-  /// @brief An enumeration for the kinds of linkage for global values.
   enum LinkageTypes {
-    ExternalLinkage,    ///< Externally visible function
-    LinkOnceLinkage,    ///< Keep one copy of function when linking (inline)
-    WeakLinkage,        ///< Keep one copy of named function when linking (weak)
-    AppendingLinkage,   ///< Special purpose, only applies to global arrays
-    InternalLinkage,    ///< Rename collisions when linking (static functions)
-    DLLImportLinkage,   ///< Function to be imported from DLL
-    DLLExportLinkage,   ///< Function to be accessible from DLL
-    ExternalWeakLinkage,///< ExternalWeak linkage description
-    GhostLinkage        ///< Stand-in functions for streaming fns from BC files    
+    ExternalLinkage,     /// Externally visible function
+    LinkOnceLinkage,     /// Keep one copy of named function when linking (inline)
+    WeakLinkage,         /// Keep one copy of named function when linking (weak)
+    AppendingLinkage,    /// Special purpose, only applies to global arrays
+    InternalLinkage,     /// Rename collisions when linking (static functions)
+    DLLImportLinkage,    /// Function to be imported from DLL
+    DLLExportLinkage,    /// Function to be accessible from DLL
+    ExternalWeakLinkage, /// TBD: ExternalWeak linkage description
+    GhostLinkage         /// Stand-in functions for streaming fns from BC files    
   };
-
-  /// @brief An enumeration for the kinds of visibility of global values.
-  enum VisibilityTypes {
-    DefaultVisibility,  ///< The GV is visible
-    HiddenVisibility    ///< The GV is hidden
-  };
-
 protected:
   GlobalValue(const Type *Ty, ValueTy vty, Use *Ops, unsigned NumOps,
               LinkageTypes linkage, const std::string &name = "")
-    : Constant(Ty, vty, Ops, NumOps, name), Parent(0),
-      Linkage(linkage), Visibility(DefaultVisibility), Alignment(0) { }
+    : Constant(Ty, vty, Ops, NumOps, name), 
+      Parent(0), Linkage(linkage), Alignment(0) { }
 
   Module *Parent;
   LinkageTypes Linkage;   // The linkage of this global
-  VisibilityTypes Visibility;  // The visibility style of this global
   unsigned Alignment;     // Alignment of this symbol, must be power of two
   std::string Section;    // Section to emit this into, empty mean default
 public:
@@ -67,10 +58,6 @@ public:
     assert((Align & (Align-1)) == 0 && "Alignment is not a power of 2!");
     Alignment = Align;
   }
-
-  VisibilityTypes getVisibility() const { return Visibility; }
-  bool hasHiddenVisibility() const { return Visibility == HiddenVisibility; }
-  void setVisibility(VisibilityTypes V) { Visibility = V; }
   
   bool hasSection() const { return !Section.empty(); }
   const std::string &getSection() const { return Section; }
@@ -95,7 +82,7 @@ public:
   bool hasInternalLinkage()   const { return Linkage == InternalLinkage; }
   bool hasDLLImportLinkage()  const { return Linkage == DLLImportLinkage; }
   bool hasDLLExportLinkage()  const { return Linkage == DLLExportLinkage; }
-  bool hasExternalWeakLinkage() const { return Linkage == ExternalWeakLinkage; }
+  bool hasExternalWeakLinkage()  const { return Linkage == ExternalWeakLinkage; }
   void setLinkage(LinkageTypes LT) { Linkage = LT; }
   LinkageTypes getLinkage() const { return Linkage; }
 
@@ -113,9 +100,9 @@ public:
   /// Override from Constant class.
   virtual void destroyConstant();
 
-  /// isDeclaration - Return true if the primary definition of this global 
-  /// value is outside of the current translation unit...
-  virtual bool isDeclaration() const = 0;
+  /// isExternal - Return true if the primary definition of this global value is
+  /// outside of the current translation unit...
+  virtual bool isExternal() const = 0;
 
   /// getParent - Get the module that this global value is contained inside
   /// of...

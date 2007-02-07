@@ -23,7 +23,7 @@
 namespace llvm {
   namespace PPCISD {
     enum NodeType {
-      // Start the numbering where the builtin ops and target ops leave off.
+      // Start the numbering where the builting ops and target ops leave off.
       FIRST_NUMBER = ISD::BUILTIN_OP_END+PPC::INSTRUCTION_LIST_END,
 
       /// FSEL - Traditional three-operand fsel node.
@@ -59,11 +59,6 @@ namespace llvm {
       /// Constant.  Selected naively, these turn into 'lis G+C' and 'li G+C',
       /// though these are usually folded into other nodes.
       Hi, Lo,
-      
-      /// OPRC, CHAIN = DYNALLOC(CHAIN, NEGSIZE, FRAME_INDEX)
-      /// This instruction is lowered in PPCRegisterInfo::eliminateFrameIndex to
-      /// compute an allocation on the stack.
-      DYNALLOC,
       
       /// GlobalBaseReg - On Darwin, this node represents the result of the mflr
       /// at function entry, used for PIC code.
@@ -181,45 +176,13 @@ namespace llvm {
     /// getTargetNodeName() - This method returns the name of a target specific
     /// DAG node.
     virtual const char *getTargetNodeName(unsigned Opcode) const;
-
-    /// getPreIndexedAddressParts - returns true by value, base pointer and
-    /// offset pointer and addressing mode by reference if the node's address
-    /// can be legally represented as pre-indexed load / store address.
-    virtual bool getPreIndexedAddressParts(SDNode *N, SDOperand &Base,
-                                           SDOperand &Offset,
-                                           ISD::MemIndexedMode &AM,
-                                           SelectionDAG &DAG);
-    
-    /// SelectAddressRegReg - Given the specified addressed, check to see if it
-    /// can be represented as an indexed [r+r] operation.  Returns false if it
-    /// can be more efficiently represented with [r+imm].
-    bool SelectAddressRegReg(SDOperand N, SDOperand &Base, SDOperand &Index,
-                             SelectionDAG &DAG);
-    
-    /// SelectAddressRegImm - Returns true if the address N can be represented
-    /// by a base register plus a signed 16-bit displacement [r+imm], and if it
-    /// is not better represented as reg+reg.
-    bool SelectAddressRegImm(SDOperand N, SDOperand &Disp, SDOperand &Base,
-                             SelectionDAG &DAG);
-    
-    /// SelectAddressRegRegOnly - Given the specified addressed, force it to be
-    /// represented as an indexed [r+r] operation.
-    bool SelectAddressRegRegOnly(SDOperand N, SDOperand &Base, SDOperand &Index,
-                                 SelectionDAG &DAG);
-
-    /// SelectAddressRegImmShift - Returns true if the address N can be
-    /// represented by a base register plus a signed 14-bit displacement
-    /// [r+imm*4].  Suitable for use by STD and friends.
-    bool SelectAddressRegImmShift(SDOperand N, SDOperand &Disp, SDOperand &Base,
-                                  SelectionDAG &DAG);
-
     
     /// LowerOperation - Provide custom lowering hooks for some operations.
     ///
     virtual SDOperand LowerOperation(SDOperand Op, SelectionDAG &DAG);
     
     virtual SDOperand PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
-    
+
     virtual void computeMaskedBitsForTargetNode(const SDOperand Op,
                                                 uint64_t Mask,
                                                 uint64_t &KnownZero, 

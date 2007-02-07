@@ -22,15 +22,16 @@
 #include "llvm/Type.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/Streams.h"
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(NumBrThread, "Number of CFG edges threaded through branches");
-STATISTIC(NumSwThread, "Number of CFG edges threaded through switches");
-
 namespace {
-  struct VISIBILITY_HIDDEN CondProp : public FunctionPass {
+  Statistic<>
+  NumBrThread("condprop", "Number of CFG edges threaded through branches");
+  Statistic<>
+  NumSwThread("condprop", "Number of CFG edges threaded through switches");
+
+  struct CondProp : public FunctionPass {
     virtual bool runOnFunction(Function &F);
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
@@ -134,12 +135,12 @@ void CondProp::SimplifyPredecessors(BranchInst *BI) {
   // constants.  Walk from the end to remove operands from the end when
   // possible, and to avoid invalidating "i".
   for (unsigned i = PN->getNumIncomingValues(); i != 0; --i)
-    if (ConstantInt *CB = dyn_cast<ConstantInt>(PN->getIncomingValue(i-1))) {
+    if (ConstantBool *CB = dyn_cast<ConstantBool>(PN->getIncomingValue(i-1))) {
       // If we have a constant, forward the edge from its current to its
       // ultimate destination.
       bool PHIGone = PN->getNumIncomingValues() == 2;
       RevectorBlockTo(PN->getIncomingBlock(i-1),
-                      BI->getSuccessor(CB->getZExtValue() == 0));
+                      BI->getSuccessor(CB->getValue() == 0));
       ++NumBrThread;
 
       // If there were two predecessors before this simplification, the PHI node

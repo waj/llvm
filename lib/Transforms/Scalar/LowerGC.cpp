@@ -37,7 +37,7 @@ namespace {
 
     /// GCRead/GCWrite - These are the functions provided by the garbage
     /// collector for read/write barriers.
-    Constant *GCRead, *GCWrite;
+    Function *GCRead, *GCWrite;
 
     /// RootChain - This is the global linked-list that contains the chain of GC
     /// roots.
@@ -83,7 +83,7 @@ const StructType *LowerGC::getRootRecordType(unsigned NumRoots) {
     MainRootRecordType ? (Type*)MainRootRecordType : (Type*)OpaqueType::get();
   ST.clear();
   ST.push_back(PointerType::get(RootListH));         // Prev pointer
-  ST.push_back(Type::Int32Ty);                       // NumElements in array
+  ST.push_back(Type::UIntTy);                        // NumElements in array
   ST.push_back(PairArrTy);                           // The pairs
   StructType *RootList = StructType::get(ST);
   if (MainRootRecordType)
@@ -98,12 +98,12 @@ const StructType *LowerGC::getRootRecordType(unsigned NumRoots) {
 /// doInitialization - If this module uses the GC intrinsics, find them now.  If
 /// not, this pass does not do anything.
 bool LowerGC::doInitialization(Module &M) {
-  GCRootInt  = M.getFunction("llvm.gcroot");
-  GCReadInt  = M.getFunction("llvm.gcread");
-  GCWriteInt = M.getFunction("llvm.gcwrite");
+  GCRootInt  = M.getNamedFunction("llvm.gcroot");
+  GCReadInt  = M.getNamedFunction("llvm.gcread");
+  GCWriteInt = M.getNamedFunction("llvm.gcwrite");
   if (!GCRootInt && !GCReadInt && !GCWriteInt) return false;
 
-  PointerType *VoidPtr = PointerType::get(Type::Int8Ty);
+  PointerType *VoidPtr = PointerType::get(Type::SByteTy);
   PointerType *VoidPtrPtr = PointerType::get(VoidPtr);
 
   // If the program is using read/write barriers, find the implementations of
@@ -130,7 +130,7 @@ bool LowerGC::doInitialization(Module &M) {
                                      GlobalValue::LinkOnceLinkage,
                                      Constant::getNullValue(PRLTy),
                                      "llvm_gc_root_chain", &M);
-    } else if (RootChain->hasExternalLinkage() && RootChain->isDeclaration()) {
+    } else if (RootChain->hasExternalLinkage() && RootChain->isExternal()) {
       RootChain->setInitializer(Constant::getNullValue(PRLTy));
       RootChain->setLinkage(GlobalValue::LinkOnceLinkage);
     }
@@ -139,14 +139,13 @@ bool LowerGC::doInitialization(Module &M) {
 }
 
 /// Coerce - If the specified operand number of the specified instruction does
-/// not have the specified type, insert a cast. Note that this only uses BitCast
-/// because the types involved are all pointers.
+/// not have the specified type, insert a cast.
 static void Coerce(Instruction *I, unsigned OpNum, Type *Ty) {
   if (I->getOperand(OpNum)->getType() != Ty) {
     if (Constant *C = dyn_cast<Constant>(I->getOperand(OpNum)))
-      I->setOperand(OpNum, ConstantExpr::getBitCast(C, Ty));
+      I->setOperand(OpNum, ConstantExpr::getCast(C, Ty));
     else {
-      CastInst *CI = new BitCastInst(I->getOperand(OpNum), Ty, "", I);
+      CastInst *CI = new CastInst(I->getOperand(OpNum), Ty, "", I);
       I->setOperand(OpNum, CI);
     }
   }
@@ -159,7 +158,7 @@ bool LowerGC::runOnFunction(Function &F) {
   // Quick exit for programs that are not using GC mechanisms.
   if (!GCRootInt && !GCReadInt && !GCWriteInt) return false;
 
-  PointerType *VoidPtr    = PointerType::get(Type::Int8Ty);
+  PointerType *VoidPtr    = PointerType::get(Type::SByteTy);
   PointerType *VoidPtrPtr = PointerType::get(VoidPtr);
 
   // If there are read/write barriers in the program, perform a quick pass over
@@ -197,9 +196,7 @@ bool LowerGC::runOnFunction(Function &F) {
                 CallInst *NC = new CallInst(GCRead, CI->getOperand(1),
                                             CI->getOperand(2),
                                             CI->getName(), CI);
-                // These functions only deal with ptr type results so BitCast
-                // is the correct kind of cast (no-op cast).
-                Value *NV = new BitCastInst(NC, CI->getType(), "", CI);
+                Value *NV = new CastInst(NC, CI->getType(), "", CI);
                 CI->replaceAllUsesWith(NV);
                 BB->getInstList().erase(CI);
                 CI = NC;
@@ -225,11 +222,14 @@ bool LowerGC::runOnFunction(Function &F) {
   BasicBlock::iterator IP = AI;
   while (isa<AllocaInst>(IP)) ++IP;
 
-  Constant *Zero = ConstantInt::get(Type::Int32Ty, 0);
-  Constant *One  = ConstantInt::get(Type::Int32Ty, 1);
+  Constant *Zero = ConstantInt::get(Type::UIntTy, 0);
+  Constant *One  = ConstantInt::get(Type::UIntTy, 1);
 
   // Get a pointer to the prev pointer.
-  Value *PrevPtrPtr = new GetElementPtrInst(AI, Zero, Zero, "prevptrptr", IP);
+  std::vector<Value*> Par;
+  Par.push_back(Zero);
+  Par.push_back(Zero);
+  Value *PrevPtrPtr = new GetElementPtrInst(AI, Par, "prevptrptr", IP);
 
   // Load the previous pointer.
   Value *PrevPtr = new LoadInst(RootChain, "prevptr", IP);
@@ -237,12 +237,12 @@ bool LowerGC::runOnFunction(Function &F) {
   new StoreInst(PrevPtr, PrevPtrPtr, IP);
 
   // Set the number of elements in this record.
-  Value *NumEltsPtr = new GetElementPtrInst(AI, Zero, One, "numeltsptr", IP);
-  new StoreInst(ConstantInt::get(Type::Int32Ty, GCRoots.size()), NumEltsPtr,IP);
+  Par[1] = ConstantInt::get(Type::UIntTy, 1);
+  Value *NumEltsPtr = new GetElementPtrInst(AI, Par, "numeltsptr", IP);
+  new StoreInst(ConstantInt::get(Type::UIntTy, GCRoots.size()), NumEltsPtr,IP);
 
-  Value* Par[4];
-  Par[0] = Zero;
-  Par[1] = ConstantInt::get(Type::Int32Ty, 2);
+  Par[1] = ConstantInt::get(Type::UIntTy, 2);
+  Par.resize(4);
 
   const PointerType *PtrLocTy =
     cast<PointerType>(GCRootInt->getFunctionType()->getParamType(0));
@@ -251,15 +251,15 @@ bool LowerGC::runOnFunction(Function &F) {
   // Initialize all of the gcroot records now, and eliminate them as we go.
   for (unsigned i = 0, e = GCRoots.size(); i != e; ++i) {
     // Initialize the meta-data pointer.
-    Par[2] = ConstantInt::get(Type::Int32Ty, i);
+    Par[2] = ConstantInt::get(Type::UIntTy, i);
     Par[3] = One;
-    Value *MetaDataPtr = new GetElementPtrInst(AI, Par, 4, "MetaDataPtr", IP);
+    Value *MetaDataPtr = new GetElementPtrInst(AI, Par, "MetaDataPtr", IP);
     assert(isa<Constant>(GCRoots[i]->getOperand(2)) && "Must be a constant");
     new StoreInst(GCRoots[i]->getOperand(2), MetaDataPtr, IP);
 
     // Initialize the root pointer to null on entry to the function.
     Par[3] = Zero;
-    Value *RootPtrPtr = new GetElementPtrInst(AI, Par, 4, "RootEntPtr", IP);
+    Value *RootPtrPtr = new GetElementPtrInst(AI, Par, "RootEntPtr", IP);
     new StoreInst(Null, RootPtrPtr, IP);
 
     // Each occurrance of the llvm.gcroot intrinsic now turns into an
@@ -273,7 +273,7 @@ bool LowerGC::runOnFunction(Function &F) {
 
   // Now that the record is all initialized, store the pointer into the global
   // pointer.
-  Value *C = new BitCastInst(AI, PointerType::get(MainRootRecordType), "", IP);
+  Value *C = new CastInst(AI, PointerType::get(MainRootRecordType), "", IP);
   new StoreInst(C, RootChain, IP);
 
   // On exit from the function we have to remove the entry from the GC root

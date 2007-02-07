@@ -16,6 +16,7 @@
 #include "llvm/Module.h"
 #include "llvm/PassManager.h"
 #include "llvm/Target/TargetMachineRegistry.h"
+#include <iostream>
 using namespace llvm;
 
 namespace {

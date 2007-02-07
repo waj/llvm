@@ -2,19 +2,17 @@ Target Independent Opportunities:
 
 //===---------------------------------------------------------------------===//
 
-With the recent changes to make the implicit def/use set explicit in
-machineinstrs, we should change the target descriptions for 'call' instructions
-so that the .td files don't list all the call-clobbered registers as implicit
-defs.  Instead, these should be added by the code generator (e.g. on the dag).
+We should make the following changes to clean up MachineInstr:
 
-This has a number of uses:
-
-1. PPC32/64 and X86 32/64 can avoid having multiple copies of call instructions
-   for their different impdef sets.
-2. Targets with multiple calling convs (e.g. x86) which have different clobber
-   sets don't need copies of call instructions.
-3. 'Interprocedural register allocation' can be done to reduce the clobber sets
-   of calls.
+1. Add an Opcode field to TargetInstrDescriptor, so you can tell the opcode of
+   an instruction with just a TargetInstrDescriptor*.
+2. Remove the Opcode field from MachineInstr, replacing it with a
+   TargetInstrDescriptor*.
+3. Getting information about a machine instr then becomes:
+     MI->getInfo()->isTwoAddress()
+   instead of:
+     const TargetInstrInfo &TII = ...
+     TII.isTwoAddrInstr(MI->getOpcode())
 
 //===---------------------------------------------------------------------===//
 
@@ -122,6 +120,16 @@ for 1,2,4,8 bytes.
 
 //===---------------------------------------------------------------------===//
 
+This code:
+int rot(unsigned char b) { int a = ((b>>1) ^ (b<<7)) & 0xff; return a; }
+
+Can be improved in two ways:
+
+1. The instcombiner should eliminate the type conversions.
+2. The X86 backend should turn this into a rotate by one bit.
+
+//===---------------------------------------------------------------------===//
+
 Add LSR exit value substitution. It'll probably be a win for Ackermann, etc.
 
 //===---------------------------------------------------------------------===//
@@ -192,37 +200,17 @@ Scalar Repl cannot currently promote this testcase to 'ret long cst':
         %struct.X = type { int, int }
         %struct.Y = type { %struct.X }
 ulong %bar() {
-        %retval = alloca %struct.Y, align 8             
+        %retval = alloca %struct.Y, align 8             ; <%struct.Y*> [#uses=3]
         %tmp12 = getelementptr %struct.Y* %retval, int 0, uint 0, uint 0
         store int 0, int* %tmp12
         %tmp15 = getelementptr %struct.Y* %retval, int 0, uint 0, uint 1
         store int 1, int* %tmp15
-        %retval = bitcast %struct.Y* %retval to ulong*
-        %retval = load ulong* %retval
+        %retval = cast %struct.Y* %retval to ulong*
+        %retval = load ulong* %retval           ; <ulong> [#uses=1]
         ret ulong %retval
 }
 
 it should be extended to do so.
-
-//===---------------------------------------------------------------------===//
-
--scalarrepl should promote this to be a vector scalar.
-
-        %struct..0anon = type { <4 x float> }
-
-implementation   ; Functions:
-
-void %test1(<4 x float> %V, float* %P) {
-        %u = alloca %struct..0anon, align 16
-        %tmp = getelementptr %struct..0anon* %u, int 0, uint 0
-        store <4 x float> %V, <4 x float>* %tmp
-        %tmp1 = bitcast %struct..0anon* %u to [4 x float]*
-        %tmp = getelementptr [4 x float]* %tmp1, int 0, int 1
-        %tmp = load float* %tmp
-        %tmp3 = mul float %tmp, 2.000000e+00
-        store float %tmp3, float* %P
-        ret void
-}
 
 //===---------------------------------------------------------------------===//
 
@@ -299,14 +287,20 @@ unsigned int swap_32(unsigned int v) {
   return v;
 }
 
-Nor is this (yes, it really is bswap):
+Nor is this:
 
-unsigned long reverse(unsigned v) {
-    unsigned t;
-    t = v ^ ((v << 16) | (v >> 16));
-    t &= ~0xff0000;
-    v = (v << 24) | (v >> 8);
-    return v ^ (t >> 8);
+ushort %bad(ushort %a) {
+entry:
+        %tmp = cast ushort %a to uint           ; <uint> [#uses=1]
+        %tmp2 = shr uint %tmp, ubyte 8          ; <uint> [#uses=1]
+        %tmp2 = cast uint %tmp2 to ushort               ; <ushort> [#uses=1]
+        %tmp5 = shl ushort %a, ubyte 8          ; <ushort> [#uses=1]
+        %tmp6 = or ushort %tmp2, %tmp5          ; <ushort> [#uses=1]
+        ret ushort %tmp6
+}
+
+unsigned short bad(unsigned short a) {
+       return ((a & 0xff00) >> 8 | (a & 0x00ff) << 8);
 }
 
 //===---------------------------------------------------------------------===//
@@ -323,8 +317,27 @@ unsigned short read_16_be(const unsigned char *adr) {
 
 //===---------------------------------------------------------------------===//
 
+-scalarrepl should promote this to be a vector scalar.
+
+        %struct..0anon = type { <4 x float> }
+implementation   ; Functions:
+void %test1(<4 x float> %V, float* %P) {
+entry:
+        %u = alloca %struct..0anon, align 16            ; <%struct..0anon*> [#uses=2]
+        %tmp = getelementptr %struct..0anon* %u, int 0, uint 0          ; <<4 x float>*> [#uses=1]
+        store <4 x float> %V, <4 x float>* %tmp
+        %tmp1 = cast %struct..0anon* %u to [4 x float]*         ; <[4 x float]*> [#uses=1]
+        %tmp = getelementptr [4 x float]* %tmp1, int 0, int 1           ; <float*> [#uses=1]
+        %tmp = load float* %tmp         ; <float> [#uses=1]
+        %tmp3 = mul float %tmp, 2.000000e+00            ; <float> [#uses=1]
+        store float %tmp3, float* %P
+        ret void
+}
+
+//===---------------------------------------------------------------------===//
+
 -instcombine should handle this transform:
-   icmp pred (sdiv X / C1 ), C2
+   setcc (sdiv X / C1 ), C2
 when X, C1, and C2 are unsigned.  Similarly for udiv and signed operands. 
 
 Currently InstCombine avoids this transform but will do it when the signs of
@@ -341,77 +354,3 @@ Instcombine misses several of these cases (see the testcase in the patch):
 http://gcc.gnu.org/ml/gcc-patches/2006-10/msg01519.html
 
 //===---------------------------------------------------------------------===//
-
-viterbi speeds up *significantly* if the various "history" related copy loops
-are turned into memcpy calls at the source level.  We need a "loops to memcpy"
-pass.
-
-//===---------------------------------------------------------------------===//
-
--predsimplify should transform this:
-
-void bad(unsigned x)
-{
-  if (x > 4)
-    bar(12);
-  else if (x > 3)
-    bar(523);
-  else if (x > 2)
-    bar(36);
-  else if (x > 1)
-    bar(65);
-  else if (x > 0)
-    bar(45);
-  else
-    bar(367);
-}
-
-into:
-
-void good(unsigned x)
-{
-  if (x == 4)
-    bar(523);
-  else if (x == 3)
-    bar(36);
-  else if (x == 2)
-    bar(65);
-  else if (x == 1)
-    bar(45);
-  else if (x == 0)
-    bar(367);
-  else
-    bar(12);
-}
-
-to enable further optimizations.
-
-//===---------------------------------------------------------------------===//
-
-Consider:
-
-typedef unsigned U32;
-typedef unsigned long long U64;
-int test (U32 *inst, U64 *regs) {
-    U64 effective_addr2;
-    U32 temp = *inst;
-    int r1 = (temp >> 20) & 0xf;
-    int b2 = (temp >> 16) & 0xf;
-    effective_addr2 = temp & 0xfff;
-    if (b2) effective_addr2 += regs[b2];
-    b2 = (temp >> 12) & 0xf;
-    if (b2) effective_addr2 += regs[b2];
-    effective_addr2 &= regs[4];
-     if ((effective_addr2 & 3) == 0)
-        return 1;
-    return 0;
-}
-
-Note that only the low 2 bits of effective_addr2 are used.  On 32-bit systems,
-we don't eliminate the computation of the top half of effective_addr2 because
-we don't have whole-function selection dags.  On x86, this means we use one
-extra register for the function when effective_addr2 is declared as U64 than
-when it is declared U32.
-
-//===---------------------------------------------------------------------===//
-

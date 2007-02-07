@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc
+; RUN: llvm-as -f %s -o - | llc
 
 ; This caused a problem because the argument of a call was defined by
 ; the return value of another call that appears later in the code.

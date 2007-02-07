@@ -18,7 +18,8 @@
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
 #include "llvm/Bytecode/Writer.h"
-#include "llvm/Support/Streams.h"
+#include <iostream>
+
 using namespace llvm;
 
 int main() {
@@ -27,7 +28,7 @@ int main() {
   Module *M = new Module("test");
 
   // Create the main function: first create the type 'int ()'
-  FunctionType *FT = FunctionType::get(Type::Int32Ty, std::vector<const Type*>(),
+  FunctionType *FT = FunctionType::get(Type::IntTy, std::vector<const Type*>(),
                                        /*not vararg*/false);
 
   // By passing a module as the last parameter to the Function constructor,
@@ -39,8 +40,8 @@ int main() {
   BasicBlock *BB = new BasicBlock("EntryBlock", F);
 
   // Get pointers to the constant integers...
-  Value *Two = ConstantInt::get(Type::Int32Ty, 2);
-  Value *Three = ConstantInt::get(Type::Int32Ty, 3);
+  Value *Two = ConstantInt::get(Type::IntTy, 2);
+  Value *Three = ConstantInt::get(Type::IntTy, 3);
 
   // Create the add instruction... does not insert...
   Instruction *Add = BinaryOperator::create(Instruction::Add, Two, Three,
@@ -53,7 +54,7 @@ int main() {
   BB->getInstList().push_back(new ReturnInst(Add));
 
   // Output the bytecode file to stdout
-  WriteBytecodeToFile(M, cout);
+  WriteBytecodeToFile(M, std::cout);
 
   // Delete the module and all of its contents.
   delete M;

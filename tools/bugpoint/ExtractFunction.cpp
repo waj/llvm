@@ -18,6 +18,7 @@
 #include "llvm/Module.h"
 #include "llvm/PassManager.h"
 #include "llvm/Pass.h"
+#include "llvm/SymbolTable.h"
 #include "llvm/Analysis/Verifier.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Scalar.h"
@@ -110,6 +111,7 @@ Module *BugDriver::performFinalCleanups(Module *M, bool MayModifySemantics) {
     I->setLinkage(GlobalValue::ExternalLinkage);
 
   std::vector<const PassInfo*> CleanupPasses;
+  CleanupPasses.push_back(getPI(createFunctionResolvingPass()));
   CleanupPasses.push_back(getPI(createGlobalDCEPass()));
   CleanupPasses.push_back(getPI(createDeadTypeEliminationPass()));
 
@@ -169,7 +171,7 @@ Module *BugDriver::ExtractLoop(Module *M) {
 void llvm::DeleteFunctionBody(Function *F) {
   // delete the body of the function...
   F->deleteBody();
-  assert(F->isDeclaration() && "This didn't make the function external!");
+  assert(F->isExternal() && "This didn't make the function external!");
 }
 
 /// GetTorInit - Given a list of entries for static ctors/dtors, return them
@@ -179,7 +181,7 @@ static Constant *GetTorInit(std::vector<std::pair<Function*, int> > &TorList) {
   std::vector<Constant*> ArrayElts;
   for (unsigned i = 0, e = TorList.size(); i != e; ++i) {
     std::vector<Constant*> Elts;
-    Elts.push_back(ConstantInt::get(Type::Int32Ty, TorList[i].second));
+    Elts.push_back(ConstantInt::get(Type::IntTy, TorList[i].second));
     Elts.push_back(TorList[i].first);
     ArrayElts.push_back(ConstantStruct::get(Elts));
   }
@@ -194,7 +196,7 @@ static Constant *GetTorInit(std::vector<std::pair<Function*, int> > &TorList) {
 /// prune appropriate entries out of M1s list.
 static void SplitStaticCtorDtor(const char *GlobalName, Module *M1, Module *M2){
   GlobalVariable *GV = M1->getNamedGlobal(GlobalName);
-  if (!GV || GV->isDeclaration() || GV->hasInternalLinkage() ||
+  if (!GV || GV->isExternal() || GV->hasInternalLinkage() ||
       !GV->use_empty()) return;
   
   std::vector<std::pair<Function*, int> > M1Tors, M2Tors;
@@ -213,14 +215,14 @@ static void SplitStaticCtorDtor(const char *GlobalName, Module *M1, Module *M2){
       
       Constant *FP = CS->getOperand(1);
       if (ConstantExpr *CE = dyn_cast<ConstantExpr>(FP))
-        if (CE->isCast())
+        if (CE->getOpcode() == Instruction::Cast)
           FP = CE->getOperand(0);
       if (Function *F = dyn_cast<Function>(FP)) {
-        if (!F->isDeclaration())
+        if (!F->isExternal())
           M1Tors.push_back(std::make_pair(F, Priority));
         else {
           // Map to M2's version of the function.
-          F = M2->getFunction(F->getName());
+          F = M2->getFunction(F->getName(), F->getFunctionType());
           M2Tors.push_back(std::make_pair(F, Priority));
         }
       }
@@ -246,6 +248,63 @@ static void SplitStaticCtorDtor(const char *GlobalName, Module *M1, Module *M2){
   }
 }
 
+/// RewriteUsesInNewModule - Given a constant 'OrigVal' and a module 'OrigMod',
+/// find all uses of the constant.  If they are not in the specified module,
+/// replace them with uses of another constant 'NewVal'.
+static void RewriteUsesInNewModule(Constant *OrigVal, Constant *NewVal,
+                                   Module *OrigMod) {
+  assert(OrigVal->getType() == NewVal->getType() &&
+         "Can't replace something with a different type");
+  for (Value::use_iterator UI = OrigVal->use_begin(), E = OrigVal->use_end();
+       UI != E; ) {
+    Value::use_iterator TmpUI = UI++;
+    User *U = *TmpUI;
+    if (Instruction *Inst = dyn_cast<Instruction>(U)) {
+      if (Inst->getParent()->getParent()->getParent() != OrigMod)
+        TmpUI.getUse() = NewVal;
+    } else if (GlobalVariable *GV = dyn_cast<GlobalVariable>(U)) {
+      if (GV->getParent() != OrigMod)
+        TmpUI.getUse() = NewVal;
+    } else if (ConstantExpr *CE = dyn_cast<ConstantExpr>(U)) {
+      // If nothing uses this, don't bother making a copy.
+      if (CE->use_empty()) continue;
+      Constant *NewCE = CE->getWithOperandReplaced(TmpUI.getOperandNo(),
+                                                   NewVal);
+      RewriteUsesInNewModule(CE, NewCE, OrigMod);
+    } else if (ConstantStruct *CS = dyn_cast<ConstantStruct>(U)) {
+      // If nothing uses this, don't bother making a copy.
+      if (CS->use_empty()) continue;
+      unsigned OpNo = TmpUI.getOperandNo();
+      std::vector<Constant*> Ops;
+      for (unsigned i = 0, e = CS->getNumOperands(); i != e; ++i)
+        Ops.push_back(i == OpNo ? NewVal : CS->getOperand(i));
+      Constant *NewStruct = ConstantStruct::get(Ops);
+      RewriteUsesInNewModule(CS, NewStruct, OrigMod);
+     } else if (ConstantPacked *CP = dyn_cast<ConstantPacked>(U)) {
+      // If nothing uses this, don't bother making a copy.
+      if (CP->use_empty()) continue;
+      unsigned OpNo = TmpUI.getOperandNo();
+      std::vector<Constant*> Ops;
+      for (unsigned i = 0, e = CP->getNumOperands(); i != e; ++i)
+        Ops.push_back(i == OpNo ? NewVal : CP->getOperand(i));
+      Constant *NewPacked = ConstantPacked::get(Ops);
+      RewriteUsesInNewModule(CP, NewPacked, OrigMod);
+    } else if (ConstantArray *CA = dyn_cast<ConstantArray>(U)) {
+      // If nothing uses this, don't bother making a copy.
+      if (CA->use_empty()) continue;
+      unsigned OpNo = TmpUI.getOperandNo();
+      std::vector<Constant*> Ops;
+      for (unsigned i = 0, e = CA->getNumOperands(); i != e; ++i) {
+        Ops.push_back(i == OpNo ? NewVal : CA->getOperand(i));
+      }
+      Constant *NewArray = ConstantArray::get(CA->getType(), Ops);
+      RewriteUsesInNewModule(CA, NewArray, OrigMod);
+    } else {
+      assert(0 && "Unexpected user");
+    }
+  }
+}
+
 
 /// SplitFunctionsOutOfModule - Given a module and a list of functions in the
 /// module, split the functions OUT of the specified module, and place them in
@@ -260,30 +319,79 @@ Module *llvm::SplitFunctionsOutOfModule(Module *M,
        I != E; ++I)
     I->setLinkage(GlobalValue::ExternalLinkage);
 
-  Module *New = CloneModule(M);
+  // First off, we need to create the new module...
+  Module *New = new Module(M->getModuleIdentifier());
+  New->setEndianness(M->getEndianness());
+  New->setPointerSize(M->getPointerSize());
+  New->setTargetTriple(M->getTargetTriple());
+  New->setModuleInlineAsm(M->getModuleInlineAsm());
 
-  // Make sure global initializers exist only in the safe module (CBE->.so)
-  for (Module::global_iterator I = New->global_begin(), E = New->global_end();
-       I != E; ++I)
-    I->setInitializer(0);  // Delete the initializer to make it external
+  // Copy all of the dependent libraries over.
+  for (Module::lib_iterator I = M->lib_begin(), E = M->lib_end(); I != E; ++I)
+    New->addLibrary(*I);
 
-  // Remove the Test functions from the Safe module
+  // build a set of the functions to search later...
   std::set<std::pair<std::string, const PointerType*> > TestFunctions;
   for (unsigned i = 0, e = F.size(); i != e; ++i) {
     TestFunctions.insert(std::make_pair(F[i]->getName(), F[i]->getType()));  
-    Function *TNOF = M->getFunction(F[i]->getName());
-    assert(TNOF && "Function doesn't exist in module!");
-    assert(TNOF->getFunctionType() == F[i]->getFunctionType() && "wrong type?");
-    DEBUG(std::cerr << "Removing function " << F[i]->getName() << "\n");
-    DeleteFunctionBody(TNOF);       // Function is now external in this module!
   }
 
+  std::map<GlobalValue*, GlobalValue*> GlobalToPrototypeMap;
+  std::vector<GlobalValue*> OrigGlobals;
+
+  // Adding specified functions to new module...
+  for (Module::iterator I = M->begin(), E = M->end(); I != E;) {
+    OrigGlobals.push_back(I);
+    if (TestFunctions.count(std::make_pair(I->getName(), I->getType()))) {    
+      Module::iterator tempI = I;
+      I++;
+      Function *Func = new Function(tempI->getFunctionType(), 
+                                    GlobalValue::ExternalLinkage);
+      M->getFunctionList().insert(tempI, Func);
+      New->getFunctionList().splice(New->end(), 
+                                    M->getFunctionList(),
+                                    tempI);
+      Func->setName(tempI->getName());
+      Func->setCallingConv(tempI->getCallingConv());
+      GlobalToPrototypeMap[tempI] = Func;
+    } else {
+      Function *Func = new Function(I->getFunctionType(), 
+                                    GlobalValue::ExternalLinkage,
+                                    I->getName(), 
+                                    New);
+      Func->setCallingConv(I->getCallingConv());           
+      GlobalToPrototypeMap[I] = Func;
+      I++;
+    }
+  }
+
+  // Copy over global variable list.
+  for (Module::global_iterator I = M->global_begin(), E = M->global_end();
+       I != E; ++I) {
+    OrigGlobals.push_back(I);
+    GlobalVariable *G = new GlobalVariable(I->getType()->getElementType(),
+                                           I->isConstant(),
+                                           GlobalValue::ExternalLinkage,
+                                           0, I->getName(), New);
+    GlobalToPrototypeMap[I] = G;
+  }
   
-  // Remove the Safe functions from the Test module
-  for (Module::iterator I = New->begin(), E = New->end(); I != E; ++I)
-    if (!TestFunctions.count(std::make_pair(I->getName(), I->getType())))
-      DeleteFunctionBody(I);
-  
+  // Copy all of the type symbol table entries over.
+  const SymbolTable &SymTab = M->getSymbolTable();
+  SymbolTable::type_const_iterator TypeI = SymTab.type_begin();
+  SymbolTable::type_const_iterator TypeE = SymTab.type_end();
+  for (; TypeI != TypeE; ++TypeI)
+    New->addTypeName(TypeI->first, TypeI->second);
+
+  // Loop over globals, rewriting uses in the module the prototype is in to use
+  // the prototype.
+  for (unsigned i = 0, e = OrigGlobals.size(); i != e; ++i) {
+    assert(OrigGlobals[i]->getName() ==
+           GlobalToPrototypeMap[OrigGlobals[i]]->getName() &&
+           "Something got renamed?");
+    RewriteUsesInNewModule(OrigGlobals[i], GlobalToPrototypeMap[OrigGlobals[i]],
+                           OrigGlobals[i]->getParent());
+  }
 
   // Make sure that there is a global ctor/dtor array in both halves of the
   // module if they both have static ctor/dtor functions.
@@ -317,7 +425,7 @@ bool BlockExtractorPass::runOnModule(Module &M) {
     Function *F = BB->getParent();
 
     // Map the corresponding function in this module.
-    Function *MF = M.getFunction(F->getName());
+    Function *MF = M.getFunction(F->getName(), F->getFunctionType());
 
     // Figure out which index the basic block is in its function.
     Function::iterator BBI = MF->begin();

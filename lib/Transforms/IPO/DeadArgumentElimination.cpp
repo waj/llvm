@@ -29,17 +29,19 @@
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Support/Compiler.h"
+#include <iostream>
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumArgumentsEliminated, "Number of unread args removed");
-STATISTIC(NumRetValsEliminated  , "Number of unused return values removed");
-
 namespace {
+  Statistic<> NumArgumentsEliminated("deadargelim",
+                                     "Number of unread args removed");
+  Statistic<> NumRetValsEliminated("deadargelim",
+                                   "Number of unused return values removed");
+
   /// DAE - The dead argument elimination pass.
   ///
-  class VISIBILITY_HIDDEN DAE : public ModulePass {
+  class DAE : public ModulePass {
     /// Liveness enum - During our initial pass over the program, we determine
     /// that things are either definately alive, definately dead, or in need of
     /// interprocedural analysis (MaybeLive).
@@ -115,7 +117,7 @@ ModulePass *llvm::createDeadArgHackingPass() { return new DAH(); }
 /// llvm.vastart is never called, the varargs list is dead for the function.
 bool DAE::DeleteDeadVarargs(Function &Fn) {
   assert(Fn.getFunctionType()->isVarArg() && "Function isn't varargs!");
-  if (Fn.isDeclaration() || !Fn.hasInternalLinkage()) return false;
+  if (Fn.isExternal() || !Fn.hasInternalLinkage()) return false;
   
   // Ensure that the function is only directly called.
   for (Value::use_iterator I = Fn.use_begin(), E = Fn.use_end(); I != E; ++I) {
@@ -150,8 +152,7 @@ bool DAE::DeleteDeadVarargs(Function &Fn) {
   unsigned NumArgs = Params.size();
   
   // Create the new function body and insert it into the module...
-  std::string Name = Fn.getName(); Fn.setName("");
-  Function *NF = new Function(NFTy, Fn.getLinkage(), Name);
+  Function *NF = new Function(NFTy, Fn.getLinkage(), Fn.getName());
   NF->setCallingConv(Fn.getCallingConv());
   Fn.getParent()->getFunctionList().insert(&Fn, NF);
   
@@ -232,10 +233,9 @@ static inline bool CallPassesValueThoughVararg(Instruction *Call,
 // (used in a computation), MaybeLive (only passed as an argument to a call), or
 // Dead (not used).
 DAE::Liveness DAE::getArgumentLiveness(const Argument &A) {
-  const FunctionType *FTy = A.getParent()->getFunctionType();
-  
-  // If this is the return value of a struct function, it's not really dead.
-  if (FTy->isStructReturn() && &*A.getParent()->arg_begin() == &A)
+  // If this is the return value of a csret function, it's not really dead.
+  if (A.getParent()->getCallingConv() == CallingConv::CSRet &&
+      &*A.getParent()->arg_begin() == &A)
     return Live;
   
   if (A.use_empty())  // First check, directly dead?
@@ -322,7 +322,7 @@ void DAE::SurveyFunction(Function &F) {
     }
 
   if (FunctionIntrinsicallyLive) {
-    DOUT << "  Intrinsically live fn: " << F.getName() << "\n";
+    DEBUG(std::cerr << "  Intrinsically live fn: " << F.getName() << "\n");
     for (Function::arg_iterator AI = F.arg_begin(), E = F.arg_end();
          AI != E; ++AI)
       LiveArguments.insert(AI);
@@ -336,7 +336,7 @@ void DAE::SurveyFunction(Function &F) {
   case Dead:      DeadRetVal.insert(&F); break;
   }
 
-  DOUT << "  Inspecting args for fn: " << F.getName() << "\n";
+  DEBUG(std::cerr << "  Inspecting args for fn: " << F.getName() << "\n");
 
   // If it is not intrinsically alive, we know that all users of the
   // function are call sites.  Mark all of the arguments live which are
@@ -348,15 +348,16 @@ void DAE::SurveyFunction(Function &F) {
        AI != E; ++AI)
     switch (getArgumentLiveness(*AI)) {
     case Live:
-      DOUT << "    Arg live by use: " << AI->getName() << "\n";
+      DEBUG(std::cerr << "    Arg live by use: " << AI->getName() << "\n");
       LiveArguments.insert(AI);
       break;
     case Dead:
-      DOUT << "    Arg definitely dead: " << AI->getName() <<"\n";
+      DEBUG(std::cerr << "    Arg definitely dead: " <<AI->getName()<<"\n");
       DeadArguments.insert(AI);
       break;
     case MaybeLive:
-      DOUT << "    Arg only passed to calls: " << AI->getName() << "\n";
+      DEBUG(std::cerr << "    Arg only passed to calls: "
+            << AI->getName() << "\n");
       AnyMaybeLiveArgs = true;
       MaybeLiveArguments.insert(AI);
       break;
@@ -415,7 +416,7 @@ void DAE::MarkArgumentLive(Argument *Arg) {
   std::set<Argument*>::iterator It = MaybeLiveArguments.lower_bound(Arg);
   if (It == MaybeLiveArguments.end() || *It != Arg) return;
 
-  DOUT << "  MaybeLive argument now live: " << Arg->getName() <<"\n";
+  DEBUG(std::cerr << "  MaybeLive argument now live: " << Arg->getName()<<"\n");
   MaybeLiveArguments.erase(It);
   LiveArguments.insert(Arg);
 
@@ -453,7 +454,7 @@ void DAE::MarkRetValLive(Function *F) {
   std::set<Function*>::iterator I = MaybeLiveRetVal.lower_bound(F);
   if (I == MaybeLiveRetVal.end() || *I != F) return;  // It's already alive!
 
-  DOUT << "  MaybeLive retval now live: " << F->getName() << "\n";
+  DEBUG(std::cerr << "  MaybeLive retval now live: " << F->getName() << "\n");
 
   MaybeLiveRetVal.erase(I);
   LiveRetVal.insert(F);        // It is now known to be live!
@@ -500,17 +501,18 @@ void DAE::RemoveDeadArgumentsFromFunction(Function *F) {
   // Work around LLVM bug PR56: the CWriter cannot emit varargs functions which
   // have zero fixed arguments.
   //
+  // FIXME: once this bug is fixed in the CWriter, this hack should be removed.
+  //
   bool ExtraArgHack = false;
   if (Params.empty() && FTy->isVarArg()) {
     ExtraArgHack = true;
-    Params.push_back(Type::Int32Ty);
+    Params.push_back(Type::IntTy);
   }
 
   FunctionType *NFTy = FunctionType::get(RetTy, Params, FTy->isVarArg());
 
   // Create the new function body and insert it into the module...
-  std::string Name = F->getName(); F->setName("");
-  Function *NF = new Function(NFTy, F->getLinkage(), Name);
+  Function *NF = new Function(NFTy, F->getLinkage(), F->getName());
   NF->setCallingConv(F->getCallingConv());
   F->getParent()->getFunctionList().insert(F, NF);
 
@@ -530,7 +532,7 @@ void DAE::RemoveDeadArgumentsFromFunction(Function *F) {
         Args.push_back(*AI);
 
     if (ExtraArgHack)
-      Args.push_back(UndefValue::get(Type::Int32Ty));
+      Args.push_back(Constant::getNullValue(Type::IntTy));
 
     // Push any varargs arguments on the list
     for (; AI != CS.arg_end(); ++AI)
@@ -609,7 +611,7 @@ bool DAE::runOnModule(Module &M) {
   // We assume all arguments are dead unless proven otherwise (allowing us to
   // determine that dead arguments passed into recursive functions are dead).
   //
-  DOUT << "DAE - Determining liveness\n";
+  DEBUG(std::cerr << "DAE - Determining liveness\n");
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ) {
     Function &F = *I++;
     if (F.getFunctionType()->isVarArg())

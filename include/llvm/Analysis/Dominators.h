@@ -144,9 +144,6 @@ public:
   /// print - Convert to human readable form
   ///
   virtual void print(std::ostream &OS, const Module* = 0) const;
-  void print(std::ostream *OS, const Module* M = 0) const {
-    if (OS) print(*OS, M);
-  }
 };
 
 //===-------------------------------------
@@ -237,9 +234,6 @@ public:
   /// print - Convert to human readable form
   ///
   virtual void print(std::ostream &OS, const Module* = 0) const;
-  void print(std::ostream *OS, const Module* M = 0) const {
-    if (OS) print(*OS, M);
-  }
 
   /// dominates - Return true if A dominates B.  This performs the special
   /// checks necessary if A and B are in the same basic block.
@@ -416,9 +410,6 @@ public:
   /// print - Convert to human readable form
   ///
   virtual void print(std::ostream &OS, const Module* = 0) const;
-  void print(std::ostream *OS, const Module* M = 0) const {
-    if (OS) print(*OS, M);
-  }
 };
 
 //===-------------------------------------
@@ -555,9 +546,6 @@ public:
   /// print - Convert to human readable form
   ///
   virtual void print(std::ostream &OS, const Module* = 0) const;
-  void print(std::ostream *OS, const Module* M = 0) const {
-    if (OS) print(*OS, M);
-  }
 protected:
   /// getNode - return the (Post)DominatorTree node for the specified basic
   /// block.  This is the same as using operator[] on this class.
@@ -647,9 +635,6 @@ public:
   /// print - Convert to human readable form
   ///
   virtual void print(std::ostream &OS, const Module* = 0) const;
-  void print(std::ostream *OS, const Module* M = 0) const {
-    if (OS) print(*OS, M);
-  }
 };
 
 

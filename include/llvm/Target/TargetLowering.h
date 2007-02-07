@@ -22,10 +22,9 @@
 #ifndef LLVM_TARGET_TARGETLOWERING_H
 #define LLVM_TARGET_TARGETLOWERING_H
 
+#include "llvm/Type.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
-#include "llvm/CodeGen/RuntimeLibcalls.h"
 #include <map>
-#include <vector>
 
 namespace llvm {
   class Value;
@@ -38,7 +37,6 @@ namespace llvm {
   class SelectionDAG;
   class MachineBasicBlock;
   class MachineInstr;
-  class PackedType;
 
 //===----------------------------------------------------------------------===//
 /// TargetLowering - This class defines information used to lower LLVM code to
@@ -91,9 +89,9 @@ public:
   /// codegen.
   bool usesGlobalOffsetTable() const { return UsesGlobalOffsetTable; }
   
-  /// isSelectExpensive - Return true if the select operation is expensive for
+  /// isSetCCExpensive - Return true if the setcc operation is expensive for
   /// this target.
-  bool isSelectExpensive() const { return SelectIsExpensive; }
+  bool isSetCCExpensive() const { return SetCCIsExpensive; }
   
   /// isIntDivCheap() - Return true if integer divide is usually cheaper than
   /// a sequence of several shifts, adds, and multiplies for this target.
@@ -170,34 +168,13 @@ public:
 
   /// getTypeToTransformTo - For types supported by the target, this is an
   /// identity function.  For types that must be promoted to larger types, this
-  /// returns the larger type to promote to.  For integer types that are larger
-  /// than the largest integer register, this contains one step in the expansion
-  /// to get to the smaller register. For illegal floating point types, this
-  /// returns the integer type to transform to.
+  /// returns the larger type to promote to.  For types that are larger than the
+  /// largest integer register, this contains one step in the expansion to get
+  /// to the smaller register.
   MVT::ValueType getTypeToTransformTo(MVT::ValueType VT) const {
     return TransformToType[VT];
   }
   
-  /// getTypeToExpandTo - For types supported by the target, this is an
-  /// identity function.  For types that must be expanded (i.e. integer types
-  /// that are larger than the largest integer register or illegal floating
-  /// point types), this returns the largest legal type it will be expanded to.
-  MVT::ValueType getTypeToExpandTo(MVT::ValueType VT) const {
-    while (true) {
-      switch (getTypeAction(VT)) {
-      case Legal:
-        return VT;
-      case Expand:
-        VT = TransformToType[VT];
-        break;
-      default:
-        assert(false && "Type is not legal nor is it to be expanded!");
-        return VT;
-      }
-    }
-    return VT;
-  }
-
   /// getPackedTypeBreakdown - Packed types are broken down into some number of
   /// legal first class types.  For example, <8 x float> maps to 2 MVT::v4f32
   /// with Altivec or SSE1, or 8 promoted MVT::f64 values with the X86 FP stack.
@@ -281,38 +258,6 @@ public:
     return getStoreXAction(VT) == Legal || getStoreXAction(VT) == Custom;
   }
 
-  /// getIndexedLoadAction - Return how the indexed load should be treated:
-  /// either it is legal, needs to be promoted to a larger size, needs to be
-  /// expanded to some other code sequence, or the target has a custom expander
-  /// for it.
-  LegalizeAction
-  getIndexedLoadAction(unsigned IdxMode, MVT::ValueType VT) const {
-    return (LegalizeAction)((IndexedModeActions[0][IdxMode] >> (2*VT)) & 3);
-  }
-
-  /// isIndexedLoadLegal - Return true if the specified indexed load is legal
-  /// on this target.
-  bool isIndexedLoadLegal(unsigned IdxMode, MVT::ValueType VT) const {
-    return getIndexedLoadAction(IdxMode, VT) == Legal ||
-           getIndexedLoadAction(IdxMode, VT) == Custom;
-  }
-  
-  /// getIndexedStoreAction - Return how the indexed store should be treated:
-  /// either it is legal, needs to be promoted to a larger size, needs to be
-  /// expanded to some other code sequence, or the target has a custom expander
-  /// for it.
-  LegalizeAction
-  getIndexedStoreAction(unsigned IdxMode, MVT::ValueType VT) const {
-    return (LegalizeAction)((IndexedModeActions[1][IdxMode] >> (2*VT)) & 3);
-  }  
-  
-  /// isIndexedStoreLegal - Return true if the specified indexed load is legal
-  /// on this target.
-  bool isIndexedStoreLegal(unsigned IdxMode, MVT::ValueType VT) const {
-    return getIndexedStoreAction(IdxMode, VT) == Legal ||
-           getIndexedStoreAction(IdxMode, VT) == Custom;
-  }
-  
   /// getTypeToPromoteTo - If the action for this operation is to promote, this
   /// method returns the ValueType to promote to.
   MVT::ValueType getTypeToPromoteTo(unsigned Op, MVT::ValueType VT) const {
@@ -340,12 +285,30 @@ public:
 
   /// getValueType - Return the MVT::ValueType corresponding to this LLVM type.
   /// This is fixed by the LLVM operations except for the pointer size.
-  MVT::ValueType getValueType(const Type *Ty) const;
+  MVT::ValueType getValueType(const Type *Ty) const {
+    switch (Ty->getTypeID()) {
+    default: assert(0 && "Unknown type!");
+    case Type::VoidTyID:    return MVT::isVoid;
+    case Type::BoolTyID:    return MVT::i1;
+    case Type::UByteTyID:
+    case Type::SByteTyID:   return MVT::i8;
+    case Type::ShortTyID:
+    case Type::UShortTyID:  return MVT::i16;
+    case Type::IntTyID:
+    case Type::UIntTyID:    return MVT::i32;
+    case Type::LongTyID:
+    case Type::ULongTyID:   return MVT::i64;
+    case Type::FloatTyID:   return MVT::f32;
+    case Type::DoubleTyID:  return MVT::f64;
+    case Type::PointerTyID: return PointerTy;
+    case Type::PackedTyID:  return MVT::Vector;
+    }
+  }
 
   /// getNumElements - Return the number of registers that this ValueType will
-  /// eventually require.  This is one for any types promoted to live in larger
-  /// registers, but may be more than one for types (like i64) that are split
-  /// into pieces.
+  /// eventually require.  This is always one for all non-integer types, is
+  /// one for any types promoted to live in larger registers, but may be more
+  /// than one for types (like i64) that are split into pieces.
   unsigned getNumElements(MVT::ValueType VT) const {
     return NumElementsForVT[VT];
   }
@@ -384,18 +347,12 @@ public:
     return allowUnalignedMemoryAccesses;
   }
   
-  /// usesUnderscoreSetJmp - Determine if we should use _setjmp or setjmp
+  /// usesUnderscoreSetJmpLongJmp - Determine if we should use _setjmp or setjmp
   /// to implement llvm.setjmp.
-  bool usesUnderscoreSetJmp() const {
-    return UseUnderscoreSetJmp;
+  bool usesUnderscoreSetJmpLongJmp() const {
+    return UseUnderscoreSetJmpLongJmp;
   }
-
-  /// usesUnderscoreLongJmp - Determine if we should use _longjmp or longjmp
-  /// to implement llvm.longjmp.
-  bool usesUnderscoreLongJmp() const {
-    return UseUnderscoreLongJmp;
-  }
-
+  
   /// getStackPointerRegisterToSaveRestore - If a physical register, this
   /// specifies the register that llvm.savestack/llvm.restorestack should save
   /// and restore.
@@ -420,18 +377,8 @@ public:
   /// can be legally represented as pre-indexed load / store address.
   virtual bool getPreIndexedAddressParts(SDNode *N, SDOperand &Base,
                                          SDOperand &Offset,
-                                         ISD::MemIndexedMode &AM,
+                                         ISD::MemOpAddrMode &AM,
                                          SelectionDAG &DAG) {
-    return false;
-  }
-  
-  /// getPostIndexedAddressParts - returns true by value, base pointer and
-  /// offset pointer and addressing mode by reference if this node can be
-  /// combined with a load / store to form a post-indexed load / store.
-  virtual bool getPostIndexedAddressParts(SDNode *N, SDNode *Op,
-                                          SDOperand &Base, SDOperand &Offset,
-                                          ISD::MemIndexedMode &AM,
-                                          SelectionDAG &DAG) {
     return false;
   }
   
@@ -575,20 +522,13 @@ protected:
     ShiftAmtHandling = OORSA;
   }
 
-  /// setUseUnderscoreSetJmp - Indicate whether this target prefers to
-  /// use _setjmp to implement llvm.setjmp or the non _ version.
-  /// Defaults to false.
-  void setUseUnderscoreSetJmp(bool Val) {
-    UseUnderscoreSetJmp = Val;
+  /// setUseUnderscoreSetJmpLongJmp - Indicate whether this target prefers to
+  /// use _setjmp and _longjmp to or implement llvm.setjmp/llvm.longjmp or
+  /// the non _ versions.  Defaults to false.
+  void setUseUnderscoreSetJmpLongJmp(bool Val) {
+    UseUnderscoreSetJmpLongJmp = Val;
   }
-
-  /// setUseUnderscoreLongJmp - Indicate whether this target prefers to
-  /// use _longjmp to implement llvm.longjmp or the non _ version.
-  /// Defaults to false.
-  void setUseUnderscoreLongJmp(bool Val) {
-    UseUnderscoreLongJmp = Val;
-  }
-
+  
   /// setStackPointerRegisterToSaveRestore - If set to a physical register, this
   /// specifies the register that llvm.savestack/llvm.restorestack should save
   /// and restore.
@@ -596,9 +536,10 @@ protected:
     StackPointerRegisterToSaveRestore = R;
   }
   
-  /// SelectIsExpensive - Tells the code generator not to expand operations
-  /// into sequences that use the select operations if possible.
-  void setSelectIsExpensive() { SelectIsExpensive = true; }
+  /// setSetCCIxExpensive - This is a short term hack for targets that codegen
+  /// setcc as a conditional branch.  This encourages the code generator to fold
+  /// setcc operations into other operations if possible.
+  void setSetCCIsExpensive() { SetCCIsExpensive = true; }
 
   /// setIntDivIsCheap - Tells the code generator that integer divide is
   /// expensive, and if possible, should be replaced by an alternate sequence
@@ -650,32 +591,6 @@ protected:
     StoreXActions |= (uint64_t)Action << VT*2;
   }
 
-  /// setIndexedLoadAction - Indicate that the specified indexed load does or
-  /// does not work with the with specified type and indicate what to do abort
-  /// it. NOTE: All indexed mode loads are initialized to Expand in
-  /// TargetLowering.cpp
-  void setIndexedLoadAction(unsigned IdxMode, MVT::ValueType VT,
-                            LegalizeAction Action) {
-    assert(VT < 32 && IdxMode <
-           sizeof(IndexedModeActions[0]) / sizeof(IndexedModeActions[0][0]) &&
-           "Table isn't big enough!");
-    IndexedModeActions[0][IdxMode] &= ~(uint64_t(3UL) << VT*2);
-    IndexedModeActions[0][IdxMode] |= (uint64_t)Action << VT*2;
-  }
-  
-  /// setIndexedStoreAction - Indicate that the specified indexed store does or
-  /// does not work with the with specified type and indicate what to do about
-  /// it. NOTE: All indexed mode stores are initialized to Expand in
-  /// TargetLowering.cpp
-  void setIndexedStoreAction(unsigned IdxMode, MVT::ValueType VT,
-                             LegalizeAction Action) {
-    assert(VT < 32 && IdxMode <
-           sizeof(IndexedModeActions[1]) / sizeof(IndexedModeActions[1][0]) &&
-           "Table isn't big enough!");
-    IndexedModeActions[1][IdxMode] &= ~(uint64_t(3UL) << VT*2);
-    IndexedModeActions[1][IdxMode] |= (uint64_t)Action << VT*2;
-  }
-  
   /// AddPromotedToType - If Opc/OrigVT is specified as being promoted, the
   /// promotion code defaults to trying a larger integer/fp until it can find
   /// one that works.  If that default is insufficient, this method can be used
@@ -726,20 +641,19 @@ public:
   /// actual call.  This returns a pair of operands.  The first element is the
   /// return value for the function (if RetTy is not VoidTy).  The second
   /// element is the outgoing token chain.
-  struct ArgListEntry {
-    SDOperand Node;
-    const Type* Ty;
-    bool isSigned;
-    bool isInReg;
-    bool isSRet;
-
-    ArgListEntry():isSigned(false), isInReg(false), isSRet(false) { };
-  };
-  typedef std::vector<ArgListEntry> ArgListTy;
+  typedef std::vector<std::pair<SDOperand, const Type*> > ArgListTy;
   virtual std::pair<SDOperand, SDOperand>
-  LowerCallTo(SDOperand Chain, const Type *RetTy, bool RetTyIsSigned, 
-              bool isVarArg, unsigned CallingConv, bool isTailCall, 
-              SDOperand Callee, ArgListTy &Args, SelectionDAG &DAG);
+  LowerCallTo(SDOperand Chain, const Type *RetTy, bool isVarArg,
+              unsigned CallingConv, bool isTailCall, SDOperand Callee,
+              ArgListTy &Args, SelectionDAG &DAG);
+
+  /// LowerFrameReturnAddress - This hook lowers a call to llvm.returnaddress or
+  /// llvm.frameaddress (depending on the value of the first argument).  The
+  /// return values are the result pointer and the resultant token chain.  If
+  /// not implemented, both of these intrinsics will return null.
+  virtual std::pair<SDOperand, SDOperand>
+  LowerFrameReturnAddress(bool isFrameAddr, SDOperand Chain, unsigned Depth,
+                          SelectionDAG &DAG);
 
   /// LowerOperation - This callback is invoked for operations that are 
   /// unsupported by the target, which are registered to use 'custom' lowering,
@@ -841,34 +755,6 @@ public:
 		      std::vector<SDNode*>* Created) const;
 
 
-  //===--------------------------------------------------------------------===//
-  // Runtime Library hooks
-  //
-
-  /// setLibcallName - Rename the default libcall routine name for the specified
-  /// libcall.
-  void setLibcallName(RTLIB::Libcall Call, const char *Name) {
-    LibcallRoutineNames[Call] = Name;
-  }
-
-  /// getLibcallName - Get the libcall routine name for the specified libcall.
-  ///
-  const char *getLibcallName(RTLIB::Libcall Call) const {
-    return LibcallRoutineNames[Call];
-  }
-
-  /// setCmpLibcallCC - Override the default CondCode to be used to test the
-  /// result of the comparison libcall against zero.
-  void setCmpLibcallCC(RTLIB::Libcall Call, ISD::CondCode CC) {
-    CmpLibcallCCs[Call] = CC;
-  }
-
-  /// getCmpLibcallCC - Get the CondCode that's to be used to test the result of
-  /// the comparison libcall against zero.
-  ISD::CondCode getCmpLibcallCC(RTLIB::Libcall Call) const {
-    return CmpLibcallCCs[Call];
-  }
-
 protected:
   /// addLegalAddressScale - Add a integer (> 1) value which can be used as
   /// scale in the target addressing mode. Note: the ordering matters so the
@@ -901,9 +787,10 @@ private:
 
   OutOfRangeShiftAmount ShiftAmtHandling;
 
-  /// SelectIsExpensive - Tells the code generator not to expand operations
-  /// into sequences that use the select operations if possible.
-  bool SelectIsExpensive;
+  /// SetCCIsExpensive - This is a short term hack for targets that codegen
+  /// setcc as a conditional branch.  This encourages the code generator to fold
+  /// setcc operations into other operations if possible.
+  bool SetCCIsExpensive;
 
   /// IntDivIsCheap - Tells the code generator not to expand integer divides by
   /// constants into a sequence of muls, adds, and shifts.  This is a hack until
@@ -928,14 +815,10 @@ private:
   /// total cycles or lowest register usage.
   SchedPreference SchedPreferenceInfo;
   
-  /// UseUnderscoreSetJmp - This target prefers to use _setjmp to implement
-  /// llvm.setjmp.  Defaults to false.
-  bool UseUnderscoreSetJmp;
-
-  /// UseUnderscoreLongJmp - This target prefers to use _longjmp to implement
-  /// llvm.longjmp.  Defaults to false.
-  bool UseUnderscoreLongJmp;
-
+  /// UseUnderscoreSetJmpLongJmp - This target prefers to use _setjmp and
+  /// _longjmp to implement llvm.setjmp/llvm.longjmp.  Defaults to false.
+  bool UseUnderscoreSetJmpLongJmp;
+  
   /// JumpBufSize - The size, in bytes, of the target's jmp_buf buffers
   unsigned JumpBufSize;
   
@@ -976,11 +859,6 @@ private:
   /// LegalizeAction that indicates how instruction selection should deal with
   /// the store.
   uint64_t StoreXActions;
-
-  /// IndexedModeActions - For each indexed mode and each value type, keep a
-  /// pair of LegalizeAction that indicates how instruction selection should
-  /// deal with the load / store.
-  uint64_t IndexedModeActions[2][ISD::LAST_INDEXED_MODE];
   
   ValueTypeActionImpl ValueTypeActions;
 
@@ -1001,15 +879,7 @@ private:
   /// Targets add entries to this map with AddPromotedToType(..), clients access
   /// this with getTypeToPromoteTo(..).
   std::map<std::pair<unsigned, MVT::ValueType>, MVT::ValueType> PromoteToType;
-
-  /// LibcallRoutineNames - Stores the name each libcall.
-  ///
-  const char *LibcallRoutineNames[RTLIB::UNKNOWN_LIBCALL];
-
-  /// CmpLibcallCCs - The ISD::CondCode that should be used to test the result
-  /// of each of the comparison libcall against zero.
-  ISD::CondCode CmpLibcallCCs[RTLIB::UNKNOWN_LIBCALL];
-
+  
 protected:
   /// When lowering %llvm.memset this field specifies the maximum number of
   /// store operations that may be substituted for the call to memset. Targets

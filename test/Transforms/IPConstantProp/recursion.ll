@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -ipconstprop -deadargelim | llvm-dis | not grep %X
+; RUN: llvm-as < %s | opt -ipconstprop -deadargelim | llvm-dis | not grep %X
 
 implementation
 

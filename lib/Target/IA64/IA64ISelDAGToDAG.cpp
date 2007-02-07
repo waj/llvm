@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "ia64-codegen"
 #include "IA64.h"
 #include "IA64TargetMachine.h"
 #include "IA64ISelLowering.h"
@@ -22,16 +21,21 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Constants.h"
 #include "llvm/GlobalValue.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
+#include <iostream>
 #include <queue>
 #include <set>
 using namespace llvm;
 
 namespace {
+  Statistic<> FusedFP ("ia64-codegen", "Number of fused fp operations");
+  Statistic<> FrameOff("ia64-codegen", "Number of frame idx offsets collapsed");
+    
   //===--------------------------------------------------------------------===//
   /// IA64DAGToDAGISel - IA64 specific code to select IA64 machine
   /// instructions for SelectionDAG operations.
@@ -511,7 +515,7 @@ SDNode *IA64DAGToDAGISel::Select(SDOperand Op) {
         SDOperand Tmp = ST->getValue();
         AddToISelQueue(Tmp);
         Tmp = SDOperand(CurDAG->getTargetNode(IA64::TPCADDS, MVT::i64, Initial,
-                                              CurDAG->getTargetConstant(1, MVT::i64),
+                                              CurDAG->getConstant(1, MVT::i64),
                                               Tmp), 0);
         return CurDAG->SelectNodeTo(N, Opc, MVT::Other, Address, Tmp, Chain);
       }

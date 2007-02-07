@@ -26,21 +26,19 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "block-placement"
 #include "llvm/Analysis/ProfileInfo.h"
 #include "llvm/Function.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Transforms/Scalar.h"
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumMoved, "Number of basic blocks moved");
-
 namespace {
-  struct VISIBILITY_HIDDEN BlockPlacement : public FunctionPass {
+  Statistic<> NumMoved("block-placement", "Number of basic blocks moved");
+
+  struct BlockPlacement : public FunctionPass {
     virtual bool runOnFunction(Function &F);
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {

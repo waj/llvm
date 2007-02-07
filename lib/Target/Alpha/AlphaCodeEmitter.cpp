@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "alpha-emitter"
 #include "AlphaTargetMachine.h"
 #include "AlphaRelocations.h"
 #include "Alpha.h"
@@ -23,7 +22,14 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Function.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/ADT/Statistic.h"
+#include <iostream>
 using namespace llvm;
+
+namespace {
+  Statistic<>
+  NumEmitted("alpha-emitter", "Number of machine instructions emitted");
+}
 
 namespace {
   class AlphaCodeEmitter : public MachineFunctionPass {
@@ -152,7 +158,7 @@ int AlphaCodeEmitter::getMachineOpValue(MachineInstr &MI, MachineOperand &MO) {
     rv = MO.getImmedValue();
   } else if (MO.isGlobalAddress() || MO.isExternalSymbol()
              || MO.isConstantPoolIndex()) {
-    DOUT << MO << " is a relocated op for " << MI << "\n";
+    DEBUG(std::cerr << MO << " is a relocated op for " << MI << "\n";);
     unsigned Reloc = 0;
     int Offset = 0;
     bool useGOT = false;
@@ -208,7 +214,7 @@ int AlphaCodeEmitter::getMachineOpValue(MachineInstr &MI, MachineOperand &MO) {
                                                Alpha::reloc_bsr,
                                                MO.getMachineBasicBlock()));
   }else {
-    cerr << "ERROR: Unknown type of MachineOperand: " << MO << "\n";
+    std::cerr << "ERROR: Unknown type of MachineOperand: " << MO << "\n";
     abort();
   }
 

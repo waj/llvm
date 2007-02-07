@@ -18,9 +18,8 @@
 #include "llvm/Type.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Assembly/Writer.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/InstIterator.h"
-#include "llvm/Support/Streams.h"
+#include <iostream>
 using namespace llvm;
 
 /// mergeSetIn - Merge the specified alias set into this alias set.
@@ -544,15 +543,15 @@ void AliasSetTracker::print(std::ostream &OS) const {
   OS << "\n";
 }
 
-void AliasSet::dump() const { print (cerr); }
-void AliasSetTracker::dump() const { print(cerr); }
+void AliasSet::dump() const { print (std::cerr); }
+void AliasSetTracker::dump() const { print(std::cerr); }
 
 //===----------------------------------------------------------------------===//
 //                            AliasSetPrinter Pass
 //===----------------------------------------------------------------------===//
 
 namespace {
-  class VISIBILITY_HIDDEN AliasSetPrinter : public FunctionPass {
+  class AliasSetPrinter : public FunctionPass {
     AliasSetTracker *Tracker;
   public:
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
@@ -565,7 +564,7 @@ namespace {
 
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I)
         Tracker->add(&*I);
-      Tracker->print(cerr);
+      Tracker->print(std::cerr);
       delete Tracker;
       return false;
     }

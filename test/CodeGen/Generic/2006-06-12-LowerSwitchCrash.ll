@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc -fast
+; RUN: llvm-as < %s | llc -fast
 
 float %test(uint %tmp12771278) {
         switch uint %tmp12771278, label %bb1279 [

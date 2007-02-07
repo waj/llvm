@@ -20,7 +20,6 @@ include $(LEVEL)/Makefile.common
 ifeq ($(HAVE_PERL),1)
 
 # Combine preprocessor flags (except for -I) and CXX flags.
-SUB_CFLAGS = ${CPP.BaseFlags} ${C.Flags}
 SUB_CXXFLAGS = ${CPP.BaseFlags} ${CXX.Flags}
 
 # This is blank for now.  We need to be careful about adding stuff here:
@@ -30,21 +29,16 @@ SUB_LDFLAGS =
 
 FinalLibDeps = $(PROJ_OBJ_DIR)/FinalLibDeps.txt
 LibDeps      = $(PROJ_OBJ_DIR)/LibDeps.txt
-LibDepsTemp  = $(PROJ_OBJ_DIR)/LibDeps.txt.tmp
 GenLibDeps   = $(PROJ_SRC_ROOT)/utils/GenLibDeps.pl
 
-$(LibDepsTemp): $(GenLibDeps) $(LibDir) $(wildcard $(LibDir)/*.a $(LibDir)/*.o)
-	$(Echo) "Regenerating LibDeps.txt.tmp"
-	$(Verb) $(PERL) $(GenLibDeps) -flat $(LibDir) $(NM_PATH) > $(LibDepsTemp)
-
-$(LibDeps): $(LibDepsTemp)
-	$(Verb) $(CMP) -s $@ $< || ( $(CP) $< $@ && \
-	  $(EchoCmd) Updated LibDeps.txt because dependencies changed )
+$(LibDeps): $(GenLibDeps) $(LibDir) $(wildcard $(LibDir)/*.a $(LibDir)/*.o)
+	$(Echo) "Regenerating LibDeps.txt"
+	$(Verb) $(GenLibDeps) -flat $(LibDir) $(NM_PATH) > $(LibDeps)
 
 # Find all the cyclic dependencies between various LLVM libraries, so we
 # don't have to process them at runtime.
 $(FinalLibDeps): find-cycles.pl $(LibDeps)
-	$(Echo) "Checking for cyclic dependencies between LLVM libraries."
+	$(Echo) "Finding cyclic dependencies between LLVM libraries."
 	$(Verb) $(PERL) $< < $(LibDeps) > $@ || rm -f $@
 
 # Rerun our configure substitutions as needed.
@@ -56,8 +50,7 @@ llvm-config.in: $(ConfigInIn) $(ConfigStatusScript)
 # Build our final script.
 $(ToolDir)/llvm-config: llvm-config.in $(FinalLibDeps)
 	$(Echo) "Building llvm-config script."
-	$(Verb) $(ECHO) 's,@LLVM_CFLAGS@,$(SUB_CFLAGS),' > temp.sed
-	$(Verb) $(ECHO) 's,@LLVM_CXXFLAGS@,$(SUB_CXXFLAGS),' >> temp.sed
+	$(Verb) $(ECHO) 's,@LLVM_CXXFLAGS@,$(SUB_CXXFLAGS),' > temp.sed
 	$(Verb) $(ECHO) 's,@LLVM_LDFLAGS@,$(SUB_LDFLAGS),' >> temp.sed
 	$(Verb) $(ECHO) 's,@LLVM_BUILDMODE@,$(BuildMode),' >> temp.sed
 	$(Verb) $(SED) -f temp.sed < $< > $@

@@ -13,6 +13,7 @@
 
 #include "llvm/AbstractTypeUser.h"
 #include "llvm/DerivedTypes.h"
+#include "llvm/SymbolTable.h"
 #include "llvm/Constants.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/StringExtras.h"
@@ -21,15 +22,15 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/Debug.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
 
 // DEBUG_MERGE_TYPES - Enable this #define to see how and when derived types are
 // created and later destroyed, all in an effort to make sure that there is only
 // a single canonical version of a type.
 //
-// #define DEBUG_MERGE_TYPES 1
+//#define DEBUG_MERGE_TYPES 1
 
 AbstractTypeUser::~AbstractTypeUser() {}
 
@@ -63,7 +64,7 @@ static ManagedStatic<std::map<const Type*,
                               std::string> > AbstractTypeDescriptions;
 
 Type::Type(const char *Name, TypeID id)
-  : ID(id), Abstract(false),  SubclassData(0), RefCount(0), ForwardType(0) {
+  : ID(id), Abstract(false),  RefCount(0), ForwardType(0) {
   assert(Name && Name[0] && "Should use other ctor if no name!");
   (*ConcreteTypeDescriptions)[this] = Name;
 }
@@ -72,21 +73,21 @@ Type::Type(const char *Name, TypeID id)
 const Type *Type::getPrimitiveType(TypeID IDNumber) {
   switch (IDNumber) {
   case VoidTyID  : return VoidTy;
+  case BoolTyID  : return BoolTy;
+  case UByteTyID : return UByteTy;
+  case SByteTyID : return SByteTy;
+  case UShortTyID: return UShortTy;
+  case ShortTyID : return ShortTy;
+  case UIntTyID  : return UIntTy;
+  case IntTyID   : return IntTy;
+  case ULongTyID : return ULongTy;
+  case LongTyID  : return LongTy;
   case FloatTyID : return FloatTy;
   case DoubleTyID: return DoubleTy;
   case LabelTyID : return LabelTy;
   default:
     return 0;
   }
-}
-
-const Type *Type::getVAArgsPromotedType() const {
-  if (ID == IntegerTyID && getSubclassData() < 32)
-    return Type::Int32Ty;
-  else if (ID == FloatTyID)
-    return Type::DoubleTy;
-  else
-    return this;
 }
 
 /// isFPOrFPVector - Return true if this is a FP type or a vector of FP types.
@@ -98,38 +99,108 @@ bool Type::isFPOrFPVector() const {
   return cast<PackedType>(this)->getElementType()->isFloatingPoint();
 }
 
-// canLosslesllyBitCastTo - Return true if this type can be converted to
+
+// isLosslesslyConvertibleTo - Return true if this type can be converted to
 // 'Ty' without any reinterpretation of bits.  For example, uint to int.
 //
-bool Type::canLosslesslyBitCastTo(const Type *Ty) const {
-  // Identity cast means no change so return true
-  if (this == Ty) 
+bool Type::isLosslesslyConvertibleTo(const Type *Ty) const {
+  if (this == Ty) return true;
+  
+  // Packed type conversions are always bitwise.
+  if (isa<PackedType>(this) && isa<PackedType>(Ty))
     return true;
   
-  // They are not convertible unless they are at least first class types
-  if (!this->isFirstClassType() || !Ty->isFirstClassType())
-    return false;
+  if ((!isPrimitiveType()    && !isa<PointerType>(this)) ||
+      (!isa<PointerType>(Ty) && !Ty->isPrimitiveType())) return false;
 
-  // Packed -> Packed conversions are always lossless if the two packed types
-  // have the same size, otherwise not.
-  if (const PackedType *thisPTy = dyn_cast<PackedType>(this))
-    if (const PackedType *thatPTy = dyn_cast<PackedType>(Ty))
-      return thisPTy->getBitWidth() == thatPTy->getBitWidth();
+  if (getTypeID() == Ty->getTypeID())
+    return true;  // Handles identity cast, and cast of differing pointer types
 
-  // At this point we have only various mismatches of the first class types
-  // remaining and ptr->ptr. Just select the lossless conversions. Everything
-  // else is not lossless.
-  if (isa<PointerType>(this))
-    return isa<PointerType>(Ty);
-  return false;  // Other types have no identity values
+  // Now we know that they are two differing primitive or pointer types
+  switch (getTypeID()) {
+  case Type::UByteTyID:   return Ty == Type::SByteTy;
+  case Type::SByteTyID:   return Ty == Type::UByteTy;
+  case Type::UShortTyID:  return Ty == Type::ShortTy;
+  case Type::ShortTyID:   return Ty == Type::UShortTy;
+  case Type::UIntTyID:    return Ty == Type::IntTy;
+  case Type::IntTyID:     return Ty == Type::UIntTy;
+  case Type::ULongTyID:   return Ty == Type::LongTy;
+  case Type::LongTyID:    return Ty == Type::ULongTy;
+  case Type::PointerTyID: return isa<PointerType>(Ty);
+  default:
+    return false;  // Other types have no identity values
+  }
+}
+
+/// getUnsignedVersion - If this is an integer type, return the unsigned
+/// variant of this type.  For example int -> uint.
+const Type *Type::getUnsignedVersion() const {
+  switch (getTypeID()) {
+  default:
+    assert(isInteger()&&"Type::getUnsignedVersion is only valid for integers!");
+  case Type::UByteTyID:
+  case Type::SByteTyID:   return Type::UByteTy;
+  case Type::UShortTyID:
+  case Type::ShortTyID:   return Type::UShortTy;
+  case Type::UIntTyID:
+  case Type::IntTyID:     return Type::UIntTy;
+  case Type::ULongTyID:
+  case Type::LongTyID:    return Type::ULongTy;
+  }
+}
+
+/// getSignedVersion - If this is an integer type, return the signed variant
+/// of this type.  For example uint -> int.
+const Type *Type::getSignedVersion() const {
+  switch (getTypeID()) {
+  default:
+    assert(isInteger() && "Type::getSignedVersion is only valid for integers!");
+  case Type::UByteTyID:
+  case Type::SByteTyID:   return Type::SByteTy;
+  case Type::UShortTyID:
+  case Type::ShortTyID:   return Type::ShortTy;
+  case Type::UIntTyID:
+  case Type::IntTyID:     return Type::IntTy;
+  case Type::ULongTyID:
+  case Type::LongTyID:    return Type::LongTy;
+  }
+}
+
+
+// getPrimitiveSize - Return the basic size of this type if it is a primitive
+// type.  These are fixed by LLVM and are not target dependent.  This will
+// return zero if the type does not have a size or is not a primitive type.
+//
+unsigned Type::getPrimitiveSize() const {
+  switch (getTypeID()) {
+  case Type::BoolTyID:
+  case Type::SByteTyID:
+  case Type::UByteTyID: return 1;
+  case Type::UShortTyID:
+  case Type::ShortTyID: return 2;
+  case Type::FloatTyID:
+  case Type::IntTyID:
+  case Type::UIntTyID: return 4;
+  case Type::LongTyID:
+  case Type::ULongTyID:
+  case Type::DoubleTyID: return 8;
+  default: return 0;
+  }
 }
 
 unsigned Type::getPrimitiveSizeInBits() const {
   switch (getTypeID()) {
-  case Type::FloatTyID: return 32;
+  case Type::BoolTyID:  return 1;
+  case Type::SByteTyID:
+  case Type::UByteTyID: return 8;
+  case Type::UShortTyID:
+  case Type::ShortTyID: return 16;
+  case Type::FloatTyID:
+  case Type::IntTyID:
+  case Type::UIntTyID: return 32;
+  case Type::LongTyID:
+  case Type::ULongTyID:
   case Type::DoubleTyID: return 64;
-  case Type::IntegerTyID: return cast<IntegerType>(this)->getBitWidth();
-  case Type::PackedTyID:  return cast<PackedType>(this)->getBitWidth();
   default: return 0;
   }
 }
@@ -138,22 +209,17 @@ unsigned Type::getPrimitiveSizeInBits() const {
 /// iff all of the members of the type are sized as well.  Since asking for
 /// their size is relatively uncommon, move this operation out of line.
 bool Type::isSizedDerivedType() const {
-  if (isa<IntegerType>(this))
-    return true;
-
   if (const ArrayType *ATy = dyn_cast<ArrayType>(this))
     return ATy->getElementType()->isSized();
 
   if (const PackedType *PTy = dyn_cast<PackedType>(this))
     return PTy->getElementType()->isSized();
 
-  if (!isa<StructType>(this)) 
-    return false;
+  if (!isa<StructType>(this)) return false;
 
   // Okay, our struct is sized if all of the elements are...
   for (subtype_iterator I = subtype_begin(), E = subtype_end(); I != E; ++I)
-    if (!(*I)->isSized()) 
-      return false;
+    if (!(*I)->isSized()) return false;
 
   return true;
 }
@@ -227,23 +293,13 @@ static std::string getTypeDescription(const Type *Ty,
   TypeStack.push_back(Ty);    // Add us to the stack..
 
   switch (Ty->getTypeID()) {
-  case Type::IntegerTyID: {
-    const IntegerType *ITy = cast<IntegerType>(Ty);
-    Result = "i" + utostr(ITy->getBitWidth());
-    break;
-  }
   case Type::FunctionTyID: {
     const FunctionType *FTy = cast<FunctionType>(Ty);
-    if (!Result.empty())
-      Result += " ";
-    Result += getTypeDescription(FTy->getReturnType(), TypeStack) + " (";
-    unsigned Idx = 1;
+    Result = getTypeDescription(FTy->getReturnType(), TypeStack) + " (";
     for (FunctionType::param_iterator I = FTy->param_begin(),
            E = FTy->param_end(); I != E; ++I) {
       if (I != FTy->param_begin())
         Result += ", ";
-      Result +=  FunctionType::getParamAttrsText(FTy->getParamAttrs(Idx));
-      Idx++;
       Result += getTypeDescription(*I, TypeStack);
     }
     if (FTy->isVarArg()) {
@@ -251,18 +307,11 @@ static std::string getTypeDescription(const Type *Ty,
       Result += "...";
     }
     Result += ")";
-    if (FTy->getParamAttrs(0)) {
-      Result += " " + FunctionType::getParamAttrsText(FTy->getParamAttrs(0));
-    }
     break;
   }
-  case Type::PackedStructTyID:
   case Type::StructTyID: {
     const StructType *STy = cast<StructType>(Ty);
-    if (STy->isPacked())
-      Result = "<{ ";
-    else
-      Result = "{ ";
+    Result = "{ ";
     for (StructType::element_iterator I = STy->element_begin(),
            E = STy->element_end(); I != E; ++I) {
       if (I != STy->element_begin())
@@ -270,8 +319,6 @@ static std::string getTypeDescription(const Type *Ty,
       Result += getTypeDescription(*I, TypeStack);
     }
     Result += " }";
-    if (STy->isPacked())
-      Result += ">";
     break;
   }
   case Type::PointerTyID: {
@@ -327,8 +374,8 @@ const std::string &Type::getDescription() const {
 
 
 bool StructType::indexValid(const Value *V) const {
-  // Structure indexes require 32-bit integer constants.
-  if (V->getType() == Type::Int32Ty)
+  // Structure indexes require unsigned integer constants.
+  if (V->getType() == Type::UIntTy)
     if (const ConstantInt *CU = dyn_cast<ConstantInt>(V))
       return CU->getZExtValue() < ContainedTys.size();
   return false;
@@ -343,6 +390,7 @@ const Type *StructType::getTypeAtIndex(const Value *V) const {
   return ContainedTys[Idx];
 }
 
+
 //===----------------------------------------------------------------------===//
 //                          Primitive 'Type' data
 //===----------------------------------------------------------------------===//
@@ -354,26 +402,21 @@ const Type *StructType::getTypeAtIndex(const Value *V) const {
     };                                                 \
   }                                                    \
   static ManagedStatic<TY##Type> The##TY##Ty;          \
-  const Type *Type::TY##Ty = &*The##TY##Ty
-
-#define DeclareIntegerType(TY, BitWidth)                     \
-  namespace {                                                \
-    struct VISIBILITY_HIDDEN TY##Type : public IntegerType { \
-      TY##Type() : IntegerType(BitWidth) {}                  \
-    };                                                       \
-  }                                                          \
-  static ManagedStatic<TY##Type> The##TY##Ty;                \
-  const IntegerType *Type::TY##Ty = &*The##TY##Ty
+  Type *Type::TY##Ty = &*The##TY##Ty
 
 DeclarePrimType(Void,   "void");
+DeclarePrimType(Bool,   "bool");
+DeclarePrimType(SByte,  "sbyte");
+DeclarePrimType(UByte,  "ubyte");
+DeclarePrimType(Short,  "short");
+DeclarePrimType(UShort, "ushort");
+DeclarePrimType(Int,    "int");
+DeclarePrimType(UInt,   "uint");
+DeclarePrimType(Long,   "long");
+DeclarePrimType(ULong,  "ulong");
 DeclarePrimType(Float,  "float");
 DeclarePrimType(Double, "double");
 DeclarePrimType(Label,  "label");
-DeclareIntegerType(Int1,    1);
-DeclareIntegerType(Int8,    8);
-DeclareIntegerType(Int16,  16);
-DeclareIntegerType(Int32,  32);
-DeclareIntegerType(Int64,  64);
 #undef DeclarePrimType
 
 
@@ -383,8 +426,8 @@ DeclareIntegerType(Int64,  64);
 
 FunctionType::FunctionType(const Type *Result,
                            const std::vector<const Type*> &Params,
-                           bool IsVarArgs, const ParamAttrsList &Attrs) 
-  : DerivedType(FunctionTyID), isVarArgs(IsVarArgs) {
+                           bool IsVarArgs) : DerivedType(FunctionTyID),
+                                             isVarArgs(IsVarArgs) {
   assert((Result->isFirstClassType() || Result == Type::VoidTy ||
          isa<OpaqueType>(Result)) &&
          "LLVM functions cannot return aggregates");
@@ -400,20 +443,12 @@ FunctionType::FunctionType(const Type *Result,
     isAbstract |= Params[i]->isAbstract();
   }
 
-  // Set the ParameterAttributes
-  if (!Attrs.empty()) 
-    ParamAttrs = new ParamAttrsList(Attrs);
-  else
-    ParamAttrs = 0;
-
   // Calculate whether or not this type is abstract
   setAbstract(isAbstract);
-
 }
 
-StructType::StructType(const std::vector<const Type*> &Types, bool isPacked)
+StructType::StructType(const std::vector<const Type*> &Types)
   : CompositeType(StructTyID) {
-  setSubclassData(isPacked);
   ContainedTys.reserve(Types.size());
   bool isAbstract = false;
   for (unsigned i = 0; i < Types.size(); ++i) {
@@ -439,7 +474,7 @@ PackedType::PackedType(const Type *ElType, unsigned NumEl)
   NumElements = NumEl;
 
   assert(NumEl > 0 && "NumEl of a PackedType must be greater than 0");
-  assert((ElType->isInteger() || ElType->isFloatingPoint()) &&
+  assert((ElType->isIntegral() || ElType->isFloatingPoint()) &&
          "Elements of a PackedType must be a primitive type");
 }
 
@@ -452,7 +487,7 @@ PointerType::PointerType(const Type *E) : SequentialType(PointerTyID, E) {
 OpaqueType::OpaqueType() : DerivedType(OpaqueTyID) {
   setAbstract(true);
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *this << "\n";
+  std::cerr << "Derived new type: " << *this << "\n";
 #endif
 }
 
@@ -471,7 +506,7 @@ void DerivedType::dropAllTypeUses() {
     // pick so long as it doesn't point back to this type.  We choose something
     // concrete to avoid overhead for adding to AbstracTypeUser lists and stuff.
     for (unsigned i = 1, e = ContainedTys.size(); i != e; ++i)
-      ContainedTys[i] = Type::Int32Ty;
+      ContainedTys[i] = Type::IntTy;
   }
 }
 
@@ -582,16 +617,12 @@ static bool TypesEqual(const Type *Ty, const Type *Ty2,
   // algorithm is the fact that arraytypes have sizes that differentiates types,
   // and that function types can be varargs or not.  Consider this now.
   //
-  if (const IntegerType *ITy = dyn_cast<IntegerType>(Ty)) {
-    const IntegerType *ITy2 = cast<IntegerType>(Ty2);
-    return ITy->getBitWidth() == ITy2->getBitWidth();
-  } else if (const PointerType *PTy = dyn_cast<PointerType>(Ty)) {
+  if (const PointerType *PTy = dyn_cast<PointerType>(Ty)) {
     return TypesEqual(PTy->getElementType(),
                       cast<PointerType>(Ty2)->getElementType(), EqTypes);
   } else if (const StructType *STy = dyn_cast<StructType>(Ty)) {
     const StructType *STy2 = cast<StructType>(Ty2);
     if (STy->getNumElements() != STy2->getNumElements()) return false;
-    if (STy->isPacked() != STy2->isPacked()) return false;
     for (unsigned i = 0, e = STy2->getNumElements(); i != e; ++i)
       if (!TypesEqual(STy->getElementType(i), STy2->getElementType(i), EqTypes))
         return false;
@@ -608,16 +639,11 @@ static bool TypesEqual(const Type *Ty, const Type *Ty2,
     const FunctionType *FTy2 = cast<FunctionType>(Ty2);
     if (FTy->isVarArg() != FTy2->isVarArg() ||
         FTy->getNumParams() != FTy2->getNumParams() ||
-        FTy->getNumAttrs() != FTy2->getNumAttrs() ||
-        FTy->getParamAttrs(0) != FTy2->getParamAttrs(0) ||
         !TypesEqual(FTy->getReturnType(), FTy2->getReturnType(), EqTypes))
       return false;
-    for (unsigned i = 0, e = FTy2->getNumParams(); i != e; ++i) {
-      if (FTy->getParamAttrs(i+1) != FTy->getParamAttrs(i+1))
-        return false;
+    for (unsigned i = 0, e = FTy2->getNumParams(); i != e; ++i)
       if (!TypesEqual(FTy->getParamType(i), FTy2->getParamType(i), EqTypes))
         return false;
-    }
     return true;
   } else {
     assert(0 && "Unknown derived type!");
@@ -696,9 +722,6 @@ static unsigned getSubElementHash(const Type *Ty) {
     switch (SubTy->getTypeID()) {
     default: break;
     case Type::OpaqueTyID: return 0;    // Opaque -> hash = 0 no matter what.
-    case Type::IntegerTyID:
-      HashVal ^= (cast<IntegerType>(SubTy)->getBitWidth() << 3);
-      break;
     case Type::FunctionTyID:
       HashVal ^= cast<FunctionType>(SubTy)->getNumParams()*2 + 
                  cast<FunctionType>(SubTy)->isVarArg();
@@ -808,8 +831,8 @@ public:
   void RefineAbstractType(TypeClass *Ty, const DerivedType *OldType,
                         const Type *NewType) {
 #ifdef DEBUG_MERGE_TYPES
-    DOUT << "RefineAbstractType(" << (void*)OldType << "[" << *OldType
-         << "], " << (void*)NewType << " [" << *NewType << "])\n";
+    std::cerr << "RefineAbstractType(" << (void*)OldType << "[" << *OldType
+    << "], " << (void*)NewType << " [" << *NewType << "])\n";
 #endif
     
     // Otherwise, we are changing one subelement type into another.  Clearly the
@@ -914,12 +937,12 @@ public:
 
   void print(const char *Arg) const {
 #ifdef DEBUG_MERGE_TYPES
-    DOUT << "TypeMap<>::" << Arg << " table contents:\n";
+    std::cerr << "TypeMap<>::" << Arg << " table contents:\n";
     unsigned i = 0;
     for (typename std::map<ValType, PATypeHolder>::const_iterator I
            = Map.begin(), E = Map.end(); I != E; ++I)
-      DOUT << " " << (++i) << ". " << (void*)I->second.get() << " "
-           << *I->second.get() << "\n";
+      std::cerr << " " << (++i) << ". " << (void*)I->second.get() << " "
+                << *I->second.get() << "\n";
 #endif
   }
 
@@ -932,96 +955,39 @@ public:
 // Function Type Factory and Value Class...
 //
 
-//===----------------------------------------------------------------------===//
-// Integer Type Factory...
-//
-namespace llvm {
-class IntegerValType {
-  uint32_t bits;
-public:
-  IntegerValType(uint16_t numbits) : bits(numbits) {}
-
-  static IntegerValType get(const IntegerType *Ty) {
-    return IntegerValType(Ty->getBitWidth());
-  }
-
-  static unsigned hashTypeStructure(const IntegerType *Ty) {
-    return (unsigned)Ty->getBitWidth();
-  }
-
-  inline bool operator<(const IntegerValType &IVT) const {
-    return bits < IVT.bits;
-  }
-};
-}
-
-static ManagedStatic<TypeMap<IntegerValType, IntegerType> > IntegerTypes;
-
-const IntegerType *IntegerType::get(unsigned NumBits) {
-  assert(NumBits >= MIN_INT_BITS && "bitwidth too small");
-  assert(NumBits <= MAX_INT_BITS && "bitwidth too large");
-
-  // Check for the built-in integer types
-  switch (NumBits) {
-    case  1: return cast<IntegerType>(Type::Int1Ty);
-    case  8: return cast<IntegerType>(Type::Int8Ty);
-    case 16: return cast<IntegerType>(Type::Int16Ty);
-    case 32: return cast<IntegerType>(Type::Int32Ty);
-    case 64: return cast<IntegerType>(Type::Int64Ty);
-    default: 
-      break;
-  }
-
-  IntegerValType IVT(NumBits);
-  IntegerType *ITy = IntegerTypes->get(IVT);
-  if (ITy) return ITy;           // Found a match, return it!
-
-  // Value not found.  Derive a new type!
-  ITy = new IntegerType(NumBits);
-  IntegerTypes->add(IVT, ITy);
-
-#ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *ITy << "\n";
-#endif
-  return ITy;
-}
-
-bool IntegerType::isPowerOf2ByteWidth() const {
-  unsigned BitWidth = getBitWidth();
-  return (BitWidth > 7) && isPowerOf2_32(BitWidth);
-}
-
 // FunctionValType - Define a class to hold the key that goes into the TypeMap
 //
 namespace llvm {
 class FunctionValType {
   const Type *RetTy;
   std::vector<const Type*> ArgTypes;
-  std::vector<FunctionType::ParameterAttributes> ParamAttrs;
   bool isVarArg;
 public:
   FunctionValType(const Type *ret, const std::vector<const Type*> &args,
-                  bool IVA, const FunctionType::ParamAttrsList &attrs) 
-    : RetTy(ret), isVarArg(IVA) {
+                  bool IVA) : RetTy(ret), isVarArg(IVA) {
     for (unsigned i = 0; i < args.size(); ++i)
       ArgTypes.push_back(args[i]);
-    for (unsigned i = 0; i < attrs.size(); ++i)
-      ParamAttrs.push_back(attrs[i]);
   }
 
   static FunctionValType get(const FunctionType *FT);
 
   static unsigned hashTypeStructure(const FunctionType *FT) {
-    return FT->getNumParams()*64+FT->getNumAttrs()*2+FT->isVarArg();
+    return FT->getNumParams()*2+FT->isVarArg();
+  }
+
+  // Subclass should override this... to update self as usual
+  void doRefinement(const DerivedType *OldType, const Type *NewType) {
+    if (RetTy == OldType) RetTy = NewType;
+    for (unsigned i = 0, e = ArgTypes.size(); i != e; ++i)
+      if (ArgTypes[i] == OldType) ArgTypes[i] = NewType;
   }
 
   inline bool operator<(const FunctionValType &MTV) const {
     if (RetTy < MTV.RetTy) return true;
     if (RetTy > MTV.RetTy) return false;
-    if (isVarArg < MTV.isVarArg) return true;
-    if (isVarArg > MTV.isVarArg) return false;
+
     if (ArgTypes < MTV.ArgTypes) return true;
-    return ArgTypes == MTV.ArgTypes && ParamAttrs < MTV.ParamAttrs;
+    return ArgTypes == MTV.ArgTypes && isVarArg < MTV.isVarArg;
   }
 };
 }
@@ -1032,67 +998,27 @@ static ManagedStatic<TypeMap<FunctionValType, FunctionType> > FunctionTypes;
 FunctionValType FunctionValType::get(const FunctionType *FT) {
   // Build up a FunctionValType
   std::vector<const Type *> ParamTypes;
-  std::vector<FunctionType::ParameterAttributes> ParamAttrs;
   ParamTypes.reserve(FT->getNumParams());
   for (unsigned i = 0, e = FT->getNumParams(); i != e; ++i)
     ParamTypes.push_back(FT->getParamType(i));
-  for (unsigned i = 0, e = FT->getNumAttrs(); i != e; ++i)
-    ParamAttrs.push_back(FT->getParamAttrs(i));
-  return FunctionValType(FT->getReturnType(), ParamTypes, FT->isVarArg(),
-                         ParamAttrs);
+  return FunctionValType(FT->getReturnType(), ParamTypes, FT->isVarArg());
 }
 
 
 // FunctionType::get - The factory function for the FunctionType class...
 FunctionType *FunctionType::get(const Type *ReturnType,
                                 const std::vector<const Type*> &Params,
-                                bool isVarArg,
-                                const std::vector<ParameterAttributes> &Attrs) {
-  bool noAttrs = true;
-  for (unsigned i = 0, e = Attrs.size(); i < e; ++i)
-    if (Attrs[i] != FunctionType::NoAttributeSet) {
-      noAttrs = false;
-      break;
-    }
-  const std::vector<FunctionType::ParameterAttributes> NullAttrs;
-  const std::vector<FunctionType::ParameterAttributes> *TheAttrs = &Attrs;
-  if (noAttrs)
-    TheAttrs = &NullAttrs;
-  FunctionValType VT(ReturnType, Params, isVarArg, *TheAttrs);
+                                bool isVarArg) {
+  FunctionValType VT(ReturnType, Params, isVarArg);
   FunctionType *MT = FunctionTypes->get(VT);
   if (MT) return MT;
 
-  MT = new FunctionType(ReturnType, Params, isVarArg, *TheAttrs);
-  FunctionTypes->add(VT, MT);
+  FunctionTypes->add(VT, MT = new FunctionType(ReturnType, Params, isVarArg));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << MT << "\n";
+  std::cerr << "Derived new type: " << MT << "\n";
 #endif
   return MT;
-}
-
-FunctionType::ParameterAttributes 
-FunctionType::getParamAttrs(unsigned Idx) const {
-  if (!ParamAttrs)
-    return NoAttributeSet;
-  if (Idx >= ParamAttrs->size())
-    return NoAttributeSet;
-  return (*ParamAttrs)[Idx];
-}
-
-std::string FunctionType::getParamAttrsText(ParameterAttributes Attr) {
-  std::string Result;
-  if (Attr & ZExtAttribute)
-    Result += "zext ";
-  if (Attr & SExtAttribute)
-    Result += "sext ";
-  if (Attr & NoReturnAttribute)
-    Result += "noreturn ";
-  if (Attr & InRegAttribute)
-    Result += "inreg ";
-  if (Attr & StructRetAttribute)
-    Result += "sret ";  
-  return Result;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1111,6 +1037,12 @@ public:
 
   static unsigned hashTypeStructure(const ArrayType *AT) {
     return (unsigned)AT->getNumElements();
+  }
+
+  // Subclass should override this... to update self as usual
+  void doRefinement(const DerivedType *OldType, const Type *NewType) {
+    assert(ValTy == OldType);
+    ValTy = NewType;
   }
 
   inline bool operator<(const ArrayValType &MTV) const {
@@ -1133,7 +1065,7 @@ ArrayType *ArrayType::get(const Type *ElementType, uint64_t NumElements) {
   ArrayTypes->add(AVT, AT = new ArrayType(ElementType, NumElements));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *AT << "\n";
+  std::cerr << "Derived new type: " << *AT << "\n";
 #endif
   return AT;
 }
@@ -1157,6 +1089,12 @@ public:
     return PT->getNumElements();
   }
 
+  // Subclass should override this... to update self as usual
+  void doRefinement(const DerivedType *OldType, const Type *NewType) {
+    assert(ValTy == OldType);
+    ValTy = NewType;
+  }
+
   inline bool operator<(const PackedValType &MTV) const {
     if (Size < MTV.Size) return true;
     return Size == MTV.Size && ValTy < MTV.ValTy;
@@ -1178,7 +1116,7 @@ PackedType *PackedType::get(const Type *ElementType, unsigned NumElements) {
   PackedTypes->add(PVT, PT = new PackedType(ElementType, NumElements));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *PT << "\n";
+  std::cerr << "Derived new type: " << *PT << "\n";
 #endif
   return PT;
 }
@@ -1192,10 +1130,8 @@ namespace llvm {
 //
 class StructValType {
   std::vector<const Type*> ElTypes;
-  bool packed;
 public:
-  StructValType(const std::vector<const Type*> &args, bool isPacked)
-    : ElTypes(args), packed(isPacked) {}
+  StructValType(const std::vector<const Type*> &args) : ElTypes(args) {}
 
   static StructValType get(const StructType *ST) {
     std::vector<const Type *> ElTypes;
@@ -1203,34 +1139,37 @@ public:
     for (unsigned i = 0, e = ST->getNumElements(); i != e; ++i)
       ElTypes.push_back(ST->getElementType(i));
 
-    return StructValType(ElTypes, ST->isPacked());
+    return StructValType(ElTypes);
   }
 
   static unsigned hashTypeStructure(const StructType *ST) {
     return ST->getNumElements();
   }
 
+  // Subclass should override this... to update self as usual
+  void doRefinement(const DerivedType *OldType, const Type *NewType) {
+    for (unsigned i = 0; i < ElTypes.size(); ++i)
+      if (ElTypes[i] == OldType) ElTypes[i] = NewType;
+  }
+
   inline bool operator<(const StructValType &STV) const {
-    if (ElTypes < STV.ElTypes) return true;
-    else if (ElTypes > STV.ElTypes) return false;
-    else return (int)packed < (int)STV.packed;
+    return ElTypes < STV.ElTypes;
   }
 };
 }
 
 static ManagedStatic<TypeMap<StructValType, StructType> > StructTypes;
 
-StructType *StructType::get(const std::vector<const Type*> &ETypes, 
-                            bool isPacked) {
-  StructValType STV(ETypes, isPacked);
+StructType *StructType::get(const std::vector<const Type*> &ETypes) {
+  StructValType STV(ETypes);
   StructType *ST = StructTypes->get(STV);
   if (ST) return ST;
 
   // Value not found.  Derive a new type!
-  StructTypes->add(STV, ST = new StructType(ETypes, isPacked));
+  StructTypes->add(STV, ST = new StructType(ETypes));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *ST << "\n";
+  std::cerr << "Derived new type: " << *ST << "\n";
 #endif
   return ST;
 }
@@ -1257,6 +1196,12 @@ public:
     return getSubElementHash(PT);
   }
 
+  // Subclass should override this... to update self as usual
+  void doRefinement(const DerivedType *OldType, const Type *NewType) {
+    assert(ValTy == OldType);
+    ValTy = NewType;
+  }
+
   bool operator<(const PointerValType &MTV) const {
     return ValTy < MTV.ValTy;
   }
@@ -1279,7 +1224,7 @@ PointerType *PointerType::get(const Type *ValueType) {
   PointerTypes->add(PVT, PT = new PointerType(ValueType));
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "Derived new type: " << *PT << "\n";
+  std::cerr << "Derived new type: " << *PT << "\n";
 #endif
   return PT;
 }
@@ -1308,14 +1253,14 @@ void Type::removeAbstractTypeUser(AbstractTypeUser *U) const {
   AbstractTypeUsers.erase(AbstractTypeUsers.begin()+i);
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "  remAbstractTypeUser[" << (void*)this << ", "
-       << *this << "][" << i << "] User = " << U << "\n";
+  std::cerr << "  remAbstractTypeUser[" << (void*)this << ", "
+            << *this << "][" << i << "] User = " << U << "\n";
 #endif
 
   if (AbstractTypeUsers.empty() && getRefCount() == 0 && isAbstract()) {
 #ifdef DEBUG_MERGE_TYPES
-    DOUT << "DELETEing unused abstract type: <" << *this
-         << ">[" << (void*)this << "]" << "\n";
+    std::cerr << "DELETEing unused abstract type: <" << *this
+              << ">[" << (void*)this << "]" << "\n";
 #endif
     delete this;                  // No users of this abstract type!
   }
@@ -1336,9 +1281,9 @@ void DerivedType::refineAbstractTypeTo(const Type *NewType) {
   AbstractTypeDescriptions->clear();
 
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "REFINING abstract type [" << (void*)this << " "
-       << *this << "] to [" << (void*)NewType << " "
-       << *NewType << "]!\n";
+  std::cerr << "REFINING abstract type [" << (void*)this << " "
+            << *this << "] to [" << (void*)NewType << " "
+            << *NewType << "]!\n";
 #endif
 
   // Make sure to put the type to be refined to into a holder so that if IT gets
@@ -1374,10 +1319,10 @@ void DerivedType::refineAbstractTypeTo(const Type *NewType) {
 
     unsigned OldSize = AbstractTypeUsers.size();
 #ifdef DEBUG_MERGE_TYPES
-    DOUT << " REFINING user " << OldSize-1 << "[" << (void*)User
-         << "] of abstract type [" << (void*)this << " "
-         << *this << "] to [" << (void*)NewTy.get() << " "
-         << *NewTy << "]!\n";
+    std::cerr << " REFINING user " << OldSize-1 << "[" << (void*)User
+              << "] of abstract type [" << (void*)this << " "
+              << *this << "] to [" << (void*)NewTy.get() << " "
+              << *NewTy << "]!\n";
 #endif
     User->refineAbstractType(this, NewTy);
 
@@ -1396,7 +1341,7 @@ void DerivedType::refineAbstractTypeTo(const Type *NewType) {
 //
 void DerivedType::notifyUsesThatTypeBecameConcrete() {
 #ifdef DEBUG_MERGE_TYPES
-  DOUT << "typeIsREFINED type: " << (void*)this << " " << *this << "\n";
+  std::cerr << "typeIsREFINED type: " << (void*)this << " " << *this << "\n";
 #endif
 
   unsigned OldSize = AbstractTypeUsers.size();
@@ -1476,9 +1421,16 @@ void PointerType::typeBecameConcrete(const DerivedType *AbsTy) {
 }
 
 bool SequentialType::indexValid(const Value *V) const {
-  if (const IntegerType *IT = dyn_cast<IntegerType>(V->getType())) 
-    return IT->getBitWidth() == 32 || IT->getBitWidth() == 64;
-  return false;
+  const Type *Ty = V->getType();
+  switch (Ty->getTypeID()) {
+  case Type::IntTyID:
+  case Type::UIntTyID:
+  case Type::LongTyID:
+  case Type::ULongTyID:
+    return true;
+  default:
+    return false;
+  }
 }
 
 namespace llvm {

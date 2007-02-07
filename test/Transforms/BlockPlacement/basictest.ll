@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -block-placement -disable-output -print
+; RUN: llvm-as < %s | opt -block-placement -disable-output -print
 
 int %test() {
 

@@ -1,9 +1,13 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -adce -disable-output
+; RUN: llvm-as < %s | opt -adce -disable-output
 
 implementation   ; Functions:
 
+declare {  }* %llvm.dbg.region.end({  }*)
+
 declare void %strlen()
+
 declare void %_ZN10QByteArray6resizeEi()
+
 declare void %q_atomic_decrement()
 
 void %_ZNK10QByteArray13leftJustifiedEicb() {
@@ -40,5 +44,6 @@ else.0:		; preds = %tmp.3.i.noexc
 
 terminate:		; preds = %invoke_catch.1, %invoke_catch.0
 	%dbg.0.1 = phi {  }* [ null, %invoke_catch.1 ], [ null, %invoke_catch.0 ]		; <{  }*> [#uses=1]
+	%dbg.tmp.43 = call {  }* %llvm.dbg.region.end( {  }* %dbg.0.1 )		; <{  }*> [#uses=0]
 	unreachable
 }

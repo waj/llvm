@@ -19,7 +19,7 @@ using namespace llvm;
 
 SparcInstrInfo::SparcInstrInfo(SparcSubtarget &ST)
   : TargetInstrInfo(SparcInsts, sizeof(SparcInsts)/sizeof(SparcInsts[0])),
-    RI(ST, *this) {
+    RI(ST) {
 }
 
 static bool isZeroImm(const MachineOperand &op) {
@@ -102,5 +102,5 @@ void SparcInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
                                   const std::vector<MachineOperand> &Cond)const{
   // Can only insert uncond branches so far.
   assert(Cond.empty() && !FBB && TBB && "Can only handle uncond branches!");
-  BuildMI(&MBB, get(SP::BA)).addMBB(TBB);
+  BuildMI(&MBB, SP::BA, 1).addMBB(TBB);
 }

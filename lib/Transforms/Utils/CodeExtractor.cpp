@@ -25,11 +25,11 @@
 #include "llvm/Analysis/Verifier.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/StringExtras.h"
 #include <algorithm>
 #include <set>
+#include <iostream>
 using namespace llvm;
 
 // Provide a command-line option to aggregate function arguments into a struct
@@ -41,7 +41,7 @@ AggregateArgsOpt("aggregate-extracted-args", cl::Hidden,
                  cl::desc("Aggregate arguments to code-extracted functions"));
 
 namespace {
-  class VISIBILITY_HIDDEN CodeExtractor {
+  class CodeExtractor {
     typedef std::vector<Value*> Values;
     std::set<BasicBlock*> BlocksToExtract;
     DominatorSet *DS;
@@ -245,15 +245,15 @@ Function *CodeExtractor::constructFunction(const Values &inputs,
                                            BasicBlock *newHeader,
                                            Function *oldFunction,
                                            Module *M) {
-  DOUT << "inputs: " << inputs.size() << "\n";
-  DOUT << "outputs: " << outputs.size() << "\n";
+  DEBUG(std::cerr << "inputs: " << inputs.size() << "\n");
+  DEBUG(std::cerr << "outputs: " << outputs.size() << "\n");
 
   // This function returns unsigned, outputs will go back by reference.
   switch (NumExitBlocks) {
   case 0:
   case 1: RetTy = Type::VoidTy; break;
-  case 2: RetTy = Type::Int1Ty; break;
-  default: RetTy = Type::Int16Ty; break;
+  case 2: RetTy = Type::BoolTy; break;
+  default: RetTy = Type::UShortTy; break;
   }
 
   std::vector<const Type*> paramTy;
@@ -262,25 +262,24 @@ Function *CodeExtractor::constructFunction(const Values &inputs,
   for (Values::const_iterator i = inputs.begin(),
          e = inputs.end(); i != e; ++i) {
     const Value *value = *i;
-    DOUT << "value used in func: " << *value << "\n";
+    DEBUG(std::cerr << "value used in func: " << *value << "\n");
     paramTy.push_back(value->getType());
   }
 
   // Add the types of the output values to the function's argument list.
   for (Values::const_iterator I = outputs.begin(), E = outputs.end();
        I != E; ++I) {
-    DOUT << "instr used in func: " << **I << "\n";
+    DEBUG(std::cerr << "instr used in func: " << **I << "\n");
     if (AggregateArgs)
       paramTy.push_back((*I)->getType());
     else
       paramTy.push_back(PointerType::get((*I)->getType()));
   }
 
-  DOUT << "Function type: " << *RetTy << " f(";
-  for (std::vector<const Type*>::iterator i = paramTy.begin(),
-         e = paramTy.end(); i != e; ++i)
-    DOUT << **i << ", ";
-  DOUT << ")\n";
+  DEBUG(std::cerr << "Function type: " << *RetTy << " f(");
+  DEBUG(for (std::vector<const Type*>::iterator i = paramTy.begin(),
+               e = paramTy.end(); i != e; ++i) std::cerr << **i << ", ");
+  DEBUG(std::cerr << ")\n");
 
   if (AggregateArgs && (inputs.size() + outputs.size() > 0)) {
     PointerType *StructPtr = PointerType::get(StructType::get(paramTy));
@@ -304,12 +303,12 @@ Function *CodeExtractor::constructFunction(const Values &inputs,
   for (unsigned i = 0, e = inputs.size(); i != e; ++i) {
     Value *RewriteVal;
     if (AggregateArgs) {
-      Value *Idx0 = Constant::getNullValue(Type::Int32Ty);
-      Value *Idx1 = ConstantInt::get(Type::Int32Ty, i);
+      std::vector<Value*> Indices;
+      Indices.push_back(Constant::getNullValue(Type::UIntTy));
+      Indices.push_back(ConstantInt::get(Type::UIntTy, i));
       std::string GEPname = "gep_" + inputs[i]->getName();
       TerminatorInst *TI = newFunction->begin()->getTerminator();
-      GetElementPtrInst *GEP = new GetElementPtrInst(AI, Idx0, Idx1, 
-                                                     GEPname, TI);
+      GetElementPtrInst *GEP = new GetElementPtrInst(AI, Indices, GEPname, TI);
       RewriteVal = new LoadInst(GEP, "load" + GEPname, TI);
     } else
       RewriteVal = AI++;
@@ -391,10 +390,11 @@ emitCallAndSwitchStatement(Function *newFunction, BasicBlock *codeReplacer,
     params.push_back(Struct);
 
     for (unsigned i = 0, e = inputs.size(); i != e; ++i) {
-      Value *Idx0 = Constant::getNullValue(Type::Int32Ty);
-      Value *Idx1 = ConstantInt::get(Type::Int32Ty, i);
+      std::vector<Value*> Indices;
+      Indices.push_back(Constant::getNullValue(Type::UIntTy));
+      Indices.push_back(ConstantInt::get(Type::UIntTy, i));
       GetElementPtrInst *GEP =
-        new GetElementPtrInst(Struct, Idx0, Idx1,
+        new GetElementPtrInst(Struct, Indices,
                               "gep_" + StructValues[i]->getName());
       codeReplacer->getInstList().push_back(GEP);
       StoreInst *SI = new StoreInst(StructValues[i], GEP);
@@ -416,10 +416,11 @@ emitCallAndSwitchStatement(Function *newFunction, BasicBlock *codeReplacer,
   for (unsigned i = 0, e = outputs.size(); i != e; ++i) {
     Value *Output = 0;
     if (AggregateArgs) {
-      Value *Idx0 = Constant::getNullValue(Type::Int32Ty);
-      Value *Idx1 = ConstantInt::get(Type::Int32Ty, FirstOut + i);
+      std::vector<Value*> Indices;
+      Indices.push_back(Constant::getNullValue(Type::UIntTy));
+      Indices.push_back(ConstantInt::get(Type::UIntTy, FirstOut + i));
       GetElementPtrInst *GEP
-        = new GetElementPtrInst(Struct, Idx0, Idx1,
+        = new GetElementPtrInst(Struct, Indices,
                                 "gep_reload_" + outputs[i]->getName());
       codeReplacer->getInstList().push_back(GEP);
       Output = GEP;
@@ -438,7 +439,7 @@ emitCallAndSwitchStatement(Function *newFunction, BasicBlock *codeReplacer,
 
   // Now we can emit a switch statement using the call as a value.
   SwitchInst *TheSwitch =
-    new SwitchInst(ConstantInt::getNullValue(Type::Int16Ty),
+    new SwitchInst(ConstantInt::getNullValue(Type::UShortTy),
                    codeReplacer, 0, codeReplacer);
 
   // Since there may be multiple exits from the original region, make the new
@@ -469,17 +470,17 @@ emitCallAndSwitchStatement(Function *newFunction, BasicBlock *codeReplacer,
           case 0:
           case 1: break;  // No value needed.
           case 2:         // Conditional branch, return a bool
-            brVal = ConstantInt::get(Type::Int1Ty, !SuccNum);
+            brVal = ConstantBool::get(!SuccNum);
             break;
           default:
-            brVal = ConstantInt::get(Type::Int16Ty, SuccNum);
+            brVal = ConstantInt::get(Type::UShortTy, SuccNum);
             break;
           }
 
           ReturnInst *NTRet = new ReturnInst(brVal, NewTarget);
 
           // Update the switch instruction.
-          TheSwitch->addCase(ConstantInt::get(Type::Int16Ty, SuccNum),
+          TheSwitch->addCase(ConstantInt::get(Type::UShortTy, SuccNum),
                              OldTarget);
 
           // Restore values just before we exit
@@ -516,10 +517,11 @@ emitCallAndSwitchStatement(Function *newFunction, BasicBlock *codeReplacer,
 
             if (DominatesDef) {
               if (AggregateArgs) {
-                Value *Idx0 = Constant::getNullValue(Type::Int32Ty);
-                Value *Idx1 = ConstantInt::get(Type::Int32Ty,FirstOut+out);
+                std::vector<Value*> Indices;
+                Indices.push_back(Constant::getNullValue(Type::UIntTy));
+                Indices.push_back(ConstantInt::get(Type::UIntTy,FirstOut+out));
                 GetElementPtrInst *GEP =
-                  new GetElementPtrInst(OAI, Idx0, Idx1,
+                  new GetElementPtrInst(OAI, Indices,
                                         "gep_" + outputs[out]->getName(),
                                         NTRet);
                 new StoreInst(outputs[out], GEP, NTRet);
@@ -697,10 +699,10 @@ ExtractCodeRegion(const std::vector<BasicBlock*> &code) {
           }
     }
 
-  //cerr << "NEW FUNCTION: " << *newFunction;
+  //std::cerr << "NEW FUNCTION: " << *newFunction;
   //  verifyFunction(*newFunction);
 
-  //  cerr << "OLD FUNCTION: " << *oldFunction;
+  //  std::cerr << "OLD FUNCTION: " << *oldFunction;
   //  verifyFunction(*oldFunction);
 
   DEBUG(if (verifyFunction(*newFunction)) abort());

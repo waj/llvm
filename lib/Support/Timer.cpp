@@ -14,11 +14,11 @@
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/System/Process.h"
 #include <algorithm>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <map>
 using namespace llvm;
 
@@ -27,7 +27,7 @@ namespace llvm { extern std::ostream *GetLibSupportInfoOutputFile(); }
 
 // getLibSupportInfoOutputFilename - This ugly hack is brought to you courtesy
 // of constructor/destructor ordering being unspecified by C++.  Basically the
-// problem is that a Statistic object gets destroyed, which ends up calling
+// problem is that a Statistic<> object gets destroyed, which ends up calling
 // 'GetLibSupportInfoOutputFile()' (below), which calls this function.
 // LibSupportInfoOutputFilename used to be a global variable, but sometimes it
 // would get destroyed before the Statistic, causing havoc to ensue.  We "fix"
@@ -263,17 +263,17 @@ std::ostream *
 llvm::GetLibSupportInfoOutputFile() {
   std::string &LibSupportInfoOutputFilename = getLibSupportInfoOutputFilename();
   if (LibSupportInfoOutputFilename.empty())
-    return cerr.stream();
+    return &std::cerr;
   if (LibSupportInfoOutputFilename == "-")
-    return cout.stream();
+    return &std::cout;
 
   std::ostream *Result = new std::ofstream(LibSupportInfoOutputFilename.c_str(),
                                            std::ios::app);
   if (!Result->good()) {
-    cerr << "Error opening info-output-file '"
-         << LibSupportInfoOutputFilename << " for appending!\n";
+    std::cerr << "Error opening info-output-file '"
+              << LibSupportInfoOutputFilename << " for appending!\n";
     delete Result;
-    return cerr.stream();
+    return &std::cerr;
   }
   return Result;
 }
@@ -342,7 +342,7 @@ void TimerGroup::removeTimer() {
 
     TimersToPrint.clear();
 
-    if (OutStream != cerr.stream() && OutStream != cout.stream())
+    if (OutStream != &std::cerr && OutStream != &std::cout)
       delete OutStream;   // Close the file...
   }
 

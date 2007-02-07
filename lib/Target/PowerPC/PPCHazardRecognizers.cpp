@@ -16,7 +16,9 @@
 #include "PPC.h"
 #include "PPCInstrInfo.h"
 #include "llvm/Support/Debug.h"
+#include <iostream>
 using namespace llvm;
+
 
 //===----------------------------------------------------------------------===//
 // PowerPC 970 Hazard Recognizer
@@ -50,7 +52,7 @@ PPCHazardRecognizer970::PPCHazardRecognizer970(const TargetInstrInfo &tii)
 }
 
 void PPCHazardRecognizer970::EndDispatchGroup() {
-  DOUT << "=== Start of dispatch group\n";
+  DEBUG(std::cerr << "=== Start of dispatch group\n");
   NumIssued = 0;
   
   // Structural hazard info.
@@ -166,29 +168,30 @@ getHazardType(SDNode *Node) {
     unsigned LoadSize;
     switch (Opcode) {
     default: assert(0 && "Unknown load!");
-    case PPC::LBZ:   case PPC::LBZU:
+    case PPC::LBZ:
     case PPC::LBZX:
-    case PPC::LBZ8:  case PPC::LBZU8:
+    case PPC::LBZ8:
     case PPC::LBZX8:
     case PPC::LVEBX:
       LoadSize = 1;
       break;
-    case PPC::LHA:   case PPC::LHAU:
+    case PPC::LHA:
     case PPC::LHAX:
-    case PPC::LHZ:   case PPC::LHZU:
+    case PPC::LHZ:
     case PPC::LHZX:
     case PPC::LVEHX:
     case PPC::LHBRX:
-    case PPC::LHA8:   case PPC::LHAU8:
+    case PPC::LHA8:
     case PPC::LHAX8:
-    case PPC::LHZ8:   case PPC::LHZU8:
+    case PPC::LHZ8:
     case PPC::LHZX8:
       LoadSize = 2;
       break;
-    case PPC::LFS:    case PPC::LFSU:
+    case PPC::LFS:
     case PPC::LFSX:
-    case PPC::LWZ:    case PPC::LWZU:
+    case PPC::LWZ:
     case PPC::LWZX:
+    case PPC::LWZU:
     case PPC::LWA:
     case PPC::LWAX:
     case PPC::LVEWX:
@@ -197,9 +200,9 @@ getHazardType(SDNode *Node) {
     case PPC::LWZX8:
       LoadSize = 4;
       break;
-    case PPC::LFD:    case PPC::LFDU:
+    case PPC::LFD:
     case PPC::LFDX:
-    case PPC::LD:     case PPC::LDU:
+    case PPC::LD:
     case PPC::LDX:
       LoadSize = 8;
       break;
@@ -232,26 +235,29 @@ void PPCHazardRecognizer970::EmitInstruction(SDNode *Node) {
     unsigned ThisStoreSize;
     switch (Opcode) {
     default: assert(0 && "Unknown store instruction!");
-    case PPC::STB:    case PPC::STB8:
-    case PPC::STBU:   case PPC::STBU8:
-    case PPC::STBX:   case PPC::STBX8:
+    case PPC::STB:
+    case PPC::STBX:
+    case PPC::STB8:
+    case PPC::STBX8:
     case PPC::STVEBX:
       ThisStoreSize = 1;
       break;
-    case PPC::STH:    case PPC::STH8:
-    case PPC::STHU:   case PPC::STHU8:
-    case PPC::STHX:   case PPC::STHX8:
+    case PPC::STH:
+    case PPC::STHX:
+    case PPC::STH8:
+    case PPC::STHX8:
     case PPC::STVEHX:
     case PPC::STHBRX:
       ThisStoreSize = 2;
       break;
     case PPC::STFS:
-    case PPC::STFSU:
     case PPC::STFSX:
-    case PPC::STWX:   case PPC::STWX8:
+    case PPC::STWU:
+    case PPC::STWX:
     case PPC::STWUX:
-    case PPC::STW:    case PPC::STW8:
-    case PPC::STWU:   case PPC::STWU8:
+    case PPC::STW:
+    case PPC::STW8:
+    case PPC::STWX8:
     case PPC::STVEWX:
     case PPC::STFIWX:
     case PPC::STWBRX:
@@ -260,7 +266,6 @@ void PPCHazardRecognizer970::EmitInstruction(SDNode *Node) {
     case PPC::STD_32:
     case PPC::STDX_32:
     case PPC::STD:
-    case PPC::STDU:
     case PPC::STFD:
     case PPC::STFDX:
     case PPC::STDX:

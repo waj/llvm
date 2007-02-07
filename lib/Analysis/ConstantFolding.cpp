@@ -15,11 +15,8 @@
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
-#include "llvm/Function.h"
 #include "llvm/Instructions.h"
 #include "llvm/Intrinsics.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/MathExtras.h"
 #include <cerrno>
@@ -27,286 +24,9 @@
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
-// Constant Folding internal helper functions
-//===----------------------------------------------------------------------===//
-
-/// IsConstantOffsetFromGlobal - If this constant is actually a constant offset
-/// from a global, return the global and the constant.  Because of
-/// constantexprs, this function is recursive.
-static bool IsConstantOffsetFromGlobal(Constant *C, GlobalValue *&GV,
-                                       int64_t &Offset, const TargetData &TD) {
-  // Trivial case, constant is the global.
-  if ((GV = dyn_cast<GlobalValue>(C))) {
-    Offset = 0;
-    return true;
-  }
-  
-  // Otherwise, if this isn't a constant expr, bail out.
-  ConstantExpr *CE = dyn_cast<ConstantExpr>(C);
-  if (!CE) return false;
-  
-  // Look through ptr->int and ptr->ptr casts.
-  if (CE->getOpcode() == Instruction::PtrToInt ||
-      CE->getOpcode() == Instruction::BitCast)
-    return IsConstantOffsetFromGlobal(CE->getOperand(0), GV, Offset, TD);
-  
-  // i32* getelementptr ([5 x i32]* @a, i32 0, i32 5)    
-  if (CE->getOpcode() == Instruction::GetElementPtr) {
-    // Cannot compute this if the element type of the pointer is missing size
-    // info.
-    if (!cast<PointerType>(CE->getOperand(0)->getType())->getElementType()->isSized())
-      return false;
-    
-    // If the base isn't a global+constant, we aren't either.
-    if (!IsConstantOffsetFromGlobal(CE->getOperand(0), GV, Offset, TD))
-      return false;
-    
-    // Otherwise, add any offset that our operands provide.
-    gep_type_iterator GTI = gep_type_begin(CE);
-    for (unsigned i = 1, e = CE->getNumOperands(); i != e; ++i, ++GTI) {
-      ConstantInt *CI = dyn_cast<ConstantInt>(CE->getOperand(i));
-      if (!CI) return false;  // Index isn't a simple constant?
-      if (CI->getZExtValue() == 0) continue;  // Not adding anything.
-      
-      if (const StructType *ST = dyn_cast<StructType>(*GTI)) {
-        // N = N + Offset
-        Offset += TD.getStructLayout(ST)->MemberOffsets[CI->getZExtValue()];
-      } else {
-        const SequentialType *ST = cast<SequentialType>(*GTI);
-        Offset += TD.getTypeSize(ST->getElementType())*CI->getSExtValue();
-      }
-    }
-    return true;
-  }
-  
-  return false;
-}
-
-
-/// SymbolicallyEvaluateBinop - One of Op0/Op1 is a constant expression.
-/// Attempt to symbolically evaluate the result of  a binary operator merging
-/// these together.  If target data info is available, it is provided as TD, 
-/// otherwise TD is null.
-static Constant *SymbolicallyEvaluateBinop(unsigned Opc, Constant *Op0,
-                                           Constant *Op1, const TargetData *TD){
-  // SROA
-  
-  // Fold (and 0xffffffff00000000, (shl x, 32)) -> shl.
-  // Fold (lshr (or X, Y), 32) -> (lshr [X/Y], 32) if one doesn't contribute
-  // bits.
-  
-  
-  // If the constant expr is something like &A[123] - &A[4].f, fold this into a
-  // constant.  This happens frequently when iterating over a global array.
-  if (Opc == Instruction::Sub && TD) {
-    GlobalValue *GV1, *GV2;
-    int64_t Offs1, Offs2;
-    
-    if (IsConstantOffsetFromGlobal(Op0, GV1, Offs1, *TD))
-      if (IsConstantOffsetFromGlobal(Op1, GV2, Offs2, *TD) &&
-          GV1 == GV2) {
-        // (&GV+C1) - (&GV+C2) -> C1-C2, pointer arithmetic cannot overflow.
-        return ConstantInt::get(Op0->getType(), Offs1-Offs2);
-      }
-  }
-    
-  // TODO: Fold icmp setne/seteq as well.
-  return 0;
-}
-
-/// SymbolicallyEvaluateGEP - If we can symbolically evaluate the specified GEP
-/// constant expression, do so.
-static Constant *SymbolicallyEvaluateGEP(Constant** Ops, unsigned NumOps,
-                                         const Type *ResultTy,
-                                         const TargetData *TD) {
-  Constant *Ptr = Ops[0];
-  if (!cast<PointerType>(Ptr->getType())->getElementType()->isSized())
-    return 0;
-  
-  if (TD && Ptr->isNullValue()) {
-    // If this is a constant expr gep that is effectively computing an
-    // "offsetof", fold it into 'cast int Size to T*' instead of 'gep 0, 0, 12'
-    bool isFoldableGEP = true;
-    for (unsigned i = 1; i != NumOps; ++i)
-      if (!isa<ConstantInt>(Ops[i])) {
-        isFoldableGEP = false;
-        break;
-      }
-    if (isFoldableGEP) {
-      std::vector<Value*> NewOps(Ops+1, Ops+NumOps);
-      uint64_t Offset = TD->getIndexedOffset(Ptr->getType(), NewOps);
-      Constant *C = ConstantInt::get(TD->getIntPtrType(), Offset);
-      return ConstantExpr::getIntToPtr(C, ResultTy);
-    }
-  }
-  
-  return 0;
-}
-
-
-//===----------------------------------------------------------------------===//
-// Constant Folding public APIs
-//===----------------------------------------------------------------------===//
-
-
-/// ConstantFoldInstruction - Attempt to constant fold the specified
-/// instruction.  If successful, the constant result is returned, if not, null
-/// is returned.  Note that this function can only fail when attempting to fold
-/// instructions like loads and stores, which have no constant expression form.
-///
-Constant *llvm::ConstantFoldInstruction(Instruction *I, const TargetData *TD) {
-  if (PHINode *PN = dyn_cast<PHINode>(I)) {
-    if (PN->getNumIncomingValues() == 0)
-      return Constant::getNullValue(PN->getType());
-
-    Constant *Result = dyn_cast<Constant>(PN->getIncomingValue(0));
-    if (Result == 0) return 0;
-
-    // Handle PHI nodes specially here...
-    for (unsigned i = 1, e = PN->getNumIncomingValues(); i != e; ++i)
-      if (PN->getIncomingValue(i) != Result && PN->getIncomingValue(i) != PN)
-        return 0;   // Not all the same incoming constants...
-
-    // If we reach here, all incoming values are the same constant.
-    return Result;
-  }
-
-  // Scan the operand list, checking to see if they are all constants, if so,
-  // hand off to ConstantFoldInstOperands.
-  SmallVector<Constant*, 8> Ops;
-  for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
-    if (Constant *Op = dyn_cast<Constant>(I->getOperand(i)))
-      Ops.push_back(Op);
-    else
-      return 0;  // All operands not constant!
-
-  return ConstantFoldInstOperands(I, &Ops[0], Ops.size(), TD);
-}
-
-/// ConstantFoldInstOperands - Attempt to constant fold an instruction with the
-/// specified opcode and operands.  If successful, the constant result is
-/// returned, if not, null is returned.  Note that this function can fail when
-/// attempting to fold instructions like loads and stores, which have no
-/// constant expression form.
-///
-Constant *llvm::ConstantFoldInstOperands(const Instruction* I, 
-                                         Constant** Ops, unsigned NumOps,
-                                         const TargetData *TD) {
-  unsigned Opc = I->getOpcode();
-  const Type *DestTy = I->getType();
-
-  // Handle easy binops first.
-  if (isa<BinaryOperator>(I)) {
-    if (isa<ConstantExpr>(Ops[0]) || isa<ConstantExpr>(Ops[1]))
-      if (Constant *C = SymbolicallyEvaluateBinop(I->getOpcode(), Ops[0],
-                                                  Ops[1], TD))
-        return C;
-    
-    return ConstantExpr::get(Opc, Ops[0], Ops[1]);
-  }
-  
-  switch (Opc) {
-  default: return 0;
-  case Instruction::Call:
-    if (Function *F = dyn_cast<Function>(Ops[0]))
-      if (canConstantFoldCallTo(F))
-        return ConstantFoldCall(F, Ops+1, NumOps-1);
-    return 0;
-  case Instruction::ICmp:
-  case Instruction::FCmp:
-    return ConstantExpr::getCompare(cast<CmpInst>(I)->getPredicate(), Ops[0], 
-                                    Ops[1]);
-  case Instruction::Trunc:
-  case Instruction::ZExt:
-  case Instruction::SExt:
-  case Instruction::FPTrunc:
-  case Instruction::FPExt:
-  case Instruction::UIToFP:
-  case Instruction::SIToFP:
-  case Instruction::FPToUI:
-  case Instruction::FPToSI:
-  case Instruction::PtrToInt:
-  case Instruction::IntToPtr:
-  case Instruction::BitCast:
-    return ConstantExpr::getCast(Opc, Ops[0], DestTy);
-  case Instruction::Select:
-    return ConstantExpr::getSelect(Ops[0], Ops[1], Ops[2]);
-  case Instruction::ExtractElement:
-    return ConstantExpr::getExtractElement(Ops[0], Ops[1]);
-  case Instruction::InsertElement:
-    return ConstantExpr::getInsertElement(Ops[0], Ops[1], Ops[2]);
-  case Instruction::ShuffleVector:
-    return ConstantExpr::getShuffleVector(Ops[0], Ops[1], Ops[2]);
-  case Instruction::GetElementPtr:
-    if (Constant *C = SymbolicallyEvaluateGEP(Ops, NumOps, I->getType(), TD))
-      return C;
-    
-    return ConstantExpr::getGetElementPtr(Ops[0], Ops+1, NumOps-1);
-  }
-}
-
-/// ConstantFoldLoadThroughGEPConstantExpr - Given a constant and a
-/// getelementptr constantexpr, return the constant value being addressed by the
-/// constant expression, or null if something is funny and we can't decide.
-Constant *llvm::ConstantFoldLoadThroughGEPConstantExpr(Constant *C, 
-                                                       ConstantExpr *CE) {
-  if (CE->getOperand(1) != Constant::getNullValue(CE->getOperand(1)->getType()))
-    return 0;  // Do not allow stepping over the value!
-  
-  // Loop over all of the operands, tracking down which value we are
-  // addressing...
-  gep_type_iterator I = gep_type_begin(CE), E = gep_type_end(CE);
-  for (++I; I != E; ++I)
-    if (const StructType *STy = dyn_cast<StructType>(*I)) {
-      ConstantInt *CU = cast<ConstantInt>(I.getOperand());
-      assert(CU->getZExtValue() < STy->getNumElements() &&
-             "Struct index out of range!");
-      unsigned El = (unsigned)CU->getZExtValue();
-      if (ConstantStruct *CS = dyn_cast<ConstantStruct>(C)) {
-        C = CS->getOperand(El);
-      } else if (isa<ConstantAggregateZero>(C)) {
-        C = Constant::getNullValue(STy->getElementType(El));
-      } else if (isa<UndefValue>(C)) {
-        C = UndefValue::get(STy->getElementType(El));
-      } else {
-        return 0;
-      }
-    } else if (ConstantInt *CI = dyn_cast<ConstantInt>(I.getOperand())) {
-      if (const ArrayType *ATy = dyn_cast<ArrayType>(*I)) {
-        if (CI->getZExtValue() >= ATy->getNumElements())
-         return 0;
-        if (ConstantArray *CA = dyn_cast<ConstantArray>(C))
-          C = CA->getOperand(CI->getZExtValue());
-        else if (isa<ConstantAggregateZero>(C))
-          C = Constant::getNullValue(ATy->getElementType());
-        else if (isa<UndefValue>(C))
-          C = UndefValue::get(ATy->getElementType());
-        else
-          return 0;
-      } else if (const PackedType *PTy = dyn_cast<PackedType>(*I)) {
-        if (CI->getZExtValue() >= PTy->getNumElements())
-          return 0;
-        if (ConstantPacked *CP = dyn_cast<ConstantPacked>(C))
-          C = CP->getOperand(CI->getZExtValue());
-        else if (isa<ConstantAggregateZero>(C))
-          C = Constant::getNullValue(PTy->getElementType());
-        else if (isa<UndefValue>(C))
-          C = UndefValue::get(PTy->getElementType());
-        else
-          return 0;
-      } else {
-        return 0;
-      }
-    } else {
-      return 0;
-    }
-  return C;
-}
-
-
-//===----------------------------------------------------------------------===//
-//  Constant Folding for Calls
+//  Constant Folding ...
 //
+
 
 /// canConstantFoldCallTo - Return true if its even possible to fold a call to
 /// the specified function.
@@ -315,13 +35,13 @@ llvm::canConstantFoldCallTo(Function *F) {
   const std::string &Name = F->getName();
 
   switch (F->getIntrinsicID()) {
+  case Intrinsic::isunordered_f32:
+  case Intrinsic::isunordered_f64:
   case Intrinsic::sqrt_f32:
   case Intrinsic::sqrt_f64:
   case Intrinsic::bswap_i16:
   case Intrinsic::bswap_i32:
   case Intrinsic::bswap_i64:
-  case Intrinsic::powi_f32:
-  case Intrinsic::powi_f64:
   // FIXME: these should be constant folded as well
   //case Intrinsic::ctpop_i8:
   //case Intrinsic::ctpop_i16:
@@ -365,24 +85,23 @@ llvm::canConstantFoldCallTo(Function *F) {
   }
 }
 
-static Constant *ConstantFoldFP(double (*NativeFP)(double), double V, 
-                                const Type *Ty) {
+Constant *
+llvm::ConstantFoldFP(double (*NativeFP)(double), double V, const Type *Ty) {
   errno = 0;
   V = NativeFP(V);
   if (errno == 0)
     return ConstantFP::get(Ty, V);
-  errno = 0;
   return 0;
 }
 
 /// ConstantFoldCall - Attempt to constant fold a call to the specified function
 /// with the specified arguments, returning null if unsuccessful.
 Constant *
-llvm::ConstantFoldCall(Function *F, Constant** Operands, unsigned NumOperands) {
+llvm::ConstantFoldCall(Function *F, const std::vector<Constant*> &Operands) {
   const std::string &Name = F->getName();
   const Type *Ty = F->getReturnType();
 
-  if (NumOperands == 1) {
+  if (Operands.size() == 1) {
     if (ConstantFP *Op = dyn_cast<ConstantFP>(Operands[0])) {
       double V = Op->getValue();
       switch (Name[0])
@@ -445,6 +164,7 @@ llvm::ConstantFoldCall(Function *F, Constant** Operands, unsigned NumOperands) {
           break;
       }
     } else if (ConstantInt *Op = dyn_cast<ConstantInt>(Operands[0])) {
+      assert(Op->getType()->isUnsigned() && "bswap args must be unsigned");
       uint64_t V = Op->getZExtValue();
       if (Name == "llvm.bswap.i16")
         return ConstantInt::get(Ty, ByteSwap_16(V));
@@ -453,12 +173,15 @@ llvm::ConstantFoldCall(Function *F, Constant** Operands, unsigned NumOperands) {
       else if (Name == "llvm.bswap.i64")
         return ConstantInt::get(Ty, ByteSwap_64(V));
     }
-  } else if (NumOperands == 2) {
+  } else if (Operands.size() == 2) {
     if (ConstantFP *Op1 = dyn_cast<ConstantFP>(Operands[0])) {
       double Op1V = Op1->getValue();
       if (ConstantFP *Op2 = dyn_cast<ConstantFP>(Operands[1])) {
         double Op2V = Op2->getValue();
 
+        if (Name == "llvm.isunordered.f32" || Name == "llvm.isunordered.f64")
+          return ConstantBool::get(IsNAN(Op1V) || IsNAN(Op2V));
+        else
         if (Name == "pow") {
           errno = 0;
           double V = pow(Op1V, Op2V);
@@ -469,17 +192,8 @@ llvm::ConstantFoldCall(Function *F, Constant** Operands, unsigned NumOperands) {
           double V = fmod(Op1V, Op2V);
           if (errno == 0)
             return ConstantFP::get(Ty, V);
-        } else if (Name == "atan2") {
+        } else if (Name == "atan2")
           return ConstantFP::get(Ty, atan2(Op1V,Op2V));
-        }
-      } else if (ConstantInt *Op2C = dyn_cast<ConstantInt>(Operands[1])) {
-        if (Name == "llvm.powi.f32") {
-          return ConstantFP::get(Ty, std::pow((float)Op1V,
-                                              (int)Op2C->getZExtValue()));
-        } else if (Name == "llvm.powi.f64") {
-          return ConstantFP::get(Ty, std::pow((double)Op1V,
-                                              (int)Op2C->getZExtValue()));
-        }
       }
     }
   }

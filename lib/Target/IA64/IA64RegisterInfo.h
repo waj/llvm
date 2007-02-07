@@ -21,12 +21,8 @@ namespace llvm { class llvm::Type; }
 
 namespace llvm {
 
-class TargetInstrInfo;
-
 struct IA64RegisterInfo : public IA64GenRegisterInfo {
-  const TargetInstrInfo &TII;
-
-  IA64RegisterInfo(const TargetInstrInfo &tii);
+  IA64RegisterInfo();
 
   /// Code Generation virtual methods...
   void storeRegToStackSlot(MachineBasicBlock &MBB,
@@ -44,11 +40,9 @@ struct IA64RegisterInfo : public IA64GenRegisterInfo {
                     unsigned DestReg, unsigned SrcReg,
                     const TargetRegisterClass *RC) const;
 
-  const unsigned *getCalleeSavedRegs() const;
+  const unsigned *getCalleeSaveRegs() const;
 
-  const TargetRegisterClass* const* getCalleeSavedRegClasses() const;
-
-  bool hasFP(const MachineFunction &MF) const;
+  const TargetRegisterClass* const* getCalleeSaveRegClasses() const;
 
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,

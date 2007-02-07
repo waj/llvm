@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc
+; RUN: llvm-as < %s | llc
 
 long %test_imm(long %X) {
    %Y = shr long %X, ubyte 17 

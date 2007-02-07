@@ -18,17 +18,14 @@
 
 #include "llvm/ADT/iterator"
 #include "llvm/Support/DataTypes.h"
-#include "llvm/Support/Streams.h"
 #include <vector>
 #include <cassert>
-#include <iosfwd>
 
 namespace llvm {
 
 class Value;
 class Function;
 class MachineBasicBlock;
-class TargetInstrDescriptor;
 class TargetMachine;
 class GlobalValue;
 
@@ -63,23 +60,12 @@ private:
 
   MachineOperandType opType:8; // Discriminate the union.
   bool IsDef : 1;              // True if this is a def, false if this is a use.
-  bool IsImp : 1;              // True if this is an implicit def or use.
-
-  bool IsKill : 1;             // True if this is a reg use and the reg is dead
-                               // immediately after the read.
-  bool IsDead : 1;             // True if this is a reg def and the reg is dead
-                               // immediately after the write. i.e. A register
-                               // that is defined but never used.
   
   /// offset - Offset to address of global or external, only valid for
   /// MO_GlobalAddress, MO_ExternalSym and MO_ConstantPoolIndex
   int offset;
 
   MachineOperand() {}
-
-  void print(std::ostream &os) const;
-  void print(std::ostream *os) const { if (os) print(*os); }
-
 public:
   MachineOperand(const MachineOperand &M) {
     *this = M;
@@ -92,9 +78,6 @@ public:
     Op.opType = MachineOperand::MO_Immediate;
     Op.contents.immedVal = Val;
     Op.IsDef = false;
-    Op.IsImp = false;
-    Op.IsKill = false;
-    Op.IsDead = false;
     Op.offset = 0;
     return Op;
   }
@@ -102,9 +85,6 @@ public:
   const MachineOperand &operator=(const MachineOperand &MO) {
     contents = MO.contents;
     IsDef    = MO.IsDef;
-    IsImp    = MO.IsImp;
-    IsKill   = MO.IsKill;
-    IsDead   = MO.IsDead;
     opType   = MO.opType;
     offset   = MO.offset;
     return *this;
@@ -193,40 +173,6 @@ public:
     IsDef = true;
   }
 
-  bool isImplicit() const { 
-    assert(isRegister() && "Wrong MachineOperand accessor");
-    return IsImp;
-  }
-  void setImplicit() { 
-    assert(isRegister() && "Wrong MachineOperand accessor");
-    IsImp = true;
-  }
-
-  bool isKill() const {
-    assert(isRegister() && "Wrong MachineOperand accessor");
-    return IsKill;
-  }
-  bool isDead() const {
-    assert(isRegister() && "Wrong MachineOperand accessor");
-    return IsDead;
-  }
-  void setIsKill() {
-    assert(isRegister() && !IsDef && "Wrong MachineOperand accessor");
-    IsKill = true;
-  }
-  void setIsDead() {
-    assert(isRegister() && IsDef && "Wrong MachineOperand accessor");
-    IsDead = true;
-  }
-  void unsetIsKill() {
-    assert(isRegister() && !IsDef && "Wrong MachineOperand accessor");
-    IsKill = false;
-  }
-  void unsetIsDead() {
-    assert(isRegister() && IsDef && "Wrong MachineOperand accessor");
-    IsDead = false;
-  }
-
   /// getReg - Returns the register number.
   ///
   unsigned getReg() const {
@@ -266,7 +212,7 @@ public:
   }
   
   /// isIdenticalTo - Return true if this operand is identical to the specified
-  /// operand. Note: This method ignores isKill and isDead properties.
+  /// operand.
   bool isIdenticalTo(const MachineOperand &Other) const;
   
   /// ChangeToImmediate - Replace this operand with a new immediate operand of
@@ -284,15 +230,9 @@ public:
     opType = MO_Register;
     contents.RegNo = Reg;
     IsDef = isDef;
-    IsImp = false;
-    IsKill = false;
-    IsDead = false;
   }
 
-  friend std::ostream& operator<<(std::ostream& os, const MachineOperand& mop) {
-    mop.print(os);
-    return os;
-  }
+  friend std::ostream& operator<<(std::ostream& os, const MachineOperand& mop);
 
   friend class MachineInstr;
 };
@@ -302,10 +242,7 @@ public:
 /// MachineInstr - Representation of each machine instruction.
 ///
 class MachineInstr {
-  const TargetInstrDescriptor *TID;     // Instruction descriptor.
-  unsigned short NumImplicitOps;        // Number of implicit operands (which
-                                        // are determined at construction time).
-
+  short Opcode;                         // the opcode
   std::vector<MachineOperand> Operands; // the operands
   MachineInstr* prev, *next;            // links for our intrusive list
   MachineBasicBlock* parent;            // pointer to the owning basic block
@@ -321,33 +258,24 @@ class MachineInstr {
   friend struct ilist_traits<MachineInstr>;
 
 public:
-  /// MachineInstr ctor - This constructor creates a dummy MachineInstr with
-  /// TID NULL and no operands.
-  MachineInstr();
-
-  /// MachineInstr ctor - This constructor create a MachineInstr and add the
-  /// implicit operands. It reserves space for number of operands specified by
-  /// TargetInstrDescriptor.
-  MachineInstr(const TargetInstrDescriptor &TID);
+  /// MachineInstr ctor - This constructor reserve's space for numOperand
+  /// operands.
+  MachineInstr(short Opcode, unsigned numOperands);
 
   /// MachineInstr ctor - Work exactly the same as the ctor above, except that
   /// the MachineInstr is created and added to the end of the specified basic
   /// block.
   ///
-  MachineInstr(MachineBasicBlock *MBB, const TargetInstrDescriptor &TID);
+  MachineInstr(MachineBasicBlock *MBB, short Opcode, unsigned numOps);
 
   ~MachineInstr();
 
   const MachineBasicBlock* getParent() const { return parent; }
   MachineBasicBlock* getParent() { return parent; }
-  
-  /// getInstrDescriptor - Returns the target instruction descriptor of this
-  /// MachineInstr.
-  const TargetInstrDescriptor *getInstrDescriptor() const { return TID; }
 
   /// getOpcode - Returns the opcode of this MachineInstr.
   ///
-  const int getOpcode() const;
+  const int getOpcode() const { return Opcode; }
 
   /// Access to explicit operands of the instruction.
   ///
@@ -389,28 +317,12 @@ public:
     delete removeFromParent();
   }
 
-  /// findRegisterUseOperand() - Returns the MachineOperand that is a use of
-  /// the specific register or NULL if it is not found.
-  MachineOperand *findRegisterUseOperand(unsigned Reg);
-  
-  /// copyKillDeadInfo - Copies kill / dead operand properties from MI.
-  ///
-  void copyKillDeadInfo(const MachineInstr *MI);
-
   //
   // Debugging support
   //
-  void print(std::ostream *OS, const TargetMachine *TM) const {
-    if (OS) print(*OS, TM);
-  }
   void print(std::ostream &OS, const TargetMachine *TM) const;
-  void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
   void dump() const;
-  friend std::ostream& operator<<(std::ostream& os, const MachineInstr& minstr){
-    minstr.print(os);
-    return os;
-  }
+  friend std::ostream& operator<<(std::ostream& os, const MachineInstr& minstr);
 
   //===--------------------------------------------------------------------===//
   // Accessors to add operands when building up machine instructions.
@@ -418,14 +330,10 @@ public:
 
   /// addRegOperand - Add a register operand.
   ///
-  void addRegOperand(unsigned Reg, bool IsDef, bool IsImp = false,
-                     bool IsKill = false, bool IsDead = false) {
-    MachineOperand &Op = AddNewOperand(IsImp);
+  void addRegOperand(unsigned Reg, bool IsDef) {
+    MachineOperand &Op = AddNewOperand();
     Op.opType = MachineOperand::MO_Register;
     Op.IsDef = IsDef;
-    Op.IsImp = IsImp;
-    Op.IsKill = IsKill;
-    Op.IsDead = IsDead;
     Op.contents.RegNo = Reg;
     Op.offset = 0;
   }
@@ -496,10 +404,9 @@ public:
   // Accessors used to modify instructions in place.
   //
 
-  /// setInstrDescriptor - Replace the instruction descriptor (thus opcode) of
-  /// the current instruction with a new one.
+  /// setOpcode - Replace the opcode of the current instruction with a new one.
   ///
-  void setInstrDescriptor(const TargetInstrDescriptor &tid) { TID = &tid; }
+  void setOpcode(unsigned Op) { Opcode = Op; }
 
   /// RemoveOperand - Erase an operand  from an instruction, leaving it with one
   /// fewer operand than it started with.
@@ -508,21 +415,12 @@ public:
     Operands.erase(Operands.begin()+i);
   }
 private:
-  MachineOperand &AddNewOperand(bool IsImp = false) {
-    assert((IsImp || !OperandsComplete()) &&
+  MachineOperand &AddNewOperand() {
+    assert(!OperandsComplete() &&
            "Trying to add an operand to a machine instr that is already done!");
-    if (NumImplicitOps == 0) { // This is true most of the time.
-      Operands.push_back(MachineOperand());
-      return Operands.back();
-    } else {
-      return *Operands.insert(Operands.begin()+Operands.size()-NumImplicitOps,
-                              MachineOperand());
-    }
+    Operands.push_back(MachineOperand());
+    return Operands.back();
   }
-
-  /// addImplicitDefUseOperands - Add all implicit def and use operands to
-  /// this instruction.
-  void addImplicitDefUseOperands();
 };
 
 //===----------------------------------------------------------------------===//

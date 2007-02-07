@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc
+; RUN: llvm-as < %s | llc
 
 int %test(int %tmp93) {
 	%tmp98 = shl int %tmp93, ubyte 31		; <int> [#uses=1]

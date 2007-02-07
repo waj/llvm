@@ -22,17 +22,17 @@
 
 void llvm::InsertProfilingInitCall(Function *MainFn, const char *FnName,
                                    GlobalValue *Array) {
-  const Type *ArgVTy = PointerType::get(PointerType::get(Type::Int8Ty));
-  const PointerType *UIntPtr = PointerType::get(Type::Int32Ty);
+  const Type *ArgVTy = PointerType::get(PointerType::get(Type::SByteTy));
+  const PointerType *UIntPtr = PointerType::get(Type::UIntTy);
   Module &M = *MainFn->getParent();
-  Constant *InitFn = M.getOrInsertFunction(FnName, Type::Int32Ty, Type::Int32Ty,
-                                           ArgVTy, UIntPtr, Type::Int32Ty,
+  Function *InitFn = M.getOrInsertFunction(FnName, Type::IntTy, Type::IntTy,
+                                           ArgVTy, UIntPtr, Type::UIntTy,
                                            (Type *)0);
 
   // This could force argc and argv into programs that wouldn't otherwise have
   // them, but instead we just pass null values in.
   std::vector<Value*> Args(4);
-  Args[0] = Constant::getNullValue(Type::Int32Ty);
+  Args[0] = Constant::getNullValue(Type::IntTy);
   Args[1] = Constant::getNullValue(ArgVTy);
 
   // Skip over any allocas in the entry block.
@@ -40,7 +40,7 @@ void llvm::InsertProfilingInitCall(Function *MainFn, const char *FnName,
   BasicBlock::iterator InsertPos = Entry->begin();
   while (isa<AllocaInst>(InsertPos)) ++InsertPos;
 
-  std::vector<Constant*> GEPIndices(2, Constant::getNullValue(Type::Int32Ty));
+  std::vector<Constant*> GEPIndices(2, Constant::getNullValue(Type::IntTy));
   unsigned NumElements = 0;
   if (Array) {
     Args[2] = ConstantExpr::getGetElementPtr(Array, GEPIndices);
@@ -51,7 +51,7 @@ void llvm::InsertProfilingInitCall(Function *MainFn, const char *FnName,
     // pass null.
     Args[2] = ConstantPointerNull::get(UIntPtr);
   }
-  Args[3] = ConstantInt::get(Type::Int32Ty, NumElements);
+  Args[3] = ConstantInt::get(Type::UIntTy, NumElements);
 
   Instruction *InitCall = new CallInst(InitFn, Args, "newargc", InsertPos);
 
@@ -62,29 +62,21 @@ void llvm::InsertProfilingInitCall(Function *MainFn, const char *FnName,
   case 2:
     AI = MainFn->arg_begin(); ++AI;
     if (AI->getType() != ArgVTy) {
-      Instruction::CastOps opcode = CastInst::getCastOpcode(AI, false, ArgVTy, 
-                                                            false);
-      InitCall->setOperand(2, 
-          CastInst::create(opcode, AI, ArgVTy, "argv.cast", InitCall));
+      InitCall->setOperand(2, new CastInst(AI, ArgVTy, "argv.cast", InitCall));
     } else {
       InitCall->setOperand(2, AI);
     }
-    /* FALL THROUGH */
 
   case 1:
     AI = MainFn->arg_begin();
     // If the program looked at argc, have it look at the return value of the
     // init call instead.
-    if (AI->getType() != Type::Int32Ty) {
-      Instruction::CastOps opcode;
-      if (!AI->use_empty()) {
-        opcode = CastInst::getCastOpcode(InitCall, true, AI->getType(), true);
-        AI->replaceAllUsesWith(
-          CastInst::create(opcode, InitCall, AI->getType(), "", InsertPos));
-      }
-      opcode = CastInst::getCastOpcode(AI, true, Type::Int32Ty, true);
-      InitCall->setOperand(1, 
-          CastInst::create(opcode, AI, Type::Int32Ty, "argc.cast", InitCall));
+    if (AI->getType() != Type::IntTy) {
+      if (!AI->use_empty())
+        AI->replaceAllUsesWith(new CastInst(InitCall, AI->getType(), "",
+                                            InsertPos));
+      InitCall->setOperand(1, new CastInst(AI, Type::IntTy, "argc.cast",
+                                           InitCall));
     } else {
       AI->replaceAllUsesWith(InitCall);
       InitCall->setOperand(1, AI);
@@ -103,14 +95,14 @@ void llvm::IncrementCounterInBlock(BasicBlock *BB, unsigned CounterNum,
 
   // Create the getelementptr constant expression
   std::vector<Constant*> Indices(2);
-  Indices[0] = Constant::getNullValue(Type::Int32Ty);
-  Indices[1] = ConstantInt::get(Type::Int32Ty, CounterNum);
+  Indices[0] = Constant::getNullValue(Type::IntTy);
+  Indices[1] = ConstantInt::get(Type::IntTy, CounterNum);
   Constant *ElementPtr = ConstantExpr::getGetElementPtr(CounterArray, Indices);
 
   // Load, increment and store the value back.
   Value *OldVal = new LoadInst(ElementPtr, "OldFuncCounter", InsertPos);
   Value *NewVal = BinaryOperator::create(Instruction::Add, OldVal,
-                                         ConstantInt::get(Type::Int32Ty, 1),
+                                         ConstantInt::get(Type::UIntTy, 1),
                                          "NewFuncCounter", InsertPos);
   new StoreInst(NewVal, ElementPtr, InsertPos);
 }

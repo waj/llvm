@@ -1,6 +1,6 @@
 ; Tests to make sure elimination of casts is working correctly
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine -disable-output &&
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | grep '%c' | notcast
+; RUN: llvm-as < %s | opt -instcombine -disable-output &&
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep '%c' | not grep cast
 
 %inbuf = external global [32832 x ubyte]
 
@@ -93,17 +93,17 @@ bool %test14(sbyte %A) {
         ret bool %X
 }
 
-; This just won't occur when there's no difference between ubyte and sbyte
-;bool %test15(ubyte %A) {
-;        %c = cast ubyte %A to sbyte
-;        %X = setlt sbyte %c, 0   ; setgt %A, 127
-;        ret bool %X
-;}
+bool %test15(ubyte %A) {
+        %c = cast ubyte %A to sbyte
+        %X = setlt sbyte %c, 0   ; setgt %A, 127
+        ret bool %X
+}
 
 bool %test16(int* %P) {
 	%c = cast int* %P to bool  ;; setne P, null
 	ret bool %c
 }
+
 
 short %test17(bool %tmp3) {
 	%c = cast bool %tmp3 to int
@@ -205,25 +205,5 @@ void %test32(double** %tmp) {
         %tmp8 = cast [16 x sbyte]* %tmp8 to double*
         store double* %tmp8, double** %tmp
         ret void
-}
-
-uint %test33(uint %c1) {
-        %x = bitcast uint %c1 to float 
-        %y = bitcast float %x to uint
-        ret uint %y
-}
-
-ushort %test34(ushort %a) {
-        %c1 = zext ushort %a to int
-        %tmp21 = lshr int %c1, ubyte 8
-        %c2 = trunc int %tmp21 to ushort
-        ret ushort %c2
-}
-
-ushort %test35(ushort %a) {
-        %c1 = bitcast ushort %a to short
-        %tmp2 = lshr short %c1, ubyte 8
-        %c2 = bitcast short %tmp2 to ushort
-	ret ushort %c2
 }
 

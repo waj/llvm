@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -reassociate -disable-output
+; RUN: llvm-as < %s | opt -reassociate -disable-output
 
 implementation   ; Functions:
 

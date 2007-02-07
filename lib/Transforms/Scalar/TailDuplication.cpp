@@ -29,18 +29,20 @@
 #include "llvm/Support/CFG.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
+#include <iostream>
 using namespace llvm;
-
-STATISTIC(NumEliminated, "Number of unconditional branches eliminated");
 
 namespace {
   cl::opt<unsigned>
   Threshold("taildup-threshold", cl::desc("Max block size to tail duplicate"),
             cl::init(6), cl::Hidden);
-  class VISIBILITY_HIDDEN TailDup : public FunctionPass {
+  Statistic<> NumEliminated("tailduplicate",
+                            "Number of unconditional branches eliminated");
+  Statistic<> NumPHINodes("tailduplicate", "Number of phi nodes inserted");
+
+  class TailDup : public FunctionPass {
     bool runOnFunction(Function &F);
   private:
     inline bool shouldEliminateUnconditionalBranch(TerminatorInst *TI);
@@ -213,13 +215,14 @@ void TailDup::eliminateUnconditionalBranch(BranchInst *Branch) {
   BasicBlock *DestBlock = Branch->getSuccessor(0);
   assert(SourceBlock != DestBlock && "Our predicate is broken!");
 
-  DOUT << "TailDuplication[" << SourceBlock->getParent()->getName()
-       << "]: Eliminating branch: " << *Branch;
+  DEBUG(std::cerr << "TailDuplication[" << SourceBlock->getParent()->getName()
+                  << "]: Eliminating branch: " << *Branch);
 
   // See if we can avoid duplicating code by moving it up to a dominator of both
   // blocks.
   if (BasicBlock *DomBlock = FindObviousSharedDomOf(SourceBlock, DestBlock)) {
-    DOUT << "Found shared dominator: " << DomBlock->getName() << "\n";
+    DEBUG(std::cerr << "Found shared dominator: " << DomBlock->getName()
+                    << "\n");
 
     // If there are non-phi instructions in DestBlock that have no operands
     // defined in DestBlock, and if the instruction has no side effects, we can
@@ -242,7 +245,7 @@ void TailDup::eliminateUnconditionalBranch(BranchInst *Branch) {
           // Remove from DestBlock, move right before the term in DomBlock.
           DestBlock->getInstList().remove(I);
           DomBlock->getInstList().insert(DomBlock->getTerminator(), I);
-          DOUT << "Hoisted: " << *I;
+          DEBUG(std::cerr << "Hoisted: " << *I);
         }
       }
     }

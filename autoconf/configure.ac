@@ -31,12 +31,12 @@ dnl===
 dnl===-----------------------------------------------------------------------===
 dnl Initialize autoconf and define the package name, version number and
 dnl email address for reporting bugs.
-AC_INIT([[llvm]],[[2.0cvs]],[llvmbugs@cs.uiuc.edu])
+AC_INIT([[llvm]],[[1.9]],[llvmbugs@cs.uiuc.edu])
 
 dnl Provide a copyright substitution and ensure the copyright notice is included
 dnl in the output of --version option of the generated configure script.
-AC_SUBST(LLVM_COPYRIGHT,["Copyright (c) 2003-2007 University of Illinois at Urbana-Champaign."])
-AC_COPYRIGHT([Copyright (c) 2003-2007 University of Illinois at Urbana-Champaign.])
+AC_SUBST(LLVM_COPYRIGHT,["Copyright (c) 2003-2005 University of Illinois at Urbana-Champaign."])
+AC_COPYRIGHT([Copyright (c) 2003-2005 University of Illinois at Urbana-Champaign.])
 
 dnl Indicate that we require autoconf 2.59 or later. Ths is needed because we
 dnl use some autoconf macros only available in 2.59.
@@ -66,17 +66,18 @@ for i in `ls ${srcdir}/projects`
 do
   if test -d ${srcdir}/projects/${i} ; then
     case ${i} in
-      CVS) ;;
-      sample)       AC_CONFIG_SUBDIRS([projects/sample])    ;;
-      privbracket)  AC_CONFIG_SUBDIRS([projects/privbracket]) ;;
-      llvm-stacker) AC_CONFIG_SUBDIRS([projects/llvm-stacker]) ;;
-      llvm-test)    AC_CONFIG_SUBDIRS([projects/llvm-test]) ;;
-      llvm-reopt)   AC_CONFIG_SUBDIRS([projects/llvm-reopt]);;
-      llvm-gcc)     AC_CONFIG_SUBDIRS([projects/llvm-gcc])  ;;
-      llvm-java)    AC_CONFIG_SUBDIRS([projects/llvm-java]) ;;
-      llvm-tv)      AC_CONFIG_SUBDIRS([projects/llvm-tv])   ;;
-      llvm-poolalloc) AC_CONFIG_SUBDIRS([projects/llvm-poolalloc]) ;;
-      llvm-kernel)  AC_CONFIG_SUBDIRS([projects/llvm-kernel]) ;;
+      "CVS") ;;
+      "sample")       AC_CONFIG_SUBDIRS([projects/sample])    ;;
+      "Stacker")      AC_CONFIG_SUBDIRS([projects/Stacker])   ;;
+      "privbracket")  AC_CONFIG_SUBDIRS([projects/privbracket]) ;;
+      "safecode")     AC_CONFIG_SUBDIRS([projects/safecode])  ;;
+      "llvm-test")    AC_CONFIG_SUBDIRS([projects/llvm-test]) ;;
+      "llvm-reopt")   AC_CONFIG_SUBDIRS([projects/llvm-reopt]);;
+      "llvm-gcc")     AC_CONFIG_SUBDIRS([projects/llvm-gcc])  ;;
+      "llvm-java")    AC_CONFIG_SUBDIRS([projects/llvm-java]) ;;
+      "llvm-tv")      AC_CONFIG_SUBDIRS([projects/llvm-tv])   ;;
+      "llvm-poolalloc") AC_CONFIG_SUBDIRS([projects/llvm-poolalloc]) ;;
+      "llvm-kernel")  AC_CONFIG_SUBDIRS([projects/llvm-kernel]) ;;
       *)              
         AC_MSG_WARN([Unknown project (${i}) won't be configured automatically])
         ;;
@@ -130,11 +131,6 @@ AC_CACHE_CHECK([type of operating system we're going to host on],
     llvm_cv_link_all_option="-Wl,--whole-archive"
     llvm_cv_no_link_all_option="-Wl,--no-whole-archive"
     llvm_cv_os_type="OpenBSD" 
-    llvm_cv_platform_type="Unix" ;;
-  *-*-netbsd*) 
-    llvm_cv_link_all_option="-Wl,--whole-archive"
-    llvm_cv_no_link_all_option="-Wl,--no-whole-archive"
-    llvm_cv_os_type="NetBSD" 
     llvm_cv_platform_type="Unix" ;;
   *-*-hpux*) 
     llvm_cv_link_all_option="-Wl,--whole-archive"
@@ -213,7 +209,6 @@ AC_CACHE_CHECK([target architecture],[llvm_cv_target_arch],
   powerpc*-*)             llvm_cv_target_arch="PowerPC" ;;
   alpha*-*)               llvm_cv_target_arch="Alpha" ;;
   ia64-*)                 llvm_cv_target_arch="IA64" ;;
-  arm-*)                  llvm_cv_target_arch="ARM" ;;
   *)                      llvm_cv_target_arch="Unknown" ;;
 esac])
 
@@ -294,12 +289,11 @@ then
 else
   case "$llvm_cv_target_arch" in
     x86)     AC_SUBST(TARGET_HAS_JIT,1) ;;
-    Sparc)   AC_SUBST(TARGET_HAS_JIT,0) ;;
+    Sparc)   AC_SUBST(TARGET_HAS_JIT,1) ;;
     PowerPC) AC_SUBST(TARGET_HAS_JIT,1) ;;
-    x86_64)  AC_SUBST(TARGET_HAS_JIT,1) ;;
+    x86_64)  AC_SUBST(TARGET_HAS_JIT,0) ;;
     Alpha)   AC_SUBST(TARGET_HAS_JIT,1) ;;
     IA64)    AC_SUBST(TARGET_HAS_JIT,0) ;;
-    ARM)     AC_SUBST(TARGET_HAS_JIT,0) ;;
     *)       AC_SUBST(TARGET_HAS_JIT,0) ;;
   esac
 fi
@@ -329,20 +323,6 @@ case "$enableval" in
 esac
 AC_DEFINE_UNQUOTED([ENABLE_THREADS],$ENABLE_THREADS,[Define if threads enabled])
 
-dnl Allow building with position independent code
-AC_ARG_ENABLE(pic,
-  AS_HELP_STRING([--enable-pic],
-                 [Build LLVM with Position Independent Code (default is NO)]),,
-                 enableval=default)
-case "$enableval" in
-  yes) AC_SUBST(ENABLE_PIC,[1]) ;;
-  no)  AC_SUBST(ENABLE_PIC,[0]) ;;
-  default) AC_SUBST(ENABLE_PIC,[0]) ;;
-  *) AC_MSG_ERROR([Invalid setting for --enable-pic. Use "yes" or "no"]) ;;
-esac
-AC_DEFINE_UNQUOTED([ENABLE_PIC],$ENABLE_PIC,
-                   [Define if position independent code is enabled])
-
 dnl Allow specific targets to be specified for building (or not)
 TARGETS_TO_BUILD=""
 AC_ARG_ENABLE([targets],AS_HELP_STRING([--enable-targets],
@@ -358,7 +338,6 @@ case "$enableval" in
       PowerPC) TARGETS_TO_BUILD="PowerPC" ;;
       Alpha)   TARGETS_TO_BUILD="Alpha" ;;
       IA64)    TARGETS_TO_BUILD="IA64" ;;
-      ARM)     TARGETS_TO_BUILD="ARM" ;;
       *)       AC_MSG_ERROR([Can not set target to build]) ;;
     esac 
     ;;
@@ -370,7 +349,6 @@ case "$enableval" in
         powerpc) TARGETS_TO_BUILD="PowerPC $TARGETS_TO_BUILD" ;;
         alpha)   TARGETS_TO_BUILD="Alpha $TARGETS_TO_BUILD" ;;
         ia64)    TARGETS_TO_BUILD="IA64 $TARGETS_TO_BUILD" ;;
-        arm)     TARGETS_TO_BUILD="ARM $TARGETS_TO_BUILD" ;;
         *) AC_MSG_ERROR([Unrecognized target $a_target]) ;;
       esac
   done 
@@ -453,7 +431,7 @@ AC_PATH_PROG(GRAPHVIZ, [Graphviz], [echo Graphviz])
 if test "$GRAPHVIZ" != "echo Graphviz" ; then
   AC_DEFINE([HAVE_GRAPHVIZ],[1],[Define if the Graphviz program is available])
   dnl If we're targeting for mingw we should emit windows paths, not msys
-  if test "$llvm_cv_os_type" = "MingW" ; then
+  if test "$llvm_cv_os_type" == "MingW" ; then
     GRAPHVIZ=`echo $GRAPHVIZ | sed 's/^\/\([[A-Za-z]]\)\//\1:\//' `
   fi
   AC_DEFINE_UNQUOTED([LLVM_PATH_GRAPHVIZ],"$GRAPHVIZ${EXEEXT}",
@@ -463,7 +441,7 @@ AC_PATH_PROG(DOT, [dot], [echo dot])
 if test "$DOT" != "echo dot" ; then
   AC_DEFINE([HAVE_DOT],[1],[Define if the dot program is available])
   dnl If we're targeting for mingw we should emit windows paths, not msys
-  if test "$llvm_cv_os_type" = "MingW" ; then
+  if test "$llvm_cv_os_type" == "MingW" ; then
     DOT=`echo $DOT | sed 's/^\/\([[A-Za-z]]\)\//\1:\//' `
   fi
   AC_DEFINE_UNQUOTED([LLVM_PATH_DOT],"$DOT${EXEEXT}",
@@ -473,7 +451,7 @@ AC_PATH_PROGS(GV, [gv gsview32], [echo gv])
 if test "$GV" != "echo gv" ; then
   AC_DEFINE([HAVE_GV],[1],[Define if the gv program is available])
   dnl If we're targeting for mingw we should emit windows paths, not msys
-  if test "$llvm_cv_os_type" = "MingW" ; then
+  if test "$llvm_cv_os_type" == "MingW" ; then
     GV=`echo $GV | sed 's/^\/\([[A-Za-z]]\)\//\1:\//' `
   fi
   AC_DEFINE_UNQUOTED([LLVM_PATH_GV],"$GV${EXEEXT}",
@@ -483,7 +461,7 @@ AC_PATH_PROG(DOTTY, [dotty], [echo dotty])
 if test "$DOTTY" != "echo dotty" ; then
   AC_DEFINE([HAVE_DOTTY],[1],[Define if the dotty program is available])
   dnl If we're targeting for mingw we should emit windows paths, not msys
-  if test "$llvm_cv_os_type" = "MingW" ; then
+  if test "$llvm_cv_os_type" == "MingW" ; then
     DOTTY=`echo $DOTTY | sed 's/^\/\([[A-Za-z]]\)\//\1:\//' `
   fi
   AC_DEFINE_UNQUOTED([LLVM_PATH_DOTTY],"$DOTTY${EXEEXT}",
@@ -609,7 +587,7 @@ dnl===-----------------------------------------------------------------------===
 dnl libelf is for sparc only; we can ignore it if we don't have it
 AC_CHECK_LIB(elf, elf_begin)
 AC_CHECK_LIB(m,sin)
-if test "$llvm_cv_os_type" = "MingW" ; then
+if test "$llvm_cv_os_type" == "MingW" ; then
   AC_CHECK_LIB(imagehlp, main)
   AC_CHECK_LIB(psapi, main)
 fi
@@ -638,25 +616,6 @@ if test "$ENABLE_THREADS" -eq 1 ; then
                            [Have pthread_mutex_lock]))
 fi
 
-dnl Allow extra x86-disassembler library
-AC_ARG_WITH(udis86,
-  AS_HELP_STRING([--with-udis86=<path>],
-    [Use udis86 external x86 disassembler library]),
-    [
-      AC_SUBST(USE_UDIS86, [1])
-      case "$withval" in
-        /usr/lib|yes) ;;
-        *) LDFLAGS="$LDFLAGS -L${withval}" ;;
-      esac
-      AC_CHECK_LIB(udis86, ud_init, [], [
-        echo "Error! You need to have libudis86 around."
-        exit -1
-      ])
-    ],
-    AC_SUBST(USE_UDIS86, [0]))
-AC_DEFINE_UNQUOTED([USE_UDIS86],$USE_UDIS86,
-                   [Define if use udis86 library])
-
 dnl===-----------------------------------------------------------------------===
 dnl===
 dnl=== SECTION 6: Check for header files
@@ -679,11 +638,7 @@ AC_CHECK_HEADERS([malloc.h setjmp.h signal.h stdint.h unistd.h utime.h])
 AC_CHECK_HEADERS([windows.h sys/mman.h sys/param.h sys/resource.h sys/time.h])
 AC_CHECK_HEADERS([sys/types.h malloc/malloc.h mach/mach.h])
 if test "$ENABLE_THREADS" -eq 1 ; then
-  AC_CHECK_HEADER(pthread.h,
-                  AC_SUBST(HAVE_PTHREAD, 1),
-		   AC_SUBST(HAVE_PTHREAD, 0))
-else
-  AC_SUBST(HAVE_PTHREAD, 0)
+  AC_CHECK_HEADERS(pthread.h)
 fi
 
 dnl===-----------------------------------------------------------------------===
@@ -712,7 +667,7 @@ AC_CHECK_FUNCS([backtrace ceilf floorf roundf rintf nearbyintf getcwd ])
 AC_CHECK_FUNCS([getpagesize getrusage gettimeofday isatty mkdtemp mkstemp ])
 AC_CHECK_FUNCS([mktemp realpath sbrk setrlimit strdup strerror strerror_r ])
 AC_CHECK_FUNCS([strtoll strtoq sysconf malloc_zone_statistics ])
-AC_CHECK_FUNCS([setjmp longjmp sigsetjmp siglongjmp])
+AC_CHECK_FUNCS([_setjmp _longjmp setjmp longjmp sigsetjmp siglongjmp])
 AC_C_PRINTF_A
 AC_FUNC_ALLOCA
 AC_FUNC_RAND48
@@ -727,22 +682,22 @@ AC_CXX_HAVE_FWD_ITERATOR
 AC_FUNC_ISNAN
 AC_FUNC_ISINF
 
-dnl Check for mmap support.We also need to know if /dev/zero is required to 
-dnl be opened for allocating RWX memory.  
-dnl Make sure we aren't attempting to configure for an unknown system
-if test "$llvm_cv_platform_type" = "Unix" ; then
-  AC_FUNC_MMAP 
-  AC_FUNC_MMAP_FILE
-  AC_NEED_DEV_ZERO_FOR_MMAP
+dnl Check for mmap and mprotect support. We need both to do the JIT and for
+dnl bytecode loading, etc. We also need to know if /dev/zero is required to
+dnl be opened for allocating RWX memory.
+AC_FUNC_MMAP
+AC_FUNC_MMAP_FILE
+AC_NEED_DEV_ZERO_FOR_MMAP
+AC_CHECK_FUNC(mprotect,,
+              AC_MSG_ERROR([Function mprotect() required but not found]))
 
-  if test "$ac_cv_func_mmap_fixed_mapped" = "no"
-  then
-    AC_MSG_WARN([mmap() of a fixed address required but not supported])
-  fi
-  if test "$ac_cv_func_mmap_file" = "no"
-  then
-    AC_MSG_WARN([mmap() of files required but not found])
-  fi
+if test "$ac_cv_func_mmap_fixed_mapped" = "no"
+then
+  AC_MSG_WARN([mmap() of a fixed address required but not supported])
+fi
+if test "$ac_cv_func_mmap_file" = "no"
+then
+  AC_MSG_WARN([mmap() of files required but not found])
 fi
 
 dnl===-----------------------------------------------------------------------===
@@ -771,8 +726,6 @@ if test "$llvm_cv_llvmgcc_sanity" = "yes" ; then
   AC_SUBST(LLVMCC1PLUS,$llvmcc1pluspath)
   llvmgccdir=`echo "$llvmcc1path" | sed 's,/libexec/.*,,'`
   AC_SUBST(LLVMGCCDIR,$llvmgccdir)
-  llvmgcclibexec=`echo "$llvmcc1path" | sed 's,/cc1,,'`
-  AC_SUBST(LLVMGCCLIBEXEC,$llvmgcclibexec)
   llvmgccversion=[`"$LLVMGCC" -dumpversion 2>&1 | sed 's/^\([0-9.]*\).*/\1/'`]
   llvmgccmajvers=[`echo $llvmgccversion | sed 's/^\([0-9]\).*/\1/'`]
   AC_SUBST(LLVMGCC_VERSION,$llvmgccversion)
@@ -786,7 +739,7 @@ AC_SUBST(SHLIBEXT,$libltdl_cv_shlibext)
 # Translate the various configuration directories and other basic
 # information into substitutions that will end up in Makefile.config.in 
 # that these configured values can be used by the makefiles
-if test "${prefix}" = "NONE" ; then
+if test "${prefix}" == "NONE" ; then
   prefix="/usr/local"
 fi
 eval LLVM_PREFIX="${prefix}";
@@ -878,3 +831,11 @@ AC_CONFIG_MAKEFILE(projects/Makefile)
 dnl Finally, crank out the output
 AC_OUTPUT
 
+dnl Warn loudly if llvm-gcc was not obviously working
+if test "$llvm_cv_llvmgcc_sanity" = "no" ; then
+ AC_MSG_WARN([***** llvm-gcc/llvm-g++ was not found, or does not appear to be ])
+ AC_MSG_WARN([***** working. Please make sure you have llvm-gcc and llvm-g++ in])
+ AC_MSG_WARN([***** your path before configuring LLVM. The runtime libraries])
+ AC_MSG_WARN([***** (llvm/runtime) will not be built but you should be able to])
+ AC_MSG_WARN([***** build the llvm tools.])
+fi

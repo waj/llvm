@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/MachineCodeEmitter.h"
 #include "llvm/Config/alloca.h"
 #include <cstdlib>
+#include <iostream>
 using namespace llvm;
 
 #ifdef _MSC_VER
@@ -118,9 +119,10 @@ extern "C" {
   ASMPREFIX "X86CompilationCallback:\n"
     "pushl   %ebp\n"
     "movl    %esp, %ebp\n"    // Standard prologue
+#if FASTCC_NUM_INT_ARGS_INREGS > 0
     "pushl   %eax\n"
-    "pushl   %edx\n"          // Save EAX/EDX/ECX
-    "pushl   %ecx\n"
+    "pushl   %edx\n"          // Save EAX/EDX
+#endif
 #if defined(__APPLE__)
     "andl    $-16, %esp\n"    // Align ESP on 16-byte boundary
 #endif
@@ -130,10 +132,11 @@ extern "C" {
     "movl    %ebp, (%esp)\n"
     "call    " ASMPREFIX "X86CompilationCallback2\n"
     "movl    %ebp, %esp\n"    // Restore ESP
-    "subl    $12, %esp\n"
-    "popl    %ecx\n"
+#if FASTCC_NUM_INT_ARGS_INREGS > 0
+    "subl    $8, %esp\n"
     "popl    %edx\n"
     "popl    %eax\n"
+#endif
     "popl    %ebp\n"
     "ret\n");
 
@@ -146,9 +149,10 @@ extern "C" {
   ASMPREFIX "X86CompilationCallback_SSE:\n"
     "pushl   %ebp\n"
     "movl    %esp, %ebp\n"    // Standard prologue
+#if FASTCC_NUM_INT_ARGS_INREGS > 0
     "pushl   %eax\n"
-    "pushl   %edx\n"          // Save EAX/EDX/ECX
-    "pushl   %ecx\n"
+    "pushl   %edx\n"          // Save EAX/EDX
+#endif
     "andl    $-16, %esp\n"    // Align ESP on 16-byte boundary
     // Save all XMM arg registers
     "subl    $64, %esp\n"
@@ -167,10 +171,11 @@ extern "C" {
     "movaps  16(%esp), %xmm1\n"
     "movaps  (%esp), %xmm0\n"
     "movl    %ebp, %esp\n"    // Restore ESP
-    "subl    $12, %esp\n"
-    "popl    %ecx\n"
+#if FASTCC_NUM_INT_ARGS_INREGS > 0
+    "subl    $8, %esp\n"
     "popl    %edx\n"
     "popl    %eax\n"
+#endif
     "popl    %ebp\n"
     "ret\n");
 #else
@@ -180,9 +185,7 @@ extern "C" {
     __asm {
       push  eax
       push  edx
-      push  ecx
       call  X86CompilationCallback2
-      pop   ecx
       pop   edx
       pop   eax
       ret
@@ -192,7 +195,7 @@ extern "C" {
 
 #else // Not an i386 host
   void X86CompilationCallback() {
-    assert(0 && "Cannot call X86CompilationCallback() on a non-x86 arch!\n");
+    std::cerr << "Cannot call X86CompilationCallback() on a non-x86 arch!\n";
     abort();
   }
 #endif
@@ -206,7 +209,7 @@ extern "C" {
 extern "C" void X86CompilationCallback2() {
   assert(sizeof(size_t) == 4); // FIXME: handle Win64
   unsigned *RetAddrLoc = (unsigned *)_AddressOfReturnAddress();
-  RetAddrLoc += 4;  // skip over ret addr, edx, eax, ecx
+  RetAddrLoc += 3;  // skip over ret addr, edx, eax
   unsigned RetAddr = *RetAddrLoc;
 #else
 extern "C" void X86CompilationCallback2(intptr_t *StackPtr, intptr_t RetAddr) {
@@ -222,10 +225,10 @@ extern "C" void X86CompilationCallback2(intptr_t *StackPtr, intptr_t RetAddr) {
   RetAddr -= 4;  // Backtrack to the reference itself...
 
 #if 0
-  DOUT << "In callback! Addr=" << (void*)RetAddr
-       << " ESP=" << (void*)StackPtr
-       << ": Resolving call to function: "
-       << TheVM->getFunctionReferencedName((void*)RetAddr) << "\n";
+  DEBUG(std::cerr << "In callback! Addr=" << (void*)RetAddr
+                  << " ESP=" << (void*)StackPtr
+                  << ": Resolving call to function: "
+                  << TheVM->getFunctionReferencedName((void*)RetAddr) << "\n");
 #endif
 
   // Sanity check to make sure this really is a call instruction.
@@ -285,13 +288,13 @@ void *X86JITInfo::emitFunctionStub(void *Fn, MachineCodeEmitter &MCE) {
   bool NotCC = Fn != (void*)(intptr_t)X86CompilationCallback;
 #endif
   if (NotCC) {
-    MCE.startFunctionStub(5, 4);
+    MCE.startFunctionStub(5);
     MCE.emitByte(0xE9);
     MCE.emitWordLE((intptr_t)Fn-MCE.getCurrentPCValue()-4);
     return MCE.finishFunctionStub(0);
   }
 
-  MCE.startFunctionStub(6, 4);
+  MCE.startFunctionStub(6);
   MCE.emitByte(0xE8);   // Call with 32 bit pc-rel destination...
 
   MCE.emitWordLE((intptr_t)Fn-MCE.getCurrentPCValue()-4);
@@ -320,9 +323,6 @@ void X86JITInfo::relocate(void *Function, MachineRelocation *MR,
       // Absolute relocation, just add the relocated value to the value already
       // in memory.
       *((unsigned*)RelocPos) += (unsigned)ResultPtr;
-      break;
-    case X86::reloc_absolute_dword:
-      *((intptr_t*)RelocPos) += ResultPtr;
       break;
     }
   }

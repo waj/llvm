@@ -1,4 +1,4 @@
 ; Found by inspection of the code
-; RUN: llvm-as 2>&1 < %s  > /dev/null | grep "Illegal number of init"
+; RUN: llvm-as < %s 2>&1 | grep "Illegal"
 
-global {} { i32 7, float 1.0, i32 7, i32 8 }
+global {} { int 7, float 1.0, int 7, int 8 }

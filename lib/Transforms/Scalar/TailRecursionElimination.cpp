@@ -50,7 +50,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "tailcallelim"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
@@ -59,14 +58,13 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Support/Compiler.h"
 using namespace llvm;
 
-STATISTIC(NumEliminated, "Number of tail calls removed");
-STATISTIC(NumAccumAdded, "Number of accumulators introduced");
-
 namespace {
-  struct VISIBILITY_HIDDEN TailCallElim : public FunctionPass {
+  Statistic<> NumEliminated("tailcallelim", "Number of tail calls removed");
+  Statistic<> NumAccumAdded("tailcallelim","Number of accumulators introduced");
+
+  struct TailCallElim : public FunctionPass {
     virtual bool runOnFunction(Function &F);
 
   private:

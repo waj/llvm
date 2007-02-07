@@ -44,18 +44,21 @@
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/Compiler.h"
+#include <iostream>
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumArgumentsPromoted , "Number of pointer arguments promoted");
-STATISTIC(NumAggregatesPromoted, "Number of aggregate arguments promoted");
-STATISTIC(NumArgumentsDead     , "Number of dead pointer args eliminated");
-
 namespace {
+  Statistic<> NumArgumentsPromoted("argpromotion",
+                                   "Number of pointer arguments promoted");
+  Statistic<> NumAggregatesPromoted("argpromotion",
+                                    "Number of aggregate arguments promoted");
+  Statistic<> NumArgumentsDead("argpromotion",
+                               "Number of dead pointer args eliminated");
+
   /// ArgPromotion - The 'by reference' to 'by value' argument promotion pass.
   ///
-  struct VISIBILITY_HIDDEN ArgPromotion : public CallGraphSCCPass {
+  struct ArgPromotion : public CallGraphSCCPass {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.addRequired<AliasAnalysis>();
       AU.addRequired<TargetData>();
@@ -73,7 +76,7 @@ namespace {
                                "Promote 'by reference' arguments to scalars");
 }
 
-Pass *llvm::createArgumentPromotionPass() {
+ModulePass *llvm::createArgumentPromotionPass() {
   return new ArgPromotion();
 }
 
@@ -228,9 +231,9 @@ bool ArgPromotion::isSafeToPromoteArgument(Argument *Arg) const {
       if (std::find(GEPIndices.begin(), GEPIndices.end(), Operands) ==
           GEPIndices.end()) {
         if (GEPIndices.size() == 3) {
-          DOUT << "argpromotion disable promoting argument '"
-               << Arg->getName() << "' because it would require adding more "
-               << "than 3 arguments to the function.\n";
+          DEBUG(std::cerr << "argpromotion disable promoting argument '"
+                << Arg->getName() << "' because it would require adding more "
+                << "than 3 arguments to the function.\n");
           // We limit aggregate promotion to only promoting up to three elements
           // of the aggregate.
           return false;
@@ -385,7 +388,7 @@ Function *ArgPromotion::DoPromotion(Function *F,
   bool ExtraArgHack = false;
   if (Params.empty() && FTy->isVarArg()) {
     ExtraArgHack = true;
-    Params.push_back(Type::Int32Ty);
+    Params.push_back(Type::IntTy);
   }
   FunctionType *NFTy = FunctionType::get(RetTy, Params, FTy->isVarArg());
 
@@ -430,7 +433,7 @@ Function *ArgPromotion::DoPromotion(Function *F,
       }
 
     if (ExtraArgHack)
-      Args.push_back(Constant::getNullValue(Type::Int32Ty));
+      Args.push_back(Constant::getNullValue(Type::IntTy));
 
     // Push any varargs arguments on the list
     for (; AI != CS.arg_end(); ++AI)
@@ -498,8 +501,8 @@ Function *ArgPromotion::DoPromotion(Function *F,
           LI->replaceAllUsesWith(I2);
           AA.replaceWithNewValue(LI, I2);
           LI->getParent()->getInstList().erase(LI);
-          DOUT << "*** Promoted load of argument '" << I->getName()
-               << "' in function '" << F->getName() << "'\n";
+          DEBUG(std::cerr << "*** Promoted load of argument '" << I->getName()
+                          << "' in function '" << F->getName() << "'\n");
         } else {
           GetElementPtrInst *GEP = cast<GetElementPtrInst>(I->use_back());
           std::vector<Value*> Operands(GEP->op_begin()+1, GEP->op_end());
@@ -518,8 +521,8 @@ Function *ArgPromotion::DoPromotion(Function *F,
               NewName += ".x";
           TheArg->setName(NewName+".val");
 
-          DOUT << "*** Promoted agg argument '" << TheArg->getName()
-               << "' of function '" << F->getName() << "'\n";
+          DEBUG(std::cerr << "*** Promoted agg argument '" << TheArg->getName()
+                          << "' of function '" << F->getName() << "'\n");
 
           // All of the uses must be load instructions.  Replace them all with
           // the argument specified by ArgNo.
@@ -541,7 +544,7 @@ Function *ArgPromotion::DoPromotion(Function *F,
 
   // Notify the alias analysis implementation that we inserted a new argument.
   if (ExtraArgHack)
-    AA.copyValue(Constant::getNullValue(Type::Int32Ty), NF->arg_begin());
+    AA.copyValue(Constant::getNullValue(Type::IntTy), NF->arg_begin());
 
 
   // Tell the alias analysis that the old function is about to disappear.

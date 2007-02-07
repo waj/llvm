@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=c
+; RUN: llvm-as < %s | llc -march=c
 
 %y = weak global sbyte 0
 implementation

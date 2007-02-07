@@ -98,6 +98,10 @@ public:
 /// @{
 public:
 
+  /// This method will strip the symbol table of its names 
+  /// @brief Strip the symbol table.
+  bool strip();
+
   /// Inserts a type into the symbol table with the specified name. There can be
   /// a many-to-one mapping between names and types. This method allows a type
   /// with an existing entry in the symbol table to get a new name.
@@ -107,7 +111,16 @@ public:
   /// Remove a type at the specified position in the symbol table.
   /// @returns the removed Type.
   /// @returns the Type that was erased from the symbol table.
-  Type* remove(iterator TI);
+  Type* erase(iterator TI);
+
+  /// Remove a specific Type from the symbol table. This isn't fast, linear
+  /// search, O(n), algorithm.
+  /// @returns true if the erase was successful (TI was found)
+  bool erase(Type* TI);
+
+  /// Rename a type. This ain't fast, we have to linearly search for it first.
+  /// @returns true if the rename was successful (type was found)
+  bool rename(Type* T, const std::string& new_name);
 
 /// @}
 /// @name AbstractTypeUser Methods

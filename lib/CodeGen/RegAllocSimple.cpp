@@ -27,12 +27,13 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(NumStores, "Number of stores added");
-STATISTIC(NumLoads , "Number of loads added");
-
 namespace {
+  static Statistic<> NumStores("ra-simple", "Number of stores added");
+  static Statistic<> NumLoads ("ra-simple", "Number of loads added");
+
   static RegisterRegAlloc
     simpleRegAlloc("simple", "  simple register allocator",
                    createSimpleRegisterAllocator);
@@ -189,16 +190,17 @@ void RegAllocSimple::AllocateBasicBlock(MachineBasicBlock &MBB) {
       if (op.isRegister() && op.getReg() &&
           MRegisterInfo::isVirtualRegister(op.getReg())) {
         unsigned virtualReg = (unsigned) op.getReg();
-        DOUT << "op: " << op << "\n";
-        DOUT << "\t inst[" << i << "]: ";
-        DEBUG(MI->print(*cerr.stream(), TM));
+        DEBUG(std::cerr << "op: " << op << "\n");
+        DEBUG(std::cerr << "\t inst[" << i << "]: ";
+              MI->print(std::cerr, TM));
 
         // make sure the same virtual register maps to the same physical
         // register in any given instruction
         unsigned physReg = Virt2PhysRegMap[virtualReg];
         if (physReg == 0) {
           if (op.isDef()) {
-            int TiedOp = MI->getInstrDescriptor()->findTiedToSrcOperand(i);
+            int TiedOp = TM->getInstrInfo()
+              ->findTiedToSrcOperand(MI->getOpcode(), i);
             if (TiedOp == -1) {
               physReg = getFreeReg(virtualReg);
             } else {
@@ -219,7 +221,8 @@ void RegAllocSimple::AllocateBasicBlock(MachineBasicBlock &MBB) {
           }
         }
         MI->getOperand(i).setReg(physReg);
-        DOUT << "virt: " << virtualReg << ", phys: " << op.getReg() << "\n";
+        DEBUG(std::cerr << "virt: " << virtualReg <<
+              ", phys: " << op.getReg() << "\n");
       }
     }
     RegClassIdx.clear();
@@ -231,7 +234,7 @@ void RegAllocSimple::AllocateBasicBlock(MachineBasicBlock &MBB) {
 /// runOnMachineFunction - Register allocate the whole function
 ///
 bool RegAllocSimple::runOnMachineFunction(MachineFunction &Fn) {
-  DOUT << "Machine Function\n";
+  DEBUG(std::cerr << "Machine Function " << "\n");
   MF = &Fn;
   TM = &MF->getTarget();
   RegInfo = TM->getRegisterInfo();

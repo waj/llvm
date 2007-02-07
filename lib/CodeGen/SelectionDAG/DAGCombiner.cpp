@@ -35,31 +35,18 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/CommandLine.h"
 #include <algorithm>
+#include <cmath>
+#include <iostream>
+#include <algorithm>
 using namespace llvm;
 
-STATISTIC(NodesCombined   , "Number of dag nodes combined");
-STATISTIC(PreIndexedNodes , "Number of pre-indexed nodes created");
-STATISTIC(PostIndexedNodes, "Number of post-indexed nodes created");
-
 namespace {
-#ifndef NDEBUG
-  static cl::opt<bool>
-    ViewDAGCombine1("view-dag-combine1-dags", cl::Hidden,
-                    cl::desc("Pop up a window to show dags before the first "
-                             "dag combine pass"));
-  static cl::opt<bool>
-    ViewDAGCombine2("view-dag-combine2-dags", cl::Hidden,
-                    cl::desc("Pop up a window to show dags before the second "
-                             "dag combine pass"));
-#else
-  static const bool ViewDAGCombine1 = false;
-  static const bool ViewDAGCombine2 = false;
-#endif
-  
+  static Statistic<> NodesCombined ("dagcombiner", 
+				    "Number of dag nodes combined");
+            
   static cl::opt<bool>
     CombinerAA("combiner-alias-analysis", cl::Hidden,
                cl::desc("Turn on alias analysis during testing"));
@@ -110,9 +97,9 @@ namespace {
                         bool AddTo = true) {
       assert(N->getNumValues() == NumTo && "Broken CombineTo call!");
       ++NodesCombined;
-      DOUT << "\nReplacing.1 "; DEBUG(N->dump());
-      DOUT << "\nWith: "; DEBUG(To[0].Val->dump(&DAG));
-      DOUT << " and " << NumTo-1 << " other values\n";
+      DEBUG(std::cerr << "\nReplacing.1 "; N->dump();
+            std::cerr << "\nWith: "; To[0].Val->dump(&DAG);
+            std::cerr << " and " << NumTo-1 << " other values\n");
       std::vector<SDNode*> NowDead;
       DAG.ReplaceAllUsesWith(N, To, &NowDead);
       
@@ -161,9 +148,9 @@ namespace {
       
       // Replace the old value with the new one.
       ++NodesCombined;
-      DOUT << "\nReplacing.2 "; DEBUG(TLO.Old.Val->dump());
-      DOUT << "\nWith: "; DEBUG(TLO.New.Val->dump(&DAG));
-      DOUT << '\n';
+      DEBUG(std::cerr << "\nReplacing.2 "; TLO.Old.Val->dump();
+            std::cerr << "\nWith: "; TLO.New.Val->dump(&DAG);
+            std::cerr << '\n');
 
       std::vector<SDNode*> NowDead;
       DAG.ReplaceAllUsesOfValueWith(TLO.Old, TLO.New, NowDead);
@@ -187,10 +174,130 @@ namespace {
       return true;
     }
 
-    bool CombineToPreIndexedLoadStore(SDNode *N);
-    bool CombineToPostIndexedLoadStore(SDNode *N);
-    
-    
+    /// CombineToPreIndexedLoadStore - Try turning a load / store into a
+    /// pre-indexed load store when the base pointer is a add or subtract
+    /// and it has other uses besides the load / store. When the
+    /// transformation is done, the new indexed load / store effectively
+    /// folded the add / subtract in and all of its other uses are redirected
+    /// to the new load / store.
+    bool CombineToPreIndexedLoadStore(SDNode *N) {
+      bool isLoad = true;
+      SDOperand Ptr;
+      if (LoadSDNode *LD  = dyn_cast<LoadSDNode>(N)) {
+        Ptr = LD->getBasePtr();
+      } else if (StoreSDNode *ST  = dyn_cast<StoreSDNode>(N)) {
+        Ptr = ST->getBasePtr();
+        isLoad = false;
+      } else
+        return false;
+
+      if (AfterLegalize &&
+          (Ptr.getOpcode() == ISD::ADD || Ptr.getOpcode() == ISD::SUB) &&
+          Ptr.Val->use_size() > 1) {
+        SDOperand BasePtr;
+        SDOperand Offset;
+        ISD::MemOpAddrMode AM = ISD::UNINDEXED;
+        if (TLI.getPreIndexedAddressParts(N, BasePtr, Offset, AM, DAG)) {
+          // Try turning it into a pre-indexed load / store except when
+          // 1) Another use of base ptr is a predecessor of N. If ptr is folded
+          //    that would create a cycle.
+          // 2) All uses are load / store ops that use it as base ptr and offset
+          //    is just an addressing mode immediate.
+          // 3) If the would-be new base may not to be dead at N. FIXME: The
+          //    proper check is too expensive (in turns of compile time) to 
+          //    check. Just make sure other uses of the new base are not also
+          //    themselves use of loads / stores.
+
+          bool OffIsAMImm = Offset.getOpcode() == ISD::Constant &&
+            TLI.isLegalAddressImmediate(
+              cast<ConstantSDNode>(Offset)->getValue());
+
+          // Check for #3.
+          if (OffIsAMImm && BasePtr.Val->use_size() > 1) {
+            for (SDNode::use_iterator I = BasePtr.Val->use_begin(),
+                   E = BasePtr.Val->use_end(); I != E; ++I) {
+              SDNode *Use = *I;
+              if (Use == Ptr.Val)
+                continue;
+              if (Use->getOpcode() == ISD::ADD || Use->getOpcode() == ISD::SUB){
+                for (SDNode::use_iterator II = Use->use_begin(),
+                       EE = Use->use_end(); II != EE; ++II) {
+                  SDNode *UseUse = *II;
+                  if (UseUse->getOpcode() == ISD::LOAD &&
+                      cast<LoadSDNode>(UseUse)->getBasePtr().Val == Use)
+                    return false;
+                  else if (UseUse->getOpcode() == ISD::STORE &&
+                           cast<StoreSDNode>(UseUse)->getBasePtr().Val == Use)
+                    return false;
+                }
+              }
+            }
+          }
+
+          // Now check for #1 and #2.
+          unsigned NumRealUses = 0;
+          for (SDNode::use_iterator I = Ptr.Val->use_begin(),
+                 E = Ptr.Val->use_end(); I != E; ++I) {
+            SDNode *Use = *I;
+            if (Use == N)
+              continue;
+            if (Use->isPredecessor(N))
+              return false;
+
+            if (!OffIsAMImm) {
+              NumRealUses++;
+            } else if (Use->getOpcode() == ISD::LOAD) {
+              if (cast<LoadSDNode>(Use)->getBasePtr().Val != Ptr.Val)
+                NumRealUses++;
+            } else if (Use->getOpcode() == ISD::STORE) {
+              if (cast<StoreSDNode>(Use)->getBasePtr().Val != Ptr.Val)
+                NumRealUses++;
+            } else
+              NumRealUses++;
+          }
+          if (NumRealUses == 0)
+            return false;
+
+          SDOperand Result = isLoad
+            ? DAG.getIndexedLoad(SDOperand(N,0), BasePtr, Offset, AM)
+            : DAG.getIndexedStore(SDOperand(N,0), BasePtr, Offset, AM);
+          ++NodesCombined;
+          DEBUG(std::cerr << "\nReplacing.4 "; N->dump();
+                std::cerr << "\nWith: "; Result.Val->dump(&DAG);
+                std::cerr << '\n');
+          std::vector<SDNode*> NowDead;
+          if (isLoad) {
+            DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(0),
+                                          NowDead);
+            DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1), Result.getValue(2),
+                                          NowDead);
+          } else {
+            DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(1),
+                                          NowDead);
+          }
+
+          // Nodes can end up on the worklist more than once.  Make sure we do
+          // not process a node that has been replaced.
+          for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+            removeFromWorkList(NowDead[i]);
+          // Finally, since the node is now dead, remove it from the graph.
+          DAG.DeleteNode(N);
+
+          // Replace the uses of Ptr with uses of the updated base value.
+          DAG.ReplaceAllUsesOfValueWith(Ptr, Result.getValue(isLoad ? 1 : 0),
+                                        NowDead);
+          removeFromWorkList(Ptr.Val);
+          for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+            removeFromWorkList(NowDead[i]);
+          DAG.DeleteNode(Ptr.Val);
+
+          return true;
+        }
+      }
+
+      return false;
+    }
+
     /// visit - call the node-specific routine that knows how to fold each
     /// particular type of node.
     SDOperand visit(SDNode *N);
@@ -464,9 +571,9 @@ void DAGCombiner::Run(bool RunningAfterLegalize) {
                RV.Val->getOpcode() != ISD::DELETED_NODE &&
                "Node was deleted but visit returned new node!");
 
-        DOUT << "\nReplacing.3 "; DEBUG(N->dump());
-        DOUT << "\nWith: "; DEBUG(RV.Val->dump(&DAG));
-        DOUT << '\n';
+        DEBUG(std::cerr << "\nReplacing.3 "; N->dump();
+              std::cerr << "\nWith: "; RV.Val->dump(&DAG);
+              std::cerr << '\n');
         std::vector<SDNode*> NowDead;
         if (N->getNumValues() == RV.Val->getNumValues())
           DAG.ReplaceAllUsesWith(N, RV.Val, &NowDead);
@@ -653,22 +760,6 @@ SDOperand DAGCombiner::visitTokenFactor(SDNode *N) {
   return Result;
 }
 
-static
-SDOperand combineShlAddConstant(SDOperand N0, SDOperand N1, SelectionDAG &DAG) {
-  MVT::ValueType VT = N0.getValueType();
-  SDOperand N00 = N0.getOperand(0);
-  SDOperand N01 = N0.getOperand(1);
-  ConstantSDNode *N01C = dyn_cast<ConstantSDNode>(N01);
-  if (N01C && N00.getOpcode() == ISD::ADD && N00.Val->hasOneUse() &&
-      isa<ConstantSDNode>(N00.getOperand(1))) {
-    N0 = DAG.getNode(ISD::ADD, VT,
-                     DAG.getNode(ISD::SHL, VT, N00.getOperand(0), N01),
-                     DAG.getNode(ISD::SHL, VT, N00.getOperand(1), N01));
-    return DAG.getNode(ISD::ADD, VT, N0, N1);
-  }
-  return SDOperand();
-}
-
 SDOperand DAGCombiner::visitADD(SDNode *N) {
   SDOperand N0 = N->getOperand(0);
   SDOperand N1 = N->getOperand(1);
@@ -725,16 +816,6 @@ SDOperand DAGCombiner::visitADD(SDNode *N) {
           (LHSZero & (~RHSZero & Mask)) == (~RHSZero & Mask))
         return DAG.getNode(ISD::OR, VT, N0, N1);
     }
-  }
-
-  // fold (add (shl (add x, c1), c2), ) -> (add (add (shl x, c2), c1<<c2), )
-  if (N0.getOpcode() == ISD::SHL && N0.Val->hasOneUse()) {
-    SDOperand Result = combineShlAddConstant(N0, N1, DAG);
-    if (Result.Val) return Result;
-  }
-  if (N1.getOpcode() == ISD::SHL && N1.Val->hasOneUse()) {
-    SDOperand Result = combineShlAddConstant(N1, N0, DAG);
-    if (Result.Val) return Result;
   }
 
   return SDOperand();
@@ -1641,6 +1722,13 @@ SDOperand DAGCombiner::visitSHL(SDNode *N) {
   if (N1C && N0.getOpcode() == ISD::SRA && N1 == N0.getOperand(1))
     return DAG.getNode(ISD::AND, VT, N0.getOperand(0),
                        DAG.getConstant(~0ULL << N1C->getValue(), VT));
+  // fold (shl (add x, c1), c2) -> (add (shl x, c2), c1<<c2)
+  if (N1C && N0.getOpcode() == ISD::ADD && N0.Val->hasOneUse() && 
+      isa<ConstantSDNode>(N0.getOperand(1))) {
+    return DAG.getNode(ISD::ADD, VT, 
+                       DAG.getNode(ISD::SHL, VT, N0.getOperand(0), N1),
+                       DAG.getNode(ISD::SHL, VT, N0.getOperand(1), N1));
+  }
   return SDOperand();
 }
 
@@ -1973,15 +2061,13 @@ SDOperand DAGCombiner::visitSIGN_EXTEND(SDNode *N) {
   if ((ISD::isSEXTLoad(N0.Val) || ISD::isEXTLoad(N0.Val)) && N0.hasOneUse()) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
     MVT::ValueType EVT = LN0->getLoadedVT();
-    if (!AfterLegalize || TLI.isLoadXLegal(ISD::SEXTLOAD, EVT)) {
-      SDOperand ExtLoad = DAG.getExtLoad(ISD::SEXTLOAD, VT, LN0->getChain(),
-                                         LN0->getBasePtr(), LN0->getSrcValue(),
-                                         LN0->getSrcValueOffset(), EVT);
-      CombineTo(N, ExtLoad);
-      CombineTo(N0.Val, DAG.getNode(ISD::TRUNCATE, N0.getValueType(), ExtLoad),
-                ExtLoad.getValue(1));
-      return SDOperand(N, 0);   // Return N so it doesn't get rechecked!
-    }
+    SDOperand ExtLoad = DAG.getExtLoad(ISD::SEXTLOAD, VT, LN0->getChain(),
+                                       LN0->getBasePtr(), LN0->getSrcValue(),
+                                       LN0->getSrcValueOffset(), EVT);
+    CombineTo(N, ExtLoad);
+    CombineTo(N0.Val, DAG.getNode(ISD::TRUNCATE, N0.getValueType(), ExtLoad),
+              ExtLoad.getValue(1));
+    return SDOperand(N, 0);   // Return N so it doesn't get rechecked!
   }
   
   return SDOperand();
@@ -2210,10 +2296,10 @@ SDOperand DAGCombiner::visitTRUNCATE(SDNode *N) {
   // fold (truncate (ext x)) -> (ext x) or (truncate x) or x
   if (N0.getOpcode() == ISD::ZERO_EXTEND || N0.getOpcode() == ISD::SIGN_EXTEND||
       N0.getOpcode() == ISD::ANY_EXTEND) {
-    if (N0.getOperand(0).getValueType() < VT)
+    if (N0.getValueType() < VT)
       // if the source is smaller than the dest, we still need an extend
       return DAG.getNode(N0.getOpcode(), VT, N0.getOperand(0));
-    else if (N0.getOperand(0).getValueType() > VT)
+    else if (N0.getValueType() > VT)
       // if the source is larger than the dest, than we just need the truncate
       return DAG.getNode(ISD::TRUNCATE, VT, N0.getOperand(0));
     else
@@ -2222,12 +2308,7 @@ SDOperand DAGCombiner::visitTRUNCATE(SDNode *N) {
       return N0.getOperand(0);
   }
   // fold (truncate (load x)) -> (smaller load x)
-  if (ISD::isNON_EXTLoad(N0.Val) && N0.hasOneUse() &&
-      // Do not allow folding to i1 here.  i1 is implicitly stored in memory in
-      // zero extended form: by shrinking the load, we lose track of the fact
-      // that it is already zero extended.
-      // FIXME: This should be reevaluated.
-      VT != MVT::i1) {
+  if (ISD::isNON_EXTLoad(N0.Val) && N0.hasOneUse()) {
     assert(MVT::getSizeInBits(N0.getValueType()) > MVT::getSizeInBits(VT) &&
            "Cannot truncate to larger type!");
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
@@ -2435,13 +2516,6 @@ SDOperand DAGCombiner::visitFADD(SDNode *N) {
   // fold ((-A) + B) -> B-A
   if (N0.getOpcode() == ISD::FNEG)
     return DAG.getNode(ISD::FSUB, VT, N1, N0.getOperand(0));
-  
-  // If allowed, fold (fadd (fadd x, c1), c2) -> (fadd x, (fadd c1, c2))
-  if (UnsafeFPMath && N1CFP && N0.getOpcode() == ISD::FADD &&
-      N0.Val->hasOneUse() && isa<ConstantFPSDNode>(N0.getOperand(1)))
-    return DAG.getNode(ISD::FADD, VT, N0.getOperand(0),
-                       DAG.getNode(ISD::FADD, VT, N0.getOperand(1), N1));
-  
   return SDOperand();
 }
 
@@ -2477,13 +2551,6 @@ SDOperand DAGCombiner::visitFMUL(SDNode *N) {
   // fold (fmul X, 2.0) -> (fadd X, X)
   if (N1CFP && N1CFP->isExactlyValue(+2.0))
     return DAG.getNode(ISD::FADD, VT, N0, N0);
-  
-  // If allowed, fold (fmul (fmul x, c1), c2) -> (fmul x, (fmul c1, c2))
-  if (UnsafeFPMath && N1CFP && N0.getOpcode() == ISD::FMUL &&
-      N0.Val->hasOneUse() && isa<ConstantFPSDNode>(N0.getOperand(1)))
-    return DAG.getNode(ISD::FMUL, VT, N0.getOperand(0),
-                       DAG.getNode(ISD::FMUL, VT, N0.getOperand(1), N1));
-  
   return SDOperand();
 }
 
@@ -2756,265 +2823,6 @@ SDOperand DAGCombiner::visitBR_CC(SDNode *N) {
   return SDOperand();
 }
 
-
-/// CombineToPreIndexedLoadStore - Try turning a load / store and a
-/// pre-indexed load / store when the base pointer is a add or subtract
-/// and it has other uses besides the load / store. After the
-/// transformation, the new indexed load / store has effectively folded
-/// the add / subtract in and all of its other uses are redirected to the
-/// new load / store.
-bool DAGCombiner::CombineToPreIndexedLoadStore(SDNode *N) {
-  if (!AfterLegalize)
-    return false;
-
-  bool isLoad = true;
-  SDOperand Ptr;
-  MVT::ValueType VT;
-  if (LoadSDNode *LD  = dyn_cast<LoadSDNode>(N)) {
-    if (LD->getAddressingMode() != ISD::UNINDEXED)
-      return false;
-    VT = LD->getLoadedVT();
-    if (LD->getAddressingMode() != ISD::UNINDEXED &&
-        !TLI.isIndexedLoadLegal(ISD::PRE_INC, VT) &&
-        !TLI.isIndexedLoadLegal(ISD::PRE_DEC, VT))
-      return false;
-    Ptr = LD->getBasePtr();
-  } else if (StoreSDNode *ST  = dyn_cast<StoreSDNode>(N)) {
-    if (ST->getAddressingMode() != ISD::UNINDEXED)
-      return false;
-    VT = ST->getStoredVT();
-    if (!TLI.isIndexedStoreLegal(ISD::PRE_INC, VT) &&
-        !TLI.isIndexedStoreLegal(ISD::PRE_DEC, VT))
-      return false;
-    Ptr = ST->getBasePtr();
-    isLoad = false;
-  } else
-    return false;
-
-  // If the pointer is not an add/sub, or if it doesn't have multiple uses, bail
-  // out.  There is no reason to make this a preinc/predec.
-  if ((Ptr.getOpcode() != ISD::ADD && Ptr.getOpcode() != ISD::SUB) ||
-      Ptr.Val->hasOneUse())
-    return false;
-
-  // Ask the target to do addressing mode selection.
-  SDOperand BasePtr;
-  SDOperand Offset;
-  ISD::MemIndexedMode AM = ISD::UNINDEXED;
-  if (!TLI.getPreIndexedAddressParts(N, BasePtr, Offset, AM, DAG))
-    return false;
-  
-  // Try turning it into a pre-indexed load / store except when:
-  // 1) The base is a frame index.
-  // 2) If N is a store and the ptr is either the same as or is a
-  //    predecessor of the value being stored.
-  // 3) Another use of base ptr is a predecessor of N. If ptr is folded
-  //    that would create a cycle.
-  // 4) All uses are load / store ops that use it as base ptr.
-
-  // Check #1.  Preinc'ing a frame index would require copying the stack pointer
-  // (plus the implicit offset) to a register to preinc anyway.
-  if (isa<FrameIndexSDNode>(BasePtr))
-    return false;
-  
-  // Check #2.
-  if (!isLoad) {
-    SDOperand Val = cast<StoreSDNode>(N)->getValue();
-    if (Val == Ptr || Ptr.Val->isPredecessor(Val.Val))
-      return false;
-  }
-
-  // Now check for #2 and #3.
-  bool RealUse = false;
-  for (SDNode::use_iterator I = Ptr.Val->use_begin(),
-         E = Ptr.Val->use_end(); I != E; ++I) {
-    SDNode *Use = *I;
-    if (Use == N)
-      continue;
-    if (Use->isPredecessor(N))
-      return false;
-
-    if (!((Use->getOpcode() == ISD::LOAD &&
-           cast<LoadSDNode>(Use)->getBasePtr() == Ptr) ||
-          (Use->getOpcode() == ISD::STORE) &&
-          cast<StoreSDNode>(Use)->getBasePtr() == Ptr))
-      RealUse = true;
-  }
-  if (!RealUse)
-    return false;
-
-  SDOperand Result;
-  if (isLoad)
-    Result = DAG.getIndexedLoad(SDOperand(N,0), BasePtr, Offset, AM);
-  else
-    Result = DAG.getIndexedStore(SDOperand(N,0), BasePtr, Offset, AM);
-  ++PreIndexedNodes;
-  ++NodesCombined;
-  DOUT << "\nReplacing.4 "; DEBUG(N->dump());
-  DOUT << "\nWith: "; DEBUG(Result.Val->dump(&DAG));
-  DOUT << '\n';
-  std::vector<SDNode*> NowDead;
-  if (isLoad) {
-    DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(0),
-                                  NowDead);
-    DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1), Result.getValue(2),
-                                  NowDead);
-  } else {
-    DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(1),
-                                  NowDead);
-  }
-
-  // Nodes can end up on the worklist more than once.  Make sure we do
-  // not process a node that has been replaced.
-  for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
-    removeFromWorkList(NowDead[i]);
-  // Finally, since the node is now dead, remove it from the graph.
-  DAG.DeleteNode(N);
-
-  // Replace the uses of Ptr with uses of the updated base value.
-  DAG.ReplaceAllUsesOfValueWith(Ptr, Result.getValue(isLoad ? 1 : 0),
-                                NowDead);
-  removeFromWorkList(Ptr.Val);
-  for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
-    removeFromWorkList(NowDead[i]);
-  DAG.DeleteNode(Ptr.Val);
-
-  return true;
-}
-
-/// CombineToPostIndexedLoadStore - Try combine a load / store with a
-/// add / sub of the base pointer node into a post-indexed load / store.
-/// The transformation folded the add / subtract into the new indexed
-/// load / store effectively and all of its uses are redirected to the
-/// new load / store.
-bool DAGCombiner::CombineToPostIndexedLoadStore(SDNode *N) {
-  if (!AfterLegalize)
-    return false;
-
-  bool isLoad = true;
-  SDOperand Ptr;
-  MVT::ValueType VT;
-  if (LoadSDNode *LD  = dyn_cast<LoadSDNode>(N)) {
-    if (LD->getAddressingMode() != ISD::UNINDEXED)
-      return false;
-    VT = LD->getLoadedVT();
-    if (!TLI.isIndexedLoadLegal(ISD::POST_INC, VT) &&
-        !TLI.isIndexedLoadLegal(ISD::POST_DEC, VT))
-      return false;
-    Ptr = LD->getBasePtr();
-  } else if (StoreSDNode *ST  = dyn_cast<StoreSDNode>(N)) {
-    if (ST->getAddressingMode() != ISD::UNINDEXED)
-      return false;
-    VT = ST->getStoredVT();
-    if (!TLI.isIndexedStoreLegal(ISD::POST_INC, VT) &&
-        !TLI.isIndexedStoreLegal(ISD::POST_DEC, VT))
-      return false;
-    Ptr = ST->getBasePtr();
-    isLoad = false;
-  } else
-    return false;
-
-  if (Ptr.Val->hasOneUse())
-    return false;
-  
-  for (SDNode::use_iterator I = Ptr.Val->use_begin(),
-         E = Ptr.Val->use_end(); I != E; ++I) {
-    SDNode *Op = *I;
-    if (Op == N ||
-        (Op->getOpcode() != ISD::ADD && Op->getOpcode() != ISD::SUB))
-      continue;
-
-    SDOperand BasePtr;
-    SDOperand Offset;
-    ISD::MemIndexedMode AM = ISD::UNINDEXED;
-    if (TLI.getPostIndexedAddressParts(N, Op, BasePtr, Offset, AM, DAG)) {
-      if (Ptr == Offset)
-        std::swap(BasePtr, Offset);
-      if (Ptr != BasePtr)
-        continue;
-
-      // Try turning it into a post-indexed load / store except when
-      // 1) All uses are load / store ops that use it as base ptr.
-      // 2) Op must be independent of N, i.e. Op is neither a predecessor
-      //    nor a successor of N. Otherwise, if Op is folded that would
-      //    create a cycle.
-
-      // Check for #1.
-      bool TryNext = false;
-      for (SDNode::use_iterator II = BasePtr.Val->use_begin(),
-             EE = BasePtr.Val->use_end(); II != EE; ++II) {
-        SDNode *Use = *II;
-        if (Use == Ptr.Val)
-          continue;
-
-        // If all the uses are load / store addresses, then don't do the
-        // transformation.
-        if (Use->getOpcode() == ISD::ADD || Use->getOpcode() == ISD::SUB){
-          bool RealUse = false;
-          for (SDNode::use_iterator III = Use->use_begin(),
-                 EEE = Use->use_end(); III != EEE; ++III) {
-            SDNode *UseUse = *III;
-            if (!((UseUse->getOpcode() == ISD::LOAD &&
-                   cast<LoadSDNode>(UseUse)->getBasePtr().Val == Use) ||
-                  (UseUse->getOpcode() == ISD::STORE) &&
-                  cast<StoreSDNode>(UseUse)->getBasePtr().Val == Use))
-              RealUse = true;
-          }
-
-          if (!RealUse) {
-            TryNext = true;
-            break;
-          }
-        }
-      }
-      if (TryNext)
-        continue;
-
-      // Check for #2
-      if (!Op->isPredecessor(N) && !N->isPredecessor(Op)) {
-        SDOperand Result = isLoad
-          ? DAG.getIndexedLoad(SDOperand(N,0), BasePtr, Offset, AM)
-          : DAG.getIndexedStore(SDOperand(N,0), BasePtr, Offset, AM);
-        ++PostIndexedNodes;
-        ++NodesCombined;
-        DOUT << "\nReplacing.5 "; DEBUG(N->dump());
-        DOUT << "\nWith: "; DEBUG(Result.Val->dump(&DAG));
-        DOUT << '\n';
-        std::vector<SDNode*> NowDead;
-        if (isLoad) {
-          DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(0),
-                                        NowDead);
-          DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1), Result.getValue(2),
-                                        NowDead);
-        } else {
-          DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(1),
-                                        NowDead);
-        }
-
-        // Nodes can end up on the worklist more than once.  Make sure we do
-        // not process a node that has been replaced.
-        for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
-          removeFromWorkList(NowDead[i]);
-        // Finally, since the node is now dead, remove it from the graph.
-        DAG.DeleteNode(N);
-
-        // Replace the uses of Use with uses of the updated base value.
-        DAG.ReplaceAllUsesOfValueWith(SDOperand(Op, 0),
-                                      Result.getValue(isLoad ? 1 : 0),
-                                      NowDead);
-        removeFromWorkList(Op);
-        for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
-          removeFromWorkList(NowDead[i]);
-        DAG.DeleteNode(Op);
-
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-
 SDOperand DAGCombiner::visitLOAD(SDNode *N) {
   LoadSDNode *LD  = cast<LoadSDNode>(N);
   SDOperand Chain = LD->getChain();
@@ -3069,7 +2877,7 @@ SDOperand DAGCombiner::visitLOAD(SDNode *N) {
   }
 
   // Try transforming N to an indexed load.
-  if (CombineToPreIndexedLoadStore(N) || CombineToPostIndexedLoadStore(N))
+  if (CombineToPreIndexedLoadStore(N))
     return SDOperand(N, 0);
 
   return SDOperand();
@@ -3089,46 +2897,6 @@ SDOperand DAGCombiner::visitSTORE(SDNode *N) {
                         ST->getSrcValueOffset());
   }
   
-  // Turn 'store float 1.0, Ptr' -> 'store int 0x12345678, Ptr'
-  if (ConstantFPSDNode *CFP = dyn_cast<ConstantFPSDNode>(Value)) {
-    if (Value.getOpcode() != ISD::TargetConstantFP) {
-      SDOperand Tmp;
-      switch (CFP->getValueType(0)) {
-      default: assert(0 && "Unknown FP type");
-      case MVT::f32:
-        if (!AfterLegalize || TLI.isTypeLegal(MVT::i32)) {
-          Tmp = DAG.getConstant(FloatToBits(CFP->getValue()), MVT::i32);
-          return DAG.getStore(Chain, Tmp, Ptr, ST->getSrcValue(),
-                              ST->getSrcValueOffset());
-        }
-        break;
-      case MVT::f64:
-        if (!AfterLegalize || TLI.isTypeLegal(MVT::i64)) {
-          Tmp = DAG.getConstant(DoubleToBits(CFP->getValue()), MVT::i64);
-          return DAG.getStore(Chain, Tmp, Ptr, ST->getSrcValue(),
-                              ST->getSrcValueOffset());
-        } else if (TLI.isTypeLegal(MVT::i32)) {
-          // Many FP stores are not make apparent until after legalize, e.g. for
-          // argument passing.  Since this is so common, custom legalize the
-          // 64-bit integer store into two 32-bit stores.
-          uint64_t Val = DoubleToBits(CFP->getValue());
-          SDOperand Lo = DAG.getConstant(Val & 0xFFFFFFFF, MVT::i32);
-          SDOperand Hi = DAG.getConstant(Val >> 32, MVT::i32);
-          if (!TLI.isLittleEndian()) std::swap(Lo, Hi);
-
-          SDOperand St0 = DAG.getStore(Chain, Lo, Ptr, ST->getSrcValue(),
-                                       ST->getSrcValueOffset());
-          Ptr = DAG.getNode(ISD::ADD, Ptr.getValueType(), Ptr,
-                            DAG.getConstant(4, Ptr.getValueType()));
-          SDOperand St1 = DAG.getStore(Chain, Hi, Ptr, ST->getSrcValue(),
-                                       ST->getSrcValueOffset()+4);
-          return DAG.getNode(ISD::TokenFactor, MVT::Other, St0, St1);
-        }
-        break;
-      }
-    }
-  }
-
   if (CombinerAA) { 
     // Walk up chain skipping non-aliasing memory nodes.
     SDOperand BetterChain = FindBetterChain(N, Chain);
@@ -3155,7 +2923,7 @@ SDOperand DAGCombiner::visitSTORE(SDNode *N) {
   }
   
   // Try transforming N to an indexed store.
-  if (CombineToPreIndexedLoadStore(N) || CombineToPostIndexedLoadStore(N))
+  if (CombineToPreIndexedLoadStore(N))
     return SDOperand(N, 0);
 
   return SDOperand();
@@ -3251,7 +3019,7 @@ SDOperand DAGCombiner::visitVBUILD_VECTOR(SDNode *N) {
     SmallVector<SDOperand, 8> BuildVecIndices;
     for (unsigned i = 0; i != NumInScalars; ++i) {
       if (N->getOperand(i).getOpcode() == ISD::UNDEF) {
-        BuildVecIndices.push_back(DAG.getNode(ISD::UNDEF, TLI.getPointerTy()));
+        BuildVecIndices.push_back(DAG.getNode(ISD::UNDEF, MVT::i32));
         continue;
       }
       
@@ -3265,13 +3033,12 @@ SDOperand DAGCombiner::visitVBUILD_VECTOR(SDNode *N) {
 
       // Otherwise, use InIdx + VecSize
       unsigned Idx = cast<ConstantSDNode>(Extract.getOperand(1))->getValue();
-      BuildVecIndices.push_back(DAG.getConstant(Idx+NumInScalars,
-                                                TLI.getPointerTy()));
+      BuildVecIndices.push_back(DAG.getConstant(Idx+NumInScalars, MVT::i32));
     }
     
     // Add count and size info.
     BuildVecIndices.push_back(NumElts);
-    BuildVecIndices.push_back(DAG.getValueType(TLI.getPointerTy()));
+    BuildVecIndices.push_back(DAG.getValueType(MVT::i32));
     
     // Return the new VVECTOR_SHUFFLE node.
     SDOperand Ops[5];
@@ -3729,52 +3496,36 @@ bool DAGCombiner::SimplifySelectOps(SDNode *TheSelect, SDOperand LHS,
         // the right thing to do, but nothing uses srcvalues now.  When they do,
         // turn SrcValue into a list of locations.
         SDOperand Addr;
-        if (TheSelect->getOpcode() == ISD::SELECT) {
-          // Check that the condition doesn't reach either load.  If so, folding
-          // this will induce a cycle into the DAG.
-          if (!LLD->isPredecessor(TheSelect->getOperand(0).Val) &&
-              !RLD->isPredecessor(TheSelect->getOperand(0).Val)) {
-            Addr = DAG.getNode(ISD::SELECT, LLD->getBasePtr().getValueType(),
-                               TheSelect->getOperand(0), LLD->getBasePtr(),
-                               RLD->getBasePtr());
-          }
-        } else {
-          // Check that the condition doesn't reach either load.  If so, folding
-          // this will induce a cycle into the DAG.
-          if (!LLD->isPredecessor(TheSelect->getOperand(0).Val) &&
-              !RLD->isPredecessor(TheSelect->getOperand(0).Val) &&
-              !LLD->isPredecessor(TheSelect->getOperand(1).Val) &&
-              !RLD->isPredecessor(TheSelect->getOperand(1).Val)) {
-            Addr = DAG.getNode(ISD::SELECT_CC, LLD->getBasePtr().getValueType(),
+        if (TheSelect->getOpcode() == ISD::SELECT)
+          Addr = DAG.getNode(ISD::SELECT, LLD->getBasePtr().getValueType(),
+                             TheSelect->getOperand(0), LLD->getBasePtr(),
+                             RLD->getBasePtr());
+        else
+          Addr = DAG.getNode(ISD::SELECT_CC, LLD->getBasePtr().getValueType(),
                              TheSelect->getOperand(0),
                              TheSelect->getOperand(1), 
                              LLD->getBasePtr(), RLD->getBasePtr(),
                              TheSelect->getOperand(4));
-          }
+      
+        SDOperand Load;
+        if (LLD->getExtensionType() == ISD::NON_EXTLOAD)
+          Load = DAG.getLoad(TheSelect->getValueType(0), LLD->getChain(),
+                             Addr,LLD->getSrcValue(), LLD->getSrcValueOffset());
+        else {
+          Load = DAG.getExtLoad(LLD->getExtensionType(),
+                                TheSelect->getValueType(0),
+                                LLD->getChain(), Addr, LLD->getSrcValue(),
+                                LLD->getSrcValueOffset(),
+                                LLD->getLoadedVT());
         }
-        
-        if (Addr.Val) {
-          SDOperand Load;
-          if (LLD->getExtensionType() == ISD::NON_EXTLOAD)
-            Load = DAG.getLoad(TheSelect->getValueType(0), LLD->getChain(),
-                               Addr,LLD->getSrcValue(), 
-                               LLD->getSrcValueOffset());
-          else {
-            Load = DAG.getExtLoad(LLD->getExtensionType(),
-                                  TheSelect->getValueType(0),
-                                  LLD->getChain(), Addr, LLD->getSrcValue(),
-                                  LLD->getSrcValueOffset(),
-                                  LLD->getLoadedVT());
-          }
-          // Users of the select now use the result of the load.
-          CombineTo(TheSelect, Load);
-        
-          // Users of the old loads now use the new load's chain.  We know the
-          // old-load value is dead now.
-          CombineTo(LHS.Val, Load.getValue(0), Load.getValue(1));
-          CombineTo(RHS.Val, Load.getValue(0), Load.getValue(1));
-          return true;
-        }
+        // Users of the select now use the result of the load.
+        CombineTo(TheSelect, Load);
+      
+        // Users of the old loads now use the new load's chain.  We know the
+        // old-load value is dead now.
+        CombineTo(LHS.Val, Load.getValue(0), Load.getValue(1));
+        CombineTo(RHS.Val, Load.getValue(0), Load.getValue(1));
+        return true;
       }
     }
   }
@@ -3867,10 +3618,7 @@ SDOperand DAGCombiner::SimplifySelectCC(SDOperand N0, SDOperand N1,
     // cast from setcc result type to select result type
     if (AfterLegalize) {
       SCC  = DAG.getSetCC(TLI.getSetCCResultTy(), N0, N1, CC);
-      if (N2.getValueType() < SCC.getValueType())
-        Temp = DAG.getZeroExtendInReg(SCC, N2.getValueType());
-      else
-        Temp = DAG.getNode(ISD::ZERO_EXTEND, N2.getValueType(), SCC);
+      Temp = DAG.getZeroExtendInReg(SCC, N2.getValueType());
     } else {
       SCC  = DAG.getSetCC(MVT::i1, N0, N1, CC);
       Temp = DAG.getNode(ISD::ZERO_EXTEND, N2.getValueType(), SCC);
@@ -4562,10 +4310,6 @@ SDOperand DAGCombiner::FindBetterChain(SDNode *N, SDOperand OldChain) {
 // SelectionDAG::Combine - This is the entry point for the file.
 //
 void SelectionDAG::Combine(bool RunningAfterLegalize, AliasAnalysis &AA) {
-  if (!RunningAfterLegalize && ViewDAGCombine1)
-    viewGraph();
-  if (RunningAfterLegalize && ViewDAGCombine2)
-    viewGraph();
   /// run - This is the main entry point to this class.
   ///
   DAGCombiner(*this, AA).Run(RunningAfterLegalize);

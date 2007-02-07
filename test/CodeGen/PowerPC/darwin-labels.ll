@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc | grep 'foo bar":'
+; RUN: llvm-as < %s | llc | grep 'foo bar":'
 
 target endian = big
 target pointersize = 32

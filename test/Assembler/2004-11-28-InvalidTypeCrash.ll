@@ -1,4 +1,3 @@
-; RUN: llvm-as 2>&1 < %s -o /dev/null -f | \
-; RUN:   grep 'Cannot create a null initialized value of this type'
+; RUN: (llvm-as < %s) 2>&1 | grep 'Cannot create a'
 ; Test for PR463.  This program is erroneous, but should not crash llvm-as.
-@.FOO  = internal global %struct.none zeroinitializer
+%.FOO  = internal global %struct.none zeroinitializer

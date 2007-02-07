@@ -14,10 +14,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "foldingset"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Debug.h"
 #include <cassert>
 using namespace llvm;
 
@@ -44,10 +42,7 @@ void FoldingSetImpl::NodeID::AddInteger(unsigned I) {
 }
 void FoldingSetImpl::NodeID::AddInteger(uint64_t I) {
   Bits.push_back(unsigned(I));
-  
-  // If the integer is small, encode it just as 32-bits.
-  if ((uint64_t)(int)I != I)
-    Bits.push_back(unsigned(I >> 32));
+  Bits.push_back(unsigned(I >> 32));
 }
 void FoldingSetImpl::NodeID::AddFloat(float F) {
   Bits.push_back(FloatToBits(F));
@@ -130,8 +125,8 @@ bool FoldingSetImpl::NodeID::operator==(const FoldingSetImpl::NodeID &RHS)const{
 /// singly-linked-list. In order to make deletion more efficient, we make
 /// the list circular, so we can delete a node without computing its hash.
 /// The problem with this is that the start of the hash buckets are not
-/// Nodes.  If NextInBucketPtr is a bucket pointer, this method returns null:
-/// use GetBucketPtr when this happens.
+/// Nodes.  If NextInBucketPtr is a bucket pointer, this method returns null
+/// : use GetBucketPtr when this happens.
 static FoldingSetImpl::Node *GetNextPtr(void *NextInBucketPtr,
                                         void **Buckets, unsigned NumBuckets) {
   if (NextInBucketPtr >= Buckets && NextInBucketPtr < Buckets + NumBuckets)
@@ -186,7 +181,7 @@ void FoldingSetImpl::GrowHashTable() {
   for (unsigned i = 0; i != OldNumBuckets; ++i) {
     void *Probe = OldBuckets[i];
     if (!Probe) continue;
-    while (Node *NodeInBucket = GetNextPtr(Probe, OldBuckets, OldNumBuckets)) {
+    while (Node *NodeInBucket = GetNextPtr(Probe, OldBuckets, OldNumBuckets)){
       // Figure out the next link, remove NodeInBucket from the old link.
       Probe = NodeInBucket->getNextInBucket();
       NodeInBucket->SetNextInBucket(0);
@@ -229,17 +224,14 @@ FoldingSetImpl::Node *FoldingSetImpl::FindNodeOrInsertPos(const NodeID &ID,
 /// is not already in the map.  InsertPos must be obtained from 
 /// FindNodeOrInsertPos.
 void FoldingSetImpl::InsertNode(Node *N, void *InsertPos) {
-  assert(N->getNextInBucket() == 0);
+  ++NumNodes;
   // Do we need to grow the hashtable?
-  DEBUG(DOUT << "INSERT: " << N << '\n');
-  if (NumNodes+1 > NumBuckets*2) {
+  if (NumNodes > NumBuckets*2) {
     GrowHashTable();
     NodeID ID;
     GetNodeProfile(ID, N);
     InsertPos = GetBucketFor(ID, Buckets, NumBuckets);
   }
-
-  ++NumNodes;
   
   /// The insert position is actually a bucket pointer.
   void **Bucket = static_cast<void**>(InsertPos);
@@ -251,7 +243,7 @@ void FoldingSetImpl::InsertNode(Node *N, void *InsertPos) {
   if (Next == 0)
     Next = Bucket;
 
-  // Set the node's next pointer, and make the bucket point to the node.
+  // Set the nodes next pointer, and make the bucket point to the node.
   N->SetNextInBucket(Next);
   *Bucket = N;
 }
@@ -260,18 +252,15 @@ void FoldingSetImpl::InsertNode(Node *N, void *InsertPos) {
 /// removed or false if the node was not in the folding set.
 bool FoldingSetImpl::RemoveNode(Node *N) {
   // Because each bucket is a circular list, we don't need to compute N's hash
-  // to remove it.
-  DEBUG(DOUT << "REMOVE: " << N << '\n');
+  // to remove it.  Chase around the list until we find the node (or bucket)
+  // which points to N.
   void *Ptr = N->getNextInBucket();
   if (Ptr == 0) return false;  // Not in folding set.
 
   --NumNodes;
-  N->SetNextInBucket(0);
 
-  // Remember what N originally pointed to, either a bucket or another node.
   void *NodeNextPtr = Ptr;
-  
-  // Chase around the list until we find the node (or bucket) which points to N.
+  N->SetNextInBucket(0);
   while (true) {
     if (Node *NodeInBucket = GetNextPtr(Ptr, Buckets, NumBuckets)) {
       // Advance pointer.

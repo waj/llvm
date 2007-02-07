@@ -29,7 +29,7 @@ namespace llvm {
   class AliasAnalysis;
   class TargetLowering;
   class TargetMachine;
-  class MachineModuleInfo;
+  class MachineDebugInfo;
   class MachineFunction;
   class MachineConstantPoolValue;
 
@@ -47,7 +47,7 @@ namespace llvm {
 class SelectionDAG {
   TargetLowering &TLI;
   MachineFunction &MF;
-  MachineModuleInfo *MMI;
+  MachineDebugInfo *DI;
 
   /// Root - The root of the entire DAG.  EntryNode - The starting token.
   SDOperand Root, EntryNode;
@@ -60,8 +60,8 @@ class SelectionDAG {
   FoldingSet<SDNode> CSEMap;
 
 public:
-  SelectionDAG(TargetLowering &tli, MachineFunction &mf, MachineModuleInfo *mmi)
-  : TLI(tli), MF(mf), MMI(mmi) {
+  SelectionDAG(TargetLowering &tli, MachineFunction &mf, MachineDebugInfo *di)
+  : TLI(tli), MF(mf), DI(di) {
     EntryNode = Root = getNode(ISD::EntryToken, MVT::Other);
   }
   ~SelectionDAG();
@@ -69,7 +69,7 @@ public:
   MachineFunction &getMachineFunction() const { return MF; }
   const TargetMachine &getTarget() const;
   TargetLowering &getTargetLoweringInfo() const { return TLI; }
-  MachineModuleInfo *getMachineModuleInfo() const { return MMI; }
+  MachineDebugInfo *getMachineDebugInfo() const { return DI; }
 
   /// viewGraph - Pop up a GraphViz/gv window with the DAG rendered using 'dot'.
   ///
@@ -316,7 +316,7 @@ public:
                        SDOperand Chain, SDOperand Ptr, const Value *SV,
                        int SVOffset, MVT::ValueType EVT, bool isVolatile=false);
   SDOperand getIndexedLoad(SDOperand OrigLoad, SDOperand Base,
-                           SDOperand Offset, ISD::MemIndexedMode AM);
+                           SDOperand Offset, ISD::MemOpAddrMode AM);
   SDOperand getVecLoad(unsigned Count, MVT::ValueType VT, SDOperand Chain, 
                        SDOperand Ptr, SDOperand SV);
 
@@ -328,7 +328,7 @@ public:
                           const Value *SV, int SVOffset, MVT::ValueType TVT,
                           bool isVolatile=false);
   SDOperand getIndexedStore(SDOperand OrigStoe, SDOperand Base,
-                           SDOperand Offset, ISD::MemIndexedMode AM);
+                           SDOperand Offset, ISD::MemOpAddrMode AM);
 
   // getSrcValue - construct a node to track a Value* through the backend
   SDOperand getSrcValue(const Value* I, int offset = 0);

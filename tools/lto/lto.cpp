@@ -7,7 +7,7 @@
 // 
 //===----------------------------------------------------------------------===//
 //
-// This file implements the Link Time Optimization library. This library is 
+// This file implementes link time optimization library. This library is 
 // intended to be used by linker to optimize code at link time.
 //
 //===----------------------------------------------------------------------===//
@@ -17,6 +17,7 @@
 #include "llvm/Linker.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
+#include "llvm/SymbolTable.h"
 #include "llvm/Bytecode/Reader.h"
 #include "llvm/Bytecode/Writer.h"
 #include "llvm/Support/CommandLine.h"
@@ -36,10 +37,10 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Analysis/LoadValueNumbering.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/LinkTimeOptimizer.h"
 #include <fstream>
-#include <ostream>
+#include <iostream>
+
 using namespace llvm;
 
 extern "C"
@@ -163,7 +164,7 @@ LTO::readLLVMObjectFile(const std::string &InputFilename,
 
     LTOLinkageTypes lt = getLTOLinkageType(f);
 
-    if (!f->isDeclaration() && lt != LTOInternalLinkage
+    if (!f->isExternal() && lt != LTOInternalLinkage
         && strncmp (f->getName().c_str(), "llvm.", 5)) {
       int alignment = ( 16 > f->getAlignment() ? 16 : f->getAlignment());
       LLVMSymbol *newSymbol = new LLVMSymbol(lt, f, f->getName(), 
@@ -185,7 +186,7 @@ LTO::readLLVMObjectFile(const std::string &InputFilename,
   for (Module::global_iterator v = m->global_begin(), e = m->global_end();
        v !=  e; ++v) {
     LTOLinkageTypes lt = getLTOLinkageType(v);
-    if (!v->isDeclaration() && lt != LTOInternalLinkage
+    if (!v->isExternal() && lt != LTOInternalLinkage
         && strncmp (v->getName().c_str(), "llvm.", 5)) {
       const TargetData *TD = Target->getTargetData();
       LLVMSymbol *newSymbol = new LLVMSymbol(lt, v, v->getName(), 
@@ -246,6 +247,12 @@ LTO::optimize(Module *M, std::ostream &Out,
   
   // Add an appropriate TargetData instance for this module...
   Passes.add(new TargetData(*Target->getTargetData()));
+  
+  // Often if the programmer does not specify proper prototypes for the
+  // functions they are calling, they end up calling a vararg version of the
+  // function that does not get a body filled in (the real function has typed
+  // arguments).  This pass merges the two functions.
+  Passes.add(createFunctionResolvingPass());
   
   // Internalize symbols if export list is nonemty
   if (!exportList.empty())
@@ -317,7 +324,7 @@ LTO::optimize(Module *M, std::ostream &Out,
   // Run the code generator, if present.
   CodeGenPasses->doInitialization();
   for (Module::iterator I = M->begin(), E = M->end(); I != E; ++I) {
-    if (!I->isDeclaration())
+    if (!I->isExternal())
       CodeGenPasses->run(*I);
   }
   CodeGenPasses->doFinalization();
@@ -346,8 +353,6 @@ LTO::optimizeModules(const std::string &OutputFilename,
   for (unsigned i = 1, e = modules.size(); i != e; ++i)
     if (theLinker.LinkModules(bigOne, modules[i], errMsg))
       return LTO_MODULE_MERGE_FAILURE;
-  //  all modules have been handed off to the linker.
-  modules.clear();
 
   sys::Path FinalOutputPath(FinalOutputFilename);
   FinalOutputPath.eraseSuffix();
@@ -356,8 +361,7 @@ LTO::optimizeModules(const std::string &OutputFilename,
     std::string tempFileName(FinalOutputPath.c_str());
     tempFileName += "0.bc";
     std::ofstream Out(tempFileName.c_str(), io_mode);
-    OStream L(Out);
-    WriteBytecodeToFile(bigOne, L);
+    WriteBytecodeToFile(bigOne, Out, true);
   }
 
   // Strip leading underscore because it was added to match names
@@ -373,17 +377,17 @@ LTO::optimizeModules(const std::string &OutputFilename,
   std::string ErrMsg;
   sys::Path TempDir = sys::Path::GetTemporaryDirectory(&ErrMsg);
   if (TempDir.isEmpty()) {
-    cerr << "lto: " << ErrMsg << "\n";
+    std::cerr << "lto: " << ErrMsg << "\n";
     return LTO_WRITE_FAILURE;
   }
   sys::Path tmpAsmFilePath(TempDir);
   if (!tmpAsmFilePath.appendComponent("lto")) {
-    cerr << "lto: " << ErrMsg << "\n";
+    std::cerr << "lto: " << ErrMsg << "\n";
     TempDir.eraseFromDisk(true);
     return LTO_WRITE_FAILURE;
   }
   if (tmpAsmFilePath.createTemporaryFileOnDisk(&ErrMsg)) {
-    cerr << "lto: " << ErrMsg << "\n";
+    std::cerr << "lto: " << ErrMsg << "\n";
     TempDir.eraseFromDisk(true);
     return LTO_WRITE_FAILURE;
   }
@@ -410,8 +414,7 @@ LTO::optimizeModules(const std::string &OutputFilename,
     std::string tempFileName(FinalOutputPath.c_str());
     tempFileName += "1.bc";
     std::ofstream Out(tempFileName.c_str(), io_mode);
-    OStream L(Out);
-    WriteBytecodeToFile(bigOne, L);
+    WriteBytecodeToFile(bigOne, Out, true);
   }
 
   targetTriple = bigOne->getTargetTriple();
@@ -440,7 +443,7 @@ LTO::optimizeModules(const std::string &OutputFilename,
   args.push_back(0);
 
   if (sys::Program::ExecuteAndWait(gcc, &args[0], 0, 0, 1, &ErrMsg)) {
-    cerr << "lto: " << ErrMsg << "\n";
+    std::cerr << "lto: " << ErrMsg << "\n";
     return LTO_ASM_FAILURE;
   }
 
@@ -449,13 +452,6 @@ LTO::optimizeModules(const std::string &OutputFilename,
 
   return LTO_OPT_SUCCESS;
 }
-
-void LTO::printVersion() {
-    cl::PrintVersionMessage();
-}
-
-/// Unused pure-virtual destructor. Must remain empty.
-LinkTimeOptimizer::~LinkTimeOptimizer() {}
 
 /// Destruct LTO. Delete all modules, symbols and target.
 LTO::~LTO() {

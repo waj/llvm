@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "raiseallocs"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
@@ -20,17 +19,16 @@
 #include "llvm/Instructions.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CallSite.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/ADT/Statistic.h"
 using namespace llvm;
 
-STATISTIC(NumRaised, "Number of allocations raised");
-
 namespace {
+  Statistic<> NumRaised("raiseallocs", "Number of allocations raised");
+
   // RaiseAllocations - Turn %malloc and %free calls into the appropriate
   // instruction.
   //
-  class VISIBILITY_HIDDEN RaiseAllocations : public ModulePass {
+  class RaiseAllocations : public ModulePass {
     Function *MallocFunc;   // Functions in the module we are processing
     Function *FreeFunc;     // Initialized by doPassInitializationVirt
   public:
@@ -66,70 +64,52 @@ ModulePass *llvm::createRaiseAllocationsPass() {
 // function into the appropriate instruction.
 //
 void RaiseAllocations::doInitialization(Module &M) {
+  const FunctionType *MallocType =   // Get the type for malloc
+    FunctionType::get(PointerType::get(Type::SByteTy),
+                    std::vector<const Type*>(1, Type::ULongTy), false);
+
+  const FunctionType *FreeType =     // Get the type for free
+    FunctionType::get(Type::VoidTy,
+                   std::vector<const Type*>(1, PointerType::get(Type::SByteTy)),
+                      false);
 
   // Get Malloc and free prototypes if they exist!
-  MallocFunc = M.getFunction("malloc");
-  if (MallocFunc) {
-    const FunctionType* TyWeHave = MallocFunc->getFunctionType();
+  MallocFunc = M.getFunction("malloc", MallocType);
+  FreeFunc   = M.getFunction("free"  , FreeType);
 
-    // Get the expected prototype for malloc
-    const FunctionType *Malloc1Type = 
-      FunctionType::get(PointerType::get(Type::Int8Ty),
-                      std::vector<const Type*>(1, Type::Int64Ty), false);
-
-    // Chck to see if we got the expected malloc
-    if (TyWeHave != Malloc1Type) {
-      // Check to see if the prototype is wrong, giving us sbyte*(uint) * malloc
-      // This handles the common declaration of: 'void *malloc(unsigned);'
-      const FunctionType *Malloc2Type = 
-        FunctionType::get(PointerType::get(Type::Int8Ty),
-                          std::vector<const Type*>(1, Type::Int32Ty), false);
-      if (TyWeHave != Malloc2Type) {
-        // Check to see if the prototype is missing, giving us 
-        // sbyte*(...) * malloc
-        // This handles the common declaration of: 'void *malloc();'
-        const FunctionType *Malloc3Type = 
-          FunctionType::get(PointerType::get(Type::Int8Ty),
-                            std::vector<const Type*>(), true);
-        if (TyWeHave != Malloc3Type)
-          // Give up
-          MallocFunc = 0;
-      }
-    }
+  // Check to see if the prototype is wrong, giving us sbyte*(uint) * malloc
+  // This handles the common declaration of: 'void *malloc(unsigned);'
+  if (MallocFunc == 0) {
+    MallocType = FunctionType::get(PointerType::get(Type::SByteTy),
+                            std::vector<const Type*>(1, Type::UIntTy), false);
+    MallocFunc = M.getFunction("malloc", MallocType);
   }
 
-  FreeFunc = M.getFunction("free");
-  if (FreeFunc) {
-    const FunctionType* TyWeHave = FreeFunc->getFunctionType();
-    
-    // Get the expected prototype for void free(i8*)
-    const FunctionType *Free1Type = FunctionType::get(Type::VoidTy,
-        std::vector<const Type*>(1, PointerType::get(Type::Int8Ty)), false);
+  // Check to see if the prototype is missing, giving us sbyte*(...) * malloc
+  // This handles the common declaration of: 'void *malloc();'
+  if (MallocFunc == 0) {
+    MallocType = FunctionType::get(PointerType::get(Type::SByteTy),
+                                   std::vector<const Type*>(), true);
+    MallocFunc = M.getFunction("malloc", MallocType);
+  }
 
-    if (TyWeHave != Free1Type) {
-      // Check to see if the prototype was forgotten, giving us 
-      // void (...) * free
-      // This handles the common forward declaration of: 'void free();'
-      const FunctionType* Free2Type = FunctionType::get(Type::VoidTy, 
-        std::vector<const Type*>(),true);
+  // Check to see if the prototype was forgotten, giving us void (...) * free
+  // This handles the common forward declaration of: 'void free();'
+  if (FreeFunc == 0) {
+    FreeType = FunctionType::get(Type::VoidTy, std::vector<const Type*>(),true);
+    FreeFunc = M.getFunction("free", FreeType);
+  }
 
-      if (TyWeHave != Free2Type) {
-        // One last try, check to see if we can find free as 
-        // int (...)* free.  This handles the case where NOTHING was declared.
-        const FunctionType* Free3Type = FunctionType::get(Type::Int32Ty, 
-          std::vector<const Type*>(),true);
-        
-        if (TyWeHave != Free3Type) {
-          // Give up.
-          FreeFunc = 0;
-        }
-      }
-    }
+  // One last try, check to see if we can find free as 'int (...)* free'.  This
+  // handles the case where NOTHING was declared.
+  if (FreeFunc == 0) {
+    FreeType = FunctionType::get(Type::IntTy, std::vector<const Type*>(),true);
+    FreeFunc = M.getFunction("free", FreeType);
   }
 
   // Don't mess with locally defined versions of these functions...
-  if (MallocFunc && !MallocFunc->isDeclaration()) MallocFunc = 0;
-  if (FreeFunc && !FreeFunc->isDeclaration())     FreeFunc = 0;
+  if (MallocFunc && !MallocFunc->isExternal()) MallocFunc = 0;
+  if (FreeFunc && !FreeFunc->isExternal())     FreeFunc = 0;
 }
 
 // run - Transform calls into instructions...
@@ -159,13 +139,11 @@ bool RaiseAllocations::runOnModule(Module &M) {
 
           // If no prototype was provided for malloc, we may need to cast the
           // source size.
-          if (Source->getType() != Type::Int32Ty)
-            Source = 
-              CastInst::createIntegerCast(Source, Type::Int32Ty, false/*ZExt*/,
-                                          "MallocAmtCast", I);
+          if (Source->getType() != Type::UIntTy)
+            Source = new CastInst(Source, Type::UIntTy, "MallocAmtCast", I);
 
           std::string Name(I->getName()); I->setName("");
-          MallocInst *MI = new MallocInst(Type::Int8Ty, Source, Name, I);
+          MallocInst *MI = new MallocInst(Type::SByteTy, Source, Name, I);
           I->replaceAllUsesWith(MI);
 
           // If the old instruction was an invoke, add an unconditional branch
@@ -182,7 +160,7 @@ bool RaiseAllocations::runOnModule(Module &M) {
         Users.insert(Users.end(), GV->use_begin(), GV->use_end());
         EqPointers.push_back(GV);
       } else if (ConstantExpr *CE = dyn_cast<ConstantExpr>(U)) {
-        if (CE->isCast()) {
+        if (CE->getOpcode() == Instruction::Cast) {
           Users.insert(Users.end(), CE->use_begin(), CE->use_end());
           EqPointers.push_back(CE);
         }
@@ -213,8 +191,8 @@ bool RaiseAllocations::runOnModule(Module &M) {
           //
           Value *Source = *CS.arg_begin();
           if (!isa<PointerType>(Source->getType()))
-            Source = new IntToPtrInst(Source, PointerType::get(Type::Int8Ty), 
-                                      "FreePtrCast", I);
+            Source = new CastInst(Source, PointerType::get(Type::SByteTy),
+                                  "FreePtrCast", I);
           new FreeInst(Source, I);
 
           // If the old instruction was an invoke, add an unconditional branch
@@ -233,7 +211,7 @@ bool RaiseAllocations::runOnModule(Module &M) {
         Users.insert(Users.end(), GV->use_begin(), GV->use_end());
         EqPointers.push_back(GV);
       } else if (ConstantExpr *CE = dyn_cast<ConstantExpr>(U)) {
-        if (CE->isCast()) {
+        if (CE->getOpcode() == Instruction::Cast) {
           Users.insert(Users.end(), CE->use_begin(), CE->use_end());
           EqPointers.push_back(CE);
         }

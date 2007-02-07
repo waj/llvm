@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -deadargelim | llvm-dis | not grep DEAD
+; RUN: llvm-as < %s | opt -deadargelim | llvm-dis | not grep DEAD
 
 implementation
 

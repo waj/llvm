@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llvm-dis > %t1.ll
+; RUN: llvm-as %s -o - | llvm-dis > %t1.ll
 ; RUN: llvm-as %t1.ll -o - | llvm-dis > %t2.ll
 ; RUN: diff %t1.ll %t2.ll
 
@@ -12,13 +12,13 @@ uint %test_extractelement(<4 x uint> %V) {
         ret <4 x uint> %R
 }
 
-<4 x uint> %test_shufflevector_u(<4 x uint> %V) {
+<4 x uint> %test_shufflevector(<4 x uint> %V) {
         %R = shufflevector <4 x uint> %V, <4 x uint> %V, 
                   <4 x uint> < uint 1, uint undef, uint 7, uint 2>
         ret <4 x uint> %R
 }
 
-<4 x float> %test_shufflevector_f(<4 x float> %V) {
+<4 x float> %test_shufflevector(<4 x float> %V) {
         %R = shufflevector <4 x float> %V, <4 x float> undef, 
                   <4 x uint> < uint 1, uint undef, uint 7, uint 2>
         ret <4 x float> %R

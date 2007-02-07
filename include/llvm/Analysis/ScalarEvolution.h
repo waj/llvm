@@ -22,7 +22,6 @@
 #define LLVM_ANALYSIS_SCALAREVOLUTION_H
 
 #include "llvm/Pass.h"
-#include "llvm/Support/Streams.h"
 #include <set>
 
 namespace llvm {
@@ -98,7 +97,6 @@ namespace llvm {
     /// specified stream.  This should really only be used for debugging
     /// purposes.
     virtual void print(std::ostream &OS) const = 0;
-    void print(std::ostream *OS) const { if (OS) print(*OS); }
 
     /// dump - This method is used for debugging.
     ///
@@ -123,7 +121,6 @@ namespace llvm {
     virtual const Type *getType() const;
     virtual bool hasComputableLoopEvolution(const Loop *L) const;
     virtual void print(std::ostream &OS) const;
-    void print(std::ostream *OS) const { if (OS) print(*OS); }
     virtual SCEVHandle
     replaceSymbolicValuesWithConcrete(const SCEVHandle &Sym,
                                       const SCEVHandle &Conc) const;
@@ -235,9 +232,6 @@ namespace llvm {
     virtual void releaseMemory();
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
     virtual void print(std::ostream &OS, const Module* = 0) const;
-    void print(std::ostream *OS, const Module* M = 0) const {
-      if (OS) print(*OS, M);
-    }
   };
 }
 

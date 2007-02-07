@@ -16,6 +16,7 @@
 #define LLVM_TRANSFORMS_UTILS_LOCAL_H
 
 #include "llvm/Function.h"
+#include "llvm/Analysis/ConstantFolding.h"
 
 namespace llvm {
 
@@ -23,7 +24,6 @@ class Pass;
 class PHINode;
 class AllocaInst;
 class ConstantExpr;
-class TargetData;
 
 //===----------------------------------------------------------------------===//
 //  Local constant propagation...
@@ -32,7 +32,7 @@ class TargetData;
 /// doConstantPropagation - Constant prop a specific instruction.  Returns true
 /// and potentially moves the iterator if constant propagation was performed.
 ///
-bool doConstantPropagation(BasicBlock::iterator &I, const TargetData *TD = 0);
+bool doConstantPropagation(BasicBlock::iterator &I);
 
 /// ConstantFoldTerminator - If a terminator instruction is predicated on a
 /// constant value, convert it into an unconditional branch to the constant
@@ -40,6 +40,28 @@ bool doConstantPropagation(BasicBlock::iterator &I, const TargetData *TD = 0);
 /// basic block must have their PHI nodes updated.
 ///
 bool ConstantFoldTerminator(BasicBlock *BB);
+
+/// ConstantFoldInstruction - Attempt to constant fold the specified
+/// instruction.  If successful, the constant result is returned, if not, null
+/// is returned.  Note that this function can only fail when attempting to fold
+/// instructions like loads and stores, which have no constant expression form.
+///
+Constant *ConstantFoldInstruction(Instruction *I);
+
+/// ConstantFoldInstOperands - Attempt to constant fold an instruction with the
+/// specified opcode and operands.  If successful, the constant result is
+/// returned, if not, null is returned.  Note that this function can fail when
+/// attempting to fold instructions like loads and stores, which have no
+/// constant expression form.
+///
+Constant *ConstantFoldInstOperands(unsigned Opc, const Type *DestTy,
+                                   const std::vector<Constant*> &Ops);
+
+
+/// ConstantFoldLoadThroughGEPConstantExpr - Given a constant and a
+/// getelementptr constantexpr, return the constant value being addressed by the
+/// constant expression, or null if something is funny and we can't decide.
+Constant *ConstantFoldLoadThroughGEPConstantExpr(Constant *C, ConstantExpr *CE);
 
 //===----------------------------------------------------------------------===//
 //  Local dead code elimination...

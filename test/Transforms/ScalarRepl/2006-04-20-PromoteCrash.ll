@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -scalarrepl -disable-output
+; RUN: llvm-as < %s | opt -scalarrepl -disable-output
 
 void %output_toc() {
 entry:

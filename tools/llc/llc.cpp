@@ -24,8 +24,6 @@
 #include "llvm/PassManager.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compressor.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/PluginLoader.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Analysis/Verifier.h"
@@ -170,14 +168,12 @@ static std::ostream *GetOutputStream(const char *ProgName) {
 // main - Entry point for the llc compiler.
 //
 int main(int argc, char **argv) {
-  llvm_shutdown_obj X;  // Call llvm_shutdown() on exit.
   try {
     cl::ParseCommandLineOptions(argc, argv, " llvm system compiler\n");
     sys::PrintStackTraceOnErrorSignal();
 
     // Load the module to be compiled...
-    std::auto_ptr<Module> M(ParseBytecodeFile(InputFilename, 
-                                            Compressor::decompressToNewBuffer));
+    std::auto_ptr<Module> M(ParseBytecodeFile(InputFilename));
     if (M.get() == 0) {
       std::cerr << argv[0] << ": bytecode didn't read correctly.\n";
       return 1;
@@ -262,7 +258,7 @@ int main(int argc, char **argv) {
       // Run our queue of passes all at once now, efficiently.
       // TODO: this could lazily stream functions out of the module.
       for (Module::iterator I = mod.begin(), E = mod.end(); I != E; ++I)
-        if (!I->isDeclaration())
+        if (!I->isExternal())
           Passes.run(*I);
       
       Passes.doFinalization();

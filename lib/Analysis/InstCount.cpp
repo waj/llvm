@@ -11,31 +11,26 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "instcount"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Pass.h"
 #include "llvm/Function.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/InstVisitor.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/ADT/Statistic.h"
-#include <ostream>
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(TotalInsts , "Number of instructions (of all types)");
-STATISTIC(TotalBlocks, "Number of basic blocks");
-STATISTIC(TotalFuncs , "Number of non-external functions");
-STATISTIC(TotalMemInst, "Number of memory instructions");
+namespace {
+  Statistic<> TotalInsts ("instcount", "Number of instructions (of all types)");
+  Statistic<> TotalBlocks("instcount", "Number of basic blocks");
+  Statistic<> TotalFuncs ("instcount", "Number of non-external functions");
+  Statistic<> TotalMemInst("instcount", "Number of memory instructions");
 
 #define HANDLE_INST(N, OPCODE, CLASS) \
-  STATISTIC(Num ## OPCODE ## Inst, "Number of " #OPCODE " insts");
+    Statistic<> Num##OPCODE##Inst("instcount", "Number of " #OPCODE " insts");
 
 #include "llvm/Instruction.def"
 
-
-namespace {
-  class VISIBILITY_HIDDEN InstCount 
-      : public FunctionPass, public InstVisitor<InstCount> {
+  class InstCount : public FunctionPass, public InstVisitor<InstCount> {
     friend class InstVisitor<InstCount>;
 
     void visitFunction  (Function &F) { ++TotalFuncs; }
@@ -47,7 +42,7 @@ namespace {
 #include "llvm/Instruction.def"
 
     void visitInstruction(Instruction &I) {
-      cerr << "Instruction Count does not know about " << I;
+      std::cerr << "Instruction Count does not know about " << I;
       abort();
     }
   public:

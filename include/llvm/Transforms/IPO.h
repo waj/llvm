@@ -21,7 +21,6 @@ namespace llvm {
 
 class FunctionPass;
 class ModulePass;
-class Pass;
 class Function;
 class BasicBlock;
 
@@ -82,21 +81,33 @@ ModulePass *createGlobalDCEPass();
 /// the specified function. Otherwise, it deletes as much of the module as
 /// possible, except for the function specified.
 ///
-ModulePass *createFunctionExtractionPass(Function *F, bool deleteFn = false,
-                                         bool relinkCallees = false);
+ModulePass *createFunctionExtractionPass(Function *F, bool deleteFn = false);
 
+
+//===----------------------------------------------------------------------===//
+/// FunctionResolvingPass - Go over the functions that are in the module and
+/// look for functions that have the same name.  More often than not, there will
+/// be things like:
+///    void "foo"(...)
+///    void "foo"(int, int)
+/// because of the way things are declared in C.  If this is the case, patch
+/// things up.
+///
+/// This is an interprocedural pass.
+///
+ModulePass *createFunctionResolvingPass();
 
 //===----------------------------------------------------------------------===//
 /// createFunctionInliningPass - Return a new pass object that uses a heuristic
 /// to inline direct function calls to small functions.
 ///
-Pass *createFunctionInliningPass();
+ModulePass *createFunctionInliningPass();
 
 //===----------------------------------------------------------------------===//
 /// createPruneEHPass - Return a new pass object which transforms invoke
 /// instructions into calls, if the callee can _not_ unwind the stack.
 ///
-Pass *createPruneEHPass();
+ModulePass *createPruneEHPass();
 
 //===----------------------------------------------------------------------===//
 /// createInternalizePass - This pass loops over all of the functions in the
@@ -123,7 +134,7 @@ ModulePass *createDeadArgHackingPass();
 /// createArgumentPromotionPass - This pass promotes "by reference" arguments to
 /// be passed by value.
 ///
-Pass *createArgumentPromotionPass();
+ModulePass *createArgumentPromotionPass();
 
 //===----------------------------------------------------------------------===//
 /// createIPConstantPropagationPass - This pass propagates constants from call
@@ -150,23 +161,19 @@ FunctionPass *createLoopExtractorPass();
 ///
 FunctionPass *createSingleLoopExtractorPass();
 
-/// createBlockExtractorPass - This pass extracts all blocks (except those
-/// specified in the argument list) from the functions in the module.
-///
+// createBlockExtractorPass - This pass extracts all blocks (except those
+// specified in the argument list) from the functions in the module.
+//
 ModulePass *createBlockExtractorPass(std::vector<BasicBlock*> &BTNE);
 
-/// createOptimizeWellKnownCallsPass - This pass optimizes specific calls to
-/// specific well-known (library) functions.
+// createOptimizeWellKnownCallsPass - This pass optimizes specific calls to
+// specific well-known (library) functions.
 ModulePass *createSimplifyLibCallsPass();
 
 
-/// createIndMemRemPass - This pass removes potential indirect calls of
-/// malloc and free
+// createIndMemRemPass - This pass removes potential indirect calls of
+// malloc and free
 ModulePass *createIndMemRemPass();
-
-/// createStripDeadPrototypesPass - This pass removes any function declarations
-/// (prototypes) that are not used.
-ModulePass *createStripDeadPrototypesPass();
 
 } // End llvm namespace
 

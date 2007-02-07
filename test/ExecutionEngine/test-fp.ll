@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade %s | llvm-as -f -o %t.bc
+; RUN: llvm-as -f %s -o %t.bc
 ; RUN: lli %t.bc > /dev/null
 
 
@@ -18,7 +18,6 @@ double %test(double* %DP, double %Arg) {
 
 int %main() { 
   %X = alloca double
-  store double 0.0, double* %X
   call double %test(double* %X, double 2.0)
   ret int 0 
 }

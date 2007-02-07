@@ -14,7 +14,6 @@
 #include "llvm/AbstractTypeUser.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/DataTypes.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/iterator"
 #include <string>
@@ -22,9 +21,13 @@
 
 namespace llvm {
 
+class ArrayType;
 class DerivedType;
+class FunctionType;
+class OpaqueType;
 class PointerType;
-class IntegerType;
+class StructType;
+class PackedType;
 class TypeMapBase;
 
 /// This file contains the declaration of the Type class.  For more "Type" type
@@ -59,7 +62,7 @@ class TypeMapBase;
 /// @brief Root of type hierarchy
 class Type : public AbstractTypeUser {
 public:
-  //===-------------------------------------------------------------------===//
+  ///===-------------------------------------------------------------------===//
   /// Definitions of all of the base types for the Type system.  Based on this
   /// value, you can cast to a "DerivedType" subclass (see DerivedTypes.h)
   /// Note: If you add an element to this, you need to add an element to the
@@ -67,31 +70,30 @@ public:
   ///
   enum TypeID {
     // PrimitiveTypes .. make sure LastPrimitiveTyID stays up to date
-    VoidTyID = 0,    ///<  0: type with no size
-    FloatTyID,       ///<  1: 32 bit floating point type
-    DoubleTyID,      ///<  2: 64 bit floating point type
-    LabelTyID,       ///<  3: Labels
+    VoidTyID = 0  , BoolTyID,           //  0, 1: Basics...
+    UByteTyID     , SByteTyID,          //  2, 3: 8 bit types...
+    UShortTyID    , ShortTyID,          //  4, 5: 16 bit types...
+    UIntTyID      , IntTyID,            //  6, 7: 32 bit types...
+    ULongTyID     , LongTyID,           //  8, 9: 64 bit types...
+    FloatTyID     , DoubleTyID,         // 10,11: Floating point types...
+    LabelTyID     ,                     // 12   : Labels...
 
     // Derived types... see DerivedTypes.h file...
     // Make sure FirstDerivedTyID stays up to date!!!
-    IntegerTyID,     ///<  4: Arbitrary bit width integers
-    FunctionTyID,    ///<  5: Functions
-    StructTyID,      ///<  6: Structures
-    PackedStructTyID,///<  7: Packed Structure. This is for bytecode only
-    ArrayTyID,       ///<  8: Arrays
-    PointerTyID,     ///<  9: Pointers
-    OpaqueTyID,      ///< 10: Opaque: type with unknown structure
-    PackedTyID,      ///< 11: SIMD 'packed' format, or other vector type
+    FunctionTyID  , StructTyID,         // Functions... Structs...
+    ArrayTyID     , PointerTyID,        // Array... pointer...
+    OpaqueTyID,                         // Opaque type instances...
+    PackedTyID,                         // SIMD 'packed' format...
+    //...
 
     NumTypeIDs,                         // Must remain as last defined ID
     LastPrimitiveTyID = LabelTyID,
-    FirstDerivedTyID = IntegerTyID
+    FirstDerivedTyID = FunctionTyID
   };
 
 private:
   TypeID   ID : 8;    // The current base type of this type.
   bool     Abstract : 1;  // True if type contains an OpaqueType
-  unsigned SubclassData : 23; //Space for subclasses to store data
 
   /// RefCount - This counts the number of PATypeHolders that are pointing to
   /// this type.  When this number falls to zero, if the type is abstract and
@@ -103,8 +105,7 @@ private:
   const Type *getForwardedTypeInternal() const;
 protected:
   Type(const char *Name, TypeID id);
-  Type(TypeID id) : ID(id), Abstract(false), SubclassData(0), RefCount(0), 
-                    ForwardType(0) {}
+  Type(TypeID id) : ID(id), Abstract(false), RefCount(0), ForwardType(0) {}
   virtual ~Type() {
     assert(AbstractTypeUsers.empty());
   }
@@ -114,9 +115,6 @@ protected:
   inline void setAbstract(bool Val) { Abstract = Val; }
 
   unsigned getRefCount() const { return RefCount; }
-
-  unsigned getSubclassData() const { return SubclassData; }
-  void setSubclassData(unsigned val) { SubclassData = val; }
 
   /// ForwardType - This field is used to implement the union find scheme for
   /// abstract types.  When types are refined to other types, this field is set
@@ -138,7 +136,6 @@ protected:
   mutable std::vector<AbstractTypeUser *> AbstractTypeUsers;
 public:
   void print(std::ostream &O) const;
-  void print(std::ostream *O) const { if (O) print(*O); }
 
   /// @brief Debugging support: print to stderr
   void dump() const;
@@ -156,9 +153,33 @@ public:
   /// getDescription - Return the string representation of the type...
   const std::string &getDescription() const;
 
-  /// isInteger - True if this is an instance of IntegerType.
+  /// isSigned - Return whether an integral numeric type is signed.  This is
+  /// true for SByteTy, ShortTy, IntTy, LongTy.  Note that this is not true for
+  /// Float and Double.
   ///
-  bool isInteger() const { return ID == IntegerTyID; } 
+  bool isSigned() const {
+    return ID == SByteTyID || ID == ShortTyID ||
+           ID == IntTyID || ID == LongTyID;
+  }
+
+  /// isUnsigned - Return whether a numeric type is unsigned.  This is not quite
+  /// the complement of isSigned... nonnumeric types return false as they do
+  /// with isSigned.  This returns true for UByteTy, UShortTy, UIntTy, and
+  /// ULongTy
+  ///
+  bool isUnsigned() const {
+    return ID == UByteTyID || ID == UShortTyID ||
+           ID == UIntTyID || ID == ULongTyID;
+  }
+
+  /// isInteger - Equivalent to isSigned() || isUnsigned()
+  ///
+  bool isInteger() const { return ID >= UByteTyID && ID <= LongTyID; }
+
+  /// isIntegral - Returns true if this is an integral type, which is either
+  /// BoolTy or one of the Integer types.
+  ///
+  bool isIntegral() const { return isInteger() || this == BoolTy; }
 
   /// isFloatingPoint - Return true if this is one of the two floating point
   /// types
@@ -173,12 +194,10 @@ public:
   ///
   inline bool isAbstract() const { return Abstract; }
 
-  /// canLosslesslyBitCastTo - Return true if this type could be converted 
-  /// with a lossless BitCast to type 'Ty'. For example, uint to int. BitCasts 
-  /// are valid for types of the same size only where no re-interpretation of 
-  /// the bits is done.
-  /// @brief Determine if this type could be losslessly bitcast to Ty
-  bool canLosslesslyBitCastTo(const Type *Ty) const;
+  /// isLosslesslyConvertibleTo - Return true if this type can be converted to
+  /// 'Ty' without any reinterpretation of bits.  For example, uint to int.
+  ///
+  bool isLosslesslyConvertibleTo(const Type *Ty) const;
 
 
   /// Here are some useful little methods to query what type derived types are
@@ -191,7 +210,7 @@ public:
   ///
   inline bool isFirstClassType() const {
     return (ID != VoidTyID && ID <= LastPrimitiveTyID) ||
-            ID == IntegerTyID || ID == PointerTyID || ID == PackedTyID;
+            ID == PointerTyID || ID == PackedTyID;
   }
 
   /// isSized - Return true if it makes sense to take the size of this type.  To
@@ -200,12 +219,11 @@ public:
   ///
   bool isSized() const {
     // If it's a primitive, it is always sized.
-    if (ID == IntegerTyID || isFloatingPoint() || ID == PointerTyID)
+    if (ID >= BoolTyID && ID <= DoubleTyID || ID == PointerTyID)
       return true;
     // If it is not something that can have a size (e.g. a function or label),
     // it doesn't have a size.
-    if (ID != StructTyID && ID != ArrayTyID && ID != PackedTyID &&
-        ID != PackedStructTyID)
+    if (ID != StructTyID && ID != ArrayTyID && ID != PackedTyID)
       return false;
     // If it is something that can have a size and it's concrete, it definitely
     // has a size, otherwise we have to try harder to decide.
@@ -216,7 +234,24 @@ public:
   /// type.  These are fixed by LLVM and are not target dependent.  This will
   /// return zero if the type does not have a size or is not a primitive type.
   ///
+  unsigned getPrimitiveSize() const;
   unsigned getPrimitiveSizeInBits() const;
+
+  /// getUnsignedVersion - If this is an integer type, return the unsigned
+  /// variant of this type.  For example int -> uint.
+  const Type *getUnsignedVersion() const;
+
+  /// getSignedVersion - If this is an integer type, return the signed variant
+  /// of this type.  For example uint -> int.
+  const Type *getSignedVersion() const;
+  
+  /// getIntegralTypeMask - Return a bitmask with ones set for all of the bits
+  /// that can be set by an unsigned version of this type.  This is 0xFF for
+  /// sbyte/ubyte, 0xFFFF for shorts, etc.
+  uint64_t getIntegralTypeMask() const {
+    assert(isIntegral() && "This only works for integral types!");
+    return ~uint64_t(0UL) >> (64-getPrimitiveSizeInBits());
+  }
 
   /// getForwaredType - Return the type that this type has been resolved to if
   /// it has been resolved to anything.  This is used to implement the
@@ -230,7 +265,16 @@ public:
   /// getVAArgsPromotedType - Return the type an argument of this type
   /// will be promoted to if passed through a variable argument
   /// function.
-  const Type *getVAArgsPromotedType() const; 
+  const Type *getVAArgsPromotedType() const {
+    if (ID == BoolTyID || ID == UByteTyID || ID == UShortTyID)
+      return Type::UIntTy;
+    else if (ID == SByteTyID || ID == ShortTyID)
+      return Type::IntTy;
+    else if (ID == FloatTyID)
+      return Type::DoubleTy;
+    else
+      return this;
+  }
 
   //===--------------------------------------------------------------------===//
   // Type Iteration support
@@ -264,8 +308,14 @@ public:
   //===--------------------------------------------------------------------===//
   // These are the builtin types that are always available...
   //
-  static const Type *VoidTy, *LabelTy, *FloatTy, *DoubleTy;
-  static const IntegerType *Int1Ty, *Int8Ty, *Int16Ty, *Int32Ty, *Int64Ty;
+  static Type *VoidTy , *BoolTy;
+  static Type *SByteTy, *UByteTy,
+              *ShortTy, *UShortTy,
+              *IntTy  , *UIntTy,
+              *LongTy , *ULongTy;
+  static Type *FloatTy, *DoubleTy;
+
+  static Type* LabelTy;
 
   /// Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Type *T) { return true; }

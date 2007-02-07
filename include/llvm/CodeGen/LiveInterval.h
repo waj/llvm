@@ -22,7 +22,6 @@
 #define LLVM_CODEGEN_LIVEINTERVAL_H
 
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Streams.h"
 #include <iosfwd>
 #include <vector>
 #include <cassert>
@@ -56,15 +55,11 @@ namespace llvm {
     }
 
     void dump() const;
-    void print(std::ostream &os) const;
-    void print(std::ostream *os) const { if (os) print(*os); }
 
   private:
     LiveRange(); // DO NOT IMPLEMENT
   };
-
   std::ostream& operator<<(std::ostream& os, const LiveRange &LR);
-
 
   inline bool operator<(unsigned V, const LiveRange &LR) {
     return V < LR.start;
@@ -249,18 +244,11 @@ namespace llvm {
     /// the range must already be in this interval in its entirety.
     void removeRange(unsigned Start, unsigned End);
 
-    void removeRange(LiveRange LR) {
-      removeRange(LR.start, LR.end);
-    }
-
     bool operator<(const LiveInterval& other) const {
       return beginNumber() < other.beginNumber();
     }
 
     void print(std::ostream &OS, const MRegisterInfo *MRI = 0) const;
-    void print(std::ostream *OS, const MRegisterInfo *MRI = 0) const {
-      if (OS) print(*OS, MRI);
-    }
     void dump() const;
 
   private:

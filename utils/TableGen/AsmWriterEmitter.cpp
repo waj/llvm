@@ -19,6 +19,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include <algorithm>
+#include <ostream>
 using namespace llvm;
 
 static bool isIdentChar(char C) {
@@ -219,11 +220,16 @@ AsmWriterInst::AsmWriterInst(const CodeGenInstruction &CGI, unsigned Variant) {
         unsigned OpNo = CGI.getOperandNamed(VarName);
         CodeGenInstruction::OperandInfo OpInfo = CGI.OperandList[OpNo];
 
-        if (CurVariant == Variant || CurVariant == ~0U) {
-          unsigned MIOp = OpInfo.MIOperandNo;
+        // If this is a two-address instruction, verify the second operand isn't
+        // used.
+        unsigned MIOp = OpInfo.MIOperandNo;
+        if (CGI.isTwoAddress && MIOp == 1)
+          throw "Should refer to operand #0 instead of #1 for two-address"
+                " instruction '" + CGI.TheDef->getName() + "'!";
+        
+        if (CurVariant == Variant || CurVariant == ~0U) 
           Operands.push_back(AsmWriterOperand(OpInfo.PrinterMethodName, MIOp,
                                               Modifier));
-        }
       }
       LastEmitted = VarEnd;
     }
@@ -344,7 +350,7 @@ FindUniqueOperandCommands(std::vector<std::string> &UniqueOperandCommands,
   
   for (unsigned i = 0, e = NumberedInstructions.size(); i != e; ++i) {
     const AsmWriterInst *Inst = getAsmWriterInstByID(i);
-    if (Inst == 0) continue;  // PHI, INLINEASM, LABEL, etc.
+    if (Inst == 0) continue;  // PHI, INLINEASM, etc.
     
     std::string Command;
     if (Inst->Operands.empty())
@@ -550,8 +556,8 @@ void AsmWriterEmitter::run(std::ostream &O) {
     
     // If we don't have enough bits for this operand, don't include it.
     if (NumBits > BitsLeft) {
-      DOUT << "Not enough bits to densely encode " << NumBits
-           << " more bits\n";
+      DEBUG(std::cerr << "Not enough bits to densely encode " << NumBits
+                      << " more bits\n");
       break;
     }
     
@@ -620,9 +626,6 @@ void AsmWriterEmitter::run(std::ostream &O) {
 
   O << "  if (MI->getOpcode() == TargetInstrInfo::INLINEASM) {\n"
     << "    printInlineAsm(MI);\n"
-    << "    return true;\n"
-    << "  } else if (MI->getOpcode() == TargetInstrInfo::LABEL) {\n"
-    << "    printLabel(MI);\n"
     << "    return true;\n"
     << "  }\n\n";
   

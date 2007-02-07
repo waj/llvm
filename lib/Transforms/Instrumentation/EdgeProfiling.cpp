@@ -17,20 +17,19 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "ProfilingUtils.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Instrumentation.h"
+#include "ProfilingUtils.h"
+#include <iostream>
 #include <set>
 using namespace llvm;
 
 namespace {
-  class VISIBILITY_HIDDEN EdgeProfiler : public ModulePass {
+  class EdgeProfiler : public ModulePass {
     bool runOnModule(Module &M);
   };
 
@@ -41,10 +40,10 @@ namespace {
 ModulePass *llvm::createEdgeProfilerPass() { return new EdgeProfiler(); }
 
 bool EdgeProfiler::runOnModule(Module &M) {
-  Function *Main = M.getFunction("main");
+  Function *Main = M.getMainFunction();
   if (Main == 0) {
-    cerr << "WARNING: cannot insert edge profiling into a module"
-         << " with no main function!\n";
+    std::cerr << "WARNING: cannot insert edge profiling into a module"
+              << " with no main function!\n";
     return false;  // No main, no instrumentation!
   }
 
@@ -59,7 +58,7 @@ bool EdgeProfiler::runOnModule(Module &M) {
       NumEdges += BB->getTerminator()->getNumSuccessors();
     }
 
-  const Type *ATy = ArrayType::get(Type::Int32Ty, NumEdges);
+  const Type *ATy = ArrayType::get(Type::UIntTy, NumEdges);
   GlobalVariable *Counters =
     new GlobalVariable(ATy, false, GlobalValue::InternalLinkage,
                        Constant::getNullValue(ATy), "EdgeProfCounters", &M);

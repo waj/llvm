@@ -19,7 +19,6 @@
 #include "llvm/Instructions.h"
 #include "llvm/Pass.h"
 #include "llvm/Type.h"
-#include "llvm/Support/Compiler.h"
 using namespace llvm;
 
 // Register the ValueNumbering interface, providing a nice name to refer to.
@@ -49,8 +48,7 @@ namespace {
   /// lexically identical expressions.  This does not require any ahead of time
   /// analysis, so it is a very fast default implementation.
   ///
-  struct VISIBILITY_HIDDEN BasicVN 
-      : public ImmutablePass, public ValueNumbering {
+  struct BasicVN : public ImmutablePass, public ValueNumbering {
     /// getEqualNumberNodes - Return nodes with the same value number as the
     /// specified Value.  This fills in the argument vector with any equal
     /// values.
@@ -71,13 +69,12 @@ namespace {
   /// BVNImpl - Implement BasicVN in terms of a visitor class that
   /// handles the different types of instructions as appropriate.
   ///
-  struct VISIBILITY_HIDDEN BVNImpl : public InstVisitor<BVNImpl> {
+  struct BVNImpl : public InstVisitor<BVNImpl> {
     std::vector<Value*> &RetVals;
     BVNImpl(std::vector<Value*> &RV) : RetVals(RV) {}
 
     void visitCastInst(CastInst &I);
     void visitGetElementPtrInst(GetElementPtrInst &I);
-    void visitCmpInst(CmpInst &I);
 
     void handleBinaryInst(Instruction &I);
     void visitBinaryOperator(Instruction &I)     { handleBinaryInst(I); }
@@ -115,10 +112,8 @@ void BVNImpl::visitCastInst(CastInst &CI) {
   for (Value::use_iterator UI = Op->use_begin(), UE = Op->use_end();
        UI != UE; ++UI)
     if (CastInst *Other = dyn_cast<CastInst>(*UI))
-      // Check that the opcode is the same
-      if (Other->getOpcode() == Instruction::CastOps(I.getOpcode()) &&
-          // Check that the destination types are the same
-          Other->getType() == I.getType() &&
+      // Check that the types are the same, since this code handles casts...
+      if (Other->getType() == I.getType() &&
           // Is it embedded in the same function?  (This could be false if LHS
           // is a constant or global!)
           Other->getParent()->getParent() == F &&
@@ -128,28 +123,6 @@ void BVNImpl::visitCastInst(CastInst &CI) {
         RetVals.push_back(Other);
       }
 }
-
-void  BVNImpl::visitCmpInst(CmpInst &CI1) {
-  Value *LHS = CI1.getOperand(0);
-  for (Value::use_iterator UI = LHS->use_begin(), UE = LHS->use_end();
-       UI != UE; ++UI)
-    if (CmpInst *CI2 = dyn_cast<CmpInst>(*UI))
-      // Check to see if this compare instruction is not CI, but same opcode,
-      // same predicate, and in the same function.
-      if (CI2 != &CI1 && CI2->getOpcode() == CI1.getOpcode() &&
-          CI2->getPredicate() == CI1.getPredicate() &&
-          CI2->getParent()->getParent() == CI1.getParent()->getParent())
-        // If the operands are the same
-        if ((CI2->getOperand(0) == CI1.getOperand(0) &&
-            CI2->getOperand(1) == CI1.getOperand(1)) ||
-            // Or the compare is commutative and the operands are reversed 
-            (CI1.isCommutative() && 
-             CI2->getOperand(0) == CI1.getOperand(1) &&
-             CI2->getOperand(1) == CI1.getOperand(0)))
-          // Then the instructiosn are identical, add to list.
-          RetVals.push_back(CI2);
-}
-
 
 
 // isIdenticalBinaryInst - Return true if the two binary instructions are
@@ -162,11 +135,6 @@ static inline bool isIdenticalBinaryInst(const Instruction &I1,
   if (I1.getOpcode() != I2->getOpcode() ||
       I1.getParent()->getParent() != I2->getParent()->getParent())
     return false;
-
-  // If they are CmpInst instructions, check their predicates
-  if (CmpInst *CI1 = dyn_cast<CmpInst>(&const_cast<Instruction&>(I1)))
-    if (CI1->getPredicate() != cast<CmpInst>(I2)->getPredicate())
-      return false;
 
   // They are identical if both operands are the same!
   if (I1.getOperand(0) == I2->getOperand(0) &&

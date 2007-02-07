@@ -165,11 +165,11 @@ std::string DOTGraphTraits<SelectionDAG*>::getNodeLabel(const SDNode *Node,
     if (doExt)
       Op = Op + MVT::getValueTypeString(LD->getLoadedVT()) + ">";
 
-    Op += LD->getIndexedModeName(LD->getAddressingMode());
+    Op += LD->getAddressingModeName(LD->getAddressingMode());
   } else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(Node)) {
     if (ST->isTruncatingStore())
       Op = Op + "<trunc " + MVT::getValueTypeString(ST->getStoredVT()) + ">";
-    Op += ST->getIndexedModeName(ST->getAddressingMode());
+    Op += ST->getAddressingModeName(ST->getAddressingMode());
   }
   
   return Op;
@@ -184,8 +184,8 @@ void SelectionDAG::viewGraph() {
 #ifndef NDEBUG
   ViewGraph(this, "dag." + getMachineFunction().getFunction()->getName());
 #else
-  cerr << "SelectionDAG::viewGraph is only available in debug builds on "
-       << "systems with Graphviz or gv!\n";
+  std::cerr << "SelectionDAG::viewGraph is only available in debug builds on "
+            << "systems with Graphviz or gv!\n";
 #endif  // NDEBUG
 }
 
@@ -196,8 +196,8 @@ void SelectionDAG::clearGraphAttrs() {
 #ifndef NDEBUG
   NodeGraphAttrs.clear();
 #else
-  cerr << "SelectionDAG::clearGraphAttrs is only available in debug builds"
-       << " on systems with Graphviz or gv!\n";
+  std::cerr << "SelectionDAG::clearGraphAttrs is only available in debug builds"
+            << " on systems with Graphviz or gv!\n";
 #endif
 }
 
@@ -208,8 +208,8 @@ void SelectionDAG::setGraphAttrs(const SDNode *N, const char *Attrs) {
 #ifndef NDEBUG
   NodeGraphAttrs[N] = Attrs;
 #else
-  cerr << "SelectionDAG::setGraphAttrs is only available in debug builds"
-       << " on systems with Graphviz or gv!\n";
+  std::cerr << "SelectionDAG::setGraphAttrs is only available in debug builds"
+            << " on systems with Graphviz or gv!\n";
 #endif
 }
 
@@ -226,8 +226,8 @@ const std::string SelectionDAG::getGraphAttrs(const SDNode *N) const {
   else
     return "";
 #else
-  cerr << "SelectionDAG::getGraphAttrs is only available in debug builds"
-       << " on systems with Graphviz or gv!\n";
+  std::cerr << "SelectionDAG::getGraphAttrs is only available in debug builds"
+            << " on systems with Graphviz or gv!\n";
   return std::string("");
 #endif
 }
@@ -238,8 +238,8 @@ void SelectionDAG::setGraphColor(const SDNode *N, const char *Color) {
 #ifndef NDEBUG
   NodeGraphAttrs[N] = std::string("color=") + Color;
 #else
-  cerr << "SelectionDAG::setGraphColor is only available in debug builds"
-       << " on systems with Graphviz or gv!\n";
+  std::cerr << "SelectionDAG::setGraphColor is only available in debug builds"
+            << " on systems with Graphviz or gv!\n";
 #endif
 }
 

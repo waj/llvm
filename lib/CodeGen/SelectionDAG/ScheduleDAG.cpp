@@ -14,7 +14,6 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "sched"
-#include "llvm/Type.h"
 #include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -25,7 +24,9 @@
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
+#include <iostream>
 using namespace llvm;
+
 
 /// BuildSchedUnits - Build SUnits from the selection dag that we are input.
 /// This SUnit graph is similar to the SelectionDAG, but represents flagged
@@ -126,7 +127,8 @@ void ScheduleDAG::BuildSchedUnits() {
     if (MainNode->isTargetOpcode()) {
       unsigned Opc = MainNode->getTargetOpcode();
       for (unsigned i = 0, ee = TII->getNumOperands(Opc); i != ee; ++i) {
-        if (TII->getOperandConstraint(Opc, i, TOI::TIED_TO) != -1) {
+        if (TII->getOperandConstraint(Opc, i,
+                                      TargetInstrInfo::TIED_TO) != -1) {
           SU->isTwoAddress = true;
           break;
         }
@@ -269,8 +271,8 @@ static unsigned CreateVirtualRegisters(const MRegisterInfo *MRI,
 
 /// getVR - Return the virtual register corresponding to the specified result
 /// of the specified node.
-static unsigned getVR(SDOperand Op, DenseMap<SDNode*, unsigned> &VRBaseMap) {
-  DenseMap<SDNode*, unsigned>::iterator I = VRBaseMap.find(Op.Val);
+static unsigned getVR(SDOperand Op, std::map<SDNode*, unsigned> &VRBaseMap) {
+  std::map<SDNode*, unsigned>::iterator I = VRBaseMap.find(Op.Val);
   assert(I != VRBaseMap.end() && "Node emitted out of order - late");
   return I->second + Op.ResNo;
 }
@@ -283,7 +285,7 @@ static unsigned getVR(SDOperand Op, DenseMap<SDNode*, unsigned> &VRBaseMap) {
 void ScheduleDAG::AddOperand(MachineInstr *MI, SDOperand Op,
                              unsigned IIOpNum,
                              const TargetInstrDescriptor *II,
-                             DenseMap<SDNode*, unsigned> &VRBaseMap) {
+                             std::map<SDNode*, unsigned> &VRBaseMap) {
   if (Op.isTargetOpcode()) {
     // Note that this case is redundant with the final else block, but we
     // include it because it is the most common and it makes the logic
@@ -308,7 +310,7 @@ void ScheduleDAG::AddOperand(MachineInstr *MI, SDOperand Op,
   } else if (ConstantSDNode *C =
              dyn_cast<ConstantSDNode>(Op)) {
     MI->addImmOperand(C->getValue());
-  } else if (RegisterSDNode *R =
+  } else if (RegisterSDNode*R =
              dyn_cast<RegisterSDNode>(Op)) {
     MI->addRegOperand(R->getReg(), false);
   } else if (GlobalAddressSDNode *TGA =
@@ -330,11 +332,15 @@ void ScheduleDAG::AddOperand(MachineInstr *MI, SDOperand Op,
     const Type *Type = CP->getType();
     // MachineConstantPool wants an explicit alignment.
     if (Align == 0) {
-      Align = TM.getTargetData()->getPreferredTypeAlignmentShift(Type);
-      if (Align == 0) {
-        // Alignment of packed types.  FIXME!
-        Align = TM.getTargetData()->getTypeSize(Type);
-        Align = Log2_64(Align);
+      if (Type == Type::DoubleTy)
+        Align = 3;  // always 8-byte align doubles.
+      else {
+        Align = TM.getTargetData()->getTypeAlignmentShift(Type);
+        if (Align == 0) {
+          // Alignment of packed types.  FIXME!
+          Align = TM.getTargetData()->getTypeSize(Type);
+          Align = Log2_64(Align);
+        }
       }
     }
     
@@ -371,7 +377,7 @@ void ScheduleDAG::AddOperand(MachineInstr *MI, SDOperand Op,
 /// EmitNode - Generate machine code for an node and needed dependencies.
 ///
 void ScheduleDAG::EmitNode(SDNode *Node, 
-                           DenseMap<SDNode*, unsigned> &VRBaseMap) {
+                           std::map<SDNode*, unsigned> &VRBaseMap) {
   unsigned VRBase = 0;                 // First virtual register for node
   
   // If machine instruction
@@ -389,7 +395,7 @@ void ScheduleDAG::EmitNode(SDNode *Node,
 #endif
 
     // Create the new machine instruction.
-    MachineInstr *MI = new MachineInstr(II);
+    MachineInstr *MI = new MachineInstr(Opc, NumMIOperands);
     
     // Add result register values for things that are defined by this
     // instruction.
@@ -425,9 +431,9 @@ void ScheduleDAG::EmitNode(SDNode *Node,
     if (CommuteSet.count(Node)) {
       MachineInstr *NewMI = TII->commuteInstruction(MI);
       if (NewMI == 0)
-        DOUT << "Sched: COMMUTING FAILED!\n";
+        DEBUG(std::cerr << "Sched: COMMUTING FAILED!\n");
       else {
-        DOUT << "Sched: COMMUTED TO: " << *NewMI;
+        DEBUG(std::cerr << "Sched: COMMUTED TO: " << *NewMI);
         if (MI != NewMI) {
           delete MI;
           MI = NewMI;
@@ -452,14 +458,9 @@ void ScheduleDAG::EmitNode(SDNode *Node,
       assert(0 && "This target-independent node should have been selected!");
     case ISD::EntryToken: // fall thru
     case ISD::TokenFactor:
-    case ISD::LABEL:
       break;
     case ISD::CopyToReg: {
-      unsigned InReg;
-      if (RegisterSDNode *R = dyn_cast<RegisterSDNode>(Node->getOperand(2)))
-        InReg = R->getReg();
-      else
-        InReg = getVR(Node->getOperand(2), VRBaseMap);
+      unsigned InReg = getVR(Node->getOperand(2), VRBaseMap);
       unsigned DestReg = cast<RegisterSDNode>(Node->getOperand(1))->getReg();
       if (InReg != DestReg)   // Coalesced away the copy?
         MRI->copyRegToReg(*BB, BB->end(), DestReg, InReg,
@@ -517,7 +518,7 @@ void ScheduleDAG::EmitNode(SDNode *Node,
       
       // Create the inline asm machine instruction.
       MachineInstr *MI =
-        new MachineInstr(BB, TII->get(TargetInstrInfo::INLINEASM));
+        new MachineInstr(BB, TargetInstrInfo::INLINEASM, (NumOps-2)/2+1);
 
       // Add the asm string as an external symbol operand.
       const char *AsmStr =
@@ -595,7 +596,7 @@ void ScheduleDAG::EmitSchedule() {
   
   
   // Finally, emit the code for all of the scheduled instructions.
-  DenseMap<SDNode*, unsigned> VRBaseMap;
+  std::map<SDNode*, unsigned> VRBaseMap;
   for (unsigned i = 0, e = Sequence.size(); i != e; i++) {
     if (SUnit *SU = Sequence[i]) {
       for (unsigned j = 0, ee = SU->FlaggedNodes.size(); j != ee; j++)
@@ -614,7 +615,7 @@ void ScheduleDAG::dumpSchedule() const {
     if (SUnit *SU = Sequence[i])
       SU->dump(&DAG);
     else
-      cerr << "**** NOOP ****\n";
+      std::cerr << "**** NOOP ****\n";
   }
 }
 
@@ -634,14 +635,14 @@ MachineBasicBlock *ScheduleDAG::Run() {
 /// SUnit - Scheduling unit. It's an wrapper around either a single SDNode or
 /// a group of nodes flagged together.
 void SUnit::dump(const SelectionDAG *G) const {
-  cerr << "SU(" << NodeNum << "): ";
+  std::cerr << "SU(" << NodeNum << "): ";
   Node->dump(G);
-  cerr << "\n";
+  std::cerr << "\n";
   if (FlaggedNodes.size() != 0) {
     for (unsigned i = 0, e = FlaggedNodes.size(); i != e; i++) {
-      cerr << "    ";
+      std::cerr << "    ";
       FlaggedNodes[i]->dump(G);
-      cerr << "\n";
+      std::cerr << "\n";
     }
   }
 }
@@ -649,35 +650,35 @@ void SUnit::dump(const SelectionDAG *G) const {
 void SUnit::dumpAll(const SelectionDAG *G) const {
   dump(G);
 
-  cerr << "  # preds left       : " << NumPredsLeft << "\n";
-  cerr << "  # succs left       : " << NumSuccsLeft << "\n";
-  cerr << "  # chain preds left : " << NumChainPredsLeft << "\n";
-  cerr << "  # chain succs left : " << NumChainSuccsLeft << "\n";
-  cerr << "  Latency            : " << Latency << "\n";
-  cerr << "  Depth              : " << Depth << "\n";
-  cerr << "  Height             : " << Height << "\n";
+  std::cerr << "  # preds left       : " << NumPredsLeft << "\n";
+  std::cerr << "  # succs left       : " << NumSuccsLeft << "\n";
+  std::cerr << "  # chain preds left : " << NumChainPredsLeft << "\n";
+  std::cerr << "  # chain succs left : " << NumChainSuccsLeft << "\n";
+  std::cerr << "  Latency            : " << Latency << "\n";
+  std::cerr << "  Depth              : " << Depth << "\n";
+  std::cerr << "  Height             : " << Height << "\n";
 
   if (Preds.size() != 0) {
-    cerr << "  Predecessors:\n";
+    std::cerr << "  Predecessors:\n";
     for (SUnit::const_succ_iterator I = Preds.begin(), E = Preds.end();
          I != E; ++I) {
       if (I->second)
-        cerr << "   ch  #";
+        std::cerr << "   ch  #";
       else
-        cerr << "   val #";
-      cerr << I->first << " - SU(" << I->first->NodeNum << ")\n";
+        std::cerr << "   val #";
+      std::cerr << I->first << " - SU(" << I->first->NodeNum << ")\n";
     }
   }
   if (Succs.size() != 0) {
-    cerr << "  Successors:\n";
+    std::cerr << "  Successors:\n";
     for (SUnit::const_succ_iterator I = Succs.begin(), E = Succs.end();
          I != E; ++I) {
       if (I->second)
-        cerr << "   ch  #";
+        std::cerr << "   ch  #";
       else
-        cerr << "   val #";
-      cerr << I->first << " - SU(" << I->first->NodeNum << ")\n";
+        std::cerr << "   val #";
+      std::cerr << I->first << " - SU(" << I->first->NodeNum << ")\n";
     }
   }
-  cerr << "\n";
+  std::cerr << "\n";
 }

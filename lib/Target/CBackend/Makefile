@@ -11,4 +11,4 @@ LEVEL = ../../..
 LIBRARYNAME = LLVMCBackend
 include $(LEVEL)/Makefile.common
 
-CompileCommonOpts += -Wno-format
+CompileCommonOpts := $(CompileCommonOpts) -Wno-format

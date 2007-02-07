@@ -35,17 +35,9 @@ namespace llvm {
       /// to X86::ANDPS or X86::ANDPD.
       FAND,
 
-      /// FOR - Bitwise logical OR of floating point values. This corresponds
-      /// to X86::ORPS or X86::ORPD.
-      FOR,
-
       /// FXOR - Bitwise logical XOR of floating point values. This corresponds
       /// to X86::XORPS or X86::XORPD.
       FXOR,
-
-      /// FSRL - Bitwise logical right shift of floating point values. These
-      /// corresponds to X86::PSRLDQ.
-      FSRL,
 
       /// FILD, FILD_FLAG - This instruction implements SINT_TO_FP with the
       /// integer source in memory and FP reg result.  This corresponds to the
@@ -158,10 +150,6 @@ namespace llvm {
       /// TargetExternalSymbol, and TargetGlobalAddress.
       Wrapper,
 
-      /// WrapperRIP - Special wrapper used under X86-64 PIC mode for RIP
-      /// relative displacements.
-      WrapperRIP,
-
       /// S2VEC - X86 version of SCALAR_TO_VECTOR. The destination base does not
       /// have to match the operand type.
       S2VEC,
@@ -201,11 +189,6 @@ namespace llvm {
    /// isMOVHLPSMask - Return true if the specified VECTOR_SHUFFLE operand
    /// specifies a shuffle of elements that is suitable for input to MOVHLPS.
    bool isMOVHLPSMask(SDNode *N);
-
-   /// isMOVHLPS_v_undef_Mask - Special case of isMOVHLPSMask for canonical form
-   /// of vector_shuffle v, v, <2, 3, 2, 3>, i.e. vector_shuffle v, undef,
-   /// <2, 3, 2, 3>
-   bool isMOVHLPS_v_undef_Mask(SDNode *N);
 
    /// isMOVLPMask - Return true if the specified VECTOR_SHUFFLE operand
    /// specifies a shuffle of elements that is suitable for input to MOVLP{S|D}.
@@ -292,6 +275,10 @@ namespace llvm {
     ///
     virtual SDOperand LowerOperation(SDOperand Op, SelectionDAG &DAG);
 
+    virtual std::pair<SDOperand, SDOperand>
+    LowerFrameReturnAddress(bool isFrameAddr, SDOperand Chain, unsigned Depth,
+                            SelectionDAG &DAG);
+
     virtual SDOperand PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 
     virtual MachineBasicBlock *InsertAtEndOfBasicBlock(MachineInstr *MI,
@@ -360,21 +347,25 @@ namespace llvm {
     /// X86ScalarSSE - Select between SSE2 or x87 floating point ops.
     bool X86ScalarSSE;
 
-    // C and StdCall Calling Convention implementation.
-    SDOperand LowerCCCArguments(SDOperand Op, SelectionDAG &DAG,
-                                bool isStdCall = false);
-    SDOperand LowerCCCCallTo(SDOperand Op, SelectionDAG &DAG,
-                             bool isStdCall = false);
+    // C Calling Convention implementation.
+    SDOperand LowerCCCArguments(SDOperand Op, SelectionDAG &DAG);
+    SDOperand LowerCCCCallTo(SDOperand Op, SelectionDAG &DAG);
 
     // X86-64 C Calling Convention implementation.
     SDOperand LowerX86_64CCCArguments(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerX86_64CCCCallTo(SDOperand Op, SelectionDAG &DAG);
 
-    // Fast and FastCall Calling Convention implementation.
-    SDOperand LowerFastCCArguments(SDOperand Op, SelectionDAG &DAG,
-                                   bool isFastCall = false);
+    // Fast Calling Convention implementation.
+    SDOperand LowerFastCCArguments(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerFastCCCallTo(SDOperand Op, SelectionDAG &DAG,
-                                bool isFastCall = false);
+                                bool isFastCall);
+
+    // StdCall Calling Convention implementation.
+    SDOperand LowerStdCallCCArguments(SDOperand Op, SelectionDAG &DAG);
+    SDOperand LowerStdCallCCCallTo(SDOperand Op, SelectionDAG &DAG);
+
+    // FastCall Calling Convention implementation.
+    SDOperand LowerFastCallCCArguments(SDOperand Op, SelectionDAG &DAG);
 
     SDOperand LowerBUILD_VECTOR(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerVECTOR_SHUFFLE(SDOperand Op, SelectionDAG &DAG);
@@ -389,7 +380,6 @@ namespace llvm {
     SDOperand LowerFP_TO_SINT(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerFABS(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerFNEG(SDOperand Op, SelectionDAG &DAG);
-    SDOperand LowerFCOPYSIGN(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerSETCC(SDOperand Op, SelectionDAG &DAG, SDOperand Chain);
     SDOperand LowerSELECT(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerBRCOND(SDOperand Op, SelectionDAG &DAG);
@@ -402,8 +392,6 @@ namespace llvm {
     SDOperand LowerREADCYCLCECOUNTER(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerVASTART(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerINTRINSIC_WO_CHAIN(SDOperand Op, SelectionDAG &DAG);
-    SDOperand LowerRETURNADDR(SDOperand Op, SelectionDAG &DAG);
-    SDOperand LowerFRAMEADDR(SDOperand Op, SelectionDAG &DAG);
   };
 }
 

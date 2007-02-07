@@ -14,7 +14,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "globalsmodref-aa"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
@@ -23,27 +22,35 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/CallGraph.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InstIterator.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SCCIterator.h"
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumNonAddrTakenGlobalVars,
-          "Number of global vars without address taken");
-STATISTIC(NumNonAddrTakenFunctions,"Number of functions without address taken");
-STATISTIC(NumNoMemFunctions, "Number of functions that do not access memory");
-STATISTIC(NumReadMemFunctions, "Number of functions that only read memory");
-STATISTIC(NumIndirectGlobalVars, "Number of indirect global objects");
-
 namespace {
+  Statistic<>
+  NumNonAddrTakenGlobalVars("globalsmodref-aa",
+                            "Number of global vars without address taken");
+  Statistic<>
+  NumNonAddrTakenFunctions("globalsmodref-aa",
+                           "Number of functions without address taken");
+  Statistic<>
+  NumNoMemFunctions("globalsmodref-aa",
+                    "Number of functions that do not access memory");
+  Statistic<>
+  NumReadMemFunctions("globalsmodref-aa",
+                      "Number of functions that only read memory");
+  Statistic<>
+  NumIndirectGlobalVars("globalsmodref-aa",
+                        "Number of indirect global objects");
+  
   /// FunctionRecord - One instance of this structure is stored for every
   /// function in the program.  Later, the entries for these functions are
   /// removed if the function is found to call an external function (in which
   /// case we know nothing about it.
-  struct VISIBILITY_HIDDEN FunctionRecord {
+  struct FunctionRecord {
     /// GlobalInfo - Maintain mod/ref info for all of the globals without
     /// addresses taken that are read or written (transitively) by this
     /// function.
@@ -64,8 +71,7 @@ namespace {
   };
 
   /// GlobalsModRef - The actual analysis pass.
-  class VISIBILITY_HIDDEN GlobalsModRef 
-      : public ModulePass, public AliasAnalysis {
+  class GlobalsModRef : public ModulePass, public AliasAnalysis {
     /// NonAddressTakenGlobals - The globals that do not have their addresses
     /// taken.
     std::set<GlobalValue*> NonAddressTakenGlobals;
@@ -161,10 +167,10 @@ static Value *getUnderlyingObject(Value *V) {
   
   // Traverse through different addressing mechanisms.
   if (Instruction *I = dyn_cast<Instruction>(V)) {
-    if (isa<BitCastInst>(I) || isa<GetElementPtrInst>(I))
+    if (isa<CastInst>(I) || isa<GetElementPtrInst>(I))
       return getUnderlyingObject(I->getOperand(0));
   } else if (ConstantExpr *CE = dyn_cast<ConstantExpr>(V)) {
-    if (CE->getOpcode() == Instruction::BitCast || 
+    if (CE->getOpcode() == Instruction::Cast ||
         CE->getOpcode() == Instruction::GetElementPtr)
       return getUnderlyingObject(CE->getOperand(0));
   }
@@ -246,15 +252,15 @@ bool GlobalsModRef::AnalyzeUsesOfPointer(Value *V,
       for (unsigned i = 3, e = II->getNumOperands(); i != e; ++i)
         if (II->getOperand(i) == V) return true;
     } else if (ConstantExpr *CE = dyn_cast<ConstantExpr>(*UI)) {
-      if (CE->getOpcode() == Instruction::GetElementPtr || 
-          CE->getOpcode() == Instruction::BitCast) {
+      if (CE->getOpcode() == Instruction::GetElementPtr ||
+          CE->getOpcode() == Instruction::Cast) {
         if (AnalyzeUsesOfPointer(CE, Readers, Writers))
           return true;
       } else {
         return true;
       }
-    } else if (ICmpInst *ICI = dyn_cast<ICmpInst>(*UI)) {
-      if (!isa<ConstantPointerNull>(ICI->getOperand(1)))
+    } else if (SetCondInst *SCI = dyn_cast<SetCondInst>(*UI)) {
+      if (!isa<ConstantPointerNull>(SCI->getOperand(1)))
         return true;  // Allow comparison against null.
     } else if (FreeInst *F = dyn_cast<FreeInst>(*UI)) {
       Writers.push_back(F->getParent()->getParent());
@@ -302,7 +308,7 @@ bool GlobalsModRef::AnalyzeIndirectGlobalMemory(GlobalValue *GV) {
         // Okay, easy case.
       } else if (CallInst *CI = dyn_cast<CallInst>(Ptr)) {
         Function *F = CI->getCalledFunction();
-        if (!F || !F->isDeclaration()) return false;     // Too hard to analyze.
+        if (!F || !F->isExternal()) return false;     // Too hard to analyze.
         if (F->getName() != "calloc") return false;   // Not calloc.
       } else {
         return false;  // Too hard to analyze.
@@ -343,7 +349,7 @@ void GlobalsModRef::AnalyzeCallGraph(CallGraph &CG, Module &M) {
     if ((*I).size() != 1) {
       AnalyzeSCC(*I);
     } else if (Function *F = (*I)[0]->getFunction()) {
-      if (!F->isDeclaration()) {
+      if (!F->isExternal()) {
         // Nonexternal function.
         AnalyzeSCC(*I);
       } else {

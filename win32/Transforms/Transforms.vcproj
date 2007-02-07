@@ -147,6 +147,9 @@
 				<File
 					RelativePath="..\..\lib\Transforms\Instrumentation\TraceBasicBlocks.cpp">
 				</File>
+				<File
+					RelativePath="..\..\lib\Transforms\Instrumentation\TraceValues.cpp">
+				</File>
 			</Filter>
 			<Filter
 				Name="IPO"

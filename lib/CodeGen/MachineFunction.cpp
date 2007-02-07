@@ -21,7 +21,6 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Target/TargetData.h"
-#include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetFrameInfo.h"
 #include "llvm/Function.h"
@@ -32,7 +31,9 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Config/config.h"
 #include <fstream>
+#include <iostream>
 #include <sstream>
+
 using namespace llvm;
 
 static AnnotationID MF_AID(
@@ -118,15 +119,7 @@ MachineFunction::MachineFunction(const Function *F,
   MFInfo = 0;
   FrameInfo = new MachineFrameInfo();
   ConstantPool = new MachineConstantPool(TM.getTargetData());
-  
-  // Set up jump table.
-  const TargetData &TD = *TM.getTargetData();
-  bool IsPic = TM.getRelocationModel() == Reloc::PIC_;
-  unsigned EntrySize = IsPic ? 4 : TD.getPointerSize();
-  unsigned Alignment = IsPic ? TD.getIntABIAlignment()
-                             : TD.getPointerABIAlignment();
-  JumpTableInfo = new MachineJumpTableInfo(EntrySize, Alignment);
-  
+  JumpTableInfo = new MachineJumpTableInfo(TM.getTargetData());
   BasicBlocks.Parent = this;
 }
 
@@ -184,7 +177,7 @@ void MachineFunction::RenumberBlocks(MachineBasicBlock *MBB) {
 }
 
 
-void MachineFunction::dump() const { print(*cerr.stream()); }
+void MachineFunction::dump() const { print(std::cerr); }
 
 void MachineFunction::print(std::ostream &OS) const {
   OS << "# Machine code for " << Fn->getName () << "():\n";
@@ -275,8 +268,8 @@ void MachineFunction::viewCFG() const
 #ifndef NDEBUG
   ViewGraph(this, "mf" + getFunction()->getName());
 #else
-  cerr << "SelectionDAG::viewGraph is only available in debug builds on "
-       << "systems with Graphviz or gv!\n";
+  std::cerr << "SelectionDAG::viewGraph is only available in debug builds on "
+            << "systems with Graphviz or gv!\n";
 #endif // NDEBUG
 }
 
@@ -357,7 +350,7 @@ void MachineFrameInfo::print(const MachineFunction &MF, std::ostream &OS) const{
 }
 
 void MachineFrameInfo::dump(const MachineFunction &MF) const {
-  print(MF, *cerr.stream());
+  print(MF, std::cerr);
 }
 
 
@@ -389,7 +382,15 @@ void MachineJumpTableInfo::print(std::ostream &OS) const {
   }
 }
 
-void MachineJumpTableInfo::dump() const { print(*cerr.stream()); }
+unsigned MachineJumpTableInfo::getEntrySize() const { 
+  return TD->getPointerSize(); 
+}
+
+unsigned MachineJumpTableInfo::getAlignment() const { 
+  return TD->getPointerAlignment(); 
+}
+
+void MachineJumpTableInfo::dump() const { print(std::cerr); }
 
 
 //===----------------------------------------------------------------------===//
@@ -467,9 +468,9 @@ void MachineConstantPool::print(std::ostream &OS) const {
       Constants[i].Val.MachineCPVal->print(OS);
     else
       OS << *(Value*)Constants[i].Val.ConstVal;
-    OS << " , offset=" << Constants[i].getOffset();
+    OS << " , offset=" << Constants[i].Offset;
     OS << "\n";
   }
 }
 
-void MachineConstantPool::dump() const { print(*cerr.stream()); }
+void MachineConstantPool::dump() const { print(std::cerr); }

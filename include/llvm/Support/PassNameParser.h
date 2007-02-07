@@ -24,9 +24,9 @@
 #define LLVM_SUPPORT_PASS_NAME_PARSER_H
 
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Pass.h"
 #include <algorithm>
+#include <iostream>
 
 namespace llvm {
 
@@ -57,7 +57,8 @@ public:
     // Ignore non-selectable and non-constructible passes!  Ignore
     // non-optimizations.
     return P->getPassArgument() == 0 || *P->getPassArgument() == 0 ||
-           P->getNormalCtor() == 0 || ignorablePassImpl(P);
+          (P->getNormalCtor() == 0 && P->getTargetCtor() == 0) ||
+          ignorablePassImpl(P);
   }
 
   // Implement the PassRegistrationListener callbacks used to populate our map
@@ -65,14 +66,22 @@ public:
   virtual void passRegistered(const PassInfo *P) {
     if (ignorablePass(P) || !Opt) return;
     if (findOption(P->getPassArgument()) != getNumOptions()) {
-      cerr << "Two passes with the same argument (-"
-           << P->getPassArgument() << ") attempted to be registered!\n";
+      std::cerr << "Two passes with the same argument (-"
+                << P->getPassArgument() << ") attempted to be registered!\n";
       abort();
     }
     addLiteralOption(P->getPassArgument(), P, P->getPassName());
     Opt->addArgument(P->getPassArgument());
   }
   virtual void passEnumerate(const PassInfo *P) { passRegistered(P); }
+
+  virtual void passUnregistered(const PassInfo *P) {
+    if (ignorablePass(P) || !Opt) return;
+    assert(findOption(P->getPassArgument()) != getNumOptions() &&
+           "Registered Pass not in the pass map!");
+    removeLiteralOption(P->getPassArgument());
+    Opt->removeArgument(P->getPassArgument());
+  }
 
   // ValLessThan - Provide a sorting comparator for Values elements...
   typedef std::pair<const char*,

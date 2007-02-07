@@ -10,7 +10,6 @@
 LEVEL = ../..
 TOOLNAME = fpcmp
 USEDLIBS = LLVMSupport.a LLVMSystem.a
-NO_INSTALL = 1
 
 include $(LEVEL)/Makefile.common
 

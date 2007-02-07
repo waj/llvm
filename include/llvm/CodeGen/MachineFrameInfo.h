@@ -17,7 +17,7 @@ namespace llvm {
 class TargetData;
 class TargetRegisterClass;
 class Type;
-class MachineModuleInfo;
+class MachineDebugInfo;
 class MachineFunction;
 
 /// The CalleeSavedInfo class tracks the information need to locate where a
@@ -112,14 +112,6 @@ class MachineFrameInfo {
   ///
   unsigned StackSize;
   
-  /// OffsetAdjustment - The amount that a frame offset needs to be adjusted to
-  /// have the actual offset from the stack/frame pointer.  The calculation is 
-  /// MFI->getObjectOffset(Index) + StackSize - TFI.getOffsetOfLocalArea() +
-  /// OffsetAdjustment.  If OffsetAdjustment is zero (default) then offsets are
-  /// away from TOS. If OffsetAdjustment == StackSize then offsets are toward
-  /// TOS.
-  int OffsetAdjustment;
-  
   /// MaxAlignment - The prolog/epilog code inserter may process objects 
   /// that require greater alignment than the default alignment the target
   /// provides. To handle this, MaxAlignment is set to the maximum alignment 
@@ -147,20 +139,20 @@ class MachineFrameInfo {
   /// handling.
   std::vector<CalleeSavedInfo> CSInfo;
   
-  /// MMI - This field is set (via setMachineModuleInfo) by a module info
+  /// DebugInfo - This field is set (via setMachineDebugInfo) by a debug info
   /// consumer (ex. DwarfWriter) to indicate that frame layout information
   /// should be acquired.  Typically, it's the responsibility of the target's
-  /// MRegisterInfo prologue/epilogue emitting code to inform MachineModuleInfo
+  /// MRegisterInfo prologue/epilogue emitting code to inform MachineDebugInfo
   /// of frame layouts.
-  MachineModuleInfo *MMI;
+  MachineDebugInfo *DebugInfo;
   
 public:
   MachineFrameInfo() {
-    NumFixedObjects = StackSize = OffsetAdjustment = MaxAlignment = 0;
+    NumFixedObjects = StackSize = MaxAlignment = 0;
     HasVarSizedObjects = false;
     HasCalls = false;
     MaxCallFrameSize = 0;
-    MMI = 0;
+    DebugInfo = 0;
   }
 
   /// hasStackObjects - Return true if there are any stack objects in this
@@ -220,14 +212,6 @@ public:
   /// setStackSize - Set the size of the stack...
   ///
   void setStackSize(unsigned Size) { StackSize = Size; }
-  
-  /// getOffsetAdjustment - Return the correction for frame offsets.
-  ///
-  int getOffsetAdjustment() const { return OffsetAdjustment; }
-  
-  /// setOffsetAdjustment - Set the correction for frame offsets.
-  ///
-  void setOffsetAdjustment(int Adj) { OffsetAdjustment = Adj; }
 
   /// getMaxAlignment - Return the alignment in bytes that this function must be 
   /// aligned to, which is greater than the default stack alignment provided by 
@@ -299,13 +283,13 @@ public:
     CSInfo = CSI;
   }
 
-  /// getMachineModuleInfo - Used by a prologue/epilogue emitter (MRegisterInfo)
+  /// getMachineDebugInfo - Used by a prologue/epilogue emitter (MRegisterInfo)
   /// to provide frame layout information. 
-  MachineModuleInfo *getMachineModuleInfo() const { return MMI; }
+  MachineDebugInfo *getMachineDebugInfo() const { return DebugInfo; }
 
-  /// setMachineModuleInfo - Used by a meta info consumer (DwarfWriter) to
-  /// indicate that frame layout information should be gathered.
-  void setMachineModuleInfo(MachineModuleInfo *mmi) { MMI = mmi; }
+  /// setMachineDebugInfo - Used by a debug consumer (DwarfWriter) to indicate
+  /// that frame layout information should be gathered.
+  void setMachineDebugInfo(MachineDebugInfo *DI) { DebugInfo = DI; }
 
   /// print - Used by the MachineFunction printer to print information about
   /// stack objects.  Implemented in MachineFunction.cpp

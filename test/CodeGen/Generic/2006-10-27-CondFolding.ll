@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc 
+; RUN: llvm-as < %s | llc 
 
 void %start_pass_huff(int %gather_statistics) {
 entry:

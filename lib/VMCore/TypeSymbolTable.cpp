@@ -14,8 +14,9 @@
 #include "llvm/TypeSymbolTable.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/Streams.h"
+#include <iostream>
 #include <algorithm>
+
 using namespace llvm;
 
 #define DEBUG_SYMBOL_TABLE 0
@@ -47,15 +48,26 @@ Type* TypeSymbolTable::lookup(const std::string& Name) const {
   return 0;
 }
 
+// Erase a specific type from the symbol table
+bool TypeSymbolTable::erase(Type *N) {
+  for (iterator TI = tmap.begin(), TE = tmap.end(); TI != TE; ++TI) {
+    if (TI->second == N) {
+      this->erase(TI);
+      return true;
+    }
+  }
+  return false;
+}
+
 // remove - Remove a type from the symbol table...
-Type* TypeSymbolTable::remove(iterator Entry) {
+Type* TypeSymbolTable::erase(iterator Entry) {
   assert(Entry != tmap.end() && "Invalid entry to remove!");
 
   const Type* Result = Entry->second;
 
 #if DEBUG_SYMBOL_TABLE
   dump();
-  cerr << " Removing Value: " << Result->getName() << "\n";
+  std::cerr << " Removing Value: " << Result->getName() << "\n";
 #endif
 
   tmap.erase(Entry);
@@ -64,7 +76,7 @@ Type* TypeSymbolTable::remove(iterator Entry) {
   // list...
   if (Result->isAbstract()) {
 #if DEBUG_ABSTYPE
-    cerr << "Removing abstract type from symtab" << Result->getDescription()<<"\n";
+    std::cerr << "Removing abstract type from symtab" << Result->getDescription()<<"\n";
 #endif
     cast<DerivedType>(Result)->removeAbstractTypeUser(this);
   }
@@ -77,38 +89,56 @@ Type* TypeSymbolTable::remove(iterator Entry) {
 void TypeSymbolTable::insert(const std::string& Name, const Type* T) {
   assert(T && "Can't insert null type into symbol table!");
 
-  if (tmap.insert(make_pair(Name, T)).second) {
-    // Type inserted fine with no conflict.
-    
+  // Check to see if there is a naming conflict.  If so, rename this type!
+  std::string UniqueName = Name;
+  if (lookup(Name))
+    UniqueName = getUniqueName(Name);
+
 #if DEBUG_SYMBOL_TABLE
-    dump();
-    cerr << " Inserted type: " << Name << ": " << T->getDescription() << "\n";
-#endif
-  } else {
-    // If there is a name conflict...
-    
-    // Check to see if there is a naming conflict.  If so, rename this type!
-    std::string UniqueName = Name;
-    if (lookup(Name))
-      UniqueName = getUniqueName(Name);
-    
-#if DEBUG_SYMBOL_TABLE
-    dump();
-    cerr << " Inserting type: " << UniqueName << ": "
-        << T->getDescription() << "\n";
+  dump();
+  std::cerr << " Inserting type: " << UniqueName << ": "
+            << T->getDescription() << "\n";
 #endif
 
-    // Insert the tmap entry
-    tmap.insert(make_pair(UniqueName, T));
-  }
+  // Insert the tmap entry
+  tmap.insert(make_pair(UniqueName, T));
 
   // If we are adding an abstract type, add the symbol table to it's use list.
   if (T->isAbstract()) {
     cast<DerivedType>(T)->addAbstractTypeUser(this);
 #if DEBUG_ABSTYPE
-    cerr << "Added abstract type to ST: " << T->getDescription() << "\n";
+    std::cerr << "Added abstract type to ST: " << T->getDescription() << "\n";
 #endif
   }
+}
+
+// Strip the symbol table of its names.
+bool TypeSymbolTable::strip() {
+  bool RemovedSymbol = false;
+  for (iterator TI = tmap.begin(); TI != tmap.end(); ) {
+    erase(TI++);
+    RemovedSymbol = true;
+  }
+
+  return RemovedSymbol;
+}
+
+/// rename - Given a value with a non-empty name, remove its existing entry
+/// from the symbol table and insert a new one for Name.  This is equivalent to
+/// doing "remove(V), V->Name = Name, insert(V)", but is faster, and will not
+/// temporarily remove the symbol table plane if V is the last value in the
+/// symtab with that name (which could invalidate iterators to that plane).
+bool TypeSymbolTable::rename(Type *T, const std::string &name) {
+  for (iterator TI = tmap.begin(), TE = tmap.end(); TI != TE; ++TI) {
+    if (TI->second == T) {
+      // Remove the old entry.
+      tmap.erase(TI);
+      // Add the new entry.
+      this->insert(name,T);
+      return true;
+    }
+  }
+  return false;
 }
 
 // This function is called when one of the types in the type plane are refined
@@ -123,14 +153,14 @@ void TypeSymbolTable::refineAbstractType(const DerivedType *OldType,
   for (iterator I = begin(), E = end(); I != E; ++I) {
     if (I->second == (Type*)OldType) {  // FIXME when Types aren't const.
 #if DEBUG_ABSTYPE
-      cerr << "Removing type " << OldType->getDescription() << "\n";
+      std::cerr << "Removing type " << OldType->getDescription() << "\n";
 #endif
       OldType->removeAbstractTypeUser(this);
 
       I->second = (Type*)NewType;  // TODO FIXME when types aren't const
       if (NewType->isAbstract()) {
 #if DEBUG_ABSTYPE
-        cerr << "Added type " << NewType->getDescription() << "\n";
+        std::cerr << "Added type " << NewType->getDescription() << "\n";
 #endif
         cast<DerivedType>(NewType)->addAbstractTypeUser(this);
       }
@@ -150,13 +180,13 @@ void TypeSymbolTable::typeBecameConcrete(const DerivedType *AbsTy) {
 }
 
 static void DumpTypes(const std::pair<const std::string, const Type*>& T ) {
-  cerr << "  '" << T.first << "' = ";
+  std::cerr << "  '" << T.first << "' = ";
   T.second->dump();
-  cerr << "\n";
+  std::cerr << "\n";
 }
 
 void TypeSymbolTable::dump() const {
-  cerr << "TypeSymbolPlane: ";
+  std::cerr << "TypeSymbolPlane: ";
   for_each(tmap.begin(), tmap.end(), DumpTypes);
 }
 

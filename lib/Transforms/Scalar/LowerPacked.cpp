@@ -19,13 +19,13 @@
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/InstVisitor.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/ADT/StringExtras.h"
 #include <algorithm>
 #include <map>
+#include <iostream>
 #include <functional>
+
 using namespace llvm;
 
 namespace {
@@ -37,8 +37,7 @@ namespace {
 ///
 /// @brief Transforms packed instructions to simpler instructions.
 ///
-class VISIBILITY_HIDDEN LowerPacked 
-  : public FunctionPass, public InstVisitor<LowerPacked> {
+class LowerPacked : public FunctionPass, public InstVisitor<LowerPacked> {
 public:
    /// @brief Lowers packed operations to scalar operations.
    /// @param F The fuction to process
@@ -55,10 +54,6 @@ public:
    /// @brief Lowers packed binary operations.
    /// @param BO the binary operator to convert
    void visitBinaryOperator(BinaryOperator& BO);
-
-   /// @brief Lowers packed icmp operations.
-   /// @param CI the icmp operator to convert
-   void visitICmpInst(ICmpInst& IC);
 
    /// @brief Lowers packed select instructions.
    /// @param SELI the select operator to convert
@@ -77,9 +72,12 @@ public:
    ///
    /// @brief Asserts if PackedType instruction is not handled elsewhere.
    /// @param I the unhandled instruction
-   void visitInstruction(Instruction &I) {
-     if (isa<PackedType>(I.getType()))
-       cerr << "Unhandled Instruction with Packed ReturnType: " << I << '\n';
+   void visitInstruction(Instruction &I)
+   {
+      if(isa<PackedType>(I.getType())) {
+         std::cerr << "Unhandled Instruction with Packed ReturnType: " <<
+                      I << '\n';
+      }
    }
 private:
    /// @brief Retrieves lowered values for a packed value.
@@ -211,15 +209,17 @@ void LowerPacked::visitLoadInst(LoadInst& LI)
    if (const PackedType* PKT = dyn_cast<PackedType>(LI.getType())) {
        // Initialization, Idx is needed for getelementptr needed later
        std::vector<Value*> Idx(2);
-       Idx[0] = ConstantInt::get(Type::Int32Ty,0);
+       Idx[0] = ConstantInt::get(Type::UIntTy,0);
 
        ArrayType* AT = ArrayType::get(PKT->getContainedType(0),
                                       PKT->getNumElements());
        PointerType* APT = PointerType::get(AT);
 
-       // Cast the pointer to packed type to an equivalent array
-       Value* array = new BitCastInst(LI.getPointerOperand(), APT, 
-                                      LI.getName() + ".a", &LI);
+       // Cast the packed type to an array
+       Value* array = new CastInst(LI.getPointerOperand(),
+                                   APT,
+                                   LI.getName() + ".a",
+                                   &LI);
 
        // Convert this load into num elements number of loads
        std::vector<Value*> values;
@@ -227,7 +227,7 @@ void LowerPacked::visitLoadInst(LoadInst& LI)
 
        for (unsigned i = 0, e = PKT->getNumElements(); i != e; ++i) {
             // Calculate the second index we will need
-            Idx[1] = ConstantInt::get(Type::Int32Ty,i);
+            Idx[1] = ConstantInt::get(Type::UIntTy,i);
 
             // Get the pointer
             Value* val = new GetElementPtrInst(array,
@@ -237,8 +237,10 @@ void LowerPacked::visitLoadInst(LoadInst& LI)
                                                &LI);
 
             // generate the new load and save the result in packedToScalar map
-            values.push_back(new LoadInst(val, LI.getName()+"."+utostr(i),
-                             LI.isVolatile(), &LI));
+            values.push_back(new LoadInst(val,
+                             LI.getName()+"."+utostr(i),
+                             LI.isVolatile(),
+                             &LI));
        }
 
        setValues(&LI,values);
@@ -275,51 +277,23 @@ void LowerPacked::visitBinaryOperator(BinaryOperator& BO)
    }
 }
 
-void LowerPacked::visitICmpInst(ICmpInst& IC)
-{
-   // Make sure both operands are PackedTypes
-   if (isa<PackedType>(IC.getOperand(0)->getType())) {
-       std::vector<Value*>& op0Vals = getValues(IC.getOperand(0));
-       std::vector<Value*>& op1Vals = getValues(IC.getOperand(1));
-       std::vector<Value*> result;
-       assert((op0Vals.size() == op1Vals.size()) &&
-              "The two packed operand to scalar maps must be equal in size.");
-
-       result.reserve(op0Vals.size());
-
-       // generate the new binary op and save the result
-       for (unsigned i = 0; i != op0Vals.size(); ++i) {
-            result.push_back(CmpInst::create(IC.getOpcode(),
-                                             IC.getPredicate(),
-                                             op0Vals[i],
-                                             op1Vals[i],
-                                             IC.getName() +
-                                             "." + utostr(i),
-                                             &IC));
-       }
-
-       setValues(&IC,result);
-       Changed = true;
-       instrsToRemove.push_back(&IC);
-   }
-}
-
 void LowerPacked::visitStoreInst(StoreInst& SI)
 {
    if (const PackedType* PKT =
        dyn_cast<PackedType>(SI.getOperand(0)->getType())) {
        // We will need this for getelementptr
        std::vector<Value*> Idx(2);
-       Idx[0] = ConstantInt::get(Type::Int32Ty,0);
+       Idx[0] = ConstantInt::get(Type::UIntTy,0);
 
        ArrayType* AT = ArrayType::get(PKT->getContainedType(0),
                                       PKT->getNumElements());
        PointerType* APT = PointerType::get(AT);
 
-       // Cast the pointer to packed to an array of equivalent type
-       Value* array = new BitCastInst(SI.getPointerOperand(), APT, 
-                                      "store.ge.a.", &SI);
-
+       // cast the packed to an array type
+       Value* array = new CastInst(SI.getPointerOperand(),
+                                   APT,
+                                   "store.ge.a.",
+                                   &SI);
        std::vector<Value*>& values = getValues(SI.getOperand(0));
 
        assert((values.size() == PKT->getNumElements()) &&
@@ -327,7 +301,7 @@ void LowerPacked::visitStoreInst(StoreInst& SI)
 
        for (unsigned i = 0, e = PKT->getNumElements(); i != e; ++i) {
             // Generate the indices for getelementptr
-            Idx[1] = ConstantInt::get(Type::Int32Ty,i);
+            Idx[1] = ConstantInt::get(Type::UIntTy,i);
             Value* val = new GetElementPtrInst(array,
                                                Idx,
                                                "store.ge." +
@@ -377,12 +351,12 @@ void LowerPacked::visitExtractElementInst(ExtractElementInst& EI)
   } else {
     AllocaInst *alloca = 
       new AllocaInst(PTy->getElementType(),
-                     ConstantInt::get(Type::Int32Ty, PTy->getNumElements()),
+                     ConstantInt::get(Type::UIntTy, PTy->getNumElements()),
                      EI.getName() + ".alloca", 
 		     EI.getParent()->getParent()->getEntryBlock().begin());
     for (unsigned i = 0; i < PTy->getNumElements(); ++i) {
       GetElementPtrInst *GEP = 
-        new GetElementPtrInst(alloca, ConstantInt::get(Type::Int32Ty, i),
+        new GetElementPtrInst(alloca, ConstantInt::get(Type::UIntTy, i),
                               "store.ge", &EI);
       new StoreInst(op0Vals[i], GEP, &EI);
     }
@@ -411,12 +385,12 @@ void LowerPacked::visitInsertElementInst(InsertElementInst& IE)
     }
   } else {
     for (unsigned i = 0; i != Vals.size(); ++i) {
-      ICmpInst *icmp =
-        new ICmpInst(ICmpInst::ICMP_EQ, Idx, 
-                     ConstantInt::get(Type::Int32Ty, i),
-                     "icmp", &IE);
+      SetCondInst *setcc =
+        new SetCondInst(Instruction::SetEQ, Idx, 
+                        ConstantInt::get(Type::UIntTy, i),
+                        "setcc", &IE);
       SelectInst *select =
-        new SelectInst(icmp, Elt, Vals[i], "select", &IE);
+        new SelectInst(setcc, Elt, Vals[i], "select", &IE);
       result.push_back(select);
     }
   }

@@ -170,8 +170,8 @@ void Mangler::InsertName(GlobalValue *GV,
                 GV->hasDLLImportLinkage()) &&
                (ExistingValue->hasExternalLinkage() ||
                 ExistingValue->hasDLLImportLinkage()) &&
-               GV->isDeclaration() &&
-               ExistingValue->isDeclaration()) {
+               GV->isExternal() &&
+               ExistingValue->isExternal()) {
       // If the two globals both have external inkage, and are both external,
       // don't mangle either of them, we just have some silly type mismatch.
     } else {

@@ -18,6 +18,7 @@
 #include "llvm/Target/SubtargetFeature.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetMachineRegistry.h"
+#include <iostream>
 using namespace llvm;
 
 static cl::opt<const TargetMachineRegistry::Entry*, false, TargetNameParser>
@@ -44,9 +45,9 @@ ExecutionEngine *JIT::create(ModuleProvider *MP) {
     MArch = TargetMachineRegistry::getClosestTargetForJIT(Error);
     if (MArch == 0) return 0;
   } else if (MArch->JITMatchQualityFn() == 0) {
-    cerr << "WARNING: This target JIT is not designed for the host you are"
-         << " running.  If bad things happen, please choose a different "
-         << "-march switch.\n";
+    std::cerr << "WARNING: This target JIT is not designed for the host you are"
+              << " running.  If bad things happen, please choose a different "
+              << "-march switch.\n";
   }
 
   // Package up features to be passed to target/subtarget

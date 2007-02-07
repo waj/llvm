@@ -1,5 +1,5 @@
-; The cast in this testcase is not eliminable on a 32-bit target!
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | grep inttoptr
+; The cast in this testcase is not eliminatable on a 32-bit target!
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep cast
 
 target endian = little
 target pointersize = 32

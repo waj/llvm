@@ -15,30 +15,26 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "ppc-branch-select"
 #include "PPC.h"
 #include "PPCInstrBuilder.h"
 #include "PPCInstrInfo.h"
-#include "PPCPredicates.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetAsmInfo.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/MathExtras.h"
+#include <map>
 using namespace llvm;
-
-STATISTIC(NumExpanded, "Number of branches expanded to long format");
 
 namespace {
   struct VISIBILITY_HIDDEN PPCBSel : public MachineFunctionPass {
-    /// BlockSizes - The sizes of the basic blocks in the function.
-    std::vector<unsigned> BlockSizes;
+    /// OffsetMap - Mapping between BB and byte offset from start of function.
+    /// TODO: replace this with a vector, using the MBB idx as the key.
+    std::map<MachineBasicBlock*, unsigned> OffsetMap;
 
     virtual bool runOnMachineFunction(MachineFunction &Fn);
 
     virtual const char *getPassName() const {
-      return "PowerPC Branch Selector";
+      return "PowerPC Branch Selection";
     }
   };
 }
@@ -55,19 +51,20 @@ FunctionPass *llvm::createPPCBranchSelectionPass() {
 ///
 static unsigned getNumBytesForInstruction(MachineInstr *MI) {
   switch (MI->getOpcode()) {
+  case PPC::COND_BRANCH:
+    // while this will be 4 most of the time, if we emit 8 it is just a
+    // minor pessimization that saves us from having to worry about
+    // keeping the offsets up to date later when we emit long branch glue.
+    return 8;
   case PPC::IMPLICIT_DEF_GPRC: // no asm emitted
   case PPC::IMPLICIT_DEF_G8RC: // no asm emitted
   case PPC::IMPLICIT_DEF_F4:   // no asm emitted
   case PPC::IMPLICIT_DEF_F8:   // no asm emitted
-  case PPC::IMPLICIT_DEF_VRRC: // no asm emitted
     return 0;
   case PPC::INLINEASM: {       // Inline Asm: Variable size.
     MachineFunction *MF = MI->getParent()->getParent();
     const char *AsmStr = MI->getOperand(0).getSymbolName();
     return MF->getTarget().getTargetAsmInfo()->getInlineAsmLength(AsmStr);
-  }
-  case PPC::LABEL: {
-    return 0;
   }
   default:
     return 4; // PowerPC instructions are all 4 bytes
@@ -76,120 +73,79 @@ static unsigned getNumBytesForInstruction(MachineInstr *MI) {
 
 
 bool PPCBSel::runOnMachineFunction(MachineFunction &Fn) {
-  const TargetInstrInfo *TII = Fn.getTarget().getInstrInfo();
-  // Give the blocks of the function a dense, in-order, numbering.
-  Fn.RenumberBlocks();
-  BlockSizes.resize(Fn.getNumBlockIDs());
-
-  // Measure each MBB and compute a size for the entire function.
-  unsigned FuncSize = 0;
+  // Running total of instructions encountered since beginning of function
+  unsigned ByteCount = 0;
+  
+  // For each MBB, add its offset to the offset map, and count up its
+  // instructions
   for (MachineFunction::iterator MFI = Fn.begin(), E = Fn.end(); MFI != E;
        ++MFI) {
     MachineBasicBlock *MBB = MFI;
-
-    unsigned BlockSize = 0;
+    OffsetMap[MBB] = ByteCount;
+    
     for (MachineBasicBlock::iterator MBBI = MBB->begin(), EE = MBB->end();
          MBBI != EE; ++MBBI)
-      BlockSize += getNumBytesForInstruction(MBBI);
-    
-    BlockSizes[MBB->getNumber()] = BlockSize;
-    FuncSize += BlockSize;
+      ByteCount += getNumBytesForInstruction(MBBI);
   }
   
-  // If the entire function is smaller than the displacement of a branch field,
-  // we know we don't need to shrink any branches in this function.  This is a
-  // common case.
-  if (FuncSize < (1 << 15)) {
-    BlockSizes.clear();
-    return false;
-  }
+  // We're about to run over the MBB's again, so reset the ByteCount
+  ByteCount = 0;
   
-  // For each conditional branch, if the offset to its destination is larger
-  // than the offset field allows, transform it into a long branch sequence
-  // like this:
-  //   short branch:
-  //     bCC MBB
-  //   long branch:
-  //     b!CC $PC+8
-  //     b MBB
+  // For each MBB, find the conditional branch pseudo instructions, and
+  // calculate the difference between the target MBB and the current ICount
+  // to decide whether or not to emit a short or long branch.
   //
-  bool MadeChange = true;
-  bool EverMadeChange = false;
-  while (MadeChange) {
-    // Iteratively expand branches until we reach a fixed point.
-    MadeChange = false;
-  
-    for (MachineFunction::iterator MFI = Fn.begin(), E = Fn.end(); MFI != E;
-         ++MFI) {
-      MachineBasicBlock &MBB = *MFI;
-      unsigned MBBStartOffset = 0;
-      for (MachineBasicBlock::iterator I = MBB.begin(), E = MBB.end();
-           I != E; ++I) {
-        if (I->getOpcode() != PPC::BCC || I->getOperand(2).isImm()) {
-          MBBStartOffset += getNumBytesForInstruction(I);
-          continue;
-        }
+  // short branch:
+  // bCC .L_TARGET_MBB
+  //
+  // long branch:
+  // bInverseCC $PC+8
+  // b .L_TARGET_MBB
+  for (MachineFunction::iterator MFI = Fn.begin(), E = Fn.end(); MFI != E;
+       ++MFI) {
+    MachineBasicBlock *MBB = MFI;
+    
+    for (MachineBasicBlock::iterator MBBI = MBB->begin(), EE = MBB->end();
+         MBBI != EE; ++MBBI) {
+      // We may end up deleting the MachineInstr that MBBI points to, so
+      // remember its opcode now so we can refer to it after calling erase()
+      unsigned ByteSize = getNumBytesForInstruction(MBBI);
+      if (MBBI->getOpcode() == PPC::COND_BRANCH) {
+        MachineBasicBlock::iterator MBBJ = MBBI;
+        ++MBBJ;
         
-        // Determine the offset from the current branch to the destination
-        // block.
-        MachineBasicBlock *Dest = I->getOperand(2).getMachineBasicBlock();
+        // condbranch operands:
+        // 0. CR0 register
+        // 1. bc opcode
+        // 2. target MBB
+        // 3. fallthrough MBB
+        MachineBasicBlock *trueMBB =
+          MBBI->getOperand(2).getMachineBasicBlock();
         
-        int BranchSize;
-        if (Dest->getNumber() <= MBB.getNumber()) {
-          // If this is a backwards branch, the delta is the offset from the
-          // start of this block to this branch, plus the sizes of all blocks
-          // from this block to the dest.
-          BranchSize = MBBStartOffset;
-          
-          for (unsigned i = Dest->getNumber(), e = MBB.getNumber(); i != e; ++i)
-            BranchSize += BlockSizes[i];
+        int Displacement = OffsetMap[trueMBB] - ByteCount;
+        unsigned Opcode = MBBI->getOperand(1).getImmedValue();
+        unsigned CRReg = MBBI->getOperand(0).getReg();
+        unsigned Inverted = PPCInstrInfo::invertPPCBranchOpcode(Opcode);
+        
+        if (Displacement >= -32768 && Displacement <= 32767) {
+          BuildMI(*MBB, MBBJ, Opcode, 2).addReg(CRReg).addMBB(trueMBB);
         } else {
-          // Otherwise, add the size of the blocks between this block and the
-          // dest to the number of bytes left in this block.
-          BranchSize = -MBBStartOffset;
-
-          for (unsigned i = MBB.getNumber(), e = Dest->getNumber(); i != e; ++i)
-            BranchSize += BlockSizes[i];
-        }
-
-        // If this branch is in range, ignore it.
-        if (isInt16(BranchSize)) {
-          MBBStartOffset += 4;
-          continue;
+          // Long branch, skip next branch instruction (i.e. $PC+8).
+          BuildMI(*MBB, MBBJ, Inverted, 2).addReg(CRReg).addImm(2);
+          BuildMI(*MBB, MBBJ, PPC::B, 1).addMBB(trueMBB);
         }
         
-        // Otherwise, we have to expand it to a long branch.
-        // The BCC operands are:
-        // 0. PPC branch predicate
-        // 1. CR register
-        // 2. Target MBB
-        PPC::Predicate Pred = (PPC::Predicate)I->getOperand(0).getImm();
-        unsigned CRReg = I->getOperand(1).getReg();
-        
-        MachineInstr *OldBranch = I;
-        
-        // Jump over the uncond branch inst (i.e. $PC+8) on opposite condition.
-        BuildMI(MBB, I, TII->get(PPC::BCC))
-          .addImm(PPC::InvertPredicate(Pred)).addReg(CRReg).addImm(2);
-        
-        // Uncond branch to the real destination.
-        I = BuildMI(MBB, I, TII->get(PPC::B)).addMBB(Dest);
-
-        // Remove the old branch from the function.
-        OldBranch->eraseFromParent();
-        
-        // Remember that this instruction is 8-bytes, increase the size of the
-        // block by 4, remember to iterate.
-        BlockSizes[MBB.getNumber()] += 4;
-        MBBStartOffset += 8;
-        ++NumExpanded;
-        MadeChange = true;
+        // Erase the psuedo COND_BRANCH instruction, and then back up the
+        // iterator so that when the for loop increments it, we end up in
+        // the correct place rather than iterating off the end.
+        MBB->erase(MBBI);
+        MBBI = --MBBJ;
       }
+      ByteCount += ByteSize;
     }
-    EverMadeChange |= MadeChange;
   }
   
-  BlockSizes.clear();
+  OffsetMap.clear();
   return true;
 }
 

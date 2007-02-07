@@ -14,29 +14,29 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "gcse"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/BasicBlock.h"
+#include "llvm/Constant.h"
 #include "llvm/Instructions.h"
-#include "llvm/Function.h"
 #include "llvm/Type.h"
-#include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/ValueNumbering.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Support/Compiler.h"
 #include <algorithm>
 using namespace llvm;
 
-STATISTIC(NumInstRemoved, "Number of instructions removed");
-STATISTIC(NumLoadRemoved, "Number of loads removed");
-STATISTIC(NumCallRemoved, "Number of calls removed");
-STATISTIC(NumNonInsts   , "Number of instructions removed due "
-                          "to non-instruction values");
-STATISTIC(NumArgsRepl   , "Number of function arguments replaced "
-                          "with constant values");
 namespace {
-  struct VISIBILITY_HIDDEN GCSE : public FunctionPass {
+  Statistic<> NumInstRemoved("gcse", "Number of instructions removed");
+  Statistic<> NumLoadRemoved("gcse", "Number of loads removed");
+  Statistic<> NumCallRemoved("gcse", "Number of calls removed");
+  Statistic<> NumNonInsts   ("gcse", "Number of instructions removed due "
+                             "to non-instruction values");
+  Statistic<> NumArgsRepl   ("gcse", "Number of function arguments replaced "
+                             "with constant values");
+
+  struct GCSE : public FunctionPass {
     virtual bool runOnFunction(Function &F);
 
   private:

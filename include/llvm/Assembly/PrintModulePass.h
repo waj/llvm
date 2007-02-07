@@ -20,17 +20,18 @@
 
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
-#include "llvm/Support/Streams.h"
+#include <iostream>
 
 namespace llvm {
 
 class PrintModulePass : public ModulePass {
-  OStream *Out;           // ostream to print on
+  std::ostream *Out;      // ostream to print on
   bool DeleteStream;      // Delete the ostream in our dtor?
 public:
-  PrintModulePass() : Out(&cerr), DeleteStream(false) {}
-  PrintModulePass(OStream *o, bool DS = false)
-    : Out(o), DeleteStream(DS) {}
+  PrintModulePass() : Out(&std::cerr), DeleteStream(false) {}
+  PrintModulePass(std::ostream *o, bool DS = false)
+    : Out(o), DeleteStream(DS) {
+  }
 
   ~PrintModulePass() {
     if (DeleteStream) delete Out;
@@ -48,13 +49,14 @@ public:
 
 class PrintFunctionPass : public FunctionPass {
   std::string Banner;     // String to print before each function
-  OStream *Out;           // ostream to print on
+  std::ostream *Out;      // ostream to print on
   bool DeleteStream;      // Delete the ostream in our dtor?
 public:
-  PrintFunctionPass() : Banner(""), Out(&cerr), DeleteStream(false) {}
-  PrintFunctionPass(const std::string &B, OStream *o = &cout,
+  PrintFunctionPass() : Banner(""), Out(&std::cerr), DeleteStream(false) {}
+  PrintFunctionPass(const std::string &B, std::ostream *o = &std::cout,
                     bool DS = false)
-    : Banner(B), Out(o), DeleteStream(DS) {}
+    : Banner(B), Out(o), DeleteStream(DS) {
+  }
 
   inline ~PrintFunctionPass() {
     if (DeleteStream) delete Out;

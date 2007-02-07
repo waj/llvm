@@ -1,8 +1,8 @@
 ; This test makes sure that these instructions are properly eliminated.
 ;
 
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine -disable-output &&
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine | llvm-dis | not grep 'xor '
+; RUN: llvm-as < %s | opt -instcombine -disable-output &&
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep 'xor '
 
 %G1 = global uint 0
 %G2 = global uint 0
@@ -179,14 +179,5 @@ int %test26(int %a, int %b) {
         %tmp2 = xor int %a, %b2
         %tmp4 = and int %tmp2, %a  ; (a^b2)&a -> ~b2 & a -> b & a
         ret int %tmp4
-}
-
-
-int %test27(int %b, int %c, int %d) {
-        %tmp2 = xor int %d, %b
-        %tmp5 = xor int %d, %c
-        %tmp = icmp eq int %tmp2, %tmp5
-        %tmp6 = zext bool %tmp to int
-        ret int %tmp6
 }
 

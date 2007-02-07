@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade %s | llvm-as | llc
+; RUN: llvm-as -f %s -o - | llc
 
 ;; Date:     Jul 8, 2003.
 ;; From:     test/Programs/MultiSource/Olden-perimeter

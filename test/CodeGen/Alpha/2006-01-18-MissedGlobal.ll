@@ -1,5 +1,5 @@
 ; The global symbol should be legalized
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=alpha 
+; RUN: llvm-as < %s | llc -march=alpha 
 
 target endian = little
 target pointersize = 64

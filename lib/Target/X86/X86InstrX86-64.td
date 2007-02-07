@@ -36,8 +36,7 @@ def lea64_32mem : Operand<i32> {
 // Complex Pattern Definitions...
 //
 def lea64addr : ComplexPattern<i64, 4, "SelectLEAAddr",
-                               [add, mul, shl, or, frameindex, X86Wrapper],
-                               []>;
+                               [add, mul, shl, or, frameindex, X86Wrapper], []>;
 
 //===----------------------------------------------------------------------===//
 // Instruction templates...
@@ -60,8 +59,6 @@ class RSSI<bits<8> o, Format F, dag ops, string asm, list<dag> pattern>
       : SSI<o, F, ops, asm, pattern>, REX_W;
 class RSDI<bits<8> o, Format F, dag ops, string asm, list<dag> pattern>
       : SDI<o, F, ops, asm, pattern>, REX_W;
-class RPDI<bits<8> o, Format F, dag ops, string asm, list<dag> pattern>
-      : PDI<o, F, ops, asm, pattern>, REX_W;
 
 //===----------------------------------------------------------------------===//
 // Pattern fragments...
@@ -467,7 +464,7 @@ def SHL64mCL : RI<0xD3, MRM4m, (ops i64mem:$dst),
 def SHL64mi : RIi8<0xC1, MRM4m, (ops i64mem:$dst, i8imm:$src),
                   "shl{q} {$src, $dst|$dst, $src}",
                  [(store (shl (loadi64 addr:$dst), (i8 imm:$src)), addr:$dst)]>;
-def SHL64m1 : RI<0xD1, MRM4m, (ops i64mem:$dst),
+def SHL64m1 : RI<0xC1, MRM4m, (ops i64mem:$dst),
                   "shl{q} $dst",
                  [(store (shl (loadi64 addr:$dst), (i8 1)), addr:$dst)]>;
 
@@ -491,7 +488,7 @@ def SHR64mCL : RI<0xD3, MRM5m, (ops i64mem:$dst),
 def SHR64mi : RIi8<0xC1, MRM5m, (ops i64mem:$dst, i8imm:$src),
                   "shr{q} {$src, $dst|$dst, $src}",
                  [(store (srl (loadi64 addr:$dst), (i8 imm:$src)), addr:$dst)]>;
-def SHR64m1 : RI<0xD1, MRM5m, (ops i64mem:$dst),
+def SHR64m1 : RI<0xC1, MRM5m, (ops i64mem:$dst),
                   "shr{q} $dst",
                  [(store (srl (loadi64 addr:$dst), (i8 1)), addr:$dst)]>;
 
@@ -514,7 +511,7 @@ def SAR64mCL : RI<0xD3, MRM7m, (ops i64mem:$dst),
 def SAR64mi  : RIi8<0xC1, MRM7m, (ops i64mem:$dst, i8imm:$src),
                     "sar{q} {$src, $dst|$dst, $src}",
                  [(store (sra (loadi64 addr:$dst), (i8 imm:$src)), addr:$dst)]>;
-def SAR64m1 : RI<0xD1, MRM7m, (ops i64mem:$dst),
+def SAR64m1 : RI<0xC1, MRM7m, (ops i64mem:$dst),
                   "sar{q} $dst",
                  [(store (sra (loadi64 addr:$dst), (i8 1)), addr:$dst)]>;
 
@@ -526,7 +523,7 @@ def ROL64rCL : RI<0xD3, MRM0r, (ops GR64:$dst, GR64:$src),
 def ROL64ri  : RIi8<0xC1, MRM0r, (ops GR64:$dst, GR64:$src1, i8imm:$src2),
                     "rol{q} {$src2, $dst|$dst, $src2}",
                     [(set GR64:$dst, (rotl GR64:$src1, (i8 imm:$src2)))]>;
-def ROL64r1  : RI<0xD1, MRM0r, (ops GR64:$dst, GR64:$src1),
+def ROL64r1  : RI<0xC1, MRM0r, (ops GR64:$dst, GR64:$src1),
                   "rol{q} $dst",
                   [(set GR64:$dst, (rotl GR64:$src1, (i8 1)))]>;
 } // isTwoAddress
@@ -549,7 +546,7 @@ def ROR64rCL : RI<0xD3, MRM1r, (ops GR64:$dst, GR64:$src),
 def ROR64ri  : RIi8<0xC1, MRM1r, (ops GR64:$dst, GR64:$src1, i8imm:$src2),
                     "ror{q} {$src2, $dst|$dst, $src2}",
                     [(set GR64:$dst, (rotr GR64:$src1, (i8 imm:$src2)))]>;
-def ROR64r1  : RI<0xD1, MRM1r, (ops GR64:$dst, GR64:$src1),
+def ROR64r1  : RI<0xC1, MRM1r, (ops GR64:$dst, GR64:$src1),
                   "ror{q} $dst",
                   [(set GR64:$dst, (rotr GR64:$src1, (i8 1)))]>;
 } // isTwoAddress
@@ -1021,29 +1018,6 @@ def MOV64ri64i32 : Ii32<0xB8, AddRegFrm, (ops GR64:$dst, i64i32imm:$src),
 // Non-Instruction Patterns
 //===----------------------------------------------------------------------===//
 
-// ConstantPool GlobalAddress, ExternalSymbol, and JumpTable
-def : Pat<(i64 (X86Wrapper tconstpool  :$dst)),
-          (MOV64ri tconstpool  :$dst)>, Requires<[NotSmallCode]>;
-def : Pat<(i64 (X86Wrapper tjumptable  :$dst)),
-          (MOV64ri tjumptable  :$dst)>, Requires<[NotSmallCode]>;
-def : Pat<(i64 (X86Wrapper tglobaladdr :$dst)),
-          (MOV64ri tglobaladdr :$dst)>, Requires<[NotSmallCode]>;
-def : Pat<(i64 (X86Wrapper texternalsym:$dst)),
-          (MOV64ri texternalsym:$dst)>, Requires<[NotSmallCode]>;
-
-def : Pat<(store (i64 (X86Wrapper tconstpool:$src)), addr:$dst),
-          (MOV64mi32 addr:$dst, tconstpool:$src)>,
-          Requires<[SmallCode, IsStatic]>;
-def : Pat<(store (i64 (X86Wrapper tjumptable:$src)), addr:$dst),
-          (MOV64mi32 addr:$dst, tjumptable:$src)>,
-          Requires<[SmallCode, IsStatic]>;
-def : Pat<(store (i64 (X86Wrapper tglobaladdr:$src)), addr:$dst),
-          (MOV64mi32 addr:$dst, tglobaladdr:$src)>,
-          Requires<[SmallCode, IsStatic]>;
-def : Pat<(store (i64 (X86Wrapper texternalsym:$src)), addr:$dst),
-          (MOV64mi32 addr:$dst, texternalsym:$src)>,
-          Requires<[SmallCode, IsStatic]>;
-
 // Calls
 // Direct PC relative function call for small code model. 32-bit displacement
 // sign extended to 64-bit.
@@ -1102,41 +1076,3 @@ def : Pat<(or (shl GR64:$src1, CL:$amt),
 def : Pat<(store (or (shl (loadi64 addr:$dst), CL:$amt),
                      (srl GR64:$src2, (sub 64, CL:$amt))), addr:$dst),
           (SHLD64mrCL addr:$dst, GR64:$src2)>;
-
-//===----------------------------------------------------------------------===//
-// X86-64 SSE Instructions
-//===----------------------------------------------------------------------===//
-
-// Move instructions...
-
-def MOV64toPQIrr : RPDI<0x6E, MRMSrcReg, (ops VR128:$dst, GR64:$src),
-                        "mov{d|q} {$src, $dst|$dst, $src}",
-                        [(set VR128:$dst,
-                          (v2i64 (scalar_to_vector GR64:$src)))]>;
-def MOV64toPQIrm : RPDI<0x6E, MRMSrcMem, (ops VR128:$dst, i64mem:$src),
-                        "mov{d|q} {$src, $dst|$dst, $src}",
-                        [(set VR128:$dst,
-                          (v2i64 (scalar_to_vector (loadi64 addr:$src))))]>;
-
-def MOVPQIto64rr  : RPDI<0x7E, MRMDestReg, (ops GR64:$dst, VR128:$src),
-                         "mov{d|q} {$src, $dst|$dst, $src}",
-                         [(set GR64:$dst, (vector_extract (v2i64 VR128:$src),
-                                           (iPTR 0)))]>;
-def MOVPQIto64mr  : RPDI<0x7E, MRMDestMem, (ops i64mem:$dst, VR128:$src),
-                         "mov{d|q} {$src, $dst|$dst, $src}",
-                         [(store (i64 (vector_extract (v2i64 VR128:$src),
-                                       (iPTR 0))), addr:$dst)]>;
-
-def MOV64toSDrr : RPDI<0x6E, MRMSrcReg, (ops FR64:$dst, GR64:$src),
-                       "mov{d|q} {$src, $dst|$dst, $src}",
-                       [(set FR64:$dst, (bitconvert GR64:$src))]>;
-def MOV64toSDrm : RPDI<0x6E, MRMSrcMem, (ops FR64:$dst, i64mem:$src),
-                       "mov{d|q} {$src, $dst|$dst, $src}",
-                       [(set FR64:$dst, (bitconvert (loadi64 addr:$src)))]>;
-
-def MOVSDto64rr  : RPDI<0x7E, MRMDestReg, (ops GR64:$dst, FR64:$src),
-                        "mov{d|q} {$src, $dst|$dst, $src}",
-                        [(set GR64:$dst, (bitconvert FR64:$src))]>;
-def MOVSDto64mr  : RPDI<0x7E, MRMDestMem, (ops i64mem:$dst, FR64:$src),
-                        "mov{d|q} {$src, $dst|$dst, $src}",
-                        [(store (i64 (bitconvert FR64:$src)), addr:$dst)]>;

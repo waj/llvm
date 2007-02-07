@@ -62,7 +62,6 @@ namespace llvm {
     }
 
     virtual void print(std::ostream &OS) const;
-    void print(std::ostream *OS) const { if (OS) print(*OS); }
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVConstant *S) { return true; }
@@ -109,7 +108,6 @@ namespace llvm {
     virtual ConstantRange getValueRange() const;
 
     virtual void print(std::ostream &OS) const;
-    void print(std::ostream *OS) const { if (OS) print(*OS); }
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVTruncateExpr *S) { return true; }
@@ -156,7 +154,6 @@ namespace llvm {
     }
 
     virtual void print(std::ostream &OS) const;
-    void print(std::ostream *OS) const { if (OS) print(*OS); }
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVZeroExtendExpr *S) { return true; }
@@ -221,7 +218,6 @@ namespace llvm {
 
     virtual const Type *getType() const { return getOperand(0)->getType(); }
     virtual void print(std::ostream &OS) const;
-    void print(std::ostream *OS) const { if (OS) print(*OS); }
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVCommutativeExpr *S) { return true; }
@@ -336,7 +332,6 @@ namespace llvm {
     virtual const Type *getType() const;
 
     void print(std::ostream &OS) const;
-    void print(std::ostream *OS) const { if (OS) print(*OS); }
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVSDivExpr *S) { return true; }
@@ -426,16 +421,13 @@ namespace llvm {
     /// looking at this is that it returns the first iteration number where the
     /// value is not in the condition, thus computing the exit count.  If the
     /// iteration count can't be computed, an instance of SCEVCouldNotCompute is
-    /// returned. The isSigned parameter indicates whether the ConstantRange
-    /// should be treated as signed or unsigned.
-    SCEVHandle getNumIterationsInRange(ConstantRange Range, 
-                                       bool isSigned) const;
+    /// returned.
+    SCEVHandle getNumIterationsInRange(ConstantRange Range) const;
 
     SCEVHandle replaceSymbolicValuesWithConcrete(const SCEVHandle &Sym,
                                                  const SCEVHandle &Conc) const;
 
     virtual void print(std::ostream &OS) const;
-    void print(std::ostream *OS) const { if (OS) print(*OS); }
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVAddRecExpr *S) { return true; }
@@ -480,7 +472,6 @@ namespace llvm {
     virtual const Type *getType() const;
 
     virtual void print(std::ostream &OS) const;
-    void print(std::ostream *OS) const { if (OS) print(*OS); }
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVUnknown *S) { return true; }

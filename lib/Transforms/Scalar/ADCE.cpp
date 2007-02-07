@@ -13,7 +13,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "adce"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
@@ -27,22 +26,22 @@
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/Compiler.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(NumBlockRemoved, "Number of basic blocks removed");
-STATISTIC(NumInstRemoved , "Number of instructions removed");
-STATISTIC(NumCallRemoved , "Number of calls and invokes removed");
-
 namespace {
+  Statistic<> NumBlockRemoved("adce", "Number of basic blocks removed");
+  Statistic<> NumInstRemoved ("adce", "Number of instructions removed");
+  Statistic<> NumCallRemoved ("adce", "Number of calls and invokes removed");
+
 //===----------------------------------------------------------------------===//
 // ADCE Class
 //
 // This class does all of the work of Aggressive Dead Code Elimination.
 // It's public interface consists of a constructor and a doADCE() method.
 //
-class VISIBILITY_HIDDEN ADCE : public FunctionPass {
+class ADCE : public FunctionPass {
   Function *Func;                       // The function that we are working on
   std::vector<Instruction*> WorkList;   // Instructions that just became live
   std::set<Instruction*>    LiveSet;    // The set of live instructions
@@ -93,12 +92,12 @@ private:
 
   inline void markInstructionLive(Instruction *I) {
     if (!LiveSet.insert(I).second) return;
-    DOUT << "Insn Live: " << *I;
+    DEBUG(std::cerr << "Insn Live: " << *I);
     WorkList.push_back(I);
   }
 
   inline void markTerminatorLive(const BasicBlock *BB) {
-    DOUT << "Terminator Live: " << *BB->getTerminator();
+    DEBUG(std::cerr << "Terminator Live: " << *BB->getTerminator());
     markInstructionLive(const_cast<TerminatorInst*>(BB->getTerminator()));
   }
 };
@@ -261,7 +260,7 @@ bool ADCE::doADCE() {
       for (pred_iterator PI = pred_begin(I), E = pred_end(I); PI != E; ++PI)
         markInstructionLive((*PI)->getTerminator());
 
-  DOUT << "Processing work list\n";
+  DEBUG(std::cerr << "Processing work list\n");
 
   // AliveBlocks - Set of basic blocks that we know have instructions that are
   // alive in them...
@@ -310,13 +309,13 @@ bool ADCE::doADCE() {
   }
 
   DEBUG(
-    DOUT << "Current Function: X = Live\n";
+    std::cerr << "Current Function: X = Live\n";
     for (Function::iterator I = Func->begin(), E = Func->end(); I != E; ++I){
-      DOUT << I->getName() << ":\t"
-           << (AliveBlocks.count(I) ? "LIVE\n" : "DEAD\n");
+      std::cerr << I->getName() << ":\t"
+                << (AliveBlocks.count(I) ? "LIVE\n" : "DEAD\n");
       for (BasicBlock::iterator BI = I->begin(), BE = I->end(); BI != BE; ++BI){
-        if (LiveSet.count(BI)) DOUT << "X ";
-        DOUT << *BI;
+        if (LiveSet.count(BI)) std::cerr << "X ";
+        std::cerr << *BI;
       }
     });
 

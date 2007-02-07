@@ -19,13 +19,12 @@
 #include "llvm/Instruction.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
-#include "llvm/TypeSymbolTable.h"
+#include "llvm/SymbolTable.h"
+#include "llvm/Support/CFG.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/CFG.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Config/config.h"
 #include <algorithm>
 #include <iostream>
@@ -160,25 +159,32 @@ sanitize(std::string& str) {
       str[i] = '_';
 }
 
-inline std::string
+inline const char* 
 getTypePrefix(const Type* Ty ) {
+  const char* prefix;
   switch (Ty->getTypeID()) {
-    case Type::VoidTyID:     return "void_";
-    case Type::IntegerTyID:  
-      return std::string("int") + utostr(cast<IntegerType>(Ty)->getBitWidth()) +
-        "_";
-    case Type::FloatTyID:    return "float_"; 
-    case Type::DoubleTyID:   return "double_"; 
-    case Type::LabelTyID:    return "label_"; 
-    case Type::FunctionTyID: return "func_"; 
-    case Type::StructTyID:   return "struct_"; 
-    case Type::ArrayTyID:    return "array_"; 
-    case Type::PointerTyID:  return "ptr_"; 
-    case Type::PackedTyID:   return "packed_"; 
-    case Type::OpaqueTyID:   return "opaque_"; 
-    default:                 return "other_"; 
+    case Type::VoidTyID:     prefix = "void_"; break;
+    case Type::BoolTyID:     prefix = "bool_"; break; 
+    case Type::UByteTyID:    prefix = "ubyte_"; break;
+    case Type::SByteTyID:    prefix = "sbyte_"; break;
+    case Type::UShortTyID:   prefix = "ushort_"; break;
+    case Type::ShortTyID:    prefix = "short_"; break;
+    case Type::UIntTyID:     prefix = "uint_"; break;
+    case Type::IntTyID:      prefix = "int_"; break;
+    case Type::ULongTyID:    prefix = "ulong_"; break;
+    case Type::LongTyID:     prefix = "long_"; break;
+    case Type::FloatTyID:    prefix = "float_"; break;
+    case Type::DoubleTyID:   prefix = "double_"; break;
+    case Type::LabelTyID:    prefix = "label_"; break;
+    case Type::FunctionTyID: prefix = "func_"; break;
+    case Type::StructTyID:   prefix = "struct_"; break;
+    case Type::ArrayTyID:    prefix = "array_"; break;
+    case Type::PointerTyID:  prefix = "ptr_"; break;
+    case Type::PackedTyID:   prefix = "packed_"; break;
+    case Type::OpaqueTyID:   prefix = "opaque_"; break;
+    default:                 prefix = "other_"; break;
   }
-  return "unknown_";
+  return prefix;
 }
 
 // Looks up the type in the symbol table and returns a pointer to its name or
@@ -186,10 +192,10 @@ getTypePrefix(const Type* Ty ) {
 // Mode::getTypeName function which will return an empty string, not a null
 // pointer if the name is not found.
 inline const std::string* 
-findTypeName(const TypeSymbolTable& ST, const Type* Ty)
+findTypeName(const SymbolTable& ST, const Type* Ty)
 {
-  TypeSymbolTable::const_iterator TI = ST.begin();
-  TypeSymbolTable::const_iterator TE = ST.end();
+  SymbolTable::type_const_iterator TI = ST.type_begin();
+  SymbolTable::type_const_iterator TE = ST.type_end();
   for (;TI != TE; ++TI)
     if (TI->second == Ty)
       return &(TI->first);
@@ -257,6 +263,7 @@ CppWriter::printCallingConv(unsigned cc){
   // Print the calling convention.
   switch (cc) {
     case CallingConv::C:     Out << "CallingConv::C"; break;
+    case CallingConv::CSRet: Out << "CallingConv::CSRet"; break;
     case CallingConv::Fast:  Out << "CallingConv::Fast"; break;
     case CallingConv::Cold:  Out << "CallingConv::Cold"; break;
     case CallingConv::FirstTargetCC: Out << "CallingConv::FirstTargetCC"; break;
@@ -308,16 +315,21 @@ std::string
 CppWriter::getCppName(const Type* Ty)
 {
   // First, handle the primitive types .. easy
-  if (Ty->isPrimitiveType() || Ty->isInteger()) {
+  if (Ty->isPrimitiveType()) {
     switch (Ty->getTypeID()) {
-      case Type::VoidTyID:   return "Type::VoidTy";
-      case Type::IntegerTyID: {
-        unsigned BitWidth = cast<IntegerType>(Ty)->getBitWidth();
-        return "IntegerType::get(" + utostr(BitWidth) + ")";
-      }
-      case Type::FloatTyID:  return "Type::FloatTy";
-      case Type::DoubleTyID: return "Type::DoubleTy";
-      case Type::LabelTyID:  return "Type::LabelTy";
+      case Type::VoidTyID:     return "Type::VoidTy";
+      case Type::BoolTyID:     return "Type::BoolTy"; 
+      case Type::UByteTyID:    return "Type::UByteTy";
+      case Type::SByteTyID:    return "Type::SByteTy";
+      case Type::UShortTyID:   return "Type::UShortTy";
+      case Type::ShortTyID:    return "Type::ShortTy";
+      case Type::UIntTyID:     return "Type::UIntTy";
+      case Type::IntTyID:      return "Type::IntTy";
+      case Type::ULongTyID:    return "Type::ULongTy";
+      case Type::LongTyID:     return "Type::LongTy";
+      case Type::FloatTyID:    return "Type::FloatTy";
+      case Type::DoubleTyID:   return "Type::DoubleTy";
+      case Type::LabelTyID:    return "Type::LabelTy";
       default:
         error("Invalid primitive type");
         break;
@@ -343,7 +355,7 @@ CppWriter::getCppName(const Type* Ty)
   }
 
   // See if the type has a name in the symboltable and build accordingly
-  const std::string* tName = findTypeName(TheModule->getTypeSymbolTable(), Ty);
+  const std::string* tName = findTypeName(TheModule->getSymbolTable(), Ty);
   std::string name;
   if (tName) 
     name = std::string(prefix) + *tName;
@@ -408,7 +420,7 @@ CppWriter::printCppName(const Value* val) {
 bool
 CppWriter::printTypeInternal(const Type* Ty) {
   // We don't print definitions for primitive types
-  if (Ty->isPrimitiveType() || Ty->isInteger())
+  if (Ty->isPrimitiveType())
     return false;
 
   // If we already defined this type, we don't need to define it again.
@@ -534,7 +546,7 @@ CppWriter::printTypeInternal(const Type* Ty) {
 
   // If the type had a name, make sure we recreate it.
   const std::string* progTypeName = 
-    findTypeName(TheModule->getTypeSymbolTable(),Ty);
+    findTypeName(TheModule->getSymbolTable(),Ty);
   if (progTypeName)
     Out << "mod->addTypeName(\"" << *progTypeName << "\", " 
         << typeName << ");";
@@ -591,14 +603,13 @@ void
 CppWriter::printTypes(const Module* M) {
 
   // Walk the symbol table and print out all its types
-  const TypeSymbolTable& symtab = M->getTypeSymbolTable();
-  for (TypeSymbolTable::const_iterator TI = symtab.begin(), TE = symtab.end(); 
-       TI != TE; ++TI) {
+  const SymbolTable& symtab = M->getSymbolTable();
+  for (SymbolTable::type_const_iterator TI = symtab.type_begin(), 
+       TE = symtab.type_end(); TI != TE; ++TI) {
 
     // For primitive types and types already defined, just add a name
     TypeMap::const_iterator TNI = TypeNames.find(TI->second);
-    if (TI->second->isInteger() || TI->second->isPrimitiveType() || 
-        TNI != TypeNames.end()) {
+    if (TI->second->isPrimitiveType() || TNI != TypeNames.end()) {
       Out << "mod->addTypeName(\"";
       printEscapedString(TI->first);
       Out << "\", " << getCppName(TI->second) << ");";
@@ -663,9 +674,14 @@ void CppWriter::printConstant(const Constant *CV) {
     // Skip variables and functions, we emit them elsewhere
     return;
   }
-  if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
+  if (const ConstantBool *CB = dyn_cast<ConstantBool>(CV)) {
+    Out << "ConstantBool* " << constName << " = ConstantBool::get(" 
+        << (CB->getValue() ? "true" : "false") << ");";
+  } else if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
     Out << "ConstantInt* " << constName << " = ConstantInt::get(" 
-        << typeName << ", " << CI->getZExtValue() << ");";
+        << typeName << ", " 
+        << (CV->getType()->isSigned() ? CI->getSExtValue() : CI->getZExtValue())
+        << ");";
   } else if (isa<ConstantAggregateZero>(CV)) {
     Out << "ConstantAggregateZero* " << constName 
         << " = ConstantAggregateZero::get(" << typeName << ");";
@@ -677,7 +693,7 @@ void CppWriter::printConstant(const Constant *CV) {
     printCFP(CFP);
     Out << ";";
   } else if (const ConstantArray *CA = dyn_cast<ConstantArray>(CV)) {
-    if (CA->isString() && CA->getType()->getElementType() == Type::Int8Ty) {
+    if (CA->isString() && CA->getType()->getElementType() == Type::SByteTy) {
       Out << "Constant* " << constName << " = ConstantArray::get(\"";
       printEscapedString(CA->getAsString());
       // Determine if we want null termination or not.
@@ -741,26 +757,11 @@ void CppWriter::printConstant(const Constant *CV) {
           << " = ConstantExpr::getGetElementPtr(" 
           << getCppName(CE->getOperand(0)) << ", " 
           << constName << "_indices);";
-    } else if (CE->isCast()) {
+    } else if (CE->getOpcode() == Instruction::Cast) {
       printConstant(CE->getOperand(0));
       Out << "Constant* " << constName << " = ConstantExpr::getCast(";
-      switch (CE->getOpcode()) {
-        default: assert(0 && "Invalid cast opcode");
-        case Instruction::Trunc: Out << "Instruction::Trunc"; break;
-        case Instruction::ZExt:  Out << "Instruction::ZExt"; break;
-        case Instruction::SExt:  Out << "Instruction::SExt"; break;
-        case Instruction::FPTrunc:  Out << "Instruction::FPTrunc"; break;
-        case Instruction::FPExt:  Out << "Instruction::FPExt"; break;
-        case Instruction::FPToUI:  Out << "Instruction::FPToUI"; break;
-        case Instruction::FPToSI:  Out << "Instruction::FPToSI"; break;
-        case Instruction::UIToFP:  Out << "Instruction::UIToFP"; break;
-        case Instruction::SIToFP:  Out << "Instruction::SIToFP"; break;
-        case Instruction::PtrToInt:  Out << "Instruction::PtrToInt"; break;
-        case Instruction::IntToPtr:  Out << "Instruction::IntToPtr"; break;
-        case Instruction::BitCast:  Out << "Instruction::BitCast"; break;
-      }
-      Out << ", " << getCppName(CE->getOperand(0)) << ", " 
-          << getCppName(CE->getType()) << ");";
+      Out << getCppName(CE->getOperand(0)) << ", " << getCppName(CE->getType())
+          << ");";
     } else {
       unsigned N = CE->getNumOperands();
       for (unsigned i = 0; i < N; ++i ) {
@@ -768,63 +769,30 @@ void CppWriter::printConstant(const Constant *CV) {
       }
       Out << "Constant* " << constName << " = ConstantExpr::";
       switch (CE->getOpcode()) {
-        case Instruction::Add:    Out << "getAdd(";  break;
-        case Instruction::Sub:    Out << "getSub("; break;
-        case Instruction::Mul:    Out << "getMul("; break;
-        case Instruction::UDiv:   Out << "getUDiv("; break;
-        case Instruction::SDiv:   Out << "getSDiv("; break;
-        case Instruction::FDiv:   Out << "getFDiv("; break;
-        case Instruction::URem:   Out << "getURem("; break;
-        case Instruction::SRem:   Out << "getSRem("; break;
-        case Instruction::FRem:   Out << "getFRem("; break;
-        case Instruction::And:    Out << "getAnd("; break;
-        case Instruction::Or:     Out << "getOr("; break;
-        case Instruction::Xor:    Out << "getXor("; break;
-        case Instruction::ICmp:   
-          Out << "getICmp(ICmpInst::ICMP_";
-          switch (CE->getPredicate()) {
-            case ICmpInst::ICMP_EQ:  Out << "EQ"; break;
-            case ICmpInst::ICMP_NE:  Out << "NE"; break;
-            case ICmpInst::ICMP_SLT: Out << "SLT"; break;
-            case ICmpInst::ICMP_ULT: Out << "ULT"; break;
-            case ICmpInst::ICMP_SGT: Out << "SGT"; break;
-            case ICmpInst::ICMP_UGT: Out << "UGT"; break;
-            case ICmpInst::ICMP_SLE: Out << "SLE"; break;
-            case ICmpInst::ICMP_ULE: Out << "ULE"; break;
-            case ICmpInst::ICMP_SGE: Out << "SGE"; break;
-            case ICmpInst::ICMP_UGE: Out << "UGE"; break;
-            default: error("Invalid ICmp Predicate");
-          }
-          break;
-        case Instruction::FCmp:
-          Out << "getFCmp(FCmpInst::FCMP_";
-          switch (CE->getPredicate()) {
-            case FCmpInst::FCMP_FALSE: Out << "FALSE"; break;
-            case FCmpInst::FCMP_ORD:   Out << "ORD"; break;
-            case FCmpInst::FCMP_UNO:   Out << "UNO"; break;
-            case FCmpInst::FCMP_OEQ:   Out << "OEQ"; break;
-            case FCmpInst::FCMP_UEQ:   Out << "UEQ"; break;
-            case FCmpInst::FCMP_ONE:   Out << "ONE"; break;
-            case FCmpInst::FCMP_UNE:   Out << "UNE"; break;
-            case FCmpInst::FCMP_OLT:   Out << "OLT"; break;
-            case FCmpInst::FCMP_ULT:   Out << "ULT"; break;
-            case FCmpInst::FCMP_OGT:   Out << "OGT"; break;
-            case FCmpInst::FCMP_UGT:   Out << "UGT"; break;
-            case FCmpInst::FCMP_OLE:   Out << "OLE"; break;
-            case FCmpInst::FCMP_ULE:   Out << "ULE"; break;
-            case FCmpInst::FCMP_OGE:   Out << "OGE"; break;
-            case FCmpInst::FCMP_UGE:   Out << "UGE"; break;
-            case FCmpInst::FCMP_TRUE:  Out << "TRUE"; break;
-            default: error("Invalid FCmp Predicate");
-          }
-          break;
-        case Instruction::Shl:     Out << "getShl("; break;
-        case Instruction::LShr:    Out << "getLShr("; break;
-        case Instruction::AShr:    Out << "getAShr("; break;
-        case Instruction::Select:  Out << "getSelect("; break;
-        case Instruction::ExtractElement: Out << "getExtractElement("; break;
-        case Instruction::InsertElement:  Out << "getInsertElement("; break;
-        case Instruction::ShuffleVector:  Out << "getShuffleVector("; break;
+        case Instruction::Add:    Out << "getAdd";  break;
+        case Instruction::Sub:    Out << "getSub"; break;
+        case Instruction::Mul:    Out << "getMul"; break;
+        case Instruction::UDiv:   Out << "getUDiv"; break;
+        case Instruction::SDiv:   Out << "getSDiv"; break;
+        case Instruction::FDiv:   Out << "getFDiv"; break;
+        case Instruction::URem:   Out << "getURem"; break;
+        case Instruction::SRem:   Out << "getSRem"; break;
+        case Instruction::FRem:   Out << "getFRem"; break;
+        case Instruction::And:    Out << "getAnd"; break;
+        case Instruction::Or:     Out << "getOr"; break;
+        case Instruction::Xor:    Out << "getXor"; break;
+        case Instruction::SetEQ:  Out << "getSetEQ"; break;
+        case Instruction::SetNE:  Out << "getSetNE"; break;
+        case Instruction::SetLE:  Out << "getSetLE"; break;
+        case Instruction::SetGE:  Out << "getSetGE"; break;
+        case Instruction::SetLT:  Out << "getSetLT"; break;
+        case Instruction::SetGT:  Out << "getSetGT"; break;
+        case Instruction::Shl:    Out << "getShl"; break;
+        case Instruction::Shr:    Out << "getShr"; break;
+        case Instruction::Select: Out << "getSelect"; break;
+        case Instruction::ExtractElement: Out << "getExtractElement"; break;
+        case Instruction::InsertElement:  Out << "getInsertElement"; break;
+        case Instruction::ShuffleVector:  Out << "getShuffleVector"; break;
         default:
           error("Invalid constant expression");
           break;
@@ -1066,8 +1034,7 @@ CppWriter::printInstruction(const Instruction *I, const std::string& bbname) {
     case Instruction::Or:
     case Instruction::Xor:
     case Instruction::Shl: 
-    case Instruction::LShr: 
-    case Instruction::AShr:{
+    case Instruction::Shr:{
       Out << "BinaryOperator* " << iName << " = BinaryOperator::create(";
       switch (I->getOpcode()) {
         case Instruction::Add: Out << "Instruction::Add"; break;
@@ -1083,8 +1050,7 @@ CppWriter::printInstruction(const Instruction *I, const std::string& bbname) {
         case Instruction::Or:  Out << "Instruction::Or";  break;
         case Instruction::Xor: Out << "Instruction::Xor"; break;
         case Instruction::Shl: Out << "Instruction::Shl"; break;
-        case Instruction::LShr:Out << "Instruction::LShr"; break;
-        case Instruction::AShr:Out << "Instruction::AShr"; break;
+        case Instruction::Shr: Out << "Instruction::Shr"; break;
         default: Out << "Instruction::BadOpCode"; break;
       }
       Out << ", " << opNames[0] << ", " << opNames[1] << ", \"";
@@ -1092,46 +1058,21 @@ CppWriter::printInstruction(const Instruction *I, const std::string& bbname) {
       Out << "\", " << bbname << ");";
       break;
     }
-    case Instruction::FCmp: {
-      Out << "FCmpInst* " << iName << " = new FCmpInst(";
-      switch (cast<FCmpInst>(I)->getPredicate()) {
-        case FCmpInst::FCMP_FALSE: Out << "FCmpInst::FCMP_FALSE"; break;
-        case FCmpInst::FCMP_OEQ  : Out << "FCmpInst::FCMP_OEQ"; break;
-        case FCmpInst::FCMP_OGT  : Out << "FCmpInst::FCMP_OGT"; break;
-        case FCmpInst::FCMP_OGE  : Out << "FCmpInst::FCMP_OGE"; break;
-        case FCmpInst::FCMP_OLT  : Out << "FCmpInst::FCMP_OLT"; break;
-        case FCmpInst::FCMP_OLE  : Out << "FCmpInst::FCMP_OLE"; break;
-        case FCmpInst::FCMP_ONE  : Out << "FCmpInst::FCMP_ONE"; break;
-        case FCmpInst::FCMP_ORD  : Out << "FCmpInst::FCMP_ORD"; break;
-        case FCmpInst::FCMP_UNO  : Out << "FCmpInst::FCMP_UNO"; break;
-        case FCmpInst::FCMP_UEQ  : Out << "FCmpInst::FCMP_UEQ"; break;
-        case FCmpInst::FCMP_UGT  : Out << "FCmpInst::FCMP_UGT"; break;
-        case FCmpInst::FCMP_UGE  : Out << "FCmpInst::FCMP_UGE"; break;
-        case FCmpInst::FCMP_ULT  : Out << "FCmpInst::FCMP_ULT"; break;
-        case FCmpInst::FCMP_ULE  : Out << "FCmpInst::FCMP_ULE"; break;
-        case FCmpInst::FCMP_UNE  : Out << "FCmpInst::FCMP_UNE"; break;
-        case FCmpInst::FCMP_TRUE : Out << "FCmpInst::FCMP_TRUE"; break;
-        default: Out << "FCmpInst::BAD_ICMP_PREDICATE"; break;
-      }
-      Out << ", " << opNames[0] << ", " << opNames[1] << ", \"";
-      printEscapedString(I->getName());
-      Out << "\", " << bbname << ");";
-      break;
-    }
-    case Instruction::ICmp: {
-      Out << "ICmpInst* " << iName << " = new ICmpInst(";
-      switch (cast<ICmpInst>(I)->getPredicate()) {
-        case ICmpInst::ICMP_EQ:  Out << "ICmpInst::ICMP_EQ";  break;
-        case ICmpInst::ICMP_NE:  Out << "ICmpInst::ICMP_NE";  break;
-        case ICmpInst::ICMP_ULE: Out << "ICmpInst::ICMP_ULE"; break;
-        case ICmpInst::ICMP_SLE: Out << "ICmpInst::ICMP_SLE"; break;
-        case ICmpInst::ICMP_UGE: Out << "ICmpInst::ICMP_UGE"; break;
-        case ICmpInst::ICMP_SGE: Out << "ICmpInst::ICMP_SGE"; break;
-        case ICmpInst::ICMP_ULT: Out << "ICmpInst::ICMP_ULT"; break;
-        case ICmpInst::ICMP_SLT: Out << "ICmpInst::ICMP_SLT"; break;
-        case ICmpInst::ICMP_UGT: Out << "ICmpInst::ICMP_UGT"; break;
-        case ICmpInst::ICMP_SGT: Out << "ICmpInst::ICMP_SGT"; break;
-        default: Out << "ICmpInst::BAD_ICMP_PREDICATE"; break;
+    case Instruction::SetEQ:
+    case Instruction::SetNE:
+    case Instruction::SetLE:
+    case Instruction::SetGE:
+    case Instruction::SetLT:
+    case Instruction::SetGT: {
+      Out << "SetCondInst* " << iName << " = new SetCondInst(";
+      switch (I->getOpcode()) {
+        case Instruction::SetEQ: Out << "Instruction::SetEQ"; break;
+        case Instruction::SetNE: Out << "Instruction::SetNE"; break;
+        case Instruction::SetLE: Out << "Instruction::SetLE"; break;
+        case Instruction::SetGE: Out << "Instruction::SetGE"; break;
+        case Instruction::SetLT: Out << "Instruction::SetLT"; break;
+        case Instruction::SetGT: Out << "Instruction::SetGT"; break;
+        default: Out << "Instruction::BadOpCode"; break;
       }
       Out << ", " << opNames[0] << ", " << opNames[1] << ", \"";
       printEscapedString(I->getName());
@@ -1230,36 +1171,10 @@ CppWriter::printInstruction(const Instruction *I, const std::string& bbname) {
       }
       break;
     }
-    case Instruction::Trunc: 
-    case Instruction::ZExt:
-    case Instruction::SExt:
-    case Instruction::FPTrunc:
-    case Instruction::FPExt:
-    case Instruction::FPToUI:
-    case Instruction::FPToSI:
-    case Instruction::UIToFP:
-    case Instruction::SIToFP:
-    case Instruction::PtrToInt:
-    case Instruction::IntToPtr:
-    case Instruction::BitCast: {
+    case Instruction::Cast: {
       const CastInst* cst = cast<CastInst>(I);
-      Out << "CastInst* " << iName << " = new ";
-      switch (I->getOpcode()) {
-        case Instruction::Trunc:    Out << "TruncInst";
-        case Instruction::ZExt:     Out << "ZExtInst";
-        case Instruction::SExt:     Out << "SExtInst";
-        case Instruction::FPTrunc:  Out << "FPTruncInst";
-        case Instruction::FPExt:    Out << "FPExtInst";
-        case Instruction::FPToUI:   Out << "FPToUIInst";
-        case Instruction::FPToSI:   Out << "FPToSIInst";
-        case Instruction::UIToFP:   Out << "UIToFPInst";
-        case Instruction::SIToFP:   Out << "SIToFPInst";
-        case Instruction::PtrToInt: Out << "PtrToInst";
-        case Instruction::IntToPtr: Out << "IntToPtrInst";
-        case Instruction::BitCast:  Out << "BitCastInst";
-        default: assert(!"Unreachable"); break;
-      }
-      Out << "(" << opNames[0] << ", "
+      Out << "CastInst* " << iName << " = new CastInst("
+          << opNames[0] << ", "
           << getCppName(cst->getType()) << ", \"";
       printEscapedString(cst->getName());
       Out << "\", " << bbname << ");";
@@ -1451,7 +1366,7 @@ void CppWriter::printFunctionHead(const Function* F) {
   Out << ",";
   nl(Out) << "/*Name=*/\"";
   printEscapedString(F->getName());
-  Out << "\", mod); " << (F->isDeclaration()? "// (external, no body)" : "");
+  Out << "\", mod); " << (F->isExternal()? "// (external, no body)" : "");
   nl(Out,-1);
   printCppName(F);
   Out << "->setCallingConv(";
@@ -1475,7 +1390,7 @@ void CppWriter::printFunctionHead(const Function* F) {
 }
 
 void CppWriter::printFunctionBody(const Function *F) {
-  if (F->isDeclaration())
+  if (F->isExternal())
     return; // external functions have no bodies.
 
   // Clear the DefinedValues and ForwardRefs maps because we can't have 
@@ -1544,12 +1459,12 @@ void CppWriter::printFunctionBody(const Function *F) {
 }
 
 void CppWriter::printInline(const std::string& fname, const std::string& func) {
-  const Function* F = TheModule->getFunction(func);
+  const Function* F = TheModule->getNamedFunction(func);
   if (!F) {
     error(std::string("Function '") + func + "' not found in input module");
     return;
   }
-  if (F->isDeclaration()) {
+  if (F->isExternal()) {
     error(std::string("Function '") + func + "' is external!");
     return;
   }
@@ -1610,7 +1525,7 @@ void CppWriter::printModuleBody() {
   nl(Out) << "// Function Definitions"; nl(Out);
   for (Module::const_iterator I = TheModule->begin(), E = TheModule->end(); 
        I != E; ++I) {
-    if (!I->isDeclaration()) {
+    if (!I->isExternal()) {
       nl(Out) << "// Function: " << I->getName() << " (" << getCppName(I) 
           << ")";
       nl(Out) << "{";
@@ -1719,7 +1634,7 @@ void CppWriter::printFunction(
   const std::string& fname, // Name of generated function
   const std::string& funcName // Name of function to generate
 ) {
-  const Function* F = TheModule->getFunction(funcName);
+  const Function* F = TheModule->getNamedFunction(funcName);
   if (!F) {
     error(std::string("Function '") + funcName + "' not found in input module");
     return;

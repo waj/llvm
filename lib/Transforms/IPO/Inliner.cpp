@@ -13,24 +13,23 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "inline"
 #include "Inliner.h"
 #include "llvm/Module.h"
 #include "llvm/Instructions.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Support/CallSite.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
+#include <iostream>
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumInlined, "Number of functions inlined");
-STATISTIC(NumDeleted, "Number of functions deleted because all callers found");
-
 namespace {
+  Statistic<> NumInlined("inline", "Number of functions inlined");
+  Statistic<> NumDeleted("inline",
+                       "Number of functions deleted because all callers found");
   cl::opt<unsigned>             // FIXME: 200 is VERY conservative
   InlineLimit("inline-threshold", cl::Hidden, cl::init(200),
         cl::desc("Control the amount of inlining to perform (default = 200)"));
@@ -38,27 +37,19 @@ namespace {
 
 Inliner::Inliner() : InlineThreshold(InlineLimit) {}
 
-/// getAnalysisUsage - For this class, we declare that we require and preserve
-/// the call graph.  If the derived class implements this method, it should
-/// always explicitly call the implementation here.
-void Inliner::getAnalysisUsage(AnalysisUsage &Info) const {
-  Info.addRequired<TargetData>();
-  CallGraphSCCPass::getAnalysisUsage(Info);
-}
-
 // InlineCallIfPossible - If it is possible to inline the specified call site,
 // do so and update the CallGraph for this operation.
 static bool InlineCallIfPossible(CallSite CS, CallGraph &CG,
-                                 const std::set<Function*> &SCCFunctions,
-                                 const TargetData &TD) {
+                                 const std::set<Function*> &SCCFunctions) {
   Function *Callee = CS.getCalledFunction();
-  if (!InlineFunction(CS, &CG, &TD)) return false;
+  if (!InlineFunction(CS, &CG)) return false;
 
   // If we inlined the last possible call site to the function, delete the
   // function body now.
   if (Callee->use_empty() && Callee->hasInternalLinkage() &&
       !SCCFunctions.count(Callee)) {
-    DOUT << "    -> Deleting dead function: " << Callee->getName() << "\n";
+    DEBUG(std::cerr << "    -> Deleting dead function: "
+                    << Callee->getName() << "\n");
 
     // Remove any call graph edges from the callee to its callees.
     CallGraphNode *CalleeNode = CG[Callee];
@@ -76,11 +67,11 @@ bool Inliner::runOnSCC(const std::vector<CallGraphNode*> &SCC) {
   CallGraph &CG = getAnalysis<CallGraph>();
 
   std::set<Function*> SCCFunctions;
-  DOUT << "Inliner visiting SCC:";
+  DEBUG(std::cerr << "Inliner visiting SCC:");
   for (unsigned i = 0, e = SCC.size(); i != e; ++i) {
     Function *F = SCC[i]->getFunction();
     if (F) SCCFunctions.insert(F);
-    DOUT << " " << (F ? F->getName() : "INDIRECTNODE");
+    DEBUG(std::cerr << " " << (F ? F->getName() : "INDIRECTNODE"));
   }
 
   // Scan through and identify all call sites ahead of time so that we only
@@ -94,11 +85,11 @@ bool Inliner::runOnSCC(const std::vector<CallGraphNode*> &SCC) {
         for (BasicBlock::iterator I = BB->begin(); I != BB->end(); ++I) {
           CallSite CS = CallSite::get(I);
           if (CS.getInstruction() && (!CS.getCalledFunction() ||
-                                      !CS.getCalledFunction()->isDeclaration()))
+                                      !CS.getCalledFunction()->isExternal()))
             CallSites.push_back(CS);
         }
 
-  DOUT << ": " << CallSites.size() << " call sites.\n";
+  DEBUG(std::cerr << ": " << CallSites.size() << " call sites.\n");
 
   // Now that we have all of the call sites, move the ones to functions in the
   // current SCC to the end of the list.
@@ -119,7 +110,7 @@ bool Inliner::runOnSCC(const std::vector<CallGraphNode*> &SCC) {
     for (unsigned CSi = 0; CSi != CallSites.size(); ++CSi)
       if (Function *Callee = CallSites[CSi].getCalledFunction()) {
         // Calls to external functions are never inlinable.
-        if (Callee->isDeclaration() ||
+        if (Callee->isExternal() ||
             CallSites[CSi].getInstruction()->getParent()->getParent() ==Callee){
           if (SCC.size() == 1) {
             std::swap(CallSites[CSi], CallSites.back());
@@ -137,15 +128,14 @@ bool Inliner::runOnSCC(const std::vector<CallGraphNode*> &SCC) {
         CallSite CS = CallSites[CSi];
         int InlineCost = getInlineCost(CS);
         if (InlineCost >= (int)InlineThreshold) {
-          DOUT << "    NOT Inlining: cost=" << InlineCost
-               << ", Call: " << *CS.getInstruction();
+          DEBUG(std::cerr << "    NOT Inlining: cost=" << InlineCost
+                << ", Call: " << *CS.getInstruction());
         } else {
-          DOUT << "    Inlining: cost=" << InlineCost
-               << ", Call: " << *CS.getInstruction();
+          DEBUG(std::cerr << "    Inlining: cost=" << InlineCost
+                << ", Call: " << *CS.getInstruction());
 
           // Attempt to inline the function...
-          if (InlineCallIfPossible(CS, CG, SCCFunctions, 
-                                   getAnalysis<TargetData>())) {
+          if (InlineCallIfPossible(CS, CG, SCCFunctions)) {
             // Remove this call site from the list.  If possible, use 
             // swap/pop_back for efficiency, but do not use it if doing so would
             // move a call site to a function in this SCC before the

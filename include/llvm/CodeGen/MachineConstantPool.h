@@ -17,7 +17,6 @@
 
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
-#include "llvm/Support/Streams.h"
 #include <vector>
 #include <iosfwd>
 
@@ -50,7 +49,6 @@ public:
   /// print - Implement operator<<...
   ///
   virtual void print(std::ostream &O) const = 0;
-  void print(std::ostream *O) const { if (O) print(*O); }
 };
 
 inline std::ostream &operator<<(std::ostream &OS,
@@ -137,7 +135,6 @@ public:
   /// constant pool objects.  Implemented in MachineFunction.cpp
   ///
   void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
 
   /// dump - Call print(std::cerr) to be called from the debugger.
   ///

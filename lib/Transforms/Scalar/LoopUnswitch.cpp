@@ -29,35 +29,34 @@
 #define DEBUG_TYPE "loop-unswitch"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Constants.h"
-#include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
-#include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/PostOrderIterator.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/CommandLine.h"
 #include <algorithm>
+#include <iostream>
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumBranches, "Number of branches unswitched");
-STATISTIC(NumSwitches, "Number of switches unswitched");
-STATISTIC(NumSelects , "Number of selects unswitched");
-STATISTIC(NumTrivial , "Number of unswitches that are trivial");
-STATISTIC(NumSimplify, "Number of simplifications of unswitched code");
-
 namespace {
+  Statistic<> NumBranches("loop-unswitch", "Number of branches unswitched");
+  Statistic<> NumSwitches("loop-unswitch", "Number of switches unswitched");
+  Statistic<> NumSelects ("loop-unswitch", "Number of selects unswitched");
+  Statistic<> NumTrivial ("loop-unswitch",
+                          "Number of unswitches that are trivial");
+  Statistic<> NumSimplify("loop-unswitch", 
+                          "Number of simplifications of unswitched code");
   cl::opt<unsigned>
   Threshold("loop-unswitch-threshold", cl::desc("Max loop size to unswitch"),
             cl::init(10), cl::Hidden);
   
-  class VISIBILITY_HIDDEN LoopUnswitch : public FunctionPass {
+  class LoopUnswitch : public FunctionPass {
     LoopInfo *LI;  // Loop information
 
     // LoopProcessWorklist - List of loops we need to process.
@@ -174,7 +173,7 @@ bool LoopUnswitch::visitLoop(Loop *L) {
         // See if this, or some part of it, is loop invariant.  If so, we can
         // unswitch on it if we desire.
         Value *LoopCond = FindLIVLoopCondition(BI->getCondition(), L, Changed);
-        if (LoopCond && UnswitchIfProfitable(LoopCond, ConstantInt::getTrue(),
+        if (LoopCond && UnswitchIfProfitable(LoopCond, ConstantBool::getTrue(),
                                              L)) {
           ++NumBranches;
           return true;
@@ -198,7 +197,7 @@ bool LoopUnswitch::visitLoop(Loop *L) {
          BBI != E; ++BBI)
       if (SelectInst *SI = dyn_cast<SelectInst>(BBI)) {
         Value *LoopCond = FindLIVLoopCondition(SI->getCondition(), L, Changed);
-        if (LoopCond && UnswitchIfProfitable(LoopCond, ConstantInt::getTrue(),
+        if (LoopCond && UnswitchIfProfitable(LoopCond, ConstantBool::getTrue(),
                                              L)) {
           ++NumSelects;
           return true;
@@ -289,9 +288,9 @@ static bool IsTrivialUnswitchCondition(Loop *L, Value *Cond, Constant **Val = 0,
     // side-effects.  If so, determine the value of Cond that causes it to do
     // this.
     if ((LoopExitBB = isTrivialLoopExitBlock(L, BI->getSuccessor(0)))) {
-      if (Val) *Val = ConstantInt::getTrue();
+      if (Val) *Val = ConstantBool::getTrue();
     } else if ((LoopExitBB = isTrivialLoopExitBlock(L, BI->getSuccessor(1)))) {
-      if (Val) *Val = ConstantInt::getFalse();
+      if (Val) *Val = ConstantBool::getFalse();
     }
   } else if (SwitchInst *SI = dyn_cast<SwitchInst>(HeaderTerm)) {
     // If this isn't a switch on Cond, we can't handle it.
@@ -370,9 +369,9 @@ bool LoopUnswitch::UnswitchIfProfitable(Value *LoopCond, Constant *Val,Loop *L){
     // FIXME: this should estimate growth by the amount of code shared by the
     // resultant unswitched loops.
     //
-    DOUT << "NOT unswitching loop %"
-         << L->getHeader()->getName() << ", cost too high: "
-         << L->getBlocks().size() << "\n";
+    DEBUG(std::cerr << "NOT unswitching loop %"
+                    << L->getHeader()->getName() << ", cost too high: "
+                    << L->getBlocks().size() << "\n");
     return false;
   }
   
@@ -446,10 +445,10 @@ BasicBlock *LoopUnswitch::SplitEdge(BasicBlock *BB, BasicBlock *Succ) {
 // current values into those specified by ValueMap.
 //
 static inline void RemapInstruction(Instruction *I,
-                                    DenseMap<const Value *, Value*> &ValueMap) {
+                                    std::map<const Value *, Value*> &ValueMap) {
   for (unsigned op = 0, E = I->getNumOperands(); op != E; ++op) {
     Value *Op = I->getOperand(op);
-    DenseMap<const Value *, Value*>::iterator It = ValueMap.find(Op);
+    std::map<const Value *, Value*>::iterator It = ValueMap.find(Op);
     if (It != ValueMap.end()) Op = It->second;
     I->setOperand(op, Op);
   }
@@ -457,7 +456,7 @@ static inline void RemapInstruction(Instruction *I,
 
 /// CloneLoop - Recursively clone the specified loop and all of its children,
 /// mapping the blocks with the specified map.
-static Loop *CloneLoop(Loop *L, Loop *PL, DenseMap<const Value*, Value*> &VM,
+static Loop *CloneLoop(Loop *L, Loop *PL, std::map<const Value*, Value*> &VM,
                        LoopInfo *LI) {
   Loop *New = new Loop();
 
@@ -489,11 +488,12 @@ static void EmitPreheaderBranchOnCondition(Value *LIC, Constant *Val,
   // Insert a conditional branch on LIC to the two preheaders.  The original
   // code is the true version and the new code is the false version.
   Value *BranchVal = LIC;
-  if (!isa<ConstantInt>(Val) || Val->getType() != Type::Int1Ty)
-    BranchVal = new ICmpInst(ICmpInst::ICMP_EQ, LIC, Val, "tmp", InsertPt);
-  else if (Val != ConstantInt::getTrue())
+  if (!isa<ConstantBool>(Val)) {
+    BranchVal = BinaryOperator::createSetEQ(LIC, Val, "tmp", InsertPt);
+  } else if (Val != ConstantBool::getTrue()) {
     // We want to enter the new loop when the condition is true.
     std::swap(TrueDest, FalseDest);
+  }
 
   // Insert the new branch.
   new BranchInst(TrueDest, FalseDest, BranchVal, InsertPt);
@@ -508,10 +508,10 @@ static void EmitPreheaderBranchOnCondition(Value *LIC, Constant *Val,
 void LoopUnswitch::UnswitchTrivialCondition(Loop *L, Value *Cond, 
                                             Constant *Val, 
                                             BasicBlock *ExitBlock) {
-  DOUT << "loop-unswitch: Trivial-Unswitch loop %"
-       << L->getHeader()->getName() << " [" << L->getBlocks().size()
-       << " blocks] in Function " << L->getHeader()->getParent()->getName()
-       << " on cond: " << *Val << " == " << *Cond << "\n";
+  DEBUG(std::cerr << "loop-unswitch: Trivial-Unswitch loop %"
+        << L->getHeader()->getName() << " [" << L->getBlocks().size()
+        << " blocks] in Function " << L->getHeader()->getParent()->getName()
+        << " on cond: " << *Val << " == " << *Cond << "\n");
   
   // First step, split the preheader, so that we know that there is a safe place
   // to insert the conditional branch.  We will change 'OrigPH' to have a
@@ -553,10 +553,10 @@ void LoopUnswitch::UnswitchTrivialCondition(Loop *L, Value *Cond,
 void LoopUnswitch::UnswitchNontrivialCondition(Value *LIC, Constant *Val, 
                                                Loop *L) {
   Function *F = L->getHeader()->getParent();
-  DOUT << "loop-unswitch: Unswitching loop %"
-       << L->getHeader()->getName() << " [" << L->getBlocks().size()
-       << " blocks] in Function " << F->getName()
-       << " when '" << *Val << "' == " << *LIC << "\n";
+  DEBUG(std::cerr << "loop-unswitch: Unswitching loop %"
+                  << L->getHeader()->getName() << " [" << L->getBlocks().size()
+                  << " blocks] in Function " << F->getName()
+                  << " when '" << *Val << "' == " << *LIC << "\n");
 
   // LoopBlocks contains all of the basic blocks of the loop, including the
   // preheader of the loop, the body of the loop, and the exit blocks of the 
@@ -633,7 +633,7 @@ void LoopUnswitch::UnswitchNontrivialCondition(Value *LIC, Constant *Val,
   // the instructions and blocks.
   std::vector<BasicBlock*> NewBlocks;
   NewBlocks.reserve(LoopBlocks.size());
-  DenseMap<const Value*, Value*> ValueMap;
+  std::map<const Value*, Value*> ValueMap;
   for (unsigned i = 0, e = LoopBlocks.size(); i != e; ++i) {
     BasicBlock *New = CloneBasicBlock(LoopBlocks[i], ValueMap, ".us", F);
     NewBlocks.push_back(New);
@@ -670,7 +670,7 @@ void LoopUnswitch::UnswitchNontrivialCondition(Value *LIC, Constant *Val,
     for (BasicBlock::iterator I = ExitSucc->begin();
          (PN = dyn_cast<PHINode>(I)); ++I) {
       Value *V = PN->getIncomingValueForBlock(ExitBlocks[i]);
-      DenseMap<const Value *, Value*>::iterator It = ValueMap.find(V);
+      std::map<const Value *, Value*>::iterator It = ValueMap.find(V);
       if (It != ValueMap.end()) V = It->second;
       PN->addIncoming(V, NewExit);
     }
@@ -721,7 +721,7 @@ static void RemoveFromWorklist(Instruction *I,
 /// program, replacing all uses with V and update the worklist.
 static void ReplaceUsesOfWith(Instruction *I, Value *V, 
                               std::vector<Instruction*> &Worklist) {
-  DOUT << "Replace with '" << *V << "': " << *I;
+  DEBUG(std::cerr << "Replace with '" << *V << "': " << *I);
 
   // Add uses to the worklist, which may be dead now.
   for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
@@ -780,7 +780,7 @@ void LoopUnswitch::RemoveBlockIfDead(BasicBlock *BB,
     return;
   }
 
-  DOUT << "Nuking dead block: " << *BB;
+  DEBUG(std::cerr << "Nuking dead block: " << *BB);
   
   // Remove the instructions in the basic block from the worklist.
   for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
@@ -922,13 +922,12 @@ void LoopUnswitch::RewriteLoopBodyWithConditionConstant(Loop *L, Value *LIC,
 
   // If we know that LIC == Val, or that LIC == NotVal, just replace uses of LIC
   // in the loop with the appropriate one directly.
-  if (IsEqual || (isa<ConstantInt>(Val) && Val->getType() == Type::Int1Ty)) {
+  if (IsEqual || isa<ConstantBool>(Val)) {
     Value *Replacement;
     if (IsEqual)
       Replacement = Val;
     else
-      Replacement = ConstantInt::get(Type::Int1Ty, 
-                                     !cast<ConstantInt>(Val)->getZExtValue());
+      Replacement = ConstantBool::get(!cast<ConstantBool>(Val)->getValue());
     
     for (unsigned i = 0, e = Users.size(); i != e; ++i)
       if (Instruction *U = cast<Instruction>(Users[i])) {
@@ -966,7 +965,7 @@ void LoopUnswitch::RewriteLoopBodyWithConditionConstant(Loop *L, Value *LIC,
               
               Instruction* OldTerm = Old->getTerminator();
               new BranchInst(Split, SI->getSuccessor(i),
-                             ConstantInt::getTrue(), OldTerm);
+                             ConstantBool::getTrue(), OldTerm);
               
               Old->getTerminator()->eraseFromParent();
               
@@ -1014,7 +1013,7 @@ void LoopUnswitch::SimplifyCode(std::vector<Instruction*> &Worklist) {
     
     // Simple DCE.
     if (isInstructionTriviallyDead(I)) {
-      DOUT << "Remove dead instruction '" << *I;
+      DEBUG(std::cerr << "Remove dead instruction '" << *I);
       
       // Add uses to the worklist, which may be dead now.
       for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
@@ -1029,36 +1028,32 @@ void LoopUnswitch::SimplifyCode(std::vector<Instruction*> &Worklist) {
     // Special case hacks that appear commonly in unswitched code.
     switch (I->getOpcode()) {
     case Instruction::Select:
-      if (ConstantInt *CB = dyn_cast<ConstantInt>(I->getOperand(0))) {
-        ReplaceUsesOfWith(I, I->getOperand(!CB->getZExtValue()+1), Worklist);
+      if (ConstantBool *CB = dyn_cast<ConstantBool>(I->getOperand(0))) {
+        ReplaceUsesOfWith(I, I->getOperand(!CB->getValue()+1), Worklist);
         continue;
       }
       break;
     case Instruction::And:
-      if (isa<ConstantInt>(I->getOperand(0)) && 
-          I->getOperand(0)->getType() == Type::Int1Ty)   // constant -> RHS
+      if (isa<ConstantBool>(I->getOperand(0)))   // constant -> RHS
         cast<BinaryOperator>(I)->swapOperands();
-      if (ConstantInt *CB = dyn_cast<ConstantInt>(I->getOperand(1))) 
-        if (CB->getType() == Type::Int1Ty) {
-          if (CB->getZExtValue())   // X & 1 -> X
-            ReplaceUsesOfWith(I, I->getOperand(0), Worklist);
-          else                  // X & 0 -> 0
-            ReplaceUsesOfWith(I, I->getOperand(1), Worklist);
-          continue;
-        }
+      if (ConstantBool *CB = dyn_cast<ConstantBool>(I->getOperand(1))) {
+        if (CB->getValue())   // X & 1 -> X
+          ReplaceUsesOfWith(I, I->getOperand(0), Worklist);
+        else                  // X & 0 -> 0
+          ReplaceUsesOfWith(I, I->getOperand(1), Worklist);
+        continue;
+      }
       break;
     case Instruction::Or:
-      if (isa<ConstantInt>(I->getOperand(0)) &&
-          I->getOperand(0)->getType() == Type::Int1Ty)   // constant -> RHS
+      if (isa<ConstantBool>(I->getOperand(0)))   // constant -> RHS
         cast<BinaryOperator>(I)->swapOperands();
-      if (ConstantInt *CB = dyn_cast<ConstantInt>(I->getOperand(1)))
-        if (CB->getType() == Type::Int1Ty) {
-          if (CB->getZExtValue())   // X | 1 -> 1
-            ReplaceUsesOfWith(I, I->getOperand(1), Worklist);
-          else                  // X | 0 -> X
-            ReplaceUsesOfWith(I, I->getOperand(0), Worklist);
-          continue;
-        }
+      if (ConstantBool *CB = dyn_cast<ConstantBool>(I->getOperand(1))) {
+        if (CB->getValue())   // X | 1 -> 1
+          ReplaceUsesOfWith(I, I->getOperand(1), Worklist);
+        else                  // X | 0 -> X
+          ReplaceUsesOfWith(I, I->getOperand(0), Worklist);
+        continue;
+      }
       break;
     case Instruction::Br: {
       BranchInst *BI = cast<BranchInst>(I);
@@ -1071,8 +1066,8 @@ void LoopUnswitch::SimplifyCode(std::vector<Instruction*> &Worklist) {
         if (!SinglePred) continue;  // Nothing to do.
         assert(SinglePred == Pred && "CFG broken");
 
-        DOUT << "Merging blocks: " << Pred->getName() << " <- " 
-             << Succ->getName() << "\n";
+        DEBUG(std::cerr << "Merging blocks: " << Pred->getName() << " <- " 
+                        << Succ->getName() << "\n");
         
         // Resolve any single entry PHI nodes in Succ.
         while (PHINode *PN = dyn_cast<PHINode>(Succ->begin()))
@@ -1092,14 +1087,14 @@ void LoopUnswitch::SimplifyCode(std::vector<Instruction*> &Worklist) {
         LI->removeBlock(Succ);
         Succ->eraseFromParent();
         ++NumSimplify;
-      } else if (ConstantInt *CB = dyn_cast<ConstantInt>(BI->getCondition())){
+      } else if (ConstantBool *CB = dyn_cast<ConstantBool>(BI->getCondition())){
         // Conditional branch.  Turn it into an unconditional branch, then
         // remove dead blocks.
         break;  // FIXME: Enable.
 
-        DOUT << "Folded branch: " << *BI;
-        BasicBlock *DeadSucc = BI->getSuccessor(CB->getZExtValue());
-        BasicBlock *LiveSucc = BI->getSuccessor(!CB->getZExtValue());
+        DEBUG(std::cerr << "Folded branch: " << *BI);
+        BasicBlock *DeadSucc = BI->getSuccessor(CB->getValue());
+        BasicBlock *LiveSucc = BI->getSuccessor(!CB->getValue());
         DeadSucc->removePredecessor(BI->getParent(), true);
         Worklist.push_back(new BranchInst(LiveSucc, BI));
         BI->eraseFromParent();

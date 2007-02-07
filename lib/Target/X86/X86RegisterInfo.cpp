@@ -27,11 +27,12 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineLocation.h"
 #include "llvm/Target/TargetFrameInfo.h"
-#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/ADT/STLExtras.h"
+#include <iostream>
+
 using namespace llvm;
 
 namespace {
@@ -92,7 +93,7 @@ void X86RegisterInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
     assert(0 && "Unknown regclass");
     abort();
   }
-  addFrameReference(BuildMI(MBB, MI, TII.get(Opc)), FrameIdx).addReg(SrcReg);
+  addFrameReference(BuildMI(MBB, MI, Opc, 5), FrameIdx).addReg(SrcReg);
 }
 
 void X86RegisterInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
@@ -124,7 +125,7 @@ void X86RegisterInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     assert(0 && "Unknown regclass");
     abort();
   }
-  addFrameReference(BuildMI(MBB, MI, TII.get(Opc), DestReg), FrameIdx);
+  addFrameReference(BuildMI(MBB, MI, Opc, 4, DestReg), FrameIdx);
 }
 
 void X86RegisterInfo::copyRegToReg(MachineBasicBlock &MBB,
@@ -156,30 +157,27 @@ void X86RegisterInfo::copyRegToReg(MachineBasicBlock &MBB,
     assert(0 && "Unknown regclass");
     abort();
   }
-  BuildMI(MBB, MI, TII.get(Opc), DestReg).addReg(SrcReg);
+  BuildMI(MBB, MI, Opc, 1, DestReg).addReg(SrcReg);
 }
 
 static MachineInstr *FuseTwoAddrInst(unsigned Opcode, unsigned FrameIndex,
-                                     MachineInstr *MI,
-                                     const TargetInstrInfo &TII) {
-  unsigned NumOps = TII.getNumOperands(MI->getOpcode())-2;
+                                     MachineInstr *MI) {
+  unsigned NumOps = MI->getNumOperands()-2;
   // Create the base instruction with the memory operand as the first part.
-  MachineInstrBuilder MIB = addFrameReference(BuildMI(TII.get(Opcode)),
+  MachineInstrBuilder MIB = addFrameReference(BuildMI(Opcode, 4+NumOps),
                                               FrameIndex);
   
   // Loop over the rest of the ri operands, converting them over.
   for (unsigned i = 0; i != NumOps; ++i) {
     MachineOperand &MO = MI->getOperand(i+2);
     if (MO.isReg())
-      MIB = MIB.addReg(MO.getReg(), false, MO.isImplicit());
+      MIB = MIB.addReg(MO.getReg());
     else if (MO.isImm())
       MIB = MIB.addImm(MO.getImm());
     else if (MO.isGlobalAddress())
       MIB = MIB.addGlobalAddress(MO.getGlobal(), MO.getOffset());
     else if (MO.isJumpTableIndex())
       MIB = MIB.addJumpTableIndex(MO.getJumpTableIndex());
-    else if (MO.isExternalSymbol())
-      MIB = MIB.addExternalSymbol(MO.getSymbolName());
     else
       assert(0 && "Unknown operand type!");
   }
@@ -187,9 +185,8 @@ static MachineInstr *FuseTwoAddrInst(unsigned Opcode, unsigned FrameIndex,
 }
 
 static MachineInstr *FuseInst(unsigned Opcode, unsigned OpNo,
-                              unsigned FrameIndex, MachineInstr *MI,
-                              const TargetInstrInfo &TII) {
-  MachineInstrBuilder MIB = BuildMI(TII.get(Opcode));
+                              unsigned FrameIndex, MachineInstr *MI) {
+  MachineInstrBuilder MIB = BuildMI(Opcode, MI->getNumOperands()+3);
   
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
     MachineOperand &MO = MI->getOperand(i);
@@ -197,25 +194,22 @@ static MachineInstr *FuseInst(unsigned Opcode, unsigned OpNo,
       assert(MO.isReg() && "Expected to fold into reg operand!");
       MIB = addFrameReference(MIB, FrameIndex);
     } else if (MO.isReg())
-      MIB = MIB.addReg(MO.getReg(), MO.isDef(), MO.isImplicit());
+      MIB = MIB.addReg(MO.getReg(), MO.isDef());
     else if (MO.isImm())
       MIB = MIB.addImm(MO.getImm());
     else if (MO.isGlobalAddress())
       MIB = MIB.addGlobalAddress(MO.getGlobal(), MO.getOffset());
     else if (MO.isJumpTableIndex())
       MIB = MIB.addJumpTableIndex(MO.getJumpTableIndex());
-    else if (MO.isExternalSymbol())
-      MIB = MIB.addExternalSymbol(MO.getSymbolName());
     else
       assert(0 && "Unknown operand for FuseInst!");
   }
   return MIB;
 }
 
-static MachineInstr *MakeM0Inst(const TargetInstrInfo &TII,
-                                unsigned Opcode, unsigned FrameIndex,
+static MachineInstr *MakeM0Inst(unsigned Opcode, unsigned FrameIndex,
                                 MachineInstr *MI) {
-  return addFrameReference(BuildMI(TII.get(Opcode)), FrameIndex).addImm(0);
+  return addFrameReference(BuildMI(Opcode, 5), FrameIndex).addImm(0);
 }
 
 
@@ -246,8 +240,8 @@ namespace {
 static bool TableIsSorted(const TableEntry *Table, unsigned NumEntries) {
   for (unsigned i = 1; i != NumEntries; ++i)
     if (!(Table[i-1] < Table[i])) {
-      cerr << "Entries out of order " << Table[i-1].from
-           << " " << Table[i].from << "\n";
+      std::cerr << "Entries out of order " << Table[i-1].from
+                << " " << Table[i].from << "\n";
       return false;
     }
   return true;
@@ -290,18 +284,14 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
   const TableEntry *OpcodeTablePtr = NULL;
   unsigned OpcodeTableSize = 0;
   bool isTwoAddrFold = false;
-  unsigned NumOps = TII.getNumOperands(MI->getOpcode());
-  bool isTwoAddr = NumOps > 1 &&
-    MI->getInstrDescriptor()->getOperandConstraint(1, TOI::TIED_TO) != -1;
 
-  MachineInstr *NewMI = NULL;
   // Folding a memory location into the two-address part of a two-address
   // instruction is different than folding it other places.  It requires
   // replacing the *two* registers with the memory location.
-  if (isTwoAddr && NumOps >= 2 && i < 2 &&
-      MI->getOperand(0).isReg() && 
-      MI->getOperand(1).isReg() &&
-      MI->getOperand(0).getReg() == MI->getOperand(1).getReg()) {
+  if (MI->getNumOperands() >= 2 && MI->getOperand(0).isReg() && 
+      MI->getOperand(1).isReg() && i < 2 &&
+      MI->getOperand(0).getReg() == MI->getOperand(1).getReg() &&
+      TII.isTwoAddrInstr(MI->getOpcode())) {
     static const TableEntry OpcodeTable[] = {
       { X86::ADC32ri,     X86::ADC32mi },
       { X86::ADC32ri8,    X86::ADC32mi8 },
@@ -469,17 +459,13 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
     isTwoAddrFold = true;
   } else if (i == 0) { // If operand 0
     if (MI->getOpcode() == X86::MOV16r0)
-      NewMI = MakeM0Inst(TII, X86::MOV16mi, FrameIndex, MI);
+      return MakeM0Inst(X86::MOV16mi, FrameIndex, MI);
     else if (MI->getOpcode() == X86::MOV32r0)
-      NewMI = MakeM0Inst(TII, X86::MOV32mi, FrameIndex, MI);
+      return MakeM0Inst(X86::MOV32mi, FrameIndex, MI);
     else if (MI->getOpcode() == X86::MOV64r0)
-      NewMI = MakeM0Inst(TII, X86::MOV64mi32, FrameIndex, MI);
+      return MakeM0Inst(X86::MOV64mi32, FrameIndex, MI);
     else if (MI->getOpcode() == X86::MOV8r0)
-      NewMI = MakeM0Inst(TII, X86::MOV8mi, FrameIndex, MI);
-    if (NewMI) {
-      NewMI->copyKillDeadInfo(MI);
-      return NewMI;
-    }
+      return MakeM0Inst(X86::MOV8mi, FrameIndex, MI);
     
     static const TableEntry OpcodeTable[] = {
       { X86::CMP16ri,     X86::CMP16mi },
@@ -512,11 +498,8 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
       { X86::MOVAPDrr,    X86::MOVAPDmr },
       { X86::MOVAPSrr,    X86::MOVAPSmr },
       { X86::MOVPDI2DIrr, X86::MOVPDI2DImr },
-      { X86::MOVPQIto64rr,X86::MOVPQIto64mr },
       { X86::MOVPS2SSrr,  X86::MOVPS2SSmr },
       { X86::MOVSDrr,     X86::MOVSDmr },
-      { X86::MOVSDto64rr, X86::MOVSDto64mr },
-      { X86::MOVSS2DIrr,  X86::MOVSS2DImr },
       { X86::MOVSSrr,     X86::MOVSSmr },
       { X86::MOVUPDrr,    X86::MOVUPDmr },
       { X86::MOVUPSrr,    X86::MOVUPSmr },
@@ -612,14 +595,12 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
       { X86::MOV16rr,         X86::MOV16rm },
       { X86::MOV32rr,         X86::MOV32rm },
       { X86::MOV64rr,         X86::MOV64rm },
-      { X86::MOV64toPQIrr,    X86::MOV64toPQIrm },
-      { X86::MOV64toSDrr,     X86::MOV64toSDrm },
       { X86::MOV8rr,          X86::MOV8rm },
       { X86::MOVAPDrr,        X86::MOVAPDrm },
       { X86::MOVAPSrr,        X86::MOVAPSrm },
       { X86::MOVDDUPrr,       X86::MOVDDUPrm },
       { X86::MOVDI2PDIrr,     X86::MOVDI2PDIrm },
-      { X86::MOVDI2SSrr,      X86::MOVDI2SSrm },
+      { X86::MOVQI2PQIrr,     X86::MOVQI2PQIrm },
       { X86::MOVSD2PDrr,      X86::MOVSD2PDrm },
       { X86::MOVSDrr,         X86::MOVSDrm },
       { X86::MOVSHDUPrr,      X86::MOVSHDUPrm },
@@ -841,46 +822,44 @@ MachineInstr* X86RegisterInfo::foldMemoryOperand(MachineInstr *MI,
     if (const TableEntry *Entry = TableLookup(OpcodeTablePtr, OpcodeTableSize,
                                               fromOpcode)) {
       if (isTwoAddrFold)
-        NewMI = FuseTwoAddrInst(Entry->to, FrameIndex, MI, TII);
-      else
-        NewMI = FuseInst(Entry->to, i, FrameIndex, MI, TII);
-      NewMI->copyKillDeadInfo(MI);
-      return NewMI;
+        return FuseTwoAddrInst(Entry->to, FrameIndex, MI);
+      
+      return FuseInst(Entry->to, i, FrameIndex, MI);
     }
   }
   
   // No fusion 
   if (PrintFailedFusing)
-    cerr << "We failed to fuse ("
-         << ((i == 1) ? "r" : "s") << "): " << *MI;
+    std::cerr << "We failed to fuse ("
+              << ((i == 1) ? "r" : "s") << "): " << *MI;
   return NULL;
 }
 
 
-const unsigned *X86RegisterInfo::getCalleeSavedRegs() const {
-  static const unsigned CalleeSavedRegs32Bit[] = {
+const unsigned *X86RegisterInfo::getCalleeSaveRegs() const {
+  static const unsigned CalleeSaveRegs32Bit[] = {
     X86::ESI, X86::EDI, X86::EBX, X86::EBP,  0
   };
-  static const unsigned CalleeSavedRegs64Bit[] = {
+  static const unsigned CalleeSaveRegs64Bit[] = {
     X86::RBX, X86::R12, X86::R13, X86::R14, X86::R15, X86::RBP, 0
   };
 
-  return Is64Bit ? CalleeSavedRegs64Bit : CalleeSavedRegs32Bit;
+  return Is64Bit ? CalleeSaveRegs64Bit : CalleeSaveRegs32Bit;
 }
 
 const TargetRegisterClass* const*
-X86RegisterInfo::getCalleeSavedRegClasses() const {
-  static const TargetRegisterClass * const CalleeSavedRegClasses32Bit[] = {
+X86RegisterInfo::getCalleeSaveRegClasses() const {
+  static const TargetRegisterClass * const CalleeSaveRegClasses32Bit[] = {
     &X86::GR32RegClass, &X86::GR32RegClass,
     &X86::GR32RegClass, &X86::GR32RegClass,  0
   };
-  static const TargetRegisterClass * const CalleeSavedRegClasses64Bit[] = {
+  static const TargetRegisterClass * const CalleeSaveRegClasses64Bit[] = {
     &X86::GR64RegClass, &X86::GR64RegClass,
     &X86::GR64RegClass, &X86::GR64RegClass,
     &X86::GR64RegClass, &X86::GR64RegClass, 0
   };
 
-  return Is64Bit ? CalleeSavedRegClasses64Bit : CalleeSavedRegClasses32Bit;
+  return Is64Bit ? CalleeSaveRegClasses64Bit : CalleeSaveRegClasses32Bit;
 }
 
 //===----------------------------------------------------------------------===//
@@ -891,7 +870,7 @@ X86RegisterInfo::getCalleeSavedRegClasses() const {
 // pointer register.  This is true if the function has variable sized allocas or
 // if frame pointer elimination is disabled.
 //
-bool X86RegisterInfo::hasFP(const MachineFunction &MF) const {
+static bool hasFP(const MachineFunction &MF) {
   return (NoFramePointerElim || 
           MF.getFrameInfo()->hasVarSizedObjects() ||
           MF.getInfo<X86FunctionInfo>()->getForceFramePointer());
@@ -915,7 +894,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 
       MachineInstr *New = 0;
       if (Old->getOpcode() == X86::ADJCALLSTACKDOWN) {
-        New=BuildMI(TII.get(Is64Bit ? X86::SUB64ri32 : X86::SUB32ri), StackPtr)
+        New=BuildMI(Is64Bit ? X86::SUB64ri32 : X86::SUB32ri, 1, StackPtr)
           .addReg(StackPtr).addImm(Amount);
       } else {
         assert(Old->getOpcode() == X86::ADJCALLSTACKUP);
@@ -926,8 +905,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
           unsigned Opc = (Amount < 128) ?
             (Is64Bit ? X86::ADD64ri8 : X86::ADD32ri8) :
             (Is64Bit ? X86::ADD64ri32 : X86::ADD32ri);
-          New = BuildMI(TII.get(Opc),  StackPtr)
-                        .addReg(StackPtr).addImm(Amount);
+          New = BuildMI(Opc, 1,  StackPtr).addReg(StackPtr).addImm(Amount);
         }
       }
 
@@ -943,7 +921,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
         (Is64Bit ? X86::SUB64ri8 : X86::SUB32ri8) :
         (Is64Bit ? X86::SUB64ri32 : X86::SUB32ri);
       MachineInstr *New =
-        BuildMI(TII.get(Opc), StackPtr).addReg(StackPtr).addImm(CalleeAmt);
+        BuildMI(Opc, 1, StackPtr).addReg(StackPtr).addImm(CalleeAmt);
       MBB.insert(I, New);
     }
   }
@@ -995,106 +973,76 @@ void X86RegisterInfo::emitPrologue(MachineFunction &MF) const {
   const Function* Fn = MF.getFunction();
   const X86Subtarget* Subtarget = &MF.getTarget().getSubtarget<X86Subtarget>();
   MachineInstr *MI;
-  MachineModuleInfo *MMI = MFI->getMachineModuleInfo();
-  
-  // Prepare for frame info.
-  unsigned FrameLabelId = 0;
   
   // Get the number of bytes to allocate from the FrameInfo
   unsigned NumBytes = MFI->getStackSize();
+  if (MFI->hasCalls() || MF.getFrameInfo()->hasVarSizedObjects()) {
+    // When we have no frame pointer, we reserve argument space for call sites
+    // in the function immediately on entry to the current function.  This
+    // eliminates the need for add/sub ESP brackets around call sites.
+    //
+    if (!hasFP(MF))
+      NumBytes += MFI->getMaxCallFrameSize();
+
+    // Round the size to a multiple of the alignment (don't forget the 4/8 byte
+    // offset though).
+    NumBytes = ((NumBytes+SlotSize)+Align-1)/Align*Align - SlotSize;
+  }
+
+  // Update frame info to pretend that this is part of the stack...
+  MFI->setStackSize(NumBytes);
 
   if (NumBytes) {   // adjust stack pointer: ESP -= numbytes
-    if (NumBytes >= 4096 && Subtarget->isTargetCygMing()) {
+    if (NumBytes >= 4096 && Subtarget->isTargetCygwin()) {
       // Function prologue calls _alloca to probe the stack when allocating  
       // more than 4k bytes in one go. Touching the stack at 4K increments is  
       // necessary to ensure that the guard pages used by the OS virtual memory
       // manager are allocated in correct sequence.
-      MI = BuildMI(TII.get(X86::MOV32ri), X86::EAX).addImm(NumBytes);
+      MI = BuildMI(X86::MOV32ri, 2, X86::EAX).addImm(NumBytes);
       MBB.insert(MBBI, MI);
-      MI = BuildMI(TII.get(X86::CALLpcrel32)).addExternalSymbol("_alloca");
+      MI = BuildMI(X86::CALLpcrel32, 1).addExternalSymbol("_alloca");
       MBB.insert(MBBI, MI);
     } else {
       unsigned Opc = (NumBytes < 128) ?
         (Is64Bit ? X86::SUB64ri8 : X86::SUB32ri8) :
         (Is64Bit ? X86::SUB64ri32 : X86::SUB32ri);
-      MI= BuildMI(TII.get(Opc), StackPtr).addReg(StackPtr).addImm(NumBytes);
+      MI= BuildMI(Opc, 1, StackPtr).addReg(StackPtr).addImm(NumBytes);
       MBB.insert(MBBI, MI);
     }
   }
 
-  if (MMI && MMI->needsFrameInfo()) {
-    // Mark effective beginning of when frame pointer becomes valid.
-    FrameLabelId = MMI->NextLabelID();
-    BuildMI(MBB, MBBI, TII.get(X86::LABEL)).addImm(FrameLabelId);
-  }
-  
   if (hasFP(MF)) {
     // Get the offset of the stack slot for the EBP register... which is
     // guaranteed to be the last slot by processFunctionBeforeFrameFinalized.
     int EBPOffset = MFI->getObjectOffset(MFI->getObjectIndexBegin())+SlotSize;
-    // Update the frame offset adjustment.
-    MFI->setOffsetAdjustment(SlotSize-NumBytes);
-    
+
     // Save EBP into the appropriate stack slot...
     // mov [ESP-<offset>], EBP
-    MI = addRegOffset(BuildMI(TII.get(Is64Bit ? X86::MOV64mr : X86::MOV32mr)),
+    MI = addRegOffset(BuildMI(Is64Bit ? X86::MOV64mr : X86::MOV32mr, 5),
                       StackPtr, EBPOffset+NumBytes).addReg(FramePtr);
     MBB.insert(MBBI, MI);
 
     // Update EBP with the new base value...
     if (NumBytes == SlotSize)    // mov EBP, ESP
-      MI = BuildMI(TII.get(Is64Bit ? X86::MOV64rr : X86::MOV32rr), FramePtr).
+      MI = BuildMI(Is64Bit ? X86::MOV64rr : X86::MOV32rr, 2, FramePtr).
         addReg(StackPtr);
     else                  // lea EBP, [ESP+StackSize]
-      MI = addRegOffset(BuildMI(TII.get(Is64Bit ? X86::LEA64r : X86::LEA32r),
-                                FramePtr), StackPtr, NumBytes-SlotSize);
+      MI = addRegOffset(BuildMI(Is64Bit ? X86::LEA64r : X86::LEA32r,
+                               5, FramePtr), StackPtr, NumBytes-SlotSize);
 
     MBB.insert(MBBI, MI);
-  }
-
-  if (MMI && MMI->needsFrameInfo()) {
-    std::vector<MachineMove> &Moves = MMI->getFrameMoves();
-    
-    if (NumBytes) {
-      // Show update of SP.
-      MachineLocation SPDst(MachineLocation::VirtualFP);
-      MachineLocation SPSrc(MachineLocation::VirtualFP, -NumBytes);
-      Moves.push_back(MachineMove(FrameLabelId, SPDst, SPSrc));
-    } else {
-      MachineLocation SP(StackPtr);
-      Moves.push_back(MachineMove(FrameLabelId, SP, SP));
-    }
-
-    // Add callee saved registers to move list.
-    const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
-    for (unsigned I = 0, E = CSI.size(); I != E; ++I) {
-      int Offset = MFI->getObjectOffset(CSI[I].getFrameIdx());
-      unsigned Reg = CSI[I].getReg();
-      MachineLocation CSDst(MachineLocation::VirtualFP, Offset);
-      MachineLocation CSSrc(Reg);
-      Moves.push_back(MachineMove(FrameLabelId, CSDst, CSSrc));
-    }
-    
-    // Mark effective beginning of when frame pointer is ready.
-    unsigned ReadyLabelId = MMI->NextLabelID();
-    BuildMI(MBB, MBBI, TII.get(X86::LABEL)).addImm(ReadyLabelId);
-    
-    MachineLocation FPDst(hasFP(MF) ? FramePtr : StackPtr);
-    MachineLocation FPSrc(MachineLocation::VirtualFP);
-    Moves.push_back(MachineMove(ReadyLabelId, FPDst, FPSrc));
   }
 
   // If it's main() on Cygwin\Mingw32 we should align stack as well
   if (Fn->hasExternalLinkage() && Fn->getName() == "main" &&
-      Subtarget->isTargetCygMing()) {
-    MI= BuildMI(TII.get(X86::AND32ri), X86::ESP)
-                .addReg(X86::ESP).addImm(-Align);
+      Subtarget->isTargetCygwin()) {
+    MI = BuildMI(X86::AND32ri, 2, X86::ESP).addReg(X86::ESP).addImm(-Align);
     MBB.insert(MBBI, MI);
 
     // Probe the stack
-    MI = BuildMI(TII.get(X86::MOV32ri), X86::EAX).addImm(Align);
+    MI = BuildMI(X86::MOV32ri, 2, X86::EAX).addImm(Align);
     MBB.insert(MBBI, MI);
-    MI = BuildMI(TII.get(X86::CALLpcrel32)).addExternalSymbol("_alloca");
+    MI = BuildMI(X86::CALLpcrel32, 1).addExternalSymbol("_alloca");
     MBB.insert(MBBI, MI);
   }
 }
@@ -1116,11 +1064,11 @@ void X86RegisterInfo::emitEpilogue(MachineFunction &MF,
 
   if (hasFP(MF)) {
     // mov ESP, EBP
-    BuildMI(MBB, MBBI, TII.get(Is64Bit ? X86::MOV64rr : X86::MOV32rr),StackPtr).
+    BuildMI(MBB, MBBI, Is64Bit ? X86::MOV64rr : X86::MOV32rr, 1, StackPtr).
       addReg(FramePtr);
 
     // pop EBP
-    BuildMI(MBB, MBBI, TII.get(Is64Bit ? X86::POP64r : X86::POP32r), FramePtr);
+    BuildMI(MBB, MBBI, Is64Bit ? X86::POP64r : X86::POP32r, 0, FramePtr);
   } else {
     // Get the number of bytes allocated from the FrameInfo...
     unsigned NumBytes = MFI->getStackSize();
@@ -1148,14 +1096,12 @@ void X86RegisterInfo::emitEpilogue(MachineFunction &MF,
         unsigned Opc = (NumBytes < 128) ?
           (Is64Bit ? X86::ADD64ri8 : X86::ADD32ri8) :
           (Is64Bit ? X86::ADD64ri32 : X86::ADD32ri);
-        BuildMI(MBB, MBBI, TII.get(Opc), StackPtr)
-                .addReg(StackPtr).addImm(NumBytes);
+        BuildMI(MBB, MBBI, Opc, 2, StackPtr).addReg(StackPtr).addImm(NumBytes);
       } else if ((int)NumBytes < 0) {
         unsigned Opc = (-NumBytes < 128) ?
           (Is64Bit ? X86::SUB64ri8 : X86::SUB32ri8) :
           (Is64Bit ? X86::SUB64ri32 : X86::SUB32ri);
-        BuildMI(MBB, MBBI, TII.get(Opc), StackPtr)
-                .addReg(StackPtr).addImm(-NumBytes);
+        BuildMI(MBB, MBBI, Opc, 2, StackPtr).addReg(StackPtr).addImm(-NumBytes);
       }
     }
   }
@@ -1167,14 +1113,6 @@ unsigned X86RegisterInfo::getRARegister() const {
 
 unsigned X86RegisterInfo::getFrameRegister(MachineFunction &MF) const {
   return hasFP(MF) ? FramePtr : StackPtr;
-}
-
-void X86RegisterInfo::getInitialFrameState(std::vector<MachineMove> &Moves)
-                                                                         const {
-  // Initial state of the frame pointer is esp.
-  MachineLocation Dst(MachineLocation::VirtualFP);
-  MachineLocation Src(StackPtr, 0);
-  Moves.push_back(MachineMove(0, Dst, Src));
 }
 
 namespace llvm {

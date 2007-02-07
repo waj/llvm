@@ -41,13 +41,16 @@ void set_scan_string (const char * str) {
 
 // Construct a token value for a non-obsolete token
 #define RET_TOK(type, Enum, sym) \
-  llvmAsmlval.type = Instruction::Enum; \
+  llvmAsmlval.type.opcode = Instruction::Enum; \
+  llvmAsmlval.type.obsolete = false; \
   return sym
 
 // Construct a token value for an obsolete token
-#define RET_TY(CTYPE, SYM) \
-  llvmAsmlval.PrimType = CTYPE;\
-  return SYM
+#define RET_TOK_OBSOLETE(type, Enum, sym) \
+  llvmAsmlval.type.opcode = Instruction::Enum; \
+  llvmAsmlval.type.obsolete = true; \
+  return sym
+
 
 namespace llvm {
 
@@ -148,11 +151,8 @@ using namespace llvm;
 /* Comments start with a ; and go till end of line */
 Comment    ;.*
 
-/* Local Values and Type identifiers start with a % sign */
-LocalVarName       %[-a-zA-Z$._][-a-zA-Z$._0-9]*
-
-/* Global Value identifiers start with an @ sign */
-GlobalVarName       @[-a-zA-Z$._][-a-zA-Z$._0-9]*
+/* Variable(Value) identifiers start with a % sign */
+VarID       %[-a-zA-Z$._][-a-zA-Z$._0-9]*
 
 /* Label identifiers end with a colon */
 Label       [-a-zA-Z$._0-9]+:
@@ -160,16 +160,16 @@ QuoteLabel \"[^\"]+\":
 
 /* Quoted names can contain any character except " and \ */
 StringConstant \"[^\"]*\"
-AtStringConstant @\"[^\"]*\"
-  
-/* LocalVarID/GlobalVarID: match an unnamed local variable slot ID. */
-LocalVarID     %[0-9]+
-GlobalVarID    @[0-9]+
 
-/* Integer types are specified with i and a bitwidth */
-IntegerType i[0-9]+
 
-/* E[PN]Integer: match positive and negative literal integer values. */
+/* [PN]Integer: match positive and negative literal integer values that
+ * are preceeded by a '%' character.  These represent unnamed variable slots.
+ */
+EPInteger     %[0-9]+
+ENInteger    %-[0-9]+
+
+
+/* E[PN]Integer: match positive and negative literal integer values */
 PInteger   [0-9]+
 NInteger  -[0-9]+
 
@@ -195,7 +195,6 @@ end             { return ENDTOK; }
 true            { return TRUETOK;  }
 false           { return FALSETOK; }
 declare         { return DECLARE; }
-define          { return DEFINE; }
 global          { return GLOBAL; }
 constant        { return CONSTANT; }
 internal        { return INTERNAL; }
@@ -204,8 +203,8 @@ weak            { return WEAK; }
 appending       { return APPENDING; }
 dllimport       { return DLLIMPORT; }
 dllexport       { return DLLEXPORT; }
-hidden          { return HIDDEN; }
 extern_weak     { return EXTERN_WEAK; }
+uninitialized   { return EXTERNAL; }    /* Deprecated, turn into external */
 external        { return EXTERNAL; }
 implementation  { return IMPLEMENTATION; }
 zeroinitializer { return ZEROINITIALIZER; }
@@ -213,11 +212,17 @@ zeroinitializer { return ZEROINITIALIZER; }
 undef           { return UNDEF; }
 null            { return NULL_TOK; }
 to              { return TO; }
+except          { RET_TOK(TermOpVal, Unwind, UNWIND); }
+not             { return NOT; }  /* Deprecated, turned into XOR */
 tail            { return TAIL; }
 target          { return TARGET; }
 triple          { return TRIPLE; }
 deplibs         { return DEPLIBS; }
+endian          { return ENDIAN; }
+pointersize     { return POINTERSIZE; }
 datalayout      { return DATALAYOUT; }
+little          { return LITTLE; }
+big             { return BIG; }
 volatile        { return VOLATILE; }
 align           { return ALIGN;  }
 section         { return SECTION; }
@@ -227,82 +232,57 @@ sideeffect      { return SIDEEFFECT; }
 
 cc              { return CC_TOK; }
 ccc             { return CCC_TOK; }
+csretcc         { return CSRETCC_TOK; }
 fastcc          { return FASTCC_TOK; }
 coldcc          { return COLDCC_TOK; }
 x86_stdcallcc   { return X86_STDCALLCC_TOK; }
 x86_fastcallcc  { return X86_FASTCALLCC_TOK; }
 
-inreg           { return INREG; }
-sret            { return SRET;  }
-
-void            { RET_TY(Type::VoidTy,  VOID);  }
-float           { RET_TY(Type::FloatTy, FLOAT); }
-double          { RET_TY(Type::DoubleTy,DOUBLE);}
-label           { RET_TY(Type::LabelTy, LABEL); }
+void            { llvmAsmlval.PrimType = Type::VoidTy  ; return VOID;   }
+bool            { llvmAsmlval.PrimType = Type::BoolTy  ; return BOOL;   }
+sbyte           { llvmAsmlval.PrimType = Type::SByteTy ; return SBYTE;  }
+ubyte           { llvmAsmlval.PrimType = Type::UByteTy ; return UBYTE;  }
+short           { llvmAsmlval.PrimType = Type::ShortTy ; return SHORT;  }
+ushort          { llvmAsmlval.PrimType = Type::UShortTy; return USHORT; }
+int             { llvmAsmlval.PrimType = Type::IntTy   ; return INT;    }
+uint            { llvmAsmlval.PrimType = Type::UIntTy  ; return UINT;   }
+long            { llvmAsmlval.PrimType = Type::LongTy  ; return LONG;   }
+ulong           { llvmAsmlval.PrimType = Type::ULongTy ; return ULONG;  }
+float           { llvmAsmlval.PrimType = Type::FloatTy ; return FLOAT;  }
+double          { llvmAsmlval.PrimType = Type::DoubleTy; return DOUBLE; }
+label           { llvmAsmlval.PrimType = Type::LabelTy ; return LABEL;  }
 type            { return TYPE;   }
 opaque          { return OPAQUE; }
-{IntegerType}   { uint64_t NumBits = atoull(yytext+1);
-                  if (NumBits < IntegerType::MIN_INT_BITS || 
-                      NumBits > IntegerType::MAX_INT_BITS)
-                    GenerateError("Bitwidth for integer type out of range!");
-                  const Type* Ty = IntegerType::get(NumBits);
-                  RET_TY(Ty, INTTYPE);
-                }
 
 add             { RET_TOK(BinaryOpVal, Add, ADD); }
 sub             { RET_TOK(BinaryOpVal, Sub, SUB); }
 mul             { RET_TOK(BinaryOpVal, Mul, MUL); }
+div             { RET_TOK_OBSOLETE(BinaryOpVal, UDiv, UDIV); }
 udiv            { RET_TOK(BinaryOpVal, UDiv, UDIV); }
 sdiv            { RET_TOK(BinaryOpVal, SDiv, SDIV); }
 fdiv            { RET_TOK(BinaryOpVal, FDiv, FDIV); }
+rem             { RET_TOK_OBSOLETE(BinaryOpVal, URem, UREM); }
 urem            { RET_TOK(BinaryOpVal, URem, UREM); }
 srem            { RET_TOK(BinaryOpVal, SRem, SREM); }
 frem            { RET_TOK(BinaryOpVal, FRem, FREM); }
-shl             { RET_TOK(BinaryOpVal, Shl, SHL); }
-lshr            { RET_TOK(BinaryOpVal, LShr, LSHR); }
-ashr            { RET_TOK(BinaryOpVal, AShr, ASHR); }
 and             { RET_TOK(BinaryOpVal, And, AND); }
 or              { RET_TOK(BinaryOpVal, Or , OR ); }
 xor             { RET_TOK(BinaryOpVal, Xor, XOR); }
-icmp            { RET_TOK(OtherOpVal,  ICmp,  ICMP); }
-fcmp            { RET_TOK(OtherOpVal,  FCmp,  FCMP); }
-
-eq              { return EQ;  }
-ne              { return NE;  }
-slt             { return SLT; }
-sgt             { return SGT; }
-sle             { return SLE; }
-sge             { return SGE; }
-ult             { return ULT; }
-ugt             { return UGT; }
-ule             { return ULE; }
-uge             { return UGE; }
-oeq             { return OEQ; }
-one             { return ONE; }
-olt             { return OLT; }
-ogt             { return OGT; }
-ole             { return OLE; }
-oge             { return OGE; }
-ord             { return ORD; }
-uno             { return UNO; }
-ueq             { return UEQ; }
-une             { return UNE; }
+setne           { RET_TOK(BinaryOpVal, SetNE, SETNE); }
+seteq           { RET_TOK(BinaryOpVal, SetEQ, SETEQ); }
+setlt           { RET_TOK(BinaryOpVal, SetLT, SETLT); }
+setgt           { RET_TOK(BinaryOpVal, SetGT, SETGT); }
+setle           { RET_TOK(BinaryOpVal, SetLE, SETLE); }
+setge           { RET_TOK(BinaryOpVal, SetGE, SETGE); }
 
 phi             { RET_TOK(OtherOpVal, PHI, PHI_TOK); }
 call            { RET_TOK(OtherOpVal, Call, CALL); }
-trunc           { RET_TOK(CastOpVal, Trunc, TRUNC); }
-zext            { RET_TOK(CastOpVal, ZExt, ZEXT); }
-sext            { RET_TOK(CastOpVal, SExt, SEXT); }
-fptrunc         { RET_TOK(CastOpVal, FPTrunc, FPTRUNC); }
-fpext           { RET_TOK(CastOpVal, FPExt, FPEXT); }
-uitofp          { RET_TOK(CastOpVal, UIToFP, UITOFP); }
-sitofp          { RET_TOK(CastOpVal, SIToFP, SITOFP); }
-fptoui          { RET_TOK(CastOpVal, FPToUI, FPTOUI); }
-fptosi          { RET_TOK(CastOpVal, FPToSI, FPTOSI); }
-inttoptr        { RET_TOK(CastOpVal, IntToPtr, INTTOPTR); }
-ptrtoint        { RET_TOK(CastOpVal, PtrToInt, PTRTOINT); }
-bitcast         { RET_TOK(CastOpVal, BitCast, BITCAST); }
+cast            { RET_TOK(OtherOpVal, Cast, CAST); }
 select          { RET_TOK(OtherOpVal, Select, SELECT); }
+shl             { RET_TOK(OtherOpVal, Shl, SHL); }
+shr             { RET_TOK(OtherOpVal, Shr, SHR); }
+vanext          { return VANEXT_old; }
+vaarg           { return VAARG_old; }
 va_arg          { RET_TOK(OtherOpVal, VAArg , VAARG); }
 ret             { RET_TOK(TermOpVal, Ret, RET); }
 br              { RET_TOK(TermOpVal, Br, BR); }
@@ -323,15 +303,10 @@ insertelement   { RET_TOK(OtherOpVal, InsertElement, INSERTELEMENT); }
 shufflevector   { RET_TOK(OtherOpVal, ShuffleVector, SHUFFLEVECTOR); }
 
 
-{LocalVarName}  {
+{VarID}         {
                   UnEscapeLexed(yytext+1);
                   llvmAsmlval.StrVal = strdup(yytext+1);             // Skip %
-                  return LOCALVAR;
-                }
-{GlobalVarName} {
-                  UnEscapeLexed(yytext+1);
-                  llvmAsmlval.StrVal = strdup(yytext+1);             // Skip @
-                  return GLOBALVAR;
+                  return VAR_ID;
                 }
 {Label}         {
                   yytext[strlen(yytext)-1] = 0;  // nuke colon
@@ -355,12 +330,6 @@ shufflevector   { RET_TOK(OtherOpVal, ShuffleVector, SHUFFLEVECTOR); }
                    llvmAsmlval.StrVal = strdup(yytext+1);  // Nuke start quote
                    return STRINGCONSTANT;
                  }
-{AtStringConstant} {
-                     yytext[strlen(yytext)-1] = 0;           // nuke end quote
-                     llvmAsmlval.StrVal = strdup(yytext+2);  // Nuke @, quote
-                     return ATSTRINGCONSTANT;
-                   }
-
 
 
 {PInteger}      { llvmAsmlval.UInt64Val = atoull(yytext); return EUINT64VAL; }
@@ -377,19 +346,20 @@ shufflevector   { RET_TOK(OtherOpVal, ShuffleVector, SHUFFLEVECTOR); }
                    return yytext[0] == 's' ? ESINT64VAL : EUINT64VAL;
                  }
 
-{LocalVarID}     {
+{EPInteger}     {
                   uint64_t Val = atoull(yytext+1);
                   if ((unsigned)Val != Val)
                     GenerateError("Invalid value number (too large)!");
                   llvmAsmlval.UIntVal = unsigned(Val);
-                  return LOCALVAL_ID;
+                  return UINTVAL;
                 }
-{GlobalVarID}   {
-                  uint64_t Val = atoull(yytext+1);
-                  if ((unsigned)Val != Val)
-                    GenerateError("Invalid value number (too large)!");
-                  llvmAsmlval.UIntVal = unsigned(Val);
-                  return GLOBALVAL_ID;
+{ENInteger}     {
+                  uint64_t Val = atoull(yytext+2);
+                  // +1:  we have bigger negative range
+                  if (Val > (uint64_t)INT32_MAX+1)
+                    GenerateError("Constant too large for signed 32 bits!");
+                  llvmAsmlval.SIntVal = (int)-Val;
+                  return SINTVAL;
                 }
 
 {FPConstant}    { llvmAsmlval.FPVal = atof(yytext); return FPVAL; }

@@ -54,7 +54,6 @@ public:
   virtual bool isNullValue() const = 0;
 
   virtual void print(std::ostream &O) const;
-  void print(std::ostream *O) const { if (O) print(*O); }
   
   /// canTrap - Return true if evaluation of this constant could trap.  This is
   /// true for things like constant expressions that could divide by zero.

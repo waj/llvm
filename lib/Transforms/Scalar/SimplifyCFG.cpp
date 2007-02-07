@@ -18,23 +18,21 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "simplifycfg"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Pass.h"
 #include "llvm/ADT/Statistic.h"
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumSimpl, "Number of blocks simplified");
-
 namespace {
-  struct VISIBILITY_HIDDEN CFGSimplifyPass : public FunctionPass {
+  Statistic<> NumSimpl("cfgsimplify", "Number of blocks simplified");
+
+  struct CFGSimplifyPass : public FunctionPass {
     virtual bool runOnFunction(Function &F);
   };
   RegisterPass<CFGSimplifyPass> X("simplifycfg", "Simplify the CFG");
@@ -75,7 +73,7 @@ static bool MarkAliveBlocks(BasicBlock *BB, std::set<BasicBlock*> &Reachable) {
 
   bool Changed = ConstantFoldTerminator(BB);
   for (succ_iterator SI = succ_begin(BB), SE = succ_end(BB); SI != SE; ++SI)
-    Changed |= MarkAliveBlocks(*SI, Reachable);
+    MarkAliveBlocks(*SI, Reachable);
 
   return Changed;
 }

@@ -12,20 +12,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "deadtypeelim"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Analysis/FindUsedTypes.h"
 #include "llvm/Module.h"
-#include "llvm/TypeSymbolTable.h"
+#include "llvm/SymbolTable.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Support/Compiler.h"
 using namespace llvm;
 
-STATISTIC(NumKilled, "Number of unused typenames removed from symtab");
-
 namespace {
-  struct VISIBILITY_HIDDEN DTE : public ModulePass {
+  struct DTE : public ModulePass {
     // doPassInitialization - For this pass, it removes global symbol table
     // entries for primitive types.  These are never used for linking in GCC and
     // they make the output uglier to look at, so we nuke them.
@@ -41,6 +37,8 @@ namespace {
     }
   };
   RegisterPass<DTE> X("deadtypeelim", "Dead Type Elimination");
+  Statistic<>
+  NumKilled("deadtypeelim", "Number of unused typenames removed from symtab");
 }
 
 ModulePass *llvm::createDeadTypeEliminationPass() {
@@ -53,14 +51,11 @@ ModulePass *llvm::createDeadTypeEliminationPass() {
 //
 static inline bool ShouldNukeSymtabEntry(const Type *Ty){
   // Nuke all names for primitive types!
-  if (Ty->isPrimitiveType() || Ty->isInteger()) 
-    return true;
+  if (Ty->isPrimitiveType()) return true;
 
   // Nuke all pointers to primitive types as well...
   if (const PointerType *PT = dyn_cast<PointerType>(Ty))
-    if (PT->getElementType()->isPrimitiveType() ||
-        PT->getElementType()->isInteger()) 
-      return true;
+    if (PT->getElementType()->isPrimitiveType()) return true;
 
   return false;
 }
@@ -73,15 +68,14 @@ static inline bool ShouldNukeSymtabEntry(const Type *Ty){
 bool DTE::runOnModule(Module &M) {
   bool Changed = false;
 
-  TypeSymbolTable &ST = M.getTypeSymbolTable();
+  SymbolTable &ST = M.getSymbolTable();
   std::set<const Type *> UsedTypes = getAnalysis<FindUsedTypes>().getTypes();
 
   // Check the symbol table for superfluous type entries...
   //
   // Grab the 'type' plane of the module symbol...
-  TypeSymbolTable::iterator TI = ST.begin();
-  TypeSymbolTable::iterator TE = ST.end();
-  while ( TI != TE ) {
+  SymbolTable::type_iterator TI = ST.type_begin();
+  while ( TI != ST.type_end() ) {
     // If this entry should be unconditionally removed, or if we detect that
     // the type is not used, remove it.
     const Type *RHS = TI->second;

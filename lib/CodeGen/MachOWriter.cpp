@@ -22,22 +22,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Constants.h"
-#include "llvm/DerivedTypes.h"
 #include "llvm/Module.h"
 #include "llvm/CodeGen/MachineCodeEmitter.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachOWriter.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
-#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetJITInfo.h"
 #include "llvm/Support/Mangler.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/OutputBuffer.h"
-#include "llvm/Support/Streams.h"
 #include <algorithm>
-
+#include <iostream>
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -49,13 +44,9 @@ namespace llvm {
   /// for functions to the Mach-O file.
   class MachOCodeEmitter : public MachineCodeEmitter {
     MachOWriter &MOW;
-
-    /// Target machine description.
-    TargetMachine &TM;
-
-    /// is64Bit/isLittleEndian - This information is inferred from the target
-    /// machine directly, indicating what header values and flags to set.
-    bool is64Bit, isLittleEndian;
+    
+    /// MOS - The current section we're writing to
+    MachOWriter::MachOSection *MOS;
 
     /// Relocations - These are the relocations that the function needs, as
     /// emitted.
@@ -64,10 +55,6 @@ namespace llvm {
     /// CPLocations - This is a map of constant pool indices to offsets from the
     /// start of the section for that constant pool index.
     std::vector<intptr_t> CPLocations;
-
-    /// CPSections - This is a map of constant pool indices to the MachOSection
-    /// containing the constant pool entry for that index.
-    std::vector<unsigned> CPSections;
 
     /// JTLocations - This is a map of jump table indices to offsets from the
     /// start of the section for that jump table index.
@@ -79,15 +66,12 @@ namespace llvm {
     std::vector<intptr_t> MBBLocations;
     
   public:
-    MachOCodeEmitter(MachOWriter &mow) : MOW(mow), TM(MOW.TM) {
-      is64Bit = TM.getTargetData()->getPointerSizeInBits() == 64;
-      isLittleEndian = TM.getTargetData()->isLittleEndian();
-    }
+    MachOCodeEmitter(MachOWriter &mow) : MOW(mow) {}
 
-    virtual void startFunction(MachineFunction &MF);
-    virtual bool finishFunction(MachineFunction &MF);
+    void startFunction(MachineFunction &F);
+    bool finishFunction(MachineFunction &F);
 
-    virtual void addRelocation(const MachineRelocation &MR) {
+    void addRelocation(const MachineRelocation &MR) {
       Relocations.push_back(MR);
     }
     
@@ -95,8 +79,8 @@ namespace llvm {
     void emitJumpTables(MachineJumpTableInfo *MJTI);
     
     virtual intptr_t getConstantPoolEntryAddress(unsigned Index) const {
-      assert(CPLocations.size() > Index && "CP not emitted!");
-      return CPLocations[Index];
+      assert(0 && "CP not implementated yet!");
+      return 0;
     }
     virtual intptr_t getJumpTableEntryAddress(unsigned Index) const {
       assert(JTLocations.size() > Index && "JT not emitted!");
@@ -116,11 +100,11 @@ namespace llvm {
     }
 
     /// JIT SPECIFIC FUNCTIONS - DO NOT IMPLEMENT THESE HERE!
-    virtual void startFunctionStub(unsigned StubSize, unsigned Alignment = 1) {
+    void startFunctionStub(unsigned StubSize) {
       assert(0 && "JIT specific function called!");
       abort();
     }
-    virtual void *finishFunctionStub(const Function *F) {
+    void *finishFunctionStub(const Function *F) {
       assert(0 && "JIT specific function called!");
       abort();
       return 0;
@@ -130,69 +114,43 @@ namespace llvm {
 
 /// startFunction - This callback is invoked when a new machine function is
 /// about to be emitted.
-void MachOCodeEmitter::startFunction(MachineFunction &MF) {
-  const TargetData *TD = TM.getTargetData();
-  const Function *F = MF.getFunction();
-
+void MachOCodeEmitter::startFunction(MachineFunction &F) {
   // Align the output buffer to the appropriate alignment, power of 2.
-  unsigned FnAlign = F->getAlignment();
-  unsigned TDAlign = TD->getTypeAlignmentPref(F->getType());
-  unsigned Align = Log2_32(std::max(FnAlign, TDAlign));
-  assert(!(Align & (Align-1)) && "Alignment is not a power of two!");
+  // FIXME: GENERICIZE!!
+  unsigned Align = 4;
 
   // Get the Mach-O Section that this function belongs in.
-  MachOWriter::MachOSection *MOS = MOW.getTextSection();
+  MOS = &MOW.getTextSection();
   
-  // FIXME: better memory management
+   // FIXME: better memory management
   MOS->SectionData.reserve(4096);
-  BufferBegin = &MOS->SectionData[0];
+  BufferBegin = &(MOS->SectionData[0]);
   BufferEnd = BufferBegin + MOS->SectionData.capacity();
+  CurBufferPtr = BufferBegin + MOS->size;
 
   // Upgrade the section alignment if required.
   if (MOS->align < Align) MOS->align = Align;
 
-  // Round the size up to the correct alignment for starting the new function.
-  if ((MOS->size & ((1 << Align) - 1)) != 0) {
-    MOS->size += (1 << Align);
-    MOS->size &= ~((1 << Align) - 1);
-  }
-
-  // FIXME: Using MOS->size directly here instead of calculating it from the
-  // output buffer size (impossible because the code emitter deals only in raw
-  // bytes) forces us to manually synchronize size and write padding zero bytes
-  // to the output buffer for all non-text sections.  For text sections, we do
-  // not synchonize the output buffer, and we just blow up if anyone tries to
-  // write non-code to it.  An assert should probably be added to
-  // AddSymbolToSection to prevent calling it on the text section.
-  CurBufferPtr = BufferBegin + MOS->size;
-
   // Clear per-function data structures.
   CPLocations.clear();
-  CPSections.clear();
   JTLocations.clear();
   MBBLocations.clear();
 }
 
 /// finishFunction - This callback is invoked after the function is completely
 /// finished.
-bool MachOCodeEmitter::finishFunction(MachineFunction &MF) {
-  // Get the Mach-O Section that this function belongs in.
-  MachOWriter::MachOSection *MOS = MOW.getTextSection();
-
-  // Get a symbol for the function to add to the symbol table
-  // FIXME: it seems like we should call something like AddSymbolToSection
-  // in startFunction rather than changing the section size and symbol n_value
-  // here.
-  const GlobalValue *FuncV = MF.getFunction();
-  MachOSym FnSym(FuncV, MOW.Mang->getValueName(FuncV), MOS->Index, TM);
-  FnSym.n_value = MOS->size;
-  MOS->size = CurBufferPtr - BufferBegin;
+bool MachOCodeEmitter::finishFunction(MachineFunction &F) {
+  MOS->size += CurBufferPtr - BufferBegin;
   
+  // Get a symbol for the function to add to the symbol table
+  const GlobalValue *FuncV = F.getFunction();
+  MachOSym FnSym(FuncV, MOW.Mang->getValueName(FuncV), MOS->Index);
+
   // Emit constant pool to appropriate section(s)
-  emitConstantPool(MF.getConstantPool());
+  emitConstantPool(F.getConstantPool());
 
   // Emit jump tables to appropriate section
-  emitJumpTables(MF.getJumpTableInfo());
+  emitJumpTables(F.getJumpTableInfo());
   
   // If we have emitted any relocations to function-specific objects such as 
   // basic blocks, constant pools entries, or jump tables, record their
@@ -201,21 +159,16 @@ bool MachOCodeEmitter::finishFunction(MachineFunction &MF) {
   for (unsigned i = 0, e = Relocations.size(); i != e; ++i) {
     MachineRelocation &MR = Relocations[i];
     intptr_t Addr;
-
     if (MR.isBasicBlock()) {
       Addr = getMachineBasicBlockAddress(MR.getBasicBlock());
-      MR.setConstantVal(MOS->Index);
-      MR.setResultPointer((void*)Addr);
-    } else if (MR.isJumpTableIndex()) {
-      Addr = getJumpTableEntryAddress(MR.getJumpTableIndex());
-      MR.setConstantVal(MOW.getJumpTableSection()->Index);
-      MR.setResultPointer((void*)Addr);
+      MR.setResultPointer((void *)Addr);
     } else if (MR.isConstantPoolIndex()) {
       Addr = getConstantPoolEntryAddress(MR.getConstantPoolIndex());
-      MR.setConstantVal(CPSections[MR.getConstantPoolIndex()]);
-      MR.setResultPointer((void*)Addr);
-    } else if (!MR.isGlobalValue()) {
-      assert(0 && "Unhandled relocation type");
+      MR.setResultPointer((void *)Addr);
+    } else if (MR.isJumpTableIndex()) {
+      // FIXME: handle PIC codegen
+      Addr = getJumpTableEntryAddress(MR.getJumpTableIndex());
+      MR.setResultPointer((void *)Addr);
     }
     MOS->Relocations.push_back(MR);
   }
@@ -230,42 +183,6 @@ bool MachOCodeEmitter::finishFunction(MachineFunction &MF) {
 /// the constant should live in, allocate space for it, and emit it to the 
 /// Section data buffer.
 void MachOCodeEmitter::emitConstantPool(MachineConstantPool *MCP) {
-  const std::vector<MachineConstantPoolEntry> &CP = MCP->getConstants();
-  if (CP.empty()) return;
-
-  // FIXME: handle PIC codegen
-  bool isPIC = TM.getRelocationModel() == Reloc::PIC_;
-  assert(!isPIC && "PIC codegen not yet handled for mach-o jump tables!");
-
-  // Although there is no strict necessity that I am aware of, we will do what
-  // gcc for OS X does and put each constant pool entry in a section of constant
-  // objects of a certain size.  That means that float constants go in the
-  // literal4 section, and double objects go in literal8, etc.
-  //
-  // FIXME: revisit this decision if we ever do the "stick everything into one
-  // "giant object for PIC" optimization.
-  for (unsigned i = 0, e = CP.size(); i != e; ++i) {
-    const Type *Ty = CP[i].getType();
-    unsigned Size = TM.getTargetData()->getTypeSize(Ty);
-
-    MachOWriter::MachOSection *Sec = MOW.getConstSection(CP[i].Val.ConstVal);
-    OutputBuffer SecDataOut(Sec->SectionData, is64Bit, isLittleEndian);
-
-    CPLocations.push_back(Sec->SectionData.size());
-    CPSections.push_back(Sec->Index);
-    
-    // FIXME: remove when we have unified size + output buffer
-    Sec->size += Size;
-
-    // Allocate space in the section for the global.
-    // FIXME: need alignment?
-    // FIXME: share between here and AddSymbolToSection?
-    for (unsigned j = 0; j < Size; ++j)
-      SecDataOut.outbyte(0);
-
-    MOW.InitMem(CP[i].Val.ConstVal, &Sec->SectionData[0], CPLocations[i],
-                TM.getTargetData(), Sec->Relocations);
-  }
 }
 
 /// emitJumpTables - Emit all the jump tables for a given jump table info
@@ -274,30 +191,28 @@ void MachOCodeEmitter::emitJumpTables(MachineJumpTableInfo *MJTI) {
   const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
   if (JT.empty()) return;
 
-  // FIXME: handle PIC codegen
-  bool isPIC = TM.getRelocationModel() == Reloc::PIC_;
+  bool isPIC = MOW.TM.getRelocationModel() == Reloc::PIC_;
   assert(!isPIC && "PIC codegen not yet handled for mach-o jump tables!");
 
-  MachOWriter::MachOSection *Sec = MOW.getJumpTableSection();
-  unsigned TextSecIndex = MOW.getTextSection()->Index;
-  OutputBuffer SecDataOut(Sec->SectionData, is64Bit, isLittleEndian);
+  MachOWriter::MachOSection &Sec = MOW.getJumpTableSection();
 
   for (unsigned i = 0, e = JT.size(); i != e; ++i) {
     // For each jump table, record its offset from the start of the section,
     // reserve space for the relocations to the MBBs, and add the relocations.
     const std::vector<MachineBasicBlock*> &MBBs = JT[i].MBBs;
-    JTLocations.push_back(Sec->SectionData.size());
+    JTLocations.push_back(Sec.SectionData.size());
     for (unsigned mi = 0, me = MBBs.size(); mi != me; ++mi) {
-      MachineRelocation MR(MOW.GetJTRelocation(Sec->SectionData.size(),
+      MachineRelocation MR(MOW.GetJTRelocation(Sec.SectionData.size(),
                                                MBBs[mi]));
       MR.setResultPointer((void *)JTLocations[i]);
-      MR.setConstantVal(TextSecIndex);
-      Sec->Relocations.push_back(MR);
-      SecDataOut.outaddr(0);
+      Sec.Relocations.push_back(MR);
+      MOW.outaddr(Sec.SectionData, 0);
     }
   }
-  // FIXME: remove when we have unified size + output buffer
-  Sec->size = Sec->SectionData.size();
+  // FIXME: it really seems like keeping these in sync is redundant, someone
+  // should do something about that (never access section size directly, only
+  // look at buffer size).
+  Sec.size = Sec.SectionData.size();
 }
 
 //===----------------------------------------------------------------------===//
@@ -316,48 +231,33 @@ MachOWriter::~MachOWriter() {
   delete MCE;
 }
 
-void MachOWriter::AddSymbolToSection(MachOSection *Sec, GlobalVariable *GV) {
+void MachOWriter::AddSymbolToSection(MachOSection &Sec, GlobalVariable *GV) {
   const Type *Ty = GV->getType()->getElementType();
   unsigned Size = TM.getTargetData()->getTypeSize(Ty);
-  unsigned Align = GV->getAlignment();
-  if (Align == 0)
-    Align = TM.getTargetData()->getTypeAlignmentPref(Ty);
+  unsigned Align = Log2_32(TM.getTargetData()->getTypeAlignment(Ty));
   
-  MachOSym Sym(GV, Mang->getValueName(GV), Sec->Index, TM);
-  
+  MachOSym Sym(GV, Mang->getValueName(GV), Sec.Index);
   // Reserve space in the .bss section for this symbol while maintaining the
   // desired section alignment, which must be at least as much as required by
   // this symbol.
-  OutputBuffer SecDataOut(Sec->SectionData, is64Bit, isLittleEndian);
-
   if (Align) {
-    uint64_t OrigSize = Sec->size;
-    Align = Log2_32(Align);
-    Sec->align = std::max(unsigned(Sec->align), Align);
-    Sec->size = (Sec->size + Align - 1) & ~(Align-1);
-    
-    // Add alignment padding to buffer as well.
-    // FIXME: remove when we have unified size + output buffer
-    unsigned AlignedSize = Sec->size - OrigSize;
-    for (unsigned i = 0; i < AlignedSize; ++i)
-      SecDataOut.outbyte(0);
+    Sec.align = std::max(unsigned(Sec.align), Align);
+    Sec.size = (Sec.size + Align - 1) & ~(Align-1);
   }
   // Record the offset of the symbol, and then allocate space for it.
-  // FIXME: remove when we have unified size + output buffer
-  Sym.n_value = Sec->size;
-  Sec->size += Size;
-  SymbolTable.push_back(Sym);
+  Sym.n_value = Sec.size;
+  Sec.size += Size;
 
-  // Now that we know what section the GlovalVariable is going to be emitted 
-  // into, update our mappings.
-  // FIXME: We may also need to update this when outputting non-GlobalVariable
-  // GlobalValues such as functions.
-  GVSection[GV] = Sec;
-  GVOffset[GV] = Sec->SectionData.size();
-  
-  // Allocate space in the section for the global.
-  for (unsigned i = 0; i < Size; ++i)
-    SecDataOut.outbyte(0);
+  switch (GV->getLinkage()) {
+  default:  // weak/linkonce handled above
+    assert(0 && "Unexpected linkage type!");
+  case GlobalValue::ExternalLinkage:
+    Sym.n_type |= MachOSym::N_EXT;
+    break;
+  case GlobalValue::InternalLinkage:
+    break;
+  }
+  SymbolTable.push_back(Sym);
 }
 
 void MachOWriter::EmitGlobal(GlobalVariable *GV) {
@@ -372,7 +272,7 @@ void MachOWriter::EmitGlobal(GlobalVariable *GV) {
     // part of the common block if they are zero initialized and allowed to be
     // merged with other symbols.
     if (NoInit || GV->hasLinkOnceLinkage() || GV->hasWeakLinkage()) {
-      MachOSym ExtOrCommonSym(GV, Mang->getValueName(GV), MachOSym::NO_SECT,TM);
+      MachOSym ExtOrCommonSym(GV, Mang->getValueName(GV), MachOSym::NO_SECT);
       // For undefined (N_UNDF) external (N_EXT) types, n_value is the size in
       // bytes of the symbol.
       ExtOrCommonSym.n_value = Size;
@@ -385,7 +285,7 @@ void MachOWriter::EmitGlobal(GlobalVariable *GV) {
       return;
     }
     // Otherwise, this symbol is part of the .bss section.
-    MachOSection *BSS = getBSSSection();
+    MachOSection &BSS = getBSSSection();
     AddSymbolToSection(BSS, GV);
     return;
   }
@@ -393,11 +293,23 @@ void MachOWriter::EmitGlobal(GlobalVariable *GV) {
   // Scalar read-only data goes in a literal section if the scalar is 4, 8, or
   // 16 bytes, or a cstring.  Other read only data goes into a regular const
   // section.  Read-write data goes in the data section.
-  MachOSection *Sec = GV->isConstant() ? getConstSection(GV->getInitializer()) : 
-                                         getDataSection();
+  MachOSection &Sec = GV->isConstant() ? getConstSection(Ty) : getDataSection();
   AddSymbolToSection(Sec, GV);
-  InitMem(GV->getInitializer(), &Sec->SectionData[0], GVOffset[GV],
-          TM.getTargetData(), Sec->Relocations);
+  
+  // FIXME: A couple significant changes are required for this to work, even for
+  //        trivial cases such as a constant integer:
+  //   0. InitializeMemory needs to be split out of ExecutionEngine.  We don't
+  //      want to have to create an ExecutionEngine such as JIT just to write
+  //      some bytes into a buffer.  The only thing necessary for
+  //      InitializeMemory to function properly should be TargetData.
+  //
+  //   1. InitializeMemory needs to be enhanced to return MachineRelocations 
+  //      rather than accessing the address of objects such basic blocks, 
+  //      constant pools, and jump tables.  The client of InitializeMemory such
+  //      as an object writer or jit emitter should then handle these relocs
+  //      appropriately.
+  //
+  // FIXME: need to allocate memory for the global initializer.
 }
 
 
@@ -430,6 +342,10 @@ bool MachOWriter::doFinalization(Module &M) {
        I != E; ++I)
     EmitGlobal(I);
   
+  // Emit the symbol table to temporary buffers, so that we know the size of
+  // the string table when we write the load commands in the next phase.
+  BufferSymbolAndStringTable();
+  
   // Emit the header and load commands.
   EmitHeaderAndLoadCommands();
 
@@ -456,7 +372,7 @@ void MachOWriter::EmitHeaderAndLoadCommands() {
   MachOSegment SEG("", is64Bit);
   SEG.nsects  = SectionList.size();
   SEG.cmdsize = SEG.cmdSize(is64Bit) + 
-                SEG.nsects * SectionList[0]->cmdSize(is64Bit);
+                SEG.nsects * SectionList.begin()->cmdSize(is64Bit);
   
   // Step #1: calculate the number of load commands.  We always have at least
   //          one, for the LC_SEGMENT load command, plus two for the normal
@@ -471,117 +387,107 @@ void MachOWriter::EmitHeaderAndLoadCommands() {
   // Step #3: write the header to the file
   // Local alias to shortenify coming code.
   DataBuffer &FH = Header.HeaderData;
-  OutputBuffer FHOut(FH, is64Bit, isLittleEndian);
-
-  FHOut.outword(Header.magic);
-  FHOut.outword(TM.getMachOWriterInfo()->getCPUType());
-  FHOut.outword(TM.getMachOWriterInfo()->getCPUSubType());
-  FHOut.outword(Header.filetype);
-  FHOut.outword(Header.ncmds);
-  FHOut.outword(Header.sizeofcmds);
-  FHOut.outword(Header.flags);
+  outword(FH, Header.magic);
+  outword(FH, Header.cputype);
+  outword(FH, Header.cpusubtype);
+  outword(FH, Header.filetype);
+  outword(FH, Header.ncmds);
+  outword(FH, Header.sizeofcmds);
+  outword(FH, Header.flags);
   if (is64Bit)
-    FHOut.outword(Header.reserved);
+    outword(FH, Header.reserved);
   
   // Step #4: Finish filling in the segment load command and write it out
-  for (std::vector<MachOSection*>::iterator I = SectionList.begin(),
+  for (std::list<MachOSection>::iterator I = SectionList.begin(),
          E = SectionList.end(); I != E; ++I)
-    SEG.filesize += (*I)->size;
-
+    SEG.filesize += I->size;
   SEG.vmsize = SEG.filesize;
   SEG.fileoff = Header.cmdSize(is64Bit) + Header.sizeofcmds;
   
-  FHOut.outword(SEG.cmd);
-  FHOut.outword(SEG.cmdsize);
-  FHOut.outstring(SEG.segname, 16);
-  FHOut.outaddr(SEG.vmaddr);
-  FHOut.outaddr(SEG.vmsize);
-  FHOut.outaddr(SEG.fileoff);
-  FHOut.outaddr(SEG.filesize);
-  FHOut.outword(SEG.maxprot);
-  FHOut.outword(SEG.initprot);
-  FHOut.outword(SEG.nsects);
-  FHOut.outword(SEG.flags);
+  outword(FH, SEG.cmd);
+  outword(FH, SEG.cmdsize);
+  outstring(FH, SEG.segname, 16);
+  outaddr(FH, SEG.vmaddr);
+  outaddr(FH, SEG.vmsize);
+  outaddr(FH, SEG.fileoff);
+  outaddr(FH, SEG.filesize);
+  outword(FH, SEG.maxprot);
+  outword(FH, SEG.initprot);
+  outword(FH, SEG.nsects);
+  outword(FH, SEG.flags);
   
   // Step #5: Finish filling in the fields of the MachOSections 
   uint64_t currentAddr = 0;
-  for (std::vector<MachOSection*>::iterator I = SectionList.begin(),
+  for (std::list<MachOSection>::iterator I = SectionList.begin(),
          E = SectionList.end(); I != E; ++I) {
-    MachOSection *MOS = *I;
-    MOS->addr = currentAddr;
-    MOS->offset = currentAddr + SEG.fileoff;
+    I->addr = currentAddr;
+    I->offset = currentAddr + SEG.fileoff;
 
     // FIXME: do we need to do something with alignment here?
-    currentAddr += MOS->size;
+    currentAddr += I->size;
   }
   
   // Step #6: Calculate the number of relocations for each section and write out
   // the section commands for each section
   currentAddr += SEG.fileoff;
-  for (std::vector<MachOSection*>::iterator I = SectionList.begin(),
+  for (std::list<MachOSection>::iterator I = SectionList.begin(),
          E = SectionList.end(); I != E; ++I) {
-    MachOSection *MOS = *I;
-    // Convert the relocations to target-specific relocations, and fill in the
-    // relocation offset for this section.
-    CalculateRelocations(*MOS);
-    MOS->reloff = MOS->nreloc ? currentAddr : 0;
-    currentAddr += MOS->nreloc * 8;
+    // calculate the relocation info for this section command
+    CalculateRelocations(*I, currentAddr);
+    currentAddr += I->nreloc * 8;
     
     // write the finalized section command to the output buffer
-    FHOut.outstring(MOS->sectname, 16);
-    FHOut.outstring(MOS->segname, 16);
-    FHOut.outaddr(MOS->addr);
-    FHOut.outaddr(MOS->size);
-    FHOut.outword(MOS->offset);
-    FHOut.outword(MOS->align);
-    FHOut.outword(MOS->reloff);
-    FHOut.outword(MOS->nreloc);
-    FHOut.outword(MOS->flags);
-    FHOut.outword(MOS->reserved1);
-    FHOut.outword(MOS->reserved2);
+    outstring(FH, I->sectname, 16);
+    outstring(FH, I->segname, 16);
+    outaddr(FH, I->addr);
+    outaddr(FH, I->size);
+    outword(FH, I->offset);
+    outword(FH, I->align);
+    outword(FH, I->reloff);
+    outword(FH, I->nreloc);
+    outword(FH, I->flags);
+    outword(FH, I->reserved1);
+    outword(FH, I->reserved2);
     if (is64Bit)
-      FHOut.outword(MOS->reserved3);
+      outword(FH, I->reserved3);
   }
   
-  // Step #7: Emit the symbol table to temporary buffers, so that we know the
-  // size of the string table when we write the next load command.
-  BufferSymbolAndStringTable();
-  
-  // Step #8: Emit LC_SYMTAB/LC_DYSYMTAB load commands
+  // Step #7: Emit LC_SYMTAB/LC_DYSYMTAB load commands
+  // FIXME: add size of relocs
   SymTab.symoff  = currentAddr;
   SymTab.nsyms   = SymbolTable.size();
   SymTab.stroff  = SymTab.symoff + SymT.size();
   SymTab.strsize = StrT.size();
-  FHOut.outword(SymTab.cmd);
-  FHOut.outword(SymTab.cmdsize);
-  FHOut.outword(SymTab.symoff);
-  FHOut.outword(SymTab.nsyms);
-  FHOut.outword(SymTab.stroff);
-  FHOut.outword(SymTab.strsize);
+  outword(FH, SymTab.cmd);
+  outword(FH, SymTab.cmdsize);
+  outword(FH, SymTab.symoff);
+  outword(FH, SymTab.nsyms);
+  outword(FH, SymTab.stroff);
+  outword(FH, SymTab.strsize);
 
   // FIXME: set DySymTab fields appropriately
   // We should probably just update these in BufferSymbolAndStringTable since
   // thats where we're partitioning up the different kinds of symbols.
-  FHOut.outword(DySymTab.cmd);
-  FHOut.outword(DySymTab.cmdsize);
-  FHOut.outword(DySymTab.ilocalsym);
-  FHOut.outword(DySymTab.nlocalsym);
-  FHOut.outword(DySymTab.iextdefsym);
-  FHOut.outword(DySymTab.nextdefsym);
-  FHOut.outword(DySymTab.iundefsym);
-  FHOut.outword(DySymTab.nundefsym);
-  FHOut.outword(DySymTab.tocoff);
-  FHOut.outword(DySymTab.ntoc);
-  FHOut.outword(DySymTab.modtaboff);
-  FHOut.outword(DySymTab.nmodtab);
-  FHOut.outword(DySymTab.extrefsymoff);
-  FHOut.outword(DySymTab.nextrefsyms);
-  FHOut.outword(DySymTab.indirectsymoff);
-  FHOut.outword(DySymTab.nindirectsyms);
-  FHOut.outword(DySymTab.extreloff);
-  FHOut.outword(DySymTab.nextrel);
-  FHOut.outword(DySymTab.locreloff);
-  FHOut.outword(DySymTab.nlocrel);
+  outword(FH, DySymTab.cmd);
+  outword(FH, DySymTab.cmdsize);
+  outword(FH, DySymTab.ilocalsym);
+  outword(FH, DySymTab.nlocalsym);
+  outword(FH, DySymTab.iextdefsym);
+  outword(FH, DySymTab.nextdefsym);
+  outword(FH, DySymTab.iundefsym);
+  outword(FH, DySymTab.nundefsym);
+  outword(FH, DySymTab.tocoff);
+  outword(FH, DySymTab.ntoc);
+  outword(FH, DySymTab.modtaboff);
+  outword(FH, DySymTab.nmodtab);
+  outword(FH, DySymTab.extrefsymoff);
+  outword(FH, DySymTab.nextrefsyms);
+  outword(FH, DySymTab.indirectsymoff);
+  outword(FH, DySymTab.nindirectsyms);
+  outword(FH, DySymTab.extreloff);
+  outword(FH, DySymTab.nextrel);
+  outword(FH, DySymTab.locreloff);
+  outword(FH, DySymTab.nlocrel);
   
   O.write((char*)&FH[0], FH.size());
 }
@@ -589,19 +495,20 @@ void MachOWriter::EmitHeaderAndLoadCommands() {
 /// EmitSections - Now that we have constructed the file header and load
 /// commands, emit the data for each section to the file.
 void MachOWriter::EmitSections() {
-  for (std::vector<MachOSection*>::iterator I = SectionList.begin(),
+  for (std::list<MachOSection>::iterator I = SectionList.begin(),
          E = SectionList.end(); I != E; ++I)
     // Emit the contents of each section
-    O.write((char*)&(*I)->SectionData[0], (*I)->size);
-  for (std::vector<MachOSection*>::iterator I = SectionList.begin(),
+    O.write((char*)&I->SectionData[0], I->size);
+  for (std::list<MachOSection>::iterator I = SectionList.begin(),
          E = SectionList.end(); I != E; ++I)
     // Emit the relocation entry data for each section.
-    O.write((char*)&(*I)->RelocBuffer[0], (*I)->RelocBuffer.size());
+    O.write((char*)&I->RelocBuffer[0], I->RelocBuffer.size());
 }
 
 /// PartitionByLocal - Simple boolean predicate that returns true if Sym is
 /// a local symbol rather than an external symbol.
 bool MachOWriter::PartitionByLocal(const MachOSym &Sym) {
+  // FIXME: Not totally sure if private extern counts as external
   return (Sym.n_type & (MachOSym::N_EXT | MachOSym::N_PEXT)) == 0;
 }
 
@@ -639,28 +546,10 @@ void MachOWriter::BufferSymbolAndStringTable() {
       break;
     }
   }
-
-  // Calculate the starting index for each of the local, extern defined, and 
-  // undefined symbols, as well as the number of each to put in the LC_DYSYMTAB
-  // load command.
-  for (std::vector<MachOSym>::iterator I = SymbolTable.begin(),
-         E = SymbolTable.end(); I != E; ++I) {
-    if (PartitionByLocal(*I)) {
-      ++DySymTab.nlocalsym;
-      ++DySymTab.iextdefsym;
-      ++DySymTab.iundefsym;
-    } else if (PartitionByDefined(*I)) {
-      ++DySymTab.nextdefsym;
-      ++DySymTab.iundefsym;
-    } else {
-      ++DySymTab.nundefsym;
-    }
-  }
   
   // Write out a leading zero byte when emitting string table, for n_strx == 0
   // which means an empty string.
-  OutputBuffer StrTOut(StrT, is64Bit, isLittleEndian);
-  StrTOut.outbyte(0);
+  outbyte(StrT, 0);
 
   // The order of the string table is:
   // 1. strings for external symbols
@@ -673,27 +562,18 @@ void MachOWriter::BufferSymbolAndStringTable() {
       I->n_strx = 0;
     } else {
       I->n_strx = StrT.size();
-      StrTOut.outstring(I->GVName, I->GVName.length()+1);
+      outstring(StrT, I->GVName, I->GVName.length()+1);
     }
   }
 
-  OutputBuffer SymTOut(SymT, is64Bit, isLittleEndian);
-
   for (std::vector<MachOSym>::iterator I = SymbolTable.begin(),
          E = SymbolTable.end(); I != E; ++I) {
-    // Add the section base address to the section offset in the n_value field
-    // to calculate the full address.
-    // FIXME: handle symbols where the n_value field is not the address
-    GlobalValue *GV = const_cast<GlobalValue*>(I->GV);
-    if (GV && GVSection[GV])
-      I->n_value += GVSection[GV]->addr;
-         
     // Emit nlist to buffer
-    SymTOut.outword(I->n_strx);
-    SymTOut.outbyte(I->n_type);
-    SymTOut.outbyte(I->n_sect);
-    SymTOut.outhalf(I->n_desc);
-    SymTOut.outaddr(I->n_value);
+    outword(SymT, I->n_strx);
+    outbyte(SymT, I->n_type);
+    outbyte(SymT, I->n_sect);
+    outhalf(SymT, I->n_desc);
+    outaddr(SymT, I->n_value);
   }
 }
 
@@ -702,186 +582,23 @@ void MachOWriter::BufferSymbolAndStringTable() {
 /// and the offset into that section.  From this information, create the
 /// appropriate target-specific MachORelocation type and add buffer it to be
 /// written out after we are finished writing out sections.
-void MachOWriter::CalculateRelocations(MachOSection &MOS) {
+void MachOWriter::CalculateRelocations(MachOSection &MOS, unsigned RelOffset) {
   for (unsigned i = 0, e = MOS.Relocations.size(); i != e; ++i) {
-    MachineRelocation &MR = MOS.Relocations[i];
-    unsigned TargetSection = MR.getConstantVal();
-
-    // This is a scattered relocation entry if it points to a global value with
-    // a non-zero offset.
-    bool Scattered = false;
-    
-    // Since we may not have seen the GlobalValue we were interested in yet at
-    // the time we emitted the relocation for it, fix it up now so that it
-    // points to the offset into the correct section.
-    if (MR.isGlobalValue()) {
-      GlobalValue *GV = MR.getGlobalValue();
-      MachOSection *MOSPtr = GVSection[GV];
-      intptr_t Offset = GVOffset[GV];
-      Scattered = TargetSection != 0;
-      
-      if (!MOSPtr) {
-        cerr << "Trying to relocate unknown global " << *GV << '\n';
-        continue;
-        //abort();
-      }
-      
-      TargetSection = MOSPtr->Index;
-      MR.setResultPointer((void*)Offset);
-    }
-
-    OutputBuffer RelocOut(MOS.RelocBuffer, is64Bit, isLittleEndian);
-    OutputBuffer SecOut(MOS.SectionData, is64Bit, isLittleEndian);
-    MachOSection &To = *SectionList[TargetSection - 1];
-
-    MOS.nreloc += GetTargetRelocation(MR, MOS.Index, To.addr, To.Index,
-                                      RelocOut, SecOut, Scattered);
+    // FIXME: calculate the correct offset and section index for relocated
+    // object.
+    // FIXME: somehow convey the fact that the relocation might be external
+    // to the relocating code.
+    GetTargetRelocation(MOS.Relocations[i], MOS, MOS.Index);
   }
+  if (MOS.nreloc != 0)
+    MOS.reloff = RelOffset;
 }
 
-// InitMem - Write the value of a Constant to the specified memory location,
-// converting it into bytes and relocations.
-void MachOWriter::InitMem(const Constant *C, void *Addr, intptr_t Offset,
-                          const TargetData *TD, 
-                          std::vector<MachineRelocation> &MRs) {
-  typedef std::pair<const Constant*, intptr_t> CPair;
-  std::vector<CPair> WorkList;
-  
-  WorkList.push_back(CPair(C,(intptr_t)Addr + Offset));
-  
-  intptr_t ScatteredOffset = 0;
-  
-  while (!WorkList.empty()) {
-    const Constant *PC = WorkList.back().first;
-    intptr_t PA = WorkList.back().second;
-    WorkList.pop_back();
-    
-    if (isa<UndefValue>(PC)) {
-      continue;
-    } else if (const ConstantPacked *CP = dyn_cast<ConstantPacked>(PC)) {
-      unsigned ElementSize = TD->getTypeSize(CP->getType()->getElementType());
-      for (unsigned i = 0, e = CP->getNumOperands(); i != e; ++i)
-        WorkList.push_back(CPair(CP->getOperand(i), PA+i*ElementSize));
-    } else if (const ConstantExpr *CE = dyn_cast<ConstantExpr>(PC)) {
-      //
-      // FIXME: Handle ConstantExpression.  See EE::getConstantValue()
-      //
-      switch (CE->getOpcode()) {
-      case Instruction::GetElementPtr: {
-        std::vector<Value*> Indexes(CE->op_begin()+1, CE->op_end());
-        ScatteredOffset = TD->getIndexedOffset(CE->getOperand(0)->getType(),
-                                               Indexes);
-        WorkList.push_back(CPair(CE->getOperand(0), PA));
-        break;
-      }
-      case Instruction::Add:
-      default:
-        cerr << "ConstantExpr not handled as global var init: " << *CE << "\n";
-        abort();
-        break;
-      }
-    } else if (PC->getType()->isFirstClassType()) {
-      unsigned char *ptr = (unsigned char *)PA;
-      switch (PC->getType()->getTypeID()) {
-      case Type::IntegerTyID: {
-        unsigned NumBits = cast<IntegerType>(PC->getType())->getBitWidth();
-        uint64_t val = cast<ConstantInt>(PC)->getZExtValue();
-        if (NumBits <= 8)
-          ptr[0] = val;
-        else if (NumBits <= 16) {
-          if (TD->isBigEndian())
-            val = ByteSwap_16(val);
-          ptr[0] = val;
-          ptr[1] = val >> 8;
-        } else if (NumBits <= 32) {
-          if (TD->isBigEndian())
-            val = ByteSwap_32(val);
-          ptr[0] = val;
-          ptr[1] = val >> 8;
-          ptr[2] = val >> 16;
-          ptr[3] = val >> 24;
-        } else if (NumBits <= 64) {
-          if (TD->isBigEndian())
-            val = ByteSwap_64(val);
-          ptr[0] = val;
-          ptr[1] = val >> 8;
-          ptr[2] = val >> 16;
-          ptr[3] = val >> 24;
-          ptr[4] = val >> 32;
-          ptr[5] = val >> 40;
-          ptr[6] = val >> 48;
-          ptr[7] = val >> 56;
-        } else {
-          assert(0 && "Not implemented: bit widths > 64");
-        }
-        break;
-      }
-      case Type::FloatTyID: {
-        uint64_t val = FloatToBits(cast<ConstantFP>(PC)->getValue());
-        if (TD->isBigEndian())
-          val = ByteSwap_32(val);
-        ptr[0] = val;
-        ptr[1] = val >> 8;
-        ptr[2] = val >> 16;
-        ptr[3] = val >> 24;
-        break;
-      }
-      case Type::DoubleTyID: {
-        uint64_t val = DoubleToBits(cast<ConstantFP>(PC)->getValue());
-        if (TD->isBigEndian())
-          val = ByteSwap_64(val);
-        ptr[0] = val;
-        ptr[1] = val >> 8;
-        ptr[2] = val >> 16;
-        ptr[3] = val >> 24;
-        ptr[4] = val >> 32;
-        ptr[5] = val >> 40;
-        ptr[6] = val >> 48;
-        ptr[7] = val >> 56;
-        break;
-      }
-      case Type::PointerTyID:
-        if (isa<ConstantPointerNull>(PC))
-          memset(ptr, 0, TD->getPointerSize());
-        else if (const GlobalValue* GV = dyn_cast<GlobalValue>(PC)) {
-          // FIXME: what about function stubs?
-          MRs.push_back(MachineRelocation::getGV(PA-(intptr_t)Addr, 
-                                                 MachineRelocation::VANILLA,
-                                                 const_cast<GlobalValue*>(GV),
-                                                 ScatteredOffset));
-          ScatteredOffset = 0;
-        } else
-          assert(0 && "Unknown constant pointer type!");
-        break;
-      default:
-        cerr << "ERROR: Constant unimp for type: " << *PC->getType() << "\n";
-        abort();
-      }
-    } else if (isa<ConstantAggregateZero>(PC)) {
-      memset((void*)PA, 0, (size_t)TD->getTypeSize(PC->getType()));
-    } else if (const ConstantArray *CPA = dyn_cast<ConstantArray>(PC)) {
-      unsigned ElementSize = TD->getTypeSize(CPA->getType()->getElementType());
-      for (unsigned i = 0, e = CPA->getNumOperands(); i != e; ++i)
-        WorkList.push_back(CPair(CPA->getOperand(i), PA+i*ElementSize));
-    } else if (const ConstantStruct *CPS = dyn_cast<ConstantStruct>(PC)) {
-      const StructLayout *SL =
-        TD->getStructLayout(cast<StructType>(CPS->getType()));
-      for (unsigned i = 0, e = CPS->getNumOperands(); i != e; ++i)
-        WorkList.push_back(CPair(CPS->getOperand(i), PA+SL->MemberOffsets[i]));
-    } else {
-      cerr << "Bad Type: " << *PC->getType() << "\n";
-      assert(0 && "Unknown constant type to initialize memory with!");
-    }
-  }
-}
-
-MachOSym::MachOSym(const GlobalValue *gv, std::string name, uint8_t sect,
-                   TargetMachine &TM) :
-  GV(gv), n_strx(0), n_type(sect == NO_SECT ? N_UNDF : N_SECT), n_sect(sect),
-  n_desc(0), n_value(0) {
-
-  const TargetAsmInfo *TAI = TM.getTargetAsmInfo();  
-  
+MachOSym::MachOSym(const GlobalValue *gv, std::string name, uint8_t sect) :
+  GV(gv), GVName(name), n_strx(0), n_type(sect == NO_SECT ? N_UNDF : N_SECT), 
+  n_sect(sect), n_desc(0), n_value(0) {
+  // FIXME: take a target machine, and then add the appropriate prefix for
+  //        the linkage type based on the TargetAsmInfo
   switch (GV->getLinkage()) {
   default:
     assert(0 && "Unexpected linkage type!");
@@ -890,11 +607,9 @@ MachOSym::MachOSym(const GlobalValue *gv, std::string name, uint8_t sect,
   case GlobalValue::LinkOnceLinkage:
     assert(!isa<Function>(gv) && "Unexpected linkage type for Function!");
   case GlobalValue::ExternalLinkage:
-    GVName = TAI->getGlobalPrefix() + name;
-    n_type |= GV->hasHiddenVisibility() ? N_PEXT : N_EXT;
+    n_type |= N_EXT;
     break;
   case GlobalValue::InternalLinkage:
-    GVName = TAI->getGlobalPrefix() + name;
     break;
   }
 }

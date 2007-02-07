@@ -18,13 +18,20 @@
 #include "X86Subtarget.h"
 #include "X86TargetMachine.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/LiveVariables.h"
 using namespace llvm;
 
 X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
   : TargetInstrInfo(X86Insts, sizeof(X86Insts)/sizeof(X86Insts[0])),
     TM(tm), RI(tm, *this) {
 }
+
+/// getDWARF_LABELOpcode - Return the opcode of the target's DWARF_LABEL
+/// instruction if it has one.  This is used by codegen passes that update
+/// DWARF line number info as they modify the code.
+unsigned X86InstrInfo::getDWARF_LABELOpcode() const {
+  return X86::DWARF_LABEL;
+}
+
 
 bool X86InstrInfo::isMoveInstr(const MachineInstr& MI,
                                unsigned& sourceReg,
@@ -37,7 +44,9 @@ bool X86InstrInfo::isMoveInstr(const MachineInstr& MI,
       oc == X86::FsMOVAPSrr || oc == X86::FsMOVAPDrr ||
       oc == X86::MOVAPSrr || oc == X86::MOVAPDrr ||
       oc == X86::MOVSS2PSrr || oc == X86::MOVSD2PDrr ||
-      oc == X86::MOVPS2SSrr || oc == X86::MOVPD2SDrr) {
+      oc == X86::MOVPS2SSrr || oc == X86::MOVPD2SDrr ||
+      oc == X86::MOVDI2PDIrr || oc == X86::MOVQI2PQIrr ||
+      oc == X86::MOVPDI2DIrr) {
       assert(MI.getNumOperands() == 2 &&
              MI.getOperand(0).isRegister() &&
              MI.getOperand(1).isRegister() &&
@@ -116,19 +125,10 @@ unsigned X86InstrInfo::isStoreToStackSlot(MachineInstr *MI,
 /// This method returns a null pointer if the transformation cannot be
 /// performed, otherwise it returns the new instruction.
 ///
-MachineInstr *
-X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
-                                    MachineBasicBlock::iterator &MBBI,
-                                    LiveVariables &LV) const {
-  MachineInstr *MI = MBBI;
+MachineInstr *X86InstrInfo::convertToThreeAddress(MachineInstr *MI) const {
   // All instructions input are two-addr instructions.  Get the known operands.
   unsigned Dest = MI->getOperand(0).getReg();
   unsigned Src = MI->getOperand(1).getReg();
-
-  MachineInstr *NewMI = NULL;
-  // FIXME: 16-bit LEA's are really slow on Athlons, but not bad on P4's.  When
-  // we have subtarget support, enable the 16-bit LEA generation here.
-  bool DisableLEA16 = true;
 
   switch (MI->getOpcode()) {
   default: break;
@@ -140,8 +140,7 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
     unsigned C = MI->getOperand(2).getReg();
     unsigned M = MI->getOperand(3).getImmedValue();
     if (!Subtarget->hasSSE2() || B != C) return 0;
-    NewMI = BuildMI(get(X86::PSHUFDri), A).addReg(B).addImm(M);
-    goto Done;
+    return BuildMI(X86::PSHUFDri, 2, A).addReg(B).addImm(M);
   }
   }
 
@@ -150,55 +149,54 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   // add and inc do.  :(
   return 0;
 
+  // FIXME: 16-bit LEA's are really slow on Athlons, but not bad on P4's.  When
+  // we have subtarget support, enable the 16-bit LEA generation here.
+  bool DisableLEA16 = true;
+
   switch (MI->getOpcode()) {
   case X86::INC32r:
   case X86::INC64_32r:
     assert(MI->getNumOperands() == 2 && "Unknown inc instruction!");
-    NewMI = addRegOffset(BuildMI(get(X86::LEA32r), Dest), Src, 1);
-    break;
+    return addRegOffset(BuildMI(X86::LEA32r, 5, Dest), Src, 1);
   case X86::INC16r:
   case X86::INC64_16r:
     if (DisableLEA16) return 0;
     assert(MI->getNumOperands() == 2 && "Unknown inc instruction!");
-    NewMI = addRegOffset(BuildMI(get(X86::LEA16r), Dest), Src, 1);
-    break;
+    return addRegOffset(BuildMI(X86::LEA16r, 5, Dest), Src, 1);
   case X86::DEC32r:
   case X86::DEC64_32r:
     assert(MI->getNumOperands() == 2 && "Unknown dec instruction!");
-    NewMI = addRegOffset(BuildMI(get(X86::LEA32r), Dest), Src, -1);
-    break;
+    return addRegOffset(BuildMI(X86::LEA32r, 5, Dest), Src, -1);
   case X86::DEC16r:
   case X86::DEC64_16r:
     if (DisableLEA16) return 0;
     assert(MI->getNumOperands() == 2 && "Unknown dec instruction!");
-    NewMI = addRegOffset(BuildMI(get(X86::LEA16r), Dest), Src, -1);
-    break;
+    return addRegOffset(BuildMI(X86::LEA16r, 5, Dest), Src, -1);
   case X86::ADD32rr:
     assert(MI->getNumOperands() == 3 && "Unknown add instruction!");
-    NewMI = addRegReg(BuildMI(get(X86::LEA32r), Dest), Src,
+    return addRegReg(BuildMI(X86::LEA32r, 5, Dest), Src,
                      MI->getOperand(2).getReg());
-    break;
   case X86::ADD16rr:
     if (DisableLEA16) return 0;
     assert(MI->getNumOperands() == 3 && "Unknown add instruction!");
-    NewMI = addRegReg(BuildMI(get(X86::LEA16r), Dest), Src,
+    return addRegReg(BuildMI(X86::LEA16r, 5, Dest), Src,
                      MI->getOperand(2).getReg());
-    break;
   case X86::ADD32ri:
   case X86::ADD32ri8:
     assert(MI->getNumOperands() == 3 && "Unknown add instruction!");
     if (MI->getOperand(2).isImmediate())
-      NewMI = addRegOffset(BuildMI(get(X86::LEA32r), Dest), Src,
+      return addRegOffset(BuildMI(X86::LEA32r, 5, Dest), Src,
                           MI->getOperand(2).getImmedValue());
-    break;
+    return 0;
   case X86::ADD16ri:
   case X86::ADD16ri8:
     if (DisableLEA16) return 0;
     assert(MI->getNumOperands() == 3 && "Unknown add instruction!");
     if (MI->getOperand(2).isImmediate())
-      NewMI = addRegOffset(BuildMI(get(X86::LEA16r), Dest), Src,
+      return addRegOffset(BuildMI(X86::LEA16r, 5, Dest), Src,
                           MI->getOperand(2).getImmedValue());
     break;
+
   case X86::SHL16ri:
     if (DisableLEA16) return 0;
   case X86::SHL32ri:
@@ -210,18 +208,12 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
       AM.Scale = 1 << ShAmt;
       AM.IndexReg = Src;
       unsigned Opc = MI->getOpcode() == X86::SHL32ri ? X86::LEA32r :X86::LEA16r;
-      NewMI = addFullAddress(BuildMI(get(Opc), Dest), AM);
+      return addFullAddress(BuildMI(Opc, 5, Dest), AM);
     }
     break;
   }
 
-Done:
-  if (NewMI) {
-    NewMI->copyKillDeadInfo(MI);
-    LV.instructionChanged(MI, NewMI);  // Update live variables
-    MFI->insert(MBBI, NewMI);          // Insert the new inst    
-  }
-  return NewMI;
+  return 0;
 }
 
 /// commuteInstruction - We have a few instructions that must be hacked on to
@@ -247,10 +239,7 @@ MachineInstr *X86InstrInfo::commuteInstruction(MachineInstr *MI) const {
     unsigned A = MI->getOperand(0).getReg();
     unsigned B = MI->getOperand(1).getReg();
     unsigned C = MI->getOperand(2).getReg();
-    bool BisKill = MI->getOperand(1).isKill();
-    bool CisKill = MI->getOperand(2).isKill();
-    return BuildMI(get(Opc), A).addReg(C, false, false, CisKill)
-      .addReg(B, false, false, BisKill).addImm(Size-Amt);
+    return BuildMI(Opc, 3, A).addReg(C).addReg(B).addImm(Size-Amt);
   }
   default:
     return TargetInstrInfo::commuteInstruction(MI);
@@ -416,19 +405,19 @@ void X86InstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
   if (FBB == 0) { // One way branch.
     if (Cond.empty()) {
       // Unconditional branch?
-      BuildMI(&MBB, get(X86::JMP)).addMBB(TBB);
+      BuildMI(&MBB, X86::JMP, 1).addMBB(TBB);
     } else {
       // Conditional branch.
       unsigned Opc = GetCondBranchFromCond((X86::CondCode)Cond[0].getImm());
-      BuildMI(&MBB, get(Opc)).addMBB(TBB);
+      BuildMI(&MBB, Opc, 1).addMBB(TBB);
     }
     return;
   }
   
   // Two-way Conditional branch.
   unsigned Opc = GetCondBranchFromCond((X86::CondCode)Cond[0].getImm());
-  BuildMI(&MBB, get(Opc)).addMBB(TBB);
-  BuildMI(&MBB, get(X86::JMP)).addMBB(FBB);
+  BuildMI(&MBB, Opc, 1).addMBB(TBB);
+  BuildMI(&MBB, X86::JMP, 1).addMBB(FBB);
 }
 
 bool X86InstrInfo::BlockHasNoFallThrough(MachineBasicBlock &MBB) const {

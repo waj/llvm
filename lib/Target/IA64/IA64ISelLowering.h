@@ -58,13 +58,18 @@ namespace llvm {
     /// LowerCallTo - This hook lowers an abstract call to a function into an
     /// actual call.
     virtual std::pair<SDOperand, SDOperand>
-      LowerCallTo(SDOperand Chain, const Type *RetTy, bool RetTyIsSigned, 
-                  bool isVarArg, unsigned CC, bool isTailCall, 
-                  SDOperand Callee, ArgListTy &Args, SelectionDAG &DAG);
+      LowerCallTo(SDOperand Chain, const Type *RetTy, bool isVarArg,
+                  unsigned CC,
+                  bool isTailCall, SDOperand Callee, ArgListTy &Args,
+                  SelectionDAG &DAG);
     
     /// LowerOperation - for custom lowering specific ops
     /// (currently, only "ret void")
     virtual SDOperand LowerOperation(SDOperand Op, SelectionDAG &DAG);
+    
+    virtual std::pair<SDOperand, SDOperand>
+      LowerFrameReturnAddress(bool isFrameAddr, SDOperand Chain, unsigned Depth,
+                              SelectionDAG &DAG);
     
 // XXX    virtual MachineBasicBlock *InsertAtEndOfBasicBlock(MachineInstr *MI,
 // XXX                                                      MachineBasicBlock *MBB);

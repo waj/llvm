@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -argpromotion -mem2reg | llvm-dis | not grep alloca
+; RUN: llvm-as < %s | opt -argpromotion -mem2reg | llvm-dis | not grep alloca
 
 implementation
 

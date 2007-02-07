@@ -38,6 +38,7 @@
       <li><a href="#globalinfo">Module Info Block</a></li>
       <li><a href="#constantpool">Global Constant Pool</a></li>
       <li><a href="#functiondefs">Function Definition</a></li>
+      <li><a href="#compactiontable">Compaction Table</a></li>
       <li><a href="#instructionlist">Instructions List</a></li>
       <li><a href="#instructions">Instructions</a></li>
       <li><a href="#symtab">Symbol Table</a></li>
@@ -248,8 +249,8 @@ variable bit rate encoding as described above.</p>
     </tr>
     <tr>
       <td><a name="uint64_vbr"><b>uint64_vbr</b></a></td>
-      <td class="td_left">A 64-bit unsigned integer that occupies from one to 
-        ten bytes using variable bit rate encoding.</td>
+      <td class="td_left">A 64-bit unsigned integer that occupies from one to ten 
+        bytes using variable bit rate encoding.</td>
     </tr>
     <tr>
       <td><a name="int64_vbr"><b>int64_vbr</b></a></td>
@@ -262,60 +263,58 @@ variable bit rate encoding as described above.</p>
     </tr>
     <tr>
       <td><a name="bit"><b>bit(n-m)</b></a></td>
-      <td class="td_left">A set of bit within some larger integer field. The 
-        values of <code>n</code> and <code>m</code> specify the inclusive range
-        of bits that define the subfield. The value for <code>m</code> may be 
-        omitted if its the same as <code>n</code>.</td>
+      <td class="td_left">A set of bit within some larger integer field. The values 
+        of <code>n</code> and <code>m</code> specify the inclusive range of bits 
+        that define the subfield. The value for <code>m</code> may be omitted if 
+        its the same as <code>n</code>.</td>
     </tr>
     <tr>
-      <td style="vertical-align: top;"><b><a name="float"><b>float</b></a></b>
-      </td>
-      <td style="vertical-align: top; text-align: left;">A floating point 
-        value encoded as a 32-bit IEEE value written in little-endian form.<br>
+      <td style="vertical-align: top;"><b><a name="float"><b>float</b></a></b></td>
+      <td style="vertical-align: top; text-align: left;">A floating point value encoded 
+        as a 32-bit IEEE value written in little-endian form.<br>
       </td>
     </tr>
     <tr>
-      <td style="vertical-align: top;"><b><b><a name="double"><b>double</b></a>
-      </b></b></td>
-      <td style="vertical-align: top; text-align: left;">A floating point value
-        encoded as a64-bit IEEE value written in little-endian form</td>
+      <td style="vertical-align: top;"><b><b><a name="double"><b>double</b></a></b></b></td>
+      <td style="vertical-align: top; text-align: left;">A floating point value encoded 
+        as a64-bit IEEE value written in little-endian form</td>
     </tr>
     <tr>
       <td><a name="string"><b>string</b></a></td>
-      <td class="td_left">A uint32_vbr indicating the type of the constant 
-        string which also includes its length, immediately followed by the 
-        characters of the string. There is no terminating null byte in the 
-        string.</td>
+      <td class="td_left">A uint32_vbr indicating the type of the
+constant string which also includes its length, immediately followed by
+the characters of the string. There is no terminating null byte in the
+string.</td>
     </tr>
     <tr>
       <td><a name="data"><b>data</b></a></td>
-      <td class="td_left">An arbitrarily long segment of data to which no 
-        interpretation is implied. This is used for constant initializers.<br>
+      <td class="td_left">An arbitrarily long segment of data to which
+no interpretation is implied. This is used for constant initializers.<br>
       </td>
     </tr>
     <tr>
       <td><a name="llist"><b>llist(x)</b></a></td>
-      <td class="td_left">A length list of x. This means the list is encoded 
-        as an <a href="#uint32_vbr">uint32_vbr</a> providing the length of the 
-        list, followed by a sequence of that many "x" items. This implies that 
-        the reader should iterate the number of times provided by the length.
-      </td>
+      <td class="td_left">A length list of x. This means the list is
+encoded as an <a href="#uint32_vbr">uint32_vbr</a> providing the
+length of the list, followed by a sequence of that many "x" items. This
+implies that the reader should iterate the number of times provided by
+the length.</td>
     </tr>
     <tr>
       <td><a name="zlist"><b>zlist(x)</b></a></td>
-      <td class="td_left">A zero-terminated list of x. This means the list is 
-        encoded as a sequence of an indeterminate number of "x" items, followed
-        by an <a href="#uint32_vbr">uint32_vbr</a> terminating value.  This 
-        implies that none of the "x" items can have a zero value (or else the 
-        list terminates).</td>
+      <td class="td_left">A zero-terminated list of x. This means the
+list is encoded as a sequence of an indeterminate number of "x" items,
+followed by an <a href="#uint32_vbr">uint32_vbr</a> terminating value.
+This implies that none of the "x" items can have a zero value (or else
+the list terminates).</td>
     </tr>
     <tr>
       <td><a name="block"><b>block</b></a></td>
-      <td class="td_left">A block of data that is logically related. A block 
-        is an unsigned 32-bit integer that encodes the type of the block in 
-        the low 5 bits and the size of the block in the high 27 bits. The 
-        length does not include the block header or any alignment bytes at the 
-        end of the block. Blocks may compose other blocks. </td>
+      <td class="td_left">A block of data that is logically related. A
+block is an unsigned 32-bit integer that encodes the type of the block
+in the low 5 bits and the size of the block in the high 27 bits. The
+length does not include the block header or any alignment bytes at the
+end of the block. Blocks may compose other blocks. </td>
     </tr>
   </tbody>
 </table>
@@ -335,18 +334,18 @@ following table: </p>
     </tr>
     <tr>
       <td><b><code>?</code></b></td>
-      <td class="td_left">The question mark indicates 0 or 1 occurrences of 
-        the thing preceding it.</td>
+      <td class="td_left">The question mark indicates 0 or 1
+occurrences of the thing preceding it.</td>
     </tr>
     <tr>
       <td><b><code>*</code></b></td>
-      <td class="td_left">The asterisk indicates 0 or more occurrences of the 
-        thing preceding it.</td>
+      <td class="td_left">The asterisk indicates 0 or more occurrences
+of the thing preceding it.</td>
     </tr>
     <tr>
       <td><b><code>+</code></b></td>
-      <td class="td_left">The plus sign indicates 1 or more occurrences of the 
-        thing preceding it.</td>
+      <td class="td_left">The plus sign indicates 1 or more occurrences
+of the thing preceding it.</td>
     </tr>
     <tr>
       <td><b><code>()</code></b></td>
@@ -371,8 +370,8 @@ following table: </p>
 <ol>
   <li>An optional string. Matches either nothing or a single string</li>
   <li>One or more pairs of uint32_vbr.</li>
-  <li>Zero or more occurrences of either an unsigned followed by a uint32_vbr 
-  or just a uint32_vbr.</li>
+  <li>Zero or more occurrences of either an unsigned followed by a
+uint32_vbr or just a uint32_vbr.</li>
   <li>An optional length list of unsigned values.</li>
 </ol>
 </div>
@@ -382,14 +381,13 @@ following table: </p>
 <p>The bytecode format uses the notion of a "slot" to reference Types
 and Values. Since the bytecode file is a <em>direct</em> representation of
 LLVM's intermediate representation, there is a need to represent pointers in
-the file.  Slots are used for this purpose. For example, if one has the 
-following assembly:
+the file.  Slots are used for this purpose. For example, if one has the following
+assembly:
 </p>
 <div class="doc_code"><code> %MyType = type { int, sbyte }<br>
 %MyVar = external global %MyType
 </code></div>
-<p>there are two definitions. The definition of <tt>%MyVar</tt> uses 
-<tt>%MyType</tt>.
+<p>there are two definitions. The definition of <tt>%MyVar</tt> uses <tt>%MyType</tt>.
 In the C++ IR this linkage between <tt>%MyVar</tt> and <tt>%MyType</tt>
 is explicit through the use of C++ pointers. In bytecode, however, there's no
 ability to store memory addresses. Instead, we compute and write out
@@ -405,7 +403,15 @@ anything unless you also specify for which type you want slot #1. Types are
 always written to the file first (in the <a href="#globaltypes">Global Type 
 Pool</a>) and in such a way that both forward and backward references of the 
 types can often be resolved with a single pass through the type pool. </p>
-<p>In summary then, a slot number can be thought of as just a vbr encoded index 
+<p>Slot numbers are also kept small by rearranging their order. Because
+of the structure of LLVM, certain values are much more likely to be used
+frequently in the body of a function. For this reason, a compaction table is
+provided in the body of a function if its use would make the function body 
+smaller.  Suppose you have a function body that uses just the types "int*" and
+"{double}" but uses them thousands of time. Its worthwhile to ensure that the 
+slot number for these types are low so they can be encoded in a single byte 
+(via vbr). This is exactly what the compaction table does.</p>
+<p>In summary then, a slot number can be though of as just a vbr encoded index 
 into a list of Type* or Value*. To keep slot numbers low, Value* are indexed by
 two slot numbers: the "type plane index" (type slot) and the "value index"
 (value slot).</p>
@@ -494,7 +500,7 @@ except function arguments, global values and constant strings.</td>
       <td class="td_left">&nbsp;&nbsp;&nbsp;<a href="#functiondefs">Function&nbsp;Definitions</a>*</td>
       <td class="td_left">One function block is written for each
 function in the module. The function block contains the instructions,
-type constant pool, and symbol table for the function.</td>
+compaction table, type constant pool, and symbol table for the function.</td>
     </tr>
     <tr>
       <td>0x03</td>
@@ -504,8 +510,20 @@ type constant pool, and symbol table for the function.</td>
       <td>2</td>
       <td class="td_left">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a
  href="#constantpool">Function&nbsp;Constant&nbsp;Pool</a></td>
-      <td class="td_left">Any constants (including types) used solely within 
-        the function are emitted here in the function constant pool. </td>
+      <td class="td_left">Any constants (including types) used solely
+within the function are emitted here in the function constant pool. </td>
+    </tr>
+    <tr>
+      <td>0x08</td>
+      <td>Function</td>
+      <td>Yes</td>
+      <td>No</td>
+      <td>2</td>
+      <td class="td_left">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a
+ href="#compactiontable">Compaction&nbsp;Table</a></td>
+      <td class="td_left">This table reduces bytecode size by providing
+a funtion-local mapping of type and value slot numbers to their global
+slot numbers</td>
     </tr>
     <tr>
       <td>0x07</td>
@@ -515,9 +533,9 @@ type constant pool, and symbol table for the function.</td>
       <td>2</td>
       <td class="td_left">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a
  href="#instructionlist">Instruction&nbsp;List</a></td>
-      <td class="td_left">This block contains all the instructions of the 
-        function. The basic blocks are inferred by terminating instructions.
-      </td>
+      <td class="td_left">This block contains all the instructions of
+the function. The basic blocks are inferred by terminating
+instructions. </td>
     </tr>
     <tr>
       <td>0x04</td>
@@ -527,8 +545,8 @@ type constant pool, and symbol table for the function.</td>
       <td>2</td>
       <td class="td_left">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a
  href="#symtab">Function&nbsp;Symbol&nbsp;Table</a></td>
-      <td class="td_left">This symbol table provides the names for the function
-        specific values used (basic block labels mostly).</td>
+      <td class="td_left">This symbol table provides the names for the
+function specific values used (basic block labels mostly).</td>
     </tr>
     <tr>
       <td>0x04</td>
@@ -537,9 +555,9 @@ type constant pool, and symbol table for the function.</td>
       <td>No</td>
       <td>1</td>
       <td class="td_left">&nbsp;&nbsp;&nbsp;<a href="#symtab">Module&nbsp;Symbol&nbsp;Table</a></td>
-      <td class="td_left">This symbol table provides the names for the various 
-        entries in the file that are not function specific (global vars, and 
-        functions mostly).</td>
+      <td class="td_left">This symbol table provides the names for the
+various entries in the file that are not function specific (global
+vars, and functions mostly).</td>
     </tr>
   </tbody>
 </table>
@@ -672,33 +690,66 @@ sections.</p>
   blocks in a bytecode file. Specifically, instead of encoding the type and size
   of the block into a 32-bit integer with 5-bits for type and 27-bits for size,
   the module block header uses two 32-bit unsigned values, one for type, and one
-  for size. While the 2<sup>27</sup> byte limit on block size is sufficient 
-  for the blocks contained in the module, it isn't sufficient for the module 
-  block itself because we want to ensure that bytecode files as large as 
-  2<sup>32</sup> bytes are possible. For this reason, the module block (and 
-  only the module block) uses a long format header.</p>
+  for size. While the 2<sup>27</sup> byte limit on block size is sufficient for the blocks
+  contained in the module, it isn't sufficient for the module block itself
+  because we want to ensure that bytecode files as large as 2<sup>32</sup> bytes
+  are possible. For this reason, the module block (and only the module block)
+  uses a long format header.</p>
 </div>
 
 <!-- _______________________________________________________________________ -->
 <div class="doc_subsubsection"><a name="format">Format Information</a></div>
 <div class="doc_text">
-<p>The format information field is encoded into a <a href="#uint32_vbr">uint32_vbr</a>.</p>
-
-<p>Of particular note, the bytecode format number is simply a 32-bit
+<p>The format information field is encoded into a <a href="#uint32_vbr">uint32_vbr</a>
+as shown in the following table.</p>
+<table>
+  <tbody>
+    <tr>
+      <th><b>Type</b></th>
+      <th class="td_left"><b>Description</b></th>
+    </tr>
+    <tr>
+      <td><a href="#bit">bit(0)</a></td>
+      <td class="td_left">Target is big endian?</td>
+    </tr>
+    <tr>
+      <td><a href="#bit">bit(1)</a></td>
+      <td class="td_left">On target pointers are 64-bit?</td>
+    </tr>
+    <tr>
+      <td><a href="#bit">bit(2)</a></td>
+      <td class="td_left">Target has no endianess?</td>
+    </tr>
+    <tr>
+      <td><a href="#bit">bit(3)</a></td>
+      <td class="td_left">Target has no pointer size?</td>
+    </tr>
+    <tr>
+      <td><a href="#bit">bit(4-31)</a></td>
+      <td class="td_left">Bytecode format version</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+Of particular note, the bytecode format number is simply a 28-bit
 monotonically increasing integer that identifies the version of the bytecode
 format (which is not directly related to the LLVM release number). The
 bytecode versions defined so far are (note that this document only
-describes the latest version, 2.0):</p>
+describes the latest version, 1.3):</p>
 <ul>
   <li>#0: LLVM 1.0 &amp; 1.1</li>
   <li>#1: LLVM 1.2</li>
   <li>#2: LLVM 1.2.5 (not released)</li>
   <li>#3: LLVM 1.3</li>
   <li>#4: LLVM 1.3.x (not released)</li>
-  <li>#5: LLVM 1.4 through 1.8</li>
-  <li>#6: LLVM 1.9</li>
-  <li>#7: LLVM 2.0 and newer</li>
+  <li>#5: LLVM 1.4 and newer</li>
+  </li>
 </ul>
+<p>Note that we plan to eventually expand the target description
+capabilities
+of bytecode files to <a href="http://llvm.org/PR263">target
+triples</a>.
+</p>
 </div>
 <!-- _______________________________________________________________________ -->
 <div class="doc_subsection"><a name="globaltypes">Global Type Pool</a> </div>
@@ -747,16 +798,17 @@ types. They are encoded simply as their TypeID.</p>
     </tr>
     <tr>
       <td><a href="#uint24_vbr">uint24_vbr</a></td>
-      <td class="td_left">Type ID for the primitive types (values 1 to 11) 
-        <sup>1</sup></td>
+      <td class="td_left">Type ID for the primitive types (values 1 to
+11) <sup>1</sup></td>
     </tr>
   </tbody>
 </table>
 Notes:
 <ol>
-  <li>The values for the Type IDs for the primitive types are provided by the 
-  definition of the <code>llvm::Type::TypeID</code> enumeration in 
-  <code>include/llvm/Type.h</code>. The enumeration gives the following mapping:
+  <li>The values for the Type IDs for the primitive types are provided
+by the definition of the <code>llvm::Type::TypeID</code> enumeration
+in <code>include/llvm/Type.h</code>. The enumeration gives the
+following mapping:
     <ol>
       <li>bool</li>
       <li>ubyte</li>
@@ -793,8 +845,8 @@ Notes:
     </tr>
     <tr>
       <td><a href="#uint32_vbr">uint32_vbr</a>?</td>
-      <td class="td_left">Value 0 if this is a varargs function, missing 
-        otherwise.</td>
+      <td class="td_left">Value 0 if this is a varargs function,
+missing otherwise.</td>
     </tr>
   </tbody>
 </table>
@@ -887,23 +939,6 @@ Notes:
     </tr>
   </tbody>
 </table>
-<h3>Packed Structure Types</h3>
-<table>
-  <tbody>
-    <tr>
-      <th><b>Type</b></th>
-      <th class="td_left"><b>Description</b></th>
-    </tr>
-    <tr>
-      <td><a href="#uint24_vbr">uint24_vbr</a></td>
-      <td class="td_left">Type ID for packed structure types (19)</td>
-    </tr>
-    <tr>
-      <td><a href="#zlist">zlist</a>(<a href="#uint24_vbr">uint24_vbr</a>)</td>
-      <td class="td_left">Slot number of each of the element's fields.</td>
-    </tr>
-  </tbody>
-</table>
 </div>
 <!-- _______________________________________________________________________ -->
 <div class="doc_subsection"><a name="globalinfo">Module Global Info</a>
@@ -924,36 +959,31 @@ all functions. The format is shown in the table below:</p>
     </tr>
     <tr>
       <td><a href="#zlist">zlist</a>(<a href="#globalvar">globalvar</a>)</td>
-      <td class="td_left">A zero terminated list of global var definitions 
-        occurring in the module.</td>
+      <td class="td_left">A zero terminated list of global var
+definitions occurring in the module.</td>
     </tr>
     <tr>
       <td><a href="#zlist">zlist</a>(<a href="#funcfield">funcfield</a>)</td>
-      <td class="td_left">A zero terminated list of function definitions 
-        occurring in the module.</td>
+      <td class="td_left">A zero terminated list of function definitions
+occurring in the module.</td>
     </tr>
     <tr>
       <td><a href="#llist">llist</a>(<a href="#string">string</a>)</td>
-      <td class="td_left">A length list of strings that specify the names of 
-        the libraries that this module depends upon.</td>
+      <td class="td_left">A length list
+of strings that specify the names of the libraries that this module
+depends upon.</td>
     </tr>
     <tr>
       <td><a href="#string">string</a></td>
-      <td class="td_left">The target triple for the module (blank means no 
-        target triple specified, i.e. a platform-independent module).</td>
-    </tr>
-    <tr>
-	  <td><a href="#string">string</a></td>
-          <td class="td_left">The data layout string describing the endianness,
-            pointer size, and type alignments for which the module was written 
-            (blank means no data layout specified, i.e. a platform-independent 
-            module).</td>
+      <td class="td_left">The target
+triple for the module (blank means no target triple specified, i.e. a
+platform independent module).</td>
     </tr>
     <tr>
       <td><a href="#llist">llist</a>(<a href="#string">string</a>)</td>
-      <td class="td_left">A length list of strings that defines a table of 
-        section strings for globals.  A global's SectionID is an index into 
-        this table.</td>
+      <td class="td_left">A length list
+of strings that defines a table of section strings for globals.  A global's
+SectionID is an index into this table.</td>
     </tr>
     <tr>
       <td><a href="#string">string</a></td>
@@ -988,8 +1018,9 @@ and a an optional initializers for the global var.</p>
     </tr>
     <tr>
       <td><a href="#bit">bit(1)</a></td>
-      <td class="td_left">Has initializer? Note that this bit determines 
-        whether the constant initializer field (described below) follows.</td>
+      <td class="td_left">Has initializer? Note that this bit
+determines whether the constant initializer field (described below)
+follows. </td>
     </tr>
     <tr>
       <td><a href="#bit">bit(2-4)</a></td>
@@ -1034,11 +1065,7 @@ and can includes more information:</p>
       <td class="td_left">If this bit is set, a SectionID follows this vbr.</td>
     </tr>
     <tr>
-      <td><a href="#bit">bit(10-12)</a></td>
-      <td class="td_left">Visibility style: 0=Default, 1=Hidden.</td>
-    </tr>
-    <tr>
-      <td><a href="#bit">bit(13-31)</a></td>
+      <td><a href="#bit">bit(10-31)</a></td>
       <td class="td_left">Currently unassigned.</td>
     </tr>
   </tbody>
@@ -1057,9 +1084,9 @@ and can includes more information:</p>
       </td>
       <td class="td_left">An optional section ID number, specifying the string
         to use for the section of the global.  This an index (+1) of an entry
-        into the SectionID llist in the 
-        <a href="#globalinfo">Module Global Info</a> block.  If this value is 
-        0 or not present, the global has an empty section string.</td>
+        into the SectionID llist in the <a href="#globalinfo">Module Global
+        Info</a> block.  If this value is 0 or not present, the global has an
+        empty section string.</td>
     </tr>
   </tbody>
 </table>
@@ -1109,11 +1136,11 @@ href="#uint32_vbr">uint32_vbr</a> that describes the function.</p>
     <tr>
       <td><a href="#bit">bit(4)</a></td>
       <td class="td_left">If this bit is set to 1, the indicated function is
-        external, and there is no 
-        <a href="#functiondefs">Function Definiton Block</a> in the bytecode 
-        file for the function. If the function is external and has 
-        <tt>dllimport or extern_weak</tt> linkage additional field in the 
-        extension word is used to indicate the actual linkage type.</td>
+      external, and there is no <a href="#functiondefs">Function Definiton
+      Block</a> in the bytecode file for the function. If the function is
+      external and has <tt>dllimport or extern_weak</tt> linkage additional
+      field in the extension word is used to indicate the actual linkage
+      type.</td>
     </tr>
     <tr>
       <td><a href="#bit">bit(5-30)</a></td>
@@ -1172,9 +1199,9 @@ follows with the following fields:</p>
       </td>
       <td class="td_left">An optional section ID number, specifying the string
         to use for the section of the function.  This an index (+1) of an entry
-        into the SectionID llist in the 
-        <a href="#globalinfo">Module Global Info</a> block.  If this value is 
-        0 or not present, the function has an empty section string.</td>
+        into the SectionID llist in the <a href="#globalinfo">Module Global
+        Info</a> block.  If this value is 0 or not present, the function has an
+        empty section string.</td>
     </tr>
   </tbody>
 </table>
@@ -1219,15 +1246,15 @@ both function and module constant pools.</p>
     </tr>
     <tr>
       <td><a href="#uint32_vbr">uint32_vbr</a></td>
-      <td class="td_left">Zero. This identifies the following "plane" as 
-        containing the constant strings. This is needed to identify it uniquely
-        from other constant planes that follow. </td>
+      <td class="td_left">Zero. This identifies the following "plane"
+as containing the constant strings. This is needed to identify it
+uniquely from other constant planes that follow. </td>
     </tr>
     <tr>
       <td><a href="#uint24_vbr">uint24_vbr</a>+</td>
-      <td class="td_left">Type slot number of the constant string's type.  Note
-        that the constant string's type implicitly defines the length of the 
-        string. </td>
+      <td class="td_left">Type slot number of the constant string's type.
+Note that the constant string's type implicitly defines the length of
+the string. </td>
     </tr>
   </tbody>
 </table>
@@ -1273,26 +1300,27 @@ constant is solely determined by its type. In this case, we have the following
 field definitions, based on type:</p>
 
 <ul>
-  <li><b>Bool</b>. This is written as an <a href="#uint32_vbr">uint32_vbr</a> of
-  value 1U or 0U.</li>
-  <li><b>Signed Integers (sbyte,short,int,long)</b>. These are written as an 
-  <a href="#int64_vbr">int64_vbr</a> with the corresponding value.</li>
-  <li><b>Unsigned Integers (ubyte,ushort,uint,ulong)</b>. These are written as 
-  an <a href="#uint64_vbr">uint64_vbr</a> with the corresponding value. </li>
-  <li><b>Floating Point</b>. Both the float and double types are written 
-  literally in binary format.</li>
-  <li><b>Arrays</b>. Arrays are written simply as a list of 
-  <a href="#uint32_vbr">uint32_vbr</a> encoded value slot numbers to the 
-  constant element values.</li>
-  <li><b>Structures</b>. Structures are written simply as a list of 
-  <a href="#uint32_vbr">uint32_vbr</a> encoded value slot numbers to the 
-  constant field values of the structure.</li>
+  <li><b>Bool</b>. This is written as an <a href="#uint32_vbr">uint32_vbr</a>
+of value 1U or 0U.</li>
+  <li><b>Signed Integers (sbyte,short,int,long)</b>. These are written
+as an <a href="#int64_vbr">int64_vbr</a> with the corresponding value.</li>
+  <li><b>Unsigned Integers (ubyte,ushort,uint,ulong)</b>. These are
+written as an <a href="#uint64_vbr">uint64_vbr</a> with the
+corresponding value. </li>
+  <li><b>Floating Point</b>. Both the float and double types are
+written literally in binary format.</li>
+  <li><b>Arrays</b>. Arrays are written simply as a list of <a
+ href="#uint32_vbr">uint32_vbr</a> encoded value slot numbers to the constant
+element values.</li>
+  <li><b>Structures</b>. Structures are written simply as a list of <a
+ href="#uint32_vbr">uint32_vbr</a> encoded value slot numbers to the constant
+field values of the structure.</li>
 </ul>
 
 </div>
 
 <!-- _______________________________________________________________________ -->
-<div class="doc_subsubsection">Undef Entries</div>
+<div class="doc_subsubsection">Undef Entries</a></div>
 
 <div class="doc_text">
 <p>When the number of operands to the constant is one, we have an 'undef' value
@@ -1300,7 +1328,7 @@ of the specified type.</p>
 </div>
 
 <!-- _______________________________________________________________________ -->
-<div class="doc_subsubsection">Inline Assembler Entries</div>
+<div class="doc_subsubsection">Inline Assembler Entries</a></div>
 
 <div class="doc_text">
 <p>Inline Assembler entries are stored in the constant pool, though they are not
@@ -1324,7 +1352,7 @@ of the specified type.</p>
     </tr>
     <tr>
       <td><a href="#uint32_vbr">uint32_vbr</a></td>
-      <td class="td_left">Flags</td>
+      <td class="td_left">Flags</sup></td>
     </tr>
   </tbody>
 </table>
@@ -1335,7 +1363,7 @@ of the specified type.</p>
 </div>
 
 <!-- _______________________________________________________________________ -->
-<div class="doc_subsubsection">Constant Expression Entries</div>
+<div class="doc_subsubsection">Constant Expression Entries</a></div>
 
 <div class="doc_text">
 
@@ -1350,18 +1378,18 @@ number of operands+1.</p>
     </tr>
     <tr>
       <td><a href="#uint32_vbr">uint32_vbr</a></td>
-      <td class="td_left">Op code of the instruction for the constant 
-        expression.</td>
+      <td class="td_left">Op code of the instruction for the constant
+expression.</td>
     </tr>
     <tr>
       <td><a href="#uint32_vbr">uint32_vbr</a></td>
-      <td class="td_left">The value slot number of the constant value for an 
-        operand.<sup>1</sup></td>
+      <td class="td_left">The value slot number of the constant value for an
+operand.<sup>1</sup></td>
     </tr>
     <tr>
       <td><a href="#uint24_vbr">uint24_vbr</a></td>
-      <td class="td_left">The type slot number for the type of the constant 
-        value for an operand.<sup>1</sup></td>
+      <td class="td_left">The type slot number for the type of the constant
+value for an operand.<sup>1</sup></td>
     </tr>
   </tbody>
 </table>
@@ -1373,9 +1401,9 @@ Notes:
 <!-- _______________________________________________________________________ -->
 <div class="doc_subsection"><a name="functiondefs">Function Definition</a></div>
 <div class="doc_text">
-<p>Function definitions contain the linkage, constant pool, instruction list, 
-and symbol table for a function.  The following table shows the structure of 
-a function definition.</p>
+<p>Function definitions contain the linkage, constant pool or
+compaction table, instruction list, and symbol table for a function.
+The following table shows the structure of a function definition.</p>
 <table>
   <tbody>
     <tr>
@@ -1391,25 +1419,29 @@ size<br>
     </tr>
     <tr>
       <td><a href="#uint32_vbr">uint32_vbr</a></td>
-      <td class="td_left">
-        <a href="#funclinkage_and_visibility">The linkage and visibility</a> 
-        style field</td>
+      <td class="td_left">The linkage type of the function: 0=External, 1=Weak,
+2=Appending, 3=Internal, 4=LinkOnce, 5=DllImport, 6=DllExport<sup>1</sup></td>
     </tr>
     <tr>
       <td><a href="#block">block</a></td>
-      <td class="td_left">The <a href="#constantpool">constant pool</a> block 
-        for this function.<sup>2</sup></td>
+      <td class="td_left">The <a href="#constantpool">constant pool</a>
+block for this function.<sup>2</sup></td>
     </tr>
     <tr>
       <td><a href="#block">block</a></td>
-      <td class="td_left">The <a href="#instructionlist">instruction list</a> 
-        for the function.</td>
+      <td class="td_left">The <a href="#compactiontable">compaction
+table</a> block for the function.<sup>2</sup></td>
     </tr>
     <tr>
       <td><a href="#block">block</a></td>
-      <td class="td_left">The function's <a href="#symtab">symbol table</a> 
-        containing only those symbols pertinent to the function (mostly block 
-        labels).</td>
+      <td class="td_left">The <a href="#instructionlist">instruction
+list</a> for the function.</td>
+    </tr>
+    <tr>
+      <td><a href="#block">block</a></td>
+      <td class="td_left">The function's <a href="#symtab">symbol
+table</a> containing only those symbols pertinent to the function
+(mostly block labels).</td>
     </tr>
   </tbody>
 </table>
@@ -1417,14 +1449,28 @@ Notes:
 <ol>
   <li>Note that if the linkage type is "External" then none of the
 other fields will be present as the function is defined elsewhere.</li>
+  <li>Note that only one of the constant pool or compaction table will
+be written. Compaction tables are only written if they will actually
+save bytecode space. If not, then a regular constant pool is written.</li>
 </ol>
-
+</div>
 <!-- _______________________________________________________________________ -->
-<div class="doc_subsubsection"><a name="funclinkage_and_visibility">Linkage and
-    visibility word</a>
+<div class="doc_subsection"><a name="compactiontable">Compaction Table</a>
 </div>
 <div class="doc_text">
-
+<p>Compaction tables are part of a function definition. They are merely
+a device for reducing the size of bytecode files. The size of a
+bytecode file is dependent on the <em>values</em> of the slot numbers
+used because larger values use more bytes in the variable bit rate
+encoding scheme. Furthermore, the compressed instruction format
+reserves only six bits for the type of the instruction. In large
+modules, declaring hundreds or thousands of types, the values of the
+slot numbers can be quite large. However, functions may use only a
+small fraction of the global types. In such cases a compaction table is
+created that maps the global type and value slot numbers to smaller
+values used by a function. Functions will contain either a
+function-specific constant pool <em>or</em> a compaction table but not
+both. Compaction tables have the format shown in the table below.</p>
 <table>
   <tbody>
     <tr>
@@ -1432,23 +1478,43 @@ other fields will be present as the function is defined elsewhere.</li>
       <th class="td_left"><b>Field Description</b></th>
     </tr>
     <tr>
-      <td><a href="#bit">bit(0-15)</a></td>
-      <td class="td_left">The linkage type of the function: 0=External, 1=Weak,
-        2=Appending, 3=Internal, 4=LinkOnce, 5=DllImport, 
-        6=DllExport<sup>1</sup></td>
+      <td><a href="#uint32_vbr">uint32_vbr</a></td>
+      <td class="td_left">The number of types that follow</td>
     </tr>
     <tr>
-      <td><a href="#bit">bit(16-18)</a></td>
-      <td class="td_left">Visibility style: 0=Default, 1=Hidden.</td>
+      <td><a href="#uint24_vbr">uint24_vbr</a>+</td>
+      <td class="td_left">The type slot number in the global types of
+the type that will be referenced in the function with the index of this
+entry in the compaction table.</td>
     </tr>
     <tr>
-      <td><a href="#bit">bit(19-31)</a></td>
-      <td class="td_left">Currently unassigned.</td>
+      <td><a href="#type_len">type_len</a></td>
+      <td class="td_left">An encoding of the type and number of values
+that follow. This field's encoding varies depending on the size of the
+type plane. See <a href="#type_len">Type and Length</a> for further
+details.</td>
+    </tr>
+    <tr>
+      <td><a href="#uint32_vbr">uint32_vbr</a>+</td>
+      <td class="td_left">The value slot number in the global values
+that will be referenced in the function with the index of this entry in
+the compaction table.</td>
     </tr>
   </tbody>
 </table>
 </div>
-
+<!-- _______________________________________________________________________ -->
+<div class="doc_subsubsection"><a name="type_len">Type and Length</a></div>
+<div class="doc_text">
+<p>The type and length of a compaction table type plane is encoded
+differently depending on the length of the plane. For planes of length
+1 or 2, the length is encoded into bits 0 and 1 of a <a
+ href="#uint32_vbr">uint32_vbr</a> and the type is encoded into bits
+2-31. Because type numbers are often small, this often saves an extra
+byte per plane. If the length of the plane is greater than 2 then the
+encoding uses a <a href="#uint32_vbr">uint32_vbr</a> for each of the
+length and type, in that order.</p>
+</div>
 <!-- _______________________________________________________________________ -->
 <div class="doc_subsection"><a name="instructionlist">Instruction List</a></div>
 <div class="doc_text">
@@ -1469,8 +1535,8 @@ the block is given in the following table.</p>
     </tr>
     <tr>
       <td><a href="#instruction">instruction</a>+</td>
-      <td class="td_left">An instruction. Instructions have a variety of 
-        formats. See <a href="#instruction">Instructions</a> for details.</td>
+      <td class="td_left">An instruction. Instructions have a variety
+of formats. See <a href="#instruction">Instructions</a> for details.</td>
     </tr>
   </tbody>
 </table>
@@ -1521,51 +1587,47 @@ possible. </p>
       <tr><td>Add</td><td>7</td><td>1</td><td>1.0</td></tr>
       <tr><td>Sub</td><td>8</td><td>1</td><td>1.0</td></tr>
       <tr><td>Mul</td><td>9</td><td>1</td><td>1.0</td></tr>
-      <tr><td>UDiv</td><td>10</td><td>6</td><td>1.9</td></tr>
-      <tr><td>SDiv</td><td>11</td><td>6</td><td>1.9</td></tr>
-      <tr><td>FDiv</td><td>12</td><td>6</td><td>1.9</td></tr>
-      <tr><td>URem</td><td>13</td><td>6</td><td>1.9</td></tr>
-      <tr><td>SRem</td><td>14</td><td>6</td><td>1.9</td></tr>
-      <tr><td>FRem</td><td>15</td><td>6</td><td>1.9</td></tr>
+      <tr><td>UDiv</td><td>10</td><td>1</td><td>1.9</td></tr>
+      <tr><td>SDiv</td><td>11</td><td>1</td><td>1.9</td></tr>
+      <tr><td>FDiv</td><td>12</td><td>1</td><td>1.9</td></tr>
+      <tr><td>URem</td><td>13</td><td>1</td><td>1.9</td></tr>
+      <tr><td>SRem</td><td>14</td><td>1</td><td>1.9</td></tr>
+      <tr><td>FRem</td><td>15</td><td>1</td><td>1.9</td></tr>
       <tr><td colspan="4"><b>Logical Operators</b></td></tr>
-      <tr><td>Shl</td><td>16</td><td>1</td><td>1.0</td></tr>
-      <tr><td>LShr</td><td>17</td><td>6</td><td>1.9</td></tr>
-      <tr><td>AShr</td><td>18</td><td>6</td><td>1.9</td></tr>
-      <tr><td>And</td><td>19</td><td>1</td><td>1.0</td></tr>
-      <tr><td>Or</td><td>20</td><td>1</td><td>1.0</td></tr>
-      <tr><td>Xor</td><td>21</td><td>1</td><td>1.0</td></tr>
+      <tr><td>And</td><td>16</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Or</td><td>17</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Xor</td><td>18</td><td>1</td><td>1.0</td></tr>
+      <tr><td colspan="4"><b>Binary Comparison Operators</b></td></tr>
+      <tr><td>SetEQ</td><td>19</td><td>1</td><td>1.0</td></tr>
+      <tr><td>SetNE</td><td>20</td><td>1</td><td>1.0</td></tr>
+      <tr><td>SetLE</td><td>21</td><td>1</td><td>1.0</td></tr>
+      <tr><td>SetGE</td><td>22</td><td>1</td><td>1.0</td></tr>
+      <tr><td>SetLT</td><td>23</td><td>1</td><td>1.0</td></tr>
+      <tr><td>SetGT</td><td>24</td><td>1</td><td>1.0</td></tr>
       <tr><td colspan="4"><b>Memory Operators</b></td></tr>
-      <tr><td>Malloc</td><td>22</td><td>1</td><td>1.0</td></tr>
-      <tr><td>Free</td><td>23</td><td>1</td><td>1.0</td></tr>
-      <tr><td>Alloca</td><td>24</td><td>1</td><td>1.0</td></tr>
-      <tr><td>Load</td><td>25</td><td>1</td><td>1.0</td></tr>
-      <tr><td>Store</td><td>26</td><td>1</td><td>1.0</td></tr>
-      <tr><td>GetElementPtr</td><td>27</td><td>1</td><td>1.0</td></tr>
-      <tr><td colspan="4"><b>Cast Operators</b></td></tr>
-      <tr><td>Trunc</td><td>28</td><td>7</td><td>2.0</td></tr>
-      <tr><td>ZExt</td><td>29</td><td>7</td><td>2.0</td></tr>
-      <tr><td>SExt</td><td>30</td><td>7</td><td>2.0</td></tr>
-      <tr><td>FPToUI</td><td>31</td><td>7</td><td>2.0</td></tr>
-      <tr><td>FPToSI</td><td>32</td><td>7</td><td>2.0</td></tr>
-      <tr><td>UIToFP</td><td>33</td><td>7</td><td>2.0</td></tr>
-      <tr><td>SIToFP</td><td>34</td><td>7</td><td>2.0</td></tr>
-      <tr><td>FPTrunc</td><td>35</td><td>7</td><td>2.0</td></tr>
-      <tr><td>FPExt</td><td>36</td><td>7</td><td>2.0</td></tr>
-      <tr><td>PtrToInt</td><td>37</td><td>7</td><td>2.0</td></tr>
-      <tr><td>IntToPtr</td><td>38</td><td>7</td><td>2.0</td></tr>
-      <tr><td>BitCast</td><td>39</td><td>7</td><td>2.0</td></tr>
+      <tr><td>Malloc</td><td>25</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Free</td><td>26</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Alloca</td><td>27</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Load</td><td>28</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Store</td><td>29</td><td>1</td><td>1.0</td></tr>
+      <tr><td>GetElementPtr</td><td>30</td><td>1</td><td>1.0</td></tr>
       <tr><td colspan="4"><b>Other Operators</b></td></tr>
-      <tr><td>ICmp</td><td>40</td><td>7</td><td>2.0</td></tr>
-      <tr><td>FCmp</td><td>41</td><td>7</td><td>2.0</td></tr>
-      <tr><td>PHI</td><td>42</td><td>1</td><td>1.0</td></tr>
-      <tr><td>Call</td><td>43</td><td>1</td><td>1.0</td></tr>
-      <tr><td>Select</td><td>44</td><td>2</td><td>1.2</td></tr>
-      <tr><td>UserOp1</td><td>45</td><td>1</td><td>1.0</td></tr>
-      <tr><td>UserOp2</td><td>46</td><td>1</td><td>1.0</td></tr>
-      <tr><td>VAArg</td><td>47</td><td>5</td><td>1.5</td></tr>
-      <tr><td>ExtractElement</td><td>48</td><td>5</td><td>1.5</td></tr>
-      <tr><td>InsertElement</td><td>49</td><td>5</td><td>1.5</td></tr>
-      <tr><td>ShuffleElement</td><td>50</td><td>5</td><td>1.5</td></tr>
+      <tr><td>PHI</td><td>31</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Cast</td><td>32</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Call</td><td>33</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Shl</td><td>34</td><td>1</td><td>1.0</td></tr>
+      <tr><td>Shr</td><td>35</td><td>1</td><td>1.0</td></tr>
+      <!--
+      <tr><td>LShr</td><td>35</td><td>6</td><td>2.0</td></tr>
+      <tr><td>AShr</td><td>36</td><td>6</td><td>2.0</td></tr>
+      -->
+      <tr><td>Select</td><td>36</td><td>2</td><td>1.2</td></tr>
+      <tr><td>UserOp1</td><td>37</td><td>1</td><td>1.0</td></tr>
+      <tr><td>UserOp2</td><td>38</td><td>1</td><td>1.0</td></tr>
+      <tr><td>VAArg</td><td>39</td><td>5</td><td>1.5</td></tr>
+      <tr><td>ExtractElement</td><td>40</td><td>5</td><td>1.5</td></tr>
+      <tr><td>InsertElement</td><td>41</td><td>5</td><td>1.5</td></tr>
+      <tr><td>ShuffleElement</td><td>42</td><td>5</td><td>1.5</td></tr>
       <tr><td colspan="4">
           <b>Pseudo Instructions<a href="#pi_note">*</a></b>
       </td></tr>
@@ -1622,17 +1684,17 @@ encodes the value number of the operand, not the type.</p>
 those cases:</p>
 
 <ul>
-  <li>getelementptr: the slot numbers for sequential type indexes are shifted 
-  up two bits.  This allows the low order bits will encode the type of index 
-  used, as follows: 0=uint, 1=int, 2=ulong, 3=long.</li>
-  <li>cast: the result type number is encoded as the second operand.</li>
-  <li>alloca/malloc: If the allocation has an explicit alignment, the log2 of 
-  the alignment is encoded as the second operand.</li>
-  <li>call: If the tail marker and calling convention cannot be 
-  <a href="#pi_note">encoded into the opcode</a> of the call, it is passed as 
-  an additional operand.  The low bit of the operand is a flag indicating 
-  whether the call is a tail call.  The rest of the bits contain the calling 
-  convention number (shifted left by one bit).</li>
+<li>getelementptr: the slot numbers for sequential type indexes are shifted up
+two bits.  This allows the low order bits will encode the type of index used,
+as follows: 0=uint, 1=int, 2=ulong, 3=long.</li>
+<li>cast: the result type number is encoded as the second operand.</li>
+<li>alloca/malloc: If the allocation has an explicit alignment, the log2 of the
+    alignment is encoded as the second operand.</li>
+<li>call: If the tail marker and calling convention cannot be <a 
+    href="#pi_note">encoded into the opcode</a> of the call, it is passed as an
+    additional operand.  The low bit of the operand is a flag indicating whether
+    the call is a tail call.  The rest of the bits contain the calling 
+    convention number (shifted left by one bit).</li>
 </ul>
 </div>
 
@@ -1659,10 +1721,10 @@ successive fields.</p>
     </tr>
     <tr>
       <td><a href="#uint32_vbr">uint32_vbr</a></td>
-      <td class="td_left">Specifies the opcode of the instruction. Note that 
-        for compatibility with the other instruction formats, the opcode is 
-        shifted left by 2 bits. Bits 0 and 1 must have value zero for this 
-        format.</td>
+      <td class="td_left">Specifies the opcode of the instruction. Note
+that for compatibility with the other instruction formats, the opcode
+is shifted left by 2 bits. Bits 0 and 1 must have value zero for this
+format.</td>
     </tr>
     <tr>
       <td><a href="#uint24_vbr">uint24_vbr</a></td>
@@ -1834,15 +1896,13 @@ table below. </p>
       <td class="td_left">Symbol Table Identifier (0x04)</td>
     </tr>
     <tr>
-      <td><a href="#llist">llist</a>(<a href="#symtab_entry">type_entry</a>)
-      </td>
+      <td><a href="#llist">llist</a>(<a href="#symtab_entry">type_entry</a>)</td>
       <td class="td_left">A length list of symbol table entries for
         <tt>Type</tt>s
       </td>
     </tr>
     <tr>
-      <td><a href="#zlist">llist</a>(<a href="#symtab_plane">symtab_plane</a>)
-      </td>
+      <td><a href="#zlist">llist</a>(<a href="#symtab_plane">symtab_plane</a>)</td>
       <td class="td_left">A length list of "type planes" of symbol table
         entries for <tt>Value</tt>s</td>
     </tr>
@@ -1900,8 +1960,7 @@ values of a common type. The encoding is given in the following table:</p>
     </tr>
     <tr>
       <td><a href="#uint32_vbr">uint32_vbr</a></td>
-      <td class="td_left">Type slot number of type for all values in this plane.
-      </td>
+      <td class="td_left">Type slot number of type for all values in this plane..</td>
     </tr>
     <tr>
       <td><a href="#value_entry">value_entry</a>+</td>
@@ -1978,10 +2037,35 @@ describes the differences between that version and the one that <i>follows</i>.
 <div class="doc_subsubsection">Function Flags</div>
 <div class="doc_text">
   <p>LLVM bytecode versions prior to 1.4 did not include the 'undef' constant
-  value, which affects the encoding of <a href="#constant">Constant Fields</a>.
-  </p>
+     value, which affects the encoding of <a href="#constant">Constant
+     Fields</a>.</p>
 </div>
 
+<!--
+<div class="doc_subsubsection">Aligned Data</div>
+<div class="doc_text">
+  <p>In version 1.3, certain data items were aligned to 32-bit boundaries. In
+  version 1.4, alignment of data was done away with completely. The need for
+  alignment has gone away and the only thing it adds is bytecode file size
+  overhead. In most cases this overhead was small. However, in functions with
+  large numbers of format 0 instructions (GEPs and PHIs with lots of parameters)
+  or regular instructions with large valued operands (e.g. because there's just
+  a lot of instructions in the function) the overhead can be extreme. In one
+  test case, the overhead was 44,000 bytes (34% of the total file size).
+  Consequently in release 1.4, the decision was made to eliminate alignment
+  altogether.</p>
+  <p>In version 1.3 format, the following bytecode constructs were aligned (i.e.
+  they were followed by one to three bytes of padding):</p>
+  <ul>
+    <li>All blocks.</li>
+    <li>Instructions using the long format (format 0).</li>
+    <li>All call instructions that called a var args function.</li>
+    <li>The target triple (a string field at the end of the module block).</li>
+    <li>The version field (immediately following the signature).</li>
+  </ul>
+  <p>None of these constructs are aligned in version 1.4</p>
+</div>
+-->
 
 <!-- _______________________________________________________________________ -->
 <div class="doc_subsection"><a name="vers12">Version 1.2 Differences

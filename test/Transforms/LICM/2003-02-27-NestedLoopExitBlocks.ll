@@ -1,6 +1,6 @@
 ; Exit blocks need to be updated for all nested loops...
 
-; RUN: llvm-upgrade < %s | llvm-as | opt -loopsimplify
+; RUN: llvm-as < %s | opt -loopsimplify
 
 implementation   ; Functions:
 

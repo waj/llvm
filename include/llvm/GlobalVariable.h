@@ -58,16 +58,17 @@ public:
                  Constant *Initializer, const std::string &Name,
                  GlobalVariable *InsertBefore);
   
-  /// isDeclaration - Is this global variable lacking an initializer?  If so, 
-  /// the global variable is defined in some other translation unit, and is thus
-  /// only a declaration here.
-  virtual bool isDeclaration() const { return getNumOperands() == 0; }
+  /// isExternal - Is this global variable lacking an initializer?  If so, the
+  /// global variable is defined in some other translation unit, and is thus
+  /// externally defined here.
+  ///
+  virtual bool isExternal() const { return getNumOperands() == 0; }
 
   /// hasInitializer - Unless a global variable isExternal(), it has an
   /// initializer.  The initializer for the global variable/constant is held by
   /// Initializer if an initializer is specified.
   ///
-  inline bool hasInitializer() const { return !isDeclaration(); }
+  inline bool hasInitializer() const { return !isExternal(); }
 
   /// getInitializer - Return the initializer for this global variable.  It is
   /// illegal to call this method if the global is external, because we cannot
@@ -122,7 +123,6 @@ public:
   virtual void replaceUsesOfWithOnConstant(Value *From, Value *To, Use *U);
 
   virtual void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const GlobalVariable *) { return true; }

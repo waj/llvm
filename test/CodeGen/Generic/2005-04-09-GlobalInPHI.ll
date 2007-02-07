@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc 
+; RUN: llvm-as < %s | llc 
 	%struct.TypHeader = type { uint, %struct.TypHeader**, [3 x sbyte], ubyte }
 %.str_67 = external global [4 x sbyte]		; <[4 x sbyte]*> [#uses=1]
 %.str_87 = external global [17 x sbyte]		; <[17 x sbyte]*> [#uses=1]

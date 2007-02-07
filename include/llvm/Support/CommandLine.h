@@ -1281,7 +1281,6 @@ struct extrahelp {
   extrahelp(const char* help);
 };
 
-void PrintVersionMessage();
 // This function just prints the help message, exactly the same way as if the
 // --help option had been given on the command line.
 // NOTE: THIS FUNCTION TERMINATES THE PROGRAM!

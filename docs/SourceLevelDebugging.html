@@ -281,7 +281,7 @@ source-language is allowed to define its own objects, by using unreserved tag
 numbers.  We recommend using with tags in the range 0x1000 thru 0x2000 (there is
 a defined enum DW_TAG_user_base = 0x1000.)</p>
 
-<p>The fields of debug descriptors used internally by LLVM (MachineModuleInfo)
+<p>The fields of debug descriptors used internally by LLVM (MachineDebugInfo)
 are restricted to only the simple data types <tt>int</tt>, <tt>uint</tt>,
 <tt>bool</tt>, <tt>float</tt>, <tt>double</tt>, <tt>sbyte*</tt> and <tt> { }*
 </tt>.  References to arbitrary values are handled using a <tt> { }* </tt> and a
@@ -389,8 +389,7 @@ line correspondence.</p>
     {  }*,  ;; Global variable anchor = cast (%<a href="#format_anchors">llvm.dbg.anchor.type</a>* %<a href="#format_global_variables">llvm.dbg.global_variables</a> to {  }*),  
     {  }*,  ;; Reference to context descriptor
     sbyte*, ;; Name
-    sbyte*, ;; Display name (fully qualified C++ name)
-    sbyte*, ;; MIPS linkage name (for C++)
+    sbyte*, ;; Display name (unmangled name if Name is the C++ mangled name)
     {  }*,  ;; Reference to compile unit where defined
     uint,   ;; Line number where defined
     {  }*,  ;; Reference to type descriptor
@@ -418,8 +417,7 @@ provide details such as name, type and where the variable is defined.</p>
     {  }*,  ;; Subprogram anchor = cast (%<a href="#format_anchors">llvm.dbg.anchor.type</a>* %<a href="#format_subprograms">llvm.dbg.subprograms</a> to {  }*),  
     {  }*,  ;; Reference to context descriptor
     sbyte*, ;; Name
-    sbyte*, ;; Display name (fully qualified C++ name)
-    sbyte*, ;; MIPS linkage name (for C++)
+    sbyte*, ;; Display name (unmangled name if Name is the C++ mangled name)
     {  }*,  ;; Reference to compile unit where defined
     uint,   ;; Line number where defined
     {  }*,  ;; Reference to type descriptor

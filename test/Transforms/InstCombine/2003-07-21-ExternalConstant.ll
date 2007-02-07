@@ -10,7 +10,7 @@
 ;	should pass through the optimizer without failure.
 ;
 ; Extra code:
-; RUN: llvm-upgrade < %s | llvm-as | opt -instcombine
+; RUN: llvm-as < %s | opt -instcombine
 ;
 
 target endian = little

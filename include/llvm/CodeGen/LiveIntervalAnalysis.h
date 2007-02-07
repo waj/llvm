@@ -20,9 +20,9 @@
 #ifndef LLVM_CODEGEN_LIVEINTERVAL_ANALYSIS_H
 #define LLVM_CODEGEN_LIVEINTERVAL_ANALYSIS_H
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/LiveInterval.h"
-#include "llvm/ADT/IndexedMap.h"
 
 namespace llvm {
 
@@ -51,7 +51,7 @@ namespace llvm {
     typedef std::map<unsigned, LiveInterval> Reg2IntervalMap;
     Reg2IntervalMap r2iMap_;
 
-    typedef IndexedMap<unsigned> Reg2RegMap;
+    typedef DenseMap<unsigned> Reg2RegMap;
     Reg2RegMap r2rMap_;
 
     std::vector<bool> allocatableRegs_;
@@ -148,11 +148,6 @@ namespace llvm {
                                                      VirtRegMap& vrm,
                                                      int slot);
 
-    /// CreateNewLiveInterval - Create a new live interval with the given live
-    /// ranges. The new live interval will have an infinite spill weight.
-    LiveInterval &CreateNewLiveInterval(const LiveInterval *LI,
-                                        const std::vector<LiveRange> &LRs);
-
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
     virtual void releaseMemory();
 
@@ -161,9 +156,6 @@ namespace llvm {
 
     /// print - Implement the dump method.
     virtual void print(std::ostream &O, const Module* = 0) const;
-    void print(std::ostream *O, const Module* M = 0) const {
-      if (O) print(*O, M);
-    }
 
   private:
     /// RemoveMachineInstrFromMaps - This marks the specified machine instr as

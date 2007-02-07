@@ -25,7 +25,9 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Compiler.h"
 #include <algorithm>
+#include <iostream>
 using namespace llvm;
+
 
 namespace {
 
@@ -277,7 +279,7 @@ public:
 /// ResourceTally - Manages the use of resources over time intervals.  Each
 /// item (slot) in the tally vector represents the resources used at a given
 /// moment.  A bit set to 1 indicates that a resource is in use, otherwise
-/// available.  An assumption is made that the tally is large enough to schedule
+/// available.  An assumption is made that the tally is large enough to schedule 
 /// all current instructions (asserts otherwise.)
 ///
 template<class T>
@@ -377,7 +379,7 @@ private:
       // Try at cursor, if successful return position.
       if (FindAndReserveStages(Cursor, StageBegin, StageEnd)) return Cursor;
       // Locate a better position
-      Cursor = RetrySlot(Cursor + 1, StageBegin->Cycles, StageBegin->Units);
+			Cursor = RetrySlot(Cursor + 1, StageBegin->Cycles, StageBegin->Units);
     }
   }
   
@@ -474,7 +476,6 @@ private:
   /// print - Print ordering to specified output stream.
   ///
   void print(std::ostream &O) const;
-  void print(std::ostream *O) const { if (O) print(*O); }
   
   void dump(const char *tag) const;
   
@@ -487,7 +488,6 @@ private:
   /// printNI - Print node info.
   ///
   void printNI(std::ostream &O, NodeInfo *NI) const;
-  void printNI(std::ostream *O, NodeInfo *NI) const { if (O) printNI(*O, NI); }
   
   /// printChanges - Hilight changes in order caused by scheduling.
   ///
@@ -659,11 +659,11 @@ void ScheduleDAGSimple::print(std::ostream &O) const {
 }
 
 void ScheduleDAGSimple::dump(const char *tag) const {
-  cerr << tag; dump();
+  std::cerr << tag; dump();
 }
 
 void ScheduleDAGSimple::dump() const {
-  print(cerr);
+  print(std::cerr);
 }
 
 
@@ -682,7 +682,7 @@ void ScheduleDAGSimple::EmitAll() {
                           LI->first, RegMap->getRegClass(LI->second));
   }
   
-  DenseMap<SDNode*, unsigned> VRBaseMap;
+  std::map<SDNode*, unsigned> VRBaseMap;
   
   // For each node in the ordering
   for (unsigned i = 0, N = Ordering.size(); i < N; i++) {
@@ -741,25 +741,25 @@ void ScheduleDAGSimple::printChanges(unsigned Index) const {
   }
   
   if (i < N) {
-    cerr << Index << ". New Ordering\n";
+    std::cerr << Index << ". New Ordering\n";
     
     for (i = 0; i < N; i++) {
       NodeInfo *NI = Ordering[i];
-      cerr << "  " << NI->Preorder << ". ";
-      printNI(cerr, NI);
-      cerr << "\n";
+      std::cerr << "  " << NI->Preorder << ". ";
+      printNI(std::cerr, NI);
+      std::cerr << "\n";
       if (NI->isGroupDominator()) {
         NodeGroup *Group = NI->Group;
         for (NIIterator NII = Group->group_begin(), E = Group->group_end();
              NII != E; NII++) {
-          cerr << "          ";
-          printNI(cerr, *NII);
-          cerr << "\n";
+          std::cerr << "          ";
+          printNI(std::cerr, *NII);
+          std::cerr << "\n";
         }
       }
     }
   } else {
-    cerr << Index << ". No Changes\n";
+    std::cerr << Index << ". No Changes\n";
   }
 #endif
 }

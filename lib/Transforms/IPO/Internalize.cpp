@@ -13,22 +13,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "internalize"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
 #include <fstream>
+#include <iostream>
 #include <set>
 using namespace llvm;
 
-STATISTIC(NumFunctions, "Number of functions internalized");
-STATISTIC(NumGlobals  , "Number of global vars internalized");
-
 namespace {
+  Statistic<> NumFunctions("internalize", "Number of functions internalized");
+  Statistic<> NumGlobals  ("internalize", "Number of global vars internalized");
 
   // APIFile - A file which contains a list of symbols that should not be marked
   // external.
@@ -42,7 +40,7 @@ namespace {
           cl::desc("A list of symbol names to preserve"),
           cl::CommaSeparated);
 
-  class VISIBILITY_HIDDEN InternalizePass : public ModulePass {
+  class InternalizePass : public ModulePass {
     std::set<std::string> ExternalNames;
     bool DontInternalize;
   public:
@@ -77,7 +75,8 @@ void InternalizePass::LoadFile(const char *Filename) {
   // Load the APIFile...
   std::ifstream In(Filename);
   if (!In.good()) {
-    cerr << "WARNING: Internalize couldn't load file '" << Filename << "'!\n";
+    std::cerr << "WARNING: Internalize couldn't load file '" << Filename
+    << "'!\n";
     return;   // Do not internalize anything...
   }
   while (In) {
@@ -96,8 +95,8 @@ bool InternalizePass::runOnModule(Module &M) {
   // internalize the module, it must be a library or something.
   //
   if (ExternalNames.empty()) {
-    Function *MainFunc = M.getFunction("main");
-    if (MainFunc == 0 || MainFunc->isDeclaration())
+    Function *MainFunc = M.getMainFunction();
+    if (MainFunc == 0 || MainFunc->isExternal())
       return false;  // No main found, must be a library...
     
     // Preserve main, internalize all else.
@@ -108,21 +107,21 @@ bool InternalizePass::runOnModule(Module &M) {
   
   // Found a main function, mark all functions not named main as internal.
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
-    if (!I->isDeclaration() &&         // Function must be defined here
+    if (!I->isExternal() &&         // Function must be defined here
         !I->hasInternalLinkage() &&  // Can't already have internal linkage
         !ExternalNames.count(I->getName())) {// Not marked to keep external?
       I->setLinkage(GlobalValue::InternalLinkage);
       Changed = true;
       ++NumFunctions;
-      DOUT << "Internalizing func " << I->getName() << "\n";
+      DEBUG(std::cerr << "Internalizing func " << I->getName() << "\n");
     }
   
   // Never internalize the llvm.used symbol.  It is used to implement
   // attribute((used)).
   ExternalNames.insert("llvm.used");
   
-  // Never internalize anchors used by the machine module info, else the info
-  // won't find them.  (see MachineModuleInfo.)
+  // Never internalize anchors used by the debugger, else the debugger won't
+  // find them.  (see MachineDebugInfo.)
   ExternalNames.insert("llvm.dbg.compile_units");
   ExternalNames.insert("llvm.dbg.global_variables");
   ExternalNames.insert("llvm.dbg.subprograms");
@@ -130,7 +129,7 @@ bool InternalizePass::runOnModule(Module &M) {
   // Mark all global variables with initializers as internal as well.
   for (Module::global_iterator I = M.global_begin(), E = M.global_end();
        I != E; ++I)
-    if (!I->isDeclaration() && !I->hasInternalLinkage() &&
+    if (!I->isExternal() && !I->hasInternalLinkage() &&
         !ExternalNames.count(I->getName())) {
       // Special case handling of the global ctor and dtor list.  When we
       // internalize it, we mark it constant, which allows elimination of
@@ -152,7 +151,7 @@ bool InternalizePass::runOnModule(Module &M) {
       I->setLinkage(GlobalValue::InternalLinkage);
       Changed = true;
       ++NumGlobals;
-      DOUT << "Internalized gvar " << I->getName() << "\n";
+      DEBUG(std::cerr << "Internalized gvar " << I->getName() << "\n");
     }
       
   return Changed;

@@ -113,6 +113,9 @@
 				RelativePath="..\..\lib\VMCore\AsmWriter.cpp">
 			</File>
 			<File
+				RelativePath="..\..\lib\VMCore\AutoUpgrade.cpp">
+			</File>
+			<File
 				RelativePath="..\..\lib\VMCore\BasicBlock.cpp">
 			</File>
 			<File
@@ -181,9 +184,6 @@
 				RelativePath="..\..\lib\VMCore\Pass.cpp">
 			</File>
 			<File
-				RelativePath="..\..\lib\VMCore\PassManager.cpp">
-			</File>
-			<File
 				RelativePath="..\..\lib\VMCore\SymbolTable.cpp">
 			</File>
 			<File
@@ -219,7 +219,13 @@
 				RelativePath="..\..\include\llvm\Assembly\AsmAnnotationWriter.h">
 			</File>
 			<File
+				RelativePath="..\..\include\llvm\Assembly\AutoUpgrade.h">
+			</File>
+			<File
 				RelativePath="..\..\include\llvm\BasicBlock.h">
+			</File>
+			<File
+				RelativePath="..\..\include\llvm\Assembly\CachedWriter.h">
 			</File>
 			<File
 				RelativePath="..\..\include\llvm\CallGraphSCCPass.h">
@@ -291,7 +297,7 @@
 				RelativePath="..\..\include\llvm\PassManager.h">
 			</File>
 			<File
-				RelativePath="..\..\include\llvm\PassManagers.h">
+				RelativePath="..\..\lib\VMCore\PassManagerT.h">
 			</File>
 			<File
 				RelativePath="..\..\include\llvm\PassSupport.h">

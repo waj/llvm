@@ -1,7 +1,6 @@
 ; Test that bugpoint can narrow down the testcase to the important function
 ;
-; RUN: llvm-upgrade < %s > %t1.ll
-; RUN: bugpoint %t1.ll -bugpoint-crashcalls
+; RUN: bugpoint %s -bugpoint-crashcalls
 
 int %foo() { ret int 1 }
 

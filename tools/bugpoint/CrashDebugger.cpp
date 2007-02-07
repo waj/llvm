@@ -20,7 +20,7 @@
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/PassManager.h"
-#include "llvm/ValueSymbolTable.h"
+#include "llvm/SymbolTable.h"
 #include "llvm/Analysis/Verifier.h"
 #include "llvm/Bytecode/Writer.h"
 #include "llvm/Support/CFG.h"
@@ -194,7 +194,7 @@ bool ReduceCrashingFunctions::TestFuncs(std::vector<Function*> &Funcs) {
 
   //if main isn't present, claim there is no problem
   if (KeepMain && find(Funcs.begin(), Funcs.end(),
-                       BD.getProgram()->getFunction("main")) == Funcs.end())
+                       BD.getProgram()->getMainFunction()) == Funcs.end())
     return false;
 
   // Clone the program to try hacking it apart...
@@ -206,9 +206,9 @@ bool ReduceCrashingFunctions::TestFuncs(std::vector<Function*> &Funcs) {
     // FIXME: bugpoint should add names to all stripped symbols.
     assert(!Funcs[i]->getName().empty() &&
            "Bugpoint doesn't work on stripped modules yet PR718!");
-    Function *CMF = M->getFunction(Funcs[i]->getName());
+    Function *CMF = M->getFunction(Funcs[i]->getName(),
+                                   Funcs[i]->getFunctionType());
     assert(CMF && "Function not in module?!");
-    assert(CMF->getFunctionType() == Funcs[i]->getFunctionType() && "wrong ty");
     Functions.insert(CMF);
   }
 
@@ -219,7 +219,7 @@ bool ReduceCrashingFunctions::TestFuncs(std::vector<Function*> &Funcs) {
   // Loop over and delete any functions which we aren't supposed to be playing
   // with...
   for (Module::iterator I = M->begin(), E = M->end(); I != E; ++I)
-    if (!I->isDeclaration() && !Functions.count(I))
+    if (!I->isExternal() && !Functions.count(I))
       DeleteFunctionBody(I);
 
   // Try running the hacked up program...
@@ -271,9 +271,8 @@ bool ReduceCrashingBlocks::TestBlocks(std::vector<const BasicBlock*> &BBs) {
   for (unsigned i = 0, e = BBs.size(); i != e; ++i) {
     // Convert the basic block from the original module to the new module...
     const Function *F = BBs[i]->getParent();
-    Function *CMF = M->getFunction(F->getName());
+    Function *CMF = M->getFunction(F->getName(), F->getFunctionType());
     assert(CMF && "Function not in module?!");
-    assert(CMF->getFunctionType() == F->getFunctionType() && "wrong type?");
 
     // Get the mapped basic block...
     Function::iterator CBI = CMF->begin();
@@ -338,10 +337,10 @@ bool ReduceCrashingBlocks::TestBlocks(std::vector<const BasicBlock*> &BBs) {
     // module, and that they don't include any deleted blocks.
     BBs.clear();
     for (unsigned i = 0, e = BlockInfo.size(); i != e; ++i) {
-      ValueSymbolTable &ST = BlockInfo[i].first->getValueSymbolTable();
-      Value* V = ST.lookup(BlockInfo[i].second);
-      if (V && V->getType() == Type::LabelTy)
-        BBs.push_back(cast<BasicBlock>(V));
+      SymbolTable &ST = BlockInfo[i].first->getSymbolTable();
+      SymbolTable::plane_iterator PI = ST.find(Type::LabelTy);
+      if (PI != ST.plane_end() && PI->second.count(BlockInfo[i].second))
+        BBs.push_back(cast<BasicBlock>(PI->second[BlockInfo[i].second]));
     }
     return true;
   }
@@ -407,7 +406,7 @@ static bool DebugACrash(BugDriver &BD,  bool (*TestFn)(BugDriver &, Module *)) {
   std::vector<Function*> Functions;
   for (Module::iterator I = BD.getProgram()->begin(),
          E = BD.getProgram()->end(); I != E; ++I)
-    if (!I->isDeclaration())
+    if (!I->isExternal())
       Functions.push_back(I);
 
   if (Functions.size() > 1 && !BugpointIsInterrupted) {
@@ -460,7 +459,7 @@ static bool DebugACrash(BugDriver &BD,  bool (*TestFn)(BugDriver &, Module *)) {
     unsigned CurInstructionNum = 0;
     for (Module::const_iterator FI = BD.getProgram()->begin(),
            E = BD.getProgram()->end(); FI != E; ++FI)
-      if (!FI->isDeclaration())
+      if (!FI->isExternal())
         for (Function::const_iterator BI = FI->begin(), E = FI->end(); BI != E;
              ++BI)
           for (BasicBlock::const_iterator I = BI->begin(), E = --BI->end();

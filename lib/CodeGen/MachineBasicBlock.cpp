@@ -19,6 +19,7 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/LeakDetector.h"
+#include <iostream>
 #include <algorithm>
 using namespace llvm;
 
@@ -26,10 +27,6 @@ MachineBasicBlock::~MachineBasicBlock() {
   LeakDetector::removeGarbageObject(this);
 }
 
-std::ostream& llvm::operator<<(std::ostream &OS, const MachineBasicBlock &MBB) {
-  MBB.print(OS);
-  return OS;
-}
 
 // MBBs start out as #-1. When a MBB is added to a MachineFunction, it
 // gets the next available unique MBB number. If it is removed from a
@@ -51,7 +48,7 @@ void ilist_traits<MachineBasicBlock>::removeNodeFromList(MachineBasicBlock* N) {
 
 
 MachineInstr* ilist_traits<MachineInstr>::createSentinel() {
-  MachineInstr* dummy = new MachineInstr();
+  MachineInstr* dummy = new MachineInstr(0, 0);
   LeakDetector::removeGarbageObject(dummy);
   return dummy;
 }
@@ -86,7 +83,7 @@ MachineBasicBlock::iterator MachineBasicBlock::getFirstTerminator() {
 }
 
 void MachineBasicBlock::dump() const {
-  print(*cerr.stream());
+  print(std::cerr);
 }
 
 void MachineBasicBlock::print(std::ostream &OS) const {

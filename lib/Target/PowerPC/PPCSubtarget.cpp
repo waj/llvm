@@ -14,8 +14,8 @@
 #include "PPCSubtarget.h"
 #include "PPC.h"
 #include "llvm/Module.h"
-#include "llvm/Target/TargetMachine.h"
 #include "PPCGenSubtarget.inc"
+#include <iostream>
 using namespace llvm;
 
 #if defined(__APPLE__)
@@ -56,10 +56,9 @@ static const char *GetCurrentPowerPCCPU() {
 #endif
 
 
-PPCSubtarget::PPCSubtarget(const TargetMachine &tm, const Module &M,
-                           const std::string &FS, bool is64Bit)
-  : TM(tm)
-  , StackAlignment(16)
+PPCSubtarget::PPCSubtarget(const Module &M, const std::string &FS, bool is64Bit)
+  : StackAlignment(16)
+  , InstrItins()
   , IsGigaProcessor(false)
   , Has64BitSupport(false)
   , Use64BitRegs(false)
@@ -67,8 +66,7 @@ PPCSubtarget::PPCSubtarget(const TargetMachine &tm, const Module &M,
   , HasAltivec(false)
   , HasFSQRT(false)
   , HasSTFIWX(false)
-  , IsDarwin(false)
-  , HasLazyResolverStubs(false) {
+  , IsDarwin(false) {
 
   // Determine default and user specified characteristics
   std::string CPU = "generic";
@@ -82,8 +80,8 @@ PPCSubtarget::PPCSubtarget(const TargetMachine &tm, const Module &M,
   // If we are generating code for ppc64, verify that options make sense.
   if (is64Bit) {
     if (!has64BitSupport()) {
-      cerr << "PPC: Generation of 64-bit code for a 32-bit processor "
-           << "requested.  Ignoring 32-bit processor feature.\n";
+      std::cerr << "PPC: Generation of 64-bit code for a 32-bit processor "
+                   "requested.  Ignoring 32-bit processor feature.\n";
       Has64BitSupport = true;
     }
     // Silently force 64-bit register use on ppc64.
@@ -93,8 +91,8 @@ PPCSubtarget::PPCSubtarget(const TargetMachine &tm, const Module &M,
   // If the user requested use of 64-bit regs, but the cpu selected doesn't
   // support it, warn and ignore.
   if (use64BitRegs() && !has64BitSupport()) {
-    cerr << "PPC: 64-bit registers requested on CPU without support.  "
-         << "Disabling 64-bit register use.\n";
+    std::cerr << "PPC: 64-bit registers requested on CPU without support.  "
+                 "Disabling 64-bit register use.\n";
     Use64BitRegs = false;
   }
   
@@ -108,34 +106,4 @@ PPCSubtarget::PPCSubtarget(const TargetMachine &tm, const Module &M,
     IsDarwin = true;
 #endif
   }
-
-  // Set up darwin-specific properties.
-  if (IsDarwin) {
-    HasLazyResolverStubs = true;
-    AsmFlavor = NewMnemonic;
-  } else {
-    AsmFlavor = OldMnemonic;
-  }
-}
-
-/// SetJITMode - This is called to inform the subtarget info that we are
-/// producing code for the JIT.
-void PPCSubtarget::SetJITMode() {
-  // JIT mode doesn't want lazy resolver stubs, it knows exactly where
-  // everything is.  This matters for PPC64, which codegens in PIC mode without
-  // stubs.
-  HasLazyResolverStubs = false;
-}
-
-
-/// hasLazyResolverStub - Return true if accesses to the specified global have
-/// to go through a dyld lazy resolution stub.  This means that an extra load
-/// is required to get the address of the global.
-bool PPCSubtarget::hasLazyResolverStub(const GlobalValue *GV) const {
-  // We never hae stubs if HasLazyResolverStubs=false or if in static mode.
-  if (!HasLazyResolverStubs || TM.getRelocationModel() == Reloc::Static)
-    return false;
-  
-  return GV->hasWeakLinkage() || GV->hasLinkOnceLinkage() ||
-         (GV->isDeclaration() && !GV->hasNotBeenReadFromBytecode());
 }

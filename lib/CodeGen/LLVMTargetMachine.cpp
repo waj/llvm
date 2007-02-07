@@ -17,6 +17,7 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Transforms/Scalar.h"
+#include <iostream>
 using namespace llvm;
 
 bool LLVMTargetMachine::addPassesToEmitFile(FunctionPassManager &PM,
@@ -45,18 +46,18 @@ bool LLVMTargetMachine::addPassesToEmitFile(FunctionPassManager &PM,
   
   // Print the instruction selected machine code...
   if (PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
   // Perform register allocation to convert to a concrete x86 representation
   PM.add(createRegisterAllocator());
   
   if (PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
   
   // Run post-ra passes.
   if (addPostRegAlloc(PM, Fast) && PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
   
   // Insert prolog/epilog code.  Eliminate abstract frame index references...
@@ -65,16 +66,13 @@ bool LLVMTargetMachine::addPassesToEmitFile(FunctionPassManager &PM,
   // Branch folding must be run after regalloc and prolog/epilog insertion.
   if (!Fast)
     PM.add(createBranchFoldingPass());
-    
-  // Fold redundant debug labels.
-  PM.add(createDebugLabelFoldingPass());
   
   if (PrintMachineCode)  // Print the register-allocated code
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
   
   if (addPreEmitPass(PM, Fast) && PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
   
   switch (FileType) {
@@ -126,32 +124,29 @@ bool LLVMTargetMachine::addPassesToEmitMachineCode(FunctionPassManager &PM,
   
   // Print the instruction selected machine code...
   if (PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
   // Perform register allocation to convert to a concrete x86 representation
   PM.add(createRegisterAllocator());
   
   if (PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
   
   // Run post-ra passes.
   if (addPostRegAlloc(PM, Fast) && PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
   
   // Insert prolog/epilog code.  Eliminate abstract frame index references...
   PM.add(createPrologEpilogCodeInserter());
   
   if (PrintMachineCode)  // Print the register-allocated code
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
-  // Branch folding must be run after regalloc and prolog/epilog insertion.
-  if (!Fast)
-    PM.add(createBranchFoldingPass());
   
   if (addPreEmitPass(PM, Fast) && PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(cerr.stream()));
+    PM.add(createMachineFunctionPrinterPass(&std::cerr));
   
   
   addCodeEmitter(PM, Fast, MCE);

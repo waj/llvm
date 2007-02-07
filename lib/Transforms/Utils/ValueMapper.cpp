@@ -18,12 +18,9 @@
 #include "llvm/Instruction.h"
 using namespace llvm;
 
-Value *llvm::MapValue(const Value *V, ValueMapTy &VM) {
+Value *llvm::MapValue(const Value *V, std::map<const Value*, Value*> &VM) {
   Value *&VMSlot = VM[V];
   if (VMSlot) return VMSlot;      // Does it exist in the map yet?
-  
-  // NOTE: VMSlot can be invalidated by any reference to VM, which can grow the
-  // DenseMap.  This includes any recursive calls to MapValue.
 
   // Global values do not need to be seeded into the ValueMap if they are using
   // the identity mapping.
@@ -31,7 +28,7 @@ Value *llvm::MapValue(const Value *V, ValueMapTy &VM) {
     return VMSlot = const_cast<Value*>(V);
 
   if (Constant *C = const_cast<Constant*>(dyn_cast<Constant>(V))) {
-    if (isa<ConstantInt>(C) || isa<ConstantFP>(C) ||
+    if (isa<ConstantIntegral>(C) || isa<ConstantFP>(C) ||
         isa<ConstantPointerNull>(C) || isa<ConstantAggregateZero>(C) ||
         isa<UndefValue>(C))
       return VMSlot = C;           // Primitive constants map directly
@@ -49,10 +46,10 @@ Value *llvm::MapValue(const Value *V, ValueMapTy &VM) {
           Values.push_back(cast<Constant>(MV));
           for (++i; i != e; ++i)
             Values.push_back(cast<Constant>(MapValue(CA->getOperand(i), VM)));
-          return VM[V] = ConstantArray::get(CA->getType(), Values);
+          return VMSlot = ConstantArray::get(CA->getType(), Values);
         }
       }
-      return VM[V] = C;
+      return VMSlot = C;
 
     } else if (ConstantStruct *CS = dyn_cast<ConstantStruct>(C)) {
       for (unsigned i = 0, e = CS->getNumOperands(); i != e; ++i) {
@@ -68,16 +65,16 @@ Value *llvm::MapValue(const Value *V, ValueMapTy &VM) {
           Values.push_back(cast<Constant>(MV));
           for (++i; i != e; ++i)
             Values.push_back(cast<Constant>(MapValue(CS->getOperand(i), VM)));
-          return VM[V] = ConstantStruct::get(CS->getType(), Values);
+          return VMSlot = ConstantStruct::get(CS->getType(), Values);
         }
       }
-      return VM[V] = C;
+      return VMSlot = C;
 
     } else if (ConstantExpr *CE = dyn_cast<ConstantExpr>(C)) {
       std::vector<Constant*> Ops;
       for (unsigned i = 0, e = CE->getNumOperands(); i != e; ++i)
         Ops.push_back(cast<Constant>(MapValue(CE->getOperand(i), VM)));
-      return VM[V] = CE->getWithOperands(Ops);
+      return VMSlot = CE->getWithOperands(Ops);
     } else if (ConstantPacked *CP = dyn_cast<ConstantPacked>(C)) {
       for (unsigned i = 0, e = CP->getNumOperands(); i != e; ++i) {
         Value *MV = MapValue(CP->getOperand(i), VM);
@@ -92,7 +89,7 @@ Value *llvm::MapValue(const Value *V, ValueMapTy &VM) {
           Values.push_back(cast<Constant>(MV));
           for (++i; i != e; ++i)
             Values.push_back(cast<Constant>(MapValue(CP->getOperand(i), VM)));
-          return VM[V] = ConstantPacked::get(Values);
+          return VMSlot = ConstantPacked::get(Values);
         }
       }
       return VMSlot = C;
@@ -108,7 +105,8 @@ Value *llvm::MapValue(const Value *V, ValueMapTy &VM) {
 /// RemapInstruction - Convert the instruction operands from referencing the
 /// current values into those specified by ValueMap.
 ///
-void llvm::RemapInstruction(Instruction *I, ValueMapTy &ValueMap) {
+void llvm::RemapInstruction(Instruction *I,
+                            std::map<const Value *, Value*> &ValueMap) {
   for (unsigned op = 0, E = I->getNumOperands(); op != E; ++op) {
     const Value *Op = I->getOperand(op);
     Value *V = MapValue(Op, ValueMap);

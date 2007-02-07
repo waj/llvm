@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -scalarrepl -disable-output
+; RUN: llvm-as < %s | opt -scalarrepl -disable-output
 
 target datalayout = "e-p:32:32"
 target endian = little

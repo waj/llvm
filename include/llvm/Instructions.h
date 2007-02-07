@@ -336,7 +336,7 @@ class GetElementPtrInst : public Instruction {
     for (unsigned i = 0, E = NumOperands; i != E; ++i)
       OL[i].init(GEPIOL[i], this);
   }
-  void init(Value *Ptr, Value* const *Idx, unsigned NumIdx);
+  void init(Value *Ptr, const std::vector<Value*> &Idx);
   void init(Value *Ptr, Value *Idx0, Value *Idx1);
   void init(Value *Ptr, Value *Idx);
 public:
@@ -348,11 +348,7 @@ public:
                     const std::string &Name = "", Instruction *InsertBefore =0);
   GetElementPtrInst(Value *Ptr, const std::vector<Value*> &Idx,
                     const std::string &Name, BasicBlock *InsertAtEnd);
-  GetElementPtrInst(Value *Ptr, Value* const *Idx, unsigned NumIdx,
-                    const std::string &Name = "", Instruction *InsertBefore =0);
-  GetElementPtrInst(Value *Ptr, Value* const *Idx, unsigned NumIdx,
-                    const std::string &Name, BasicBlock *InsertAtEnd);
-  
+
   /// Constructors - These two constructors are convenience methods because one
   /// and two index getelementptr instructions are so common.
   GetElementPtrInst(Value *Ptr, Value *Idx,
@@ -379,14 +375,8 @@ public:
   /// pointer type.
   ///
   static const Type *getIndexedType(const Type *Ptr,
-                                    Value* const *Idx, unsigned NumIdx,
-                                    bool AllowStructLeaf = false);
-  
-  static const Type *getIndexedType(const Type *Ptr,
                                     const std::vector<Value*> &Indices,
-                                    bool AllowStructLeaf = false) {
-    return getIndexedType(Ptr, &Indices[0], Indices.size(), AllowStructLeaf);
-  }
+                                    bool AllowStructLeaf = false);
   static const Type *getIndexedType(const Type *Ptr, Value *Idx0, Value *Idx1,
                                     bool AllowStructLeaf = false);
   static const Type *getIndexedType(const Type *Ptr, Value *Idx);
@@ -425,266 +415,106 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
-//                               ICmpInst Class
+//                            SetCondInst Class
 //===----------------------------------------------------------------------===//
 
-/// This instruction compares its operands according to the predicate given
-/// to the constructor. It only operates on integers, pointers, or packed 
-/// vectors of integrals. The two operands must be the same type.
-/// @brief Represent an integer comparison operator.
-class ICmpInst: public CmpInst {
+/// SetCondInst class - Represent a setCC operator, where CC is eq, ne, lt, gt,
+/// le, or ge.
+///
+class SetCondInst : public BinaryOperator {
 public:
-  /// This enumeration lists the possible predicates for the ICmpInst. The
-  /// values in the range 0-31 are reserved for FCmpInst while values in the
-  /// range 32-64 are reserved for ICmpInst. This is necessary to ensure the
-  /// predicate values are not overlapping between the classes.
-  enum Predicate {
-    ICMP_EQ  = 32,    ///< equal
-    ICMP_NE  = 33,    ///< not equal
-    ICMP_UGT = 34,    ///< unsigned greater than
-    ICMP_UGE = 35,    ///< unsigned greater or equal
-    ICMP_ULT = 36,    ///< unsigned less than
-    ICMP_ULE = 37,    ///< unsigned less or equal
-    ICMP_SGT = 38,    ///< signed greater than
-    ICMP_SGE = 39,    ///< signed greater or equal
-    ICMP_SLT = 40,    ///< signed less than
-    ICMP_SLE = 41,    ///< signed less or equal
-    FIRST_ICMP_PREDICATE = ICMP_EQ,
-    LAST_ICMP_PREDICATE = ICMP_SLE,
-    BAD_ICMP_PREDICATE = ICMP_SLE + 1
-  };
+  SetCondInst(BinaryOps Opcode, Value *LHS, Value *RHS,
+              const std::string &Name = "", Instruction *InsertBefore = 0);
+  SetCondInst(BinaryOps Opcode, Value *LHS, Value *RHS,
+              const std::string &Name, BasicBlock *InsertAtEnd);
 
-  /// @brief Constructor with insert-before-instruction semantics.
-  ICmpInst(
-    Predicate pred,  ///< The predicate to use for the comparison
-    Value *LHS,      ///< The left-hand-side of the expression
-    Value *RHS,      ///< The right-hand-side of the expression
-    const std::string &Name = "",  ///< Name of the instruction
-    Instruction *InsertBefore = 0  ///< Where to insert
-  ) : CmpInst(Instruction::ICmp, pred, LHS, RHS, Name, InsertBefore) {
+  /// getInverseCondition - Return the inverse of the current condition opcode.
+  /// For example seteq -> setne, setgt -> setle, setlt -> setge, etc...
+  ///
+  BinaryOps getInverseCondition() const {
+    return getInverseCondition(getOpcode());
   }
 
-  /// @brief Constructor with insert-at-block-end semantics.
-  ICmpInst(
-    Predicate pred, ///< The predicate to use for the comparison
-    Value *LHS,     ///< The left-hand-side of the expression
-    Value *RHS,     ///< The right-hand-side of the expression
-    const std::string &Name,  ///< Name of the instruction
-    BasicBlock *InsertAtEnd   ///< Block to insert into.
-  ) : CmpInst(Instruction::ICmp, pred, LHS, RHS, Name, InsertAtEnd) {
+  /// getInverseCondition - Static version that you can use without an
+  /// instruction available.
+  ///
+  static BinaryOps getInverseCondition(BinaryOps Opcode);
+
+  /// getSwappedCondition - Return the condition opcode that would be the result
+  /// of exchanging the two operands of the setcc instruction without changing
+  /// the result produced.  Thus, seteq->seteq, setle->setge, setlt->setgt, etc.
+  ///
+  BinaryOps getSwappedCondition() const {
+    return getSwappedCondition(getOpcode());
   }
 
-  /// @brief Return the predicate for this instruction.
-  Predicate getPredicate() const { return Predicate(SubclassData); }
+  /// getSwappedCondition - Static version that you can use without an
+  /// instruction available.
+  ///
+  static BinaryOps getSwappedCondition(BinaryOps Opcode);
 
-  /// @brief Set the predicate for this instruction to the specified value.
-  void setPredicate(Predicate P) { SubclassData = P; }
-  
-  /// For example, EQ -> NE, UGT -> ULE, SLT -> SGE, etc.
-  /// @returns the inverse predicate for the instruction's current predicate. 
-  /// @brief Return the inverse of the instruction's predicate.
-  Predicate getInversePredicate() const {
-    return getInversePredicate(getPredicate());
-  }
-
-  /// For example, EQ -> NE, UGT -> ULE, SLT -> SGE, etc.
-  /// @returns the inverse predicate for predicate provided in \p pred. 
-  /// @brief Return the inverse of a given predicate
-  static Predicate getInversePredicate(Predicate pred);
-
-  /// For example, EQ->EQ, SLE->SGE, ULT->UGT, etc.
-  /// @returns the predicate that would be the result of exchanging the two 
-  /// operands of the ICmpInst instruction without changing the result 
-  /// produced.  
-  /// @brief Return the predicate as if the operands were swapped
-  Predicate getSwappedPredicate() const {
-    return getSwappedPredicate(getPredicate());
-  }
-
-  /// This is a static version that you can use without an instruction 
-  /// available.
-  /// @brief Return the predicate as if the operands were swapped.
-  static Predicate getSwappedPredicate(Predicate pred);
-
-  /// For example, EQ->EQ, SLE->SLE, UGT->SGT, etc.
-  /// @returns the predicate that would be the result if the operand were
-  /// regarded as signed.
-  /// @brief Return the signed version of the predicate
-  Predicate getSignedPredicate() const {
-    return getSignedPredicate(getPredicate());
-  }
-
-  /// This is a static version that you can use without an instruction.
-  /// @brief Return the signed version of the predicate.
-  static Predicate getSignedPredicate(Predicate pred);
-
-  /// This also tests for commutativity. If isEquality() returns true then
-  /// the predicate is also commutative. 
-  /// @returns true if the predicate of this instruction is EQ or NE.
-  /// @brief Determine if this is an equality predicate.
+  /// isEquality - Return true if this comparison is an ==/!= comparison.
+  ///
   bool isEquality() const {
-    return SubclassData == ICMP_EQ || SubclassData == ICMP_NE;
+    return getOpcode() == SetEQ || getOpcode() == SetNE;
   }
 
-  /// @returns true if the predicate of this ICmpInst is commutative
-  /// @brief Determine if this relation is commutative.
-  bool isCommutative() const { return isEquality(); }
-
-  /// @returns true if the predicate is relational (not EQ or NE). 
-  /// @brief Determine if this a relational predicate.
+  /// isRelational - Return true if this comparison is a </>/<=/>= comparison.
+  ///
   bool isRelational() const {
     return !isEquality();
   }
 
-  /// @returns true if the predicate of this ICmpInst is signed, false otherwise
-  /// @brief Determine if this instruction's predicate is signed.
-  bool isSignedPredicate() { return isSignedPredicate(getPredicate()); }
-
-  /// @returns true if the predicate provided is signed, false otherwise
-  /// @brief Determine if the predicate is signed.
-  static bool isSignedPredicate(Predicate pred);
-
-  /// Exchange the two operands to this instruction in such a way that it does
-  /// not modify the semantics of the instruction. The predicate value may be
-  /// changed to retain the same result if the predicate is order dependent
-  /// (e.g. ult). 
-  /// @brief Swap operands and adjust predicate.
-  void swapOperands() {
-    SubclassData = getSwappedPredicate();
-    std::swap(Ops[0], Ops[1]);
+  // Methods for support type inquiry through isa, cast, and dyn_cast:
+  static inline bool classof(const SetCondInst *) { return true; }
+  static inline bool classof(const Instruction *I) {
+    return I->getOpcode() == SetEQ || I->getOpcode() == SetNE ||
+           I->getOpcode() == SetLE || I->getOpcode() == SetGE ||
+           I->getOpcode() == SetLT || I->getOpcode() == SetGT;
   }
+  static inline bool classof(const Value *V) {
+    return isa<Instruction>(V) && classof(cast<Instruction>(V));
+  }
+};
+
+//===----------------------------------------------------------------------===//
+//                                 CastInst Class
+//===----------------------------------------------------------------------===//
+
+/// CastInst - This class represents a cast from Operand[0] to the type of
+/// the instruction (i->getType()).
+///
+class CastInst : public UnaryInstruction {
+  CastInst(const CastInst &CI)
+    : UnaryInstruction(CI.getType(), Cast, CI.getOperand(0)) {
+  }
+public:
+  CastInst(Value *S, const Type *Ty, const std::string &Name = "",
+           Instruction *InsertBefore = 0)
+    : UnaryInstruction(Ty, Cast, S, Name, InsertBefore) {
+  }
+  CastInst(Value *S, const Type *Ty, const std::string &Name,
+           BasicBlock *InsertAtEnd)
+    : UnaryInstruction(Ty, Cast, S, Name, InsertAtEnd) {
+  }
+
+  /// isTruncIntCast - Return true if this is a truncating integer cast
+  /// instruction, e.g. a cast from long to uint.
+  bool isTruncIntCast() const;
+
+
+  virtual CastInst *clone() const;
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const ICmpInst *) { return true; }
+  static inline bool classof(const CastInst *) { return true; }
   static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == Instruction::ICmp;
+    return I->getOpcode() == Cast;
   }
   static inline bool classof(const Value *V) {
     return isa<Instruction>(V) && classof(cast<Instruction>(V));
   }
 };
 
-//===----------------------------------------------------------------------===//
-//                               FCmpInst Class
-//===----------------------------------------------------------------------===//
-
-/// This instruction compares its operands according to the predicate given
-/// to the constructor. It only operates on floating point values or packed     
-/// vectors of floating point values. The operands must be identical types.
-/// @brief Represents a floating point comparison operator.
-class FCmpInst: public CmpInst {
-public:
-  /// This enumeration lists the possible predicates for the FCmpInst. Values
-  /// in the range 0-31 are reserved for FCmpInst.
-  enum Predicate {
-    // Opcode        U L G E    Intuitive operation
-    FCMP_FALSE = 0, ///<  0 0 0 0    Always false (always folded)
-    FCMP_OEQ   = 1, ///<  0 0 0 1    True if ordered and equal
-    FCMP_OGT   = 2, ///<  0 0 1 0    True if ordered and greater than
-    FCMP_OGE   = 3, ///<  0 0 1 1    True if ordered and greater than or equal
-    FCMP_OLT   = 4, ///<  0 1 0 0    True if ordered and less than
-    FCMP_OLE   = 5, ///<  0 1 0 1    True if ordered and less than or equal
-    FCMP_ONE   = 6, ///<  0 1 1 0    True if ordered and operands are unequal
-    FCMP_ORD   = 7, ///<  0 1 1 1    True if ordered (no nans)
-    FCMP_UNO   = 8, ///<  1 0 0 0    True if unordered: isnan(X) | isnan(Y)
-    FCMP_UEQ   = 9, ///<  1 0 0 1    True if unordered or equal
-    FCMP_UGT   =10, ///<  1 0 1 0    True if unordered or greater than
-    FCMP_UGE   =11, ///<  1 0 1 1    True if unordered, greater than, or equal
-    FCMP_ULT   =12, ///<  1 1 0 0    True if unordered or less than
-    FCMP_ULE   =13, ///<  1 1 0 1    True if unordered, less than, or equal
-    FCMP_UNE   =14, ///<  1 1 1 0    True if unordered or not equal
-    FCMP_TRUE  =15, ///<  1 1 1 1    Always true (always folded)
-    FIRST_FCMP_PREDICATE = FCMP_FALSE,
-    LAST_FCMP_PREDICATE = FCMP_TRUE,
-    BAD_FCMP_PREDICATE = FCMP_TRUE + 1
-  };
-
-  /// @brief Constructor with insert-before-instruction semantics.
-  FCmpInst(
-    Predicate pred,  ///< The predicate to use for the comparison
-    Value *LHS,      ///< The left-hand-side of the expression
-    Value *RHS,      ///< The right-hand-side of the expression
-    const std::string &Name = "",  ///< Name of the instruction
-    Instruction *InsertBefore = 0  ///< Where to insert
-  ) : CmpInst(Instruction::FCmp, pred, LHS, RHS, Name, InsertBefore) {
-  }
-
-  /// @brief Constructor with insert-at-block-end semantics.
-  FCmpInst(
-    Predicate pred, ///< The predicate to use for the comparison
-    Value *LHS,     ///< The left-hand-side of the expression
-    Value *RHS,     ///< The right-hand-side of the expression
-    const std::string &Name,  ///< Name of the instruction
-    BasicBlock *InsertAtEnd   ///< Block to insert into.
-  ) : CmpInst(Instruction::FCmp, pred, LHS, RHS, Name, InsertAtEnd) {
-  }
-
-  /// @brief Return the predicate for this instruction.
-  Predicate getPredicate() const { return Predicate(SubclassData); }
-
-  /// @brief Set the predicate for this instruction to the specified value.
-  void setPredicate(Predicate P) { SubclassData = P; }
-
-  /// For example, OEQ -> UNE, UGT -> OLE, OLT -> UGE, etc.
-  /// @returns the inverse predicate for the instructions current predicate. 
-  /// @brief Return the inverse of the predicate
-  Predicate getInversePredicate() const {
-    return getInversePredicate(getPredicate());
-  }
-
-  /// For example, OEQ -> UNE, UGT -> OLE, OLT -> UGE, etc.
-  /// @returns the inverse predicate for \p pred.
-  /// @brief Return the inverse of a given predicate
-  static Predicate getInversePredicate(Predicate pred);
-
-  /// For example, OEQ->OEQ, ULE->UGE, OLT->OGT, etc.
-  /// @returns the predicate that would be the result of exchanging the two 
-  /// operands of the ICmpInst instruction without changing the result 
-  /// produced.  
-  /// @brief Return the predicate as if the operands were swapped
-  Predicate getSwappedPredicate() const {
-    return getSwappedPredicate(getPredicate());
-  }
-
-  /// This is a static version that you can use without an instruction 
-  /// available.
-  /// @brief Return the predicate as if the operands were swapped.
-  static Predicate getSwappedPredicate(Predicate Opcode);
-
-  /// This also tests for commutativity. If isEquality() returns true then
-  /// the predicate is also commutative. Only the equality predicates are
-  /// commutative.
-  /// @returns true if the predicate of this instruction is EQ or NE.
-  /// @brief Determine if this is an equality predicate.
-  bool isEquality() const {
-    return SubclassData == FCMP_OEQ || SubclassData == FCMP_ONE ||
-           SubclassData == FCMP_UEQ || SubclassData == FCMP_UNE;
-  }
-  bool isCommutative() const { return isEquality(); }
-
-  /// @returns true if the predicate is relational (not EQ or NE). 
-  /// @brief Determine if this a relational predicate.
-  bool isRelational() const { return !isEquality(); }
-
-  /// Exchange the two operands to this instruction in such a way that it does
-  /// not modify the semantics of the instruction. The predicate value may be
-  /// changed to retain the same result if the predicate is order dependent
-  /// (e.g. ult). 
-  /// @brief Swap operands and adjust predicate.
-  void swapOperands() {
-    SubclassData = getSwappedPredicate();
-    std::swap(Ops[0], Ops[1]);
-  }
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const FCmpInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == Instruction::FCmp;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
 
 //===----------------------------------------------------------------------===//
 //                                 CallInst Class
@@ -745,8 +575,7 @@ public:
     return static_cast<Function*>(dyn_cast<Function>(getOperand(0)));
   }
 
-  /// getCalledValue - Get a pointer to the function that is invoked by this 
-  /// instruction
+  // getCalledValue - Get a pointer to a method that is invoked by this inst.
   inline const Value *getCalledValue() const { return getOperand(0); }
   inline       Value *getCalledValue()       { return getOperand(0); }
 
@@ -754,6 +583,77 @@ public:
   static inline bool classof(const CallInst *) { return true; }
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == Instruction::Call;
+  }
+  static inline bool classof(const Value *V) {
+    return isa<Instruction>(V) && classof(cast<Instruction>(V));
+  }
+};
+
+
+//===----------------------------------------------------------------------===//
+//                                 ShiftInst Class
+//===----------------------------------------------------------------------===//
+
+/// ShiftInst - This class represents left and right shift instructions.
+///
+class ShiftInst : public Instruction {
+  Use Ops[2];
+  ShiftInst(const ShiftInst &SI)
+    : Instruction(SI.getType(), SI.getOpcode(), Ops, 2) {
+    Ops[0].init(SI.Ops[0], this);
+    Ops[1].init(SI.Ops[1], this);
+  }
+  void init(OtherOps Opcode, Value *S, Value *SA) {
+    assert((Opcode == Shl || Opcode == Shr) && "ShiftInst Opcode invalid!");
+    Ops[0].init(S, this);
+    Ops[1].init(SA, this);
+  }
+
+public:
+  ShiftInst(OtherOps Opcode, Value *S, Value *SA, const std::string &Name = "",
+            Instruction *InsertBefore = 0)
+    : Instruction(S->getType(), Opcode, Ops, 2, Name, InsertBefore) {
+    init(Opcode, S, SA);
+  }
+  ShiftInst(OtherOps Opcode, Value *S, Value *SA, const std::string &Name,
+            BasicBlock *InsertAtEnd)
+    : Instruction(S->getType(), Opcode, Ops, 2, Name, InsertAtEnd) {
+    init(Opcode, S, SA);
+  }
+
+  OtherOps getOpcode() const {
+    return static_cast<OtherOps>(Instruction::getOpcode());
+  }
+
+  /// Transparently provide more efficient getOperand methods.
+  Value *getOperand(unsigned i) const {
+    assert(i < 2 && "getOperand() out of range!");
+    return Ops[i];
+  }
+  void setOperand(unsigned i, Value *Val) {
+    assert(i < 2 && "setOperand() out of range!");
+    Ops[i] = Val;
+  }
+  unsigned getNumOperands() const { return 2; }
+
+  /// isLogicalShift - Return true if this is a logical shift left or a logical
+  /// shift right.
+  bool isLogicalShift() const;
+
+  /// isArithmeticShift - Return true if this is a sign-extending shift right
+  /// operation.
+  bool isArithmeticShift() const {
+    return !isLogicalShift();
+  }
+
+
+  virtual ShiftInst *clone() const;
+
+  // Methods for support type inquiry through isa, cast, and dyn_cast:
+  static inline bool classof(const ShiftInst *) { return true; }
+  static inline bool classof(const Instruction *I) {
+    return (I->getOpcode() == Instruction::Shr) |
+           (I->getOpcode() == Instruction::Shl);
   }
   static inline bool classof(const Value *V) {
     return isa<Instruction>(V) && classof(cast<Instruction>(V));
@@ -1629,477 +1529,6 @@ private:
   virtual BasicBlock *getSuccessorV(unsigned idx) const;
   virtual unsigned getNumSuccessorsV() const;
   virtual void setSuccessorV(unsigned idx, BasicBlock *B);
-};
-
-//===----------------------------------------------------------------------===//
-//                                 TruncInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a truncation of integer types.
-class TruncInst : public CastInst {
-  /// Private copy constructor
-  TruncInst(const TruncInst &CI)
-    : CastInst(CI.getType(), Trunc, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  TruncInst(
-    Value *S,                     ///< The value to be truncated
-    const Type *Ty,               ///< The (smaller) type to truncate to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  TruncInst(
-    Value *S,                     ///< The value to be truncated
-    const Type *Ty,               ///< The (smaller) type to truncate to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical TruncInst
-  virtual CastInst *clone() const;
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const TruncInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == Trunc;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 ZExtInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents zero extension of integer types.
-class ZExtInst : public CastInst {
-  /// @brief Private copy constructor
-  ZExtInst(const ZExtInst &CI)
-    : CastInst(CI.getType(), ZExt, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  ZExtInst(
-    Value *S,                     ///< The value to be zero extended
-    const Type *Ty,               ///< The type to zero extend to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end semantics.
-  ZExtInst(
-    Value *S,                     ///< The value to be zero extended
-    const Type *Ty,               ///< The type to zero extend to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical ZExtInst
-  virtual CastInst *clone() const;
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const ZExtInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == ZExt;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 SExtInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a sign extension of integer types.
-class SExtInst : public CastInst {
-  /// @brief Private copy constructor
-  SExtInst(const SExtInst &CI)
-    : CastInst(CI.getType(), SExt, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  SExtInst(
-    Value *S,                     ///< The value to be sign extended
-    const Type *Ty,               ///< The type to sign extend to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  SExtInst(
-    Value *S,                     ///< The value to be sign extended
-    const Type *Ty,               ///< The type to sign extend to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical SExtInst
-  virtual CastInst *clone() const;
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const SExtInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == SExt;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 FPTruncInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a truncation of floating point types.
-class FPTruncInst : public CastInst {
-  FPTruncInst(const FPTruncInst &CI)
-    : CastInst(CI.getType(), FPTrunc, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  FPTruncInst(
-    Value *S,                     ///< The value to be truncated
-    const Type *Ty,               ///< The type to truncate to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-before-instruction semantics
-  FPTruncInst(
-    Value *S,                     ///< The value to be truncated
-    const Type *Ty,               ///< The type to truncate to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical FPTruncInst
-  virtual CastInst *clone() const;
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const FPTruncInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == FPTrunc;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 FPExtInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents an extension of floating point types.
-class FPExtInst : public CastInst {
-  FPExtInst(const FPExtInst &CI)
-    : CastInst(CI.getType(), FPExt, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  FPExtInst(
-    Value *S,                     ///< The value to be extended
-    const Type *Ty,               ///< The type to extend to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  FPExtInst(
-    Value *S,                     ///< The value to be extended
-    const Type *Ty,               ///< The type to extend to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical FPExtInst
-  virtual CastInst *clone() const;
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const FPExtInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == FPExt;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 UIToFPInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a cast unsigned integer to floating point.
-class UIToFPInst : public CastInst {
-  UIToFPInst(const UIToFPInst &CI)
-    : CastInst(CI.getType(), UIToFP, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  UIToFPInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  UIToFPInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical UIToFPInst
-  virtual CastInst *clone() const;
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const UIToFPInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == UIToFP;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 SIToFPInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a cast from signed integer to floating point.
-class SIToFPInst : public CastInst {
-  SIToFPInst(const SIToFPInst &CI)
-    : CastInst(CI.getType(), SIToFP, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  SIToFPInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  SIToFPInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical SIToFPInst
-  virtual CastInst *clone() const;
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const SIToFPInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == SIToFP;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 FPToUIInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a cast from floating point to unsigned integer
-class FPToUIInst  : public CastInst {
-  FPToUIInst(const FPToUIInst &CI)
-    : CastInst(CI.getType(), FPToUI, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  FPToUIInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  FPToUIInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< Where to insert the new instruction
-  );
-
-  /// @brief Clone an identical FPToUIInst
-  virtual CastInst *clone() const;
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const FPToUIInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == FPToUI;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 FPToSIInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a cast from floating point to signed integer.
-class FPToSIInst  : public CastInst {
-  FPToSIInst(const FPToSIInst &CI)
-    : CastInst(CI.getType(), FPToSI, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  FPToSIInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  FPToSIInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical FPToSIInst
-  virtual CastInst *clone() const;
-
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const FPToSIInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == FPToSI;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 IntToPtrInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a cast from an integer to a pointer.
-class IntToPtrInst : public CastInst {
-  IntToPtrInst(const IntToPtrInst &CI)
-    : CastInst(CI.getType(), IntToPtr, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  IntToPtrInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  IntToPtrInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical IntToPtrInst
-  virtual CastInst *clone() const;
-
-  // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const IntToPtrInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == IntToPtr;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                                 PtrToIntInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a cast from a pointer to an integer
-class PtrToIntInst : public CastInst {
-  PtrToIntInst(const PtrToIntInst &CI)
-    : CastInst(CI.getType(), PtrToInt, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  PtrToIntInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  PtrToIntInst(
-    Value *S,                     ///< The value to be converted
-    const Type *Ty,               ///< The type to convert to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical PtrToIntInst
-  virtual CastInst *clone() const;
-
-  // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const PtrToIntInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == PtrToInt;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
-};
-
-//===----------------------------------------------------------------------===//
-//                             BitCastInst Class
-//===----------------------------------------------------------------------===//
-
-/// @brief This class represents a no-op cast from one type to another.
-class BitCastInst : public CastInst {
-  BitCastInst(const BitCastInst &CI)
-    : CastInst(CI.getType(), BitCast, CI.getOperand(0)) {
-  }
-public:
-  /// @brief Constructor with insert-before-instruction semantics
-  BitCastInst(
-    Value *S,                     ///< The value to be casted
-    const Type *Ty,               ///< The type to casted to
-    const std::string &Name = "", ///< A name for the new instruction
-    Instruction *InsertBefore = 0 ///< Where to insert the new instruction
-  );
-
-  /// @brief Constructor with insert-at-end-of-block semantics
-  BitCastInst(
-    Value *S,                     ///< The value to be casted
-    const Type *Ty,               ///< The type to casted to
-    const std::string &Name,      ///< A name for the new instruction
-    BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
-  );
-
-  /// @brief Clone an identical BitCastInst
-  virtual CastInst *clone() const;
-
-  // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const BitCastInst *) { return true; }
-  static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == BitCast;
-  }
-  static inline bool classof(const Value *V) {
-    return isa<Instruction>(V) && classof(cast<Instruction>(V));
-  }
 };
 
 } // End llvm namespace

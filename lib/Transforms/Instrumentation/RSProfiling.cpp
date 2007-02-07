@@ -39,18 +39,24 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Instrumentation.h"
+//#include "ProfilingUtils.h"
 #include "RSProfiling.h"
+
 #include <set>
 #include <map>
 #include <queue>
 #include <list>
+#include <iostream>
+
 using namespace llvm;
 
 namespace {
+  Statistic<> NumBackEdges("bedge", "Number of BackEdges");
+
   enum RandomMeth {
     GBV, GBVO, HOSTCC
   };
@@ -67,7 +73,7 @@ namespace {
   /// NullProfilerRS - The basic profiler that does nothing.  It is the default
   /// profiler and thus terminates RSProfiler chains.  It is useful for 
   /// measuring framework overhead
-  class VISIBILITY_HIDDEN NullProfilerRS : public RSProfilers {
+  class NullProfilerRS : public RSProfilers {
   public:
     bool isProfiling(Value* v) {
       return false;
@@ -86,7 +92,7 @@ namespace {
   static RegisterAnalysisGroup<RSProfilers, true> NPT(NP);
 
   /// Chooser - Something that chooses when to make a sample of the profiled code
-  class VISIBILITY_HIDDEN Chooser {
+  class Chooser {
   public:
     /// ProcessChoicePoint - is called for each basic block inserted to choose 
     /// between normal and sample code
@@ -100,7 +106,7 @@ namespace {
   //Things that implement sampling policies
   //A global value that is read-mod-stored to choose when to sample.
   //A sample is taken when the global counter hits 0
-  class VISIBILITY_HIDDEN GlobalRandomCounter : public Chooser {
+  class GlobalRandomCounter : public Chooser {
     GlobalVariable* Counter;
     Value* ResetValue;
     const Type* T;
@@ -112,7 +118,7 @@ namespace {
   };
 
   //Same is GRC, but allow register allocation of the global counter
-  class VISIBILITY_HIDDEN GlobalRandomCounterOpt : public Chooser {
+  class GlobalRandomCounterOpt : public Chooser {
     GlobalVariable* Counter;
     Value* ResetValue;
     AllocaInst* AI;
@@ -126,9 +132,9 @@ namespace {
 
   //Use the cycle counter intrinsic as a source of pseudo randomness when
   //deciding when to sample.
-  class VISIBILITY_HIDDEN CycleCounter : public Chooser {
+  class CycleCounter : public Chooser {
     uint64_t rm;
-    Constant *F;
+    Function* F;
   public:
     CycleCounter(Module& m, uint64_t resetmask);
     virtual ~CycleCounter();
@@ -137,7 +143,7 @@ namespace {
   };
 
   /// ProfilerRS - Insert the random sampling framework
-  struct VISIBILITY_HIDDEN ProfilerRS : public FunctionPass {
+  struct ProfilerRS : public FunctionPass {
     std::map<Value*, Value*> TransCache;
     std::set<BasicBlock*> ChoicePoints;
     Chooser* c;
@@ -198,9 +204,9 @@ void GlobalRandomCounter::ProcessChoicePoint(BasicBlock* bb) {
   //decrement counter
   LoadInst* l = new LoadInst(Counter, "counter", t);
   
-  ICmpInst* s = new ICmpInst(ICmpInst::ICMP_EQ, l, ConstantInt::get(T, 0), 
-                             "countercc", t);
-
+  SetCondInst* s = new SetCondInst(Instruction::SetEQ, l, 
+				   ConstantInt::get(T, 0), 
+                                   "countercc", t);
   Value* nv = BinaryOperator::createSub(l, ConstantInt::get(T, 1),
                                      "counternew", t);
   new StoreInst(nv, Counter, t);
@@ -271,9 +277,9 @@ void GlobalRandomCounterOpt::ProcessChoicePoint(BasicBlock* bb) {
   //decrement counter
   LoadInst* l = new LoadInst(AI, "counter", t);
   
-  ICmpInst* s = new ICmpInst(ICmpInst::ICMP_EQ, l, ConstantInt::get(T, 0), 
-                             "countercc", t);
-
+  SetCondInst* s = new SetCondInst(Instruction::SetEQ, l, 
+				   ConstantInt::get(T, 0), 
+                                   "countercc", t);
   Value* nv = BinaryOperator::createSub(l, ConstantInt::get(T, 1),
                                      "counternew", t);
   new StoreInst(nv, AI, t);
@@ -291,7 +297,7 @@ void GlobalRandomCounterOpt::ProcessChoicePoint(BasicBlock* bb) {
 
 
 CycleCounter::CycleCounter(Module& m, uint64_t resetmask) : rm(resetmask) {
-  F = m.getOrInsertFunction("llvm.readcyclecounter", Type::Int64Ty, NULL);
+  F = m.getOrInsertFunction("llvm.readcyclecounter", Type::ULongTy, NULL);
 }
 
 CycleCounter::~CycleCounter() {}
@@ -303,13 +309,12 @@ void CycleCounter::ProcessChoicePoint(BasicBlock* bb) {
   
   CallInst* c = new CallInst(F, "rdcc", t);
   BinaryOperator* b = 
-    BinaryOperator::createAnd(c, ConstantInt::get(Type::Int64Ty, rm),
+    BinaryOperator::createAnd(c, ConstantInt::get(Type::ULongTy, rm),
 			      "mrdcc", t);
   
-  ICmpInst *s = new ICmpInst(ICmpInst::ICMP_EQ, b,
-                             ConstantInt::get(Type::Int64Ty, 0), 
-                             "mrdccc", t);
-
+  SetCondInst* s = new SetCondInst(Instruction::SetEQ, b, 
+				   ConstantInt::get(Type::ULongTy, 0), 
+                                   "mrdccc", t);
   t->setCondition(s);
 }
 
@@ -333,15 +338,15 @@ void RSProfilers_std::IncrementCounterInBlock(BasicBlock *BB, unsigned CounterNu
   
   // Create the getelementptr constant expression
   std::vector<Constant*> Indices(2);
-  Indices[0] = Constant::getNullValue(Type::Int32Ty);
-  Indices[1] = ConstantInt::get(Type::Int32Ty, CounterNum);
+  Indices[0] = Constant::getNullValue(Type::IntTy);
+  Indices[1] = ConstantInt::get(Type::IntTy, CounterNum);
   Constant *ElementPtr = ConstantExpr::getGetElementPtr(CounterArray, Indices);
   
   // Load, increment and store the value back.
   Value *OldVal = new LoadInst(ElementPtr, "OldCounter", InsertPos);
   profcode.insert(OldVal);
   Value *NewVal = BinaryOperator::createAdd(OldVal,
-					    ConstantInt::get(Type::Int32Ty, 1),
+					    ConstantInt::get(Type::UIntTy, 1),
 					    "NewCounter", InsertPos);
   profcode.insert(NewVal);
   profcode.insert(new StoreInst(NewVal, ElementPtr, InsertPos));
@@ -461,7 +466,7 @@ void ProfilerRS::ProcessBackEdge(BasicBlock* src, BasicBlock* dst, Function& F) 
   //b:
   new BranchInst(cast<BasicBlock>(Translate(dst)), bbC);
   new BranchInst(dst, cast<BasicBlock>(Translate(dst)), 
-		 ConstantInt::get(Type::Int1Ty, true), bbCp);
+		 ConstantBool::get(true), bbCp);
   //c:
   {
     TerminatorInst* iB = src->getTerminator();
@@ -500,7 +505,7 @@ void ProfilerRS::ProcessBackEdge(BasicBlock* src, BasicBlock* dst, Function& F) 
 }
 
 bool ProfilerRS::runOnFunction(Function& F) {
-  if (!F.isDeclaration()) {
+  if (!F.isExternal()) {
     std::set<std::pair<BasicBlock*, BasicBlock*> > BackEdges;
     RSProfilers& LI = getAnalysis<RSProfilers>();
     
@@ -517,7 +522,7 @@ bool ProfilerRS::runOnFunction(Function& F) {
     TerminatorInst* T = F.getEntryBlock().getTerminator();
     ReplaceInstWithInst(T, new BranchInst(T->getSuccessor(0),
 			       cast<BasicBlock>(Translate(T->getSuccessor(0))),
-					 ConstantInt::get(Type::Int1Ty, true)));
+					  ConstantBool::get(true)));
     
     //do whatever is needed now that the function is duplicated
     c->PrepFunction(&F);
@@ -540,10 +545,10 @@ bool ProfilerRS::runOnFunction(Function& F) {
 bool ProfilerRS::doInitialization(Module &M) {
   switch (RandomMethod) {
   case GBV:
-    c = new GlobalRandomCounter(M, Type::Int32Ty, (1 << 14) - 1);
+    c = new GlobalRandomCounter(M, Type::UIntTy, (1 << 14) - 1);
     break;
   case GBVO:
-    c = new GlobalRandomCounterOpt(M, Type::Int32Ty, (1 << 14) - 1);
+    c = new GlobalRandomCounterOpt(M, Type::UIntTy, (1 << 14) - 1);
     break;
   case HOSTCC:
     c = new CycleCounter(M, (1 << 14) - 1);
@@ -623,7 +628,7 @@ static void getBackEdges(Function& F, T& BackEdges) {
   std::map<BasicBlock*, int> finish;
   int time = 0;
   recBackEdge(&F.getEntryBlock(), BackEdges, color, depth, finish, time);
-  DOUT << F.getName() << " " << BackEdges.size() << "\n";
+  DEBUG(std::cerr << F.getName() << " " << BackEdges.size() << "\n");
 }
 
 

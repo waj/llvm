@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains support for writing Dwarf debug and exception info into
-// asm files.  For Details on the Dwarf 3 specfication see DWARF Debugging
-// Information Format V.3 reference manual http://dwarf.freestandards.org ,
+// This file contains support for writing Dwarf debug info into asm files.  For
+// Details on the Dwarf 3 specfication see DWARF Debugging Information Format
+// V.3 reference manual http://dwarf.freestandards.org ,
 //
-// The role of the Dwarf Writer class is to extract information from the
-// MachineModuleInfo object, organize it in Dwarf form and then emit it into asm
+// The role of the Dwarf Writer class is to extract debug information from the
+// MachineDebugInfo object, organize it in Dwarf form and then emit it into asm
 // the current asm file using data and high level Dwarf directives.
 // 
 //===----------------------------------------------------------------------===//
@@ -20,14 +20,13 @@
 #ifndef LLVM_CODEGEN_DWARFWRITER_H
 #define LLVM_CODEGEN_DWARFWRITER_H
 
-#include <iosfwd>
+#include <iostream>
 
 namespace llvm {
 
 class AsmPrinter;
-class DwarfDebug;
-class DwarfException;
-class MachineModuleInfo;
+class Dwarf;
+class MachineDebugInfo;
 class MachineFunction;
 class Module;
 class TargetAsmInfo;
@@ -38,22 +37,18 @@ class TargetAsmInfo;
 
 class DwarfWriter {
 private:
-  /// DD - Provides the DwarfWriter debug implementation.
+  /// DM - Provides the DwarfWriter implementation.
   ///
-  DwarfDebug *DD;
-
-  /// DE - Provides the DwarfWriter exception implementation.
-  ///
-  DwarfException *DE;
+  Dwarf *DW;
   
 public:
   
   DwarfWriter(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T);
   virtual ~DwarfWriter();
   
-  /// SetModuleInfo - Set machine module info when it's known that pass manager
-  /// has created it.  Set by the target AsmPrinter.
-  void SetModuleInfo(MachineModuleInfo *MMI);
+  /// SetDebugInfo - Set DebugInfo when it's known that pass manager has
+  /// created it.  Set by the target AsmPrinter.
+  void SetDebugInfo(MachineDebugInfo *DI);
 
   //===--------------------------------------------------------------------===//
   // Main entry points.

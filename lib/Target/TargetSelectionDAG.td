@@ -164,10 +164,6 @@ def SDTStore : SDTypeProfile<0, 2, [ // store
   SDTCisPtrTy<1>  
 ]>;
 
-def SDTIStore : SDTypeProfile<1, 3, [ // indexed store
-  SDTCisSameAs<0, 2>, SDTCisPtrTy<0>, SDTCisPtrTy<3>
-]>;
-
 def SDTVecShuffle : SDTypeProfile<1, 3, [
   SDTCisSameAs<0, 1>, SDTCisSameAs<1, 2>, SDTCisIntVectorOfSameSize<3, 0>
 ]>;
@@ -303,7 +299,6 @@ def ret        : SDNode<"ISD::RET"        , SDTRet,    [SDNPHasChain]>;
 // and truncst (see below).
 def ld         : SDNode<"ISD::LOAD"       , SDTLoad,  [SDNPHasChain]>;
 def st         : SDNode<"ISD::STORE"      , SDTStore, [SDNPHasChain]>;
-def ist        : SDNode<"ISD::STORE"      , SDTIStore, [SDNPHasChain]>;
 
 def vector_shuffle : SDNode<"ISD::VECTOR_SHUFFLE", SDTVecShuffle, []>;
 def build_vector : SDNode<"ISD::BUILD_VECTOR", SDTypeProfile<1, 0, []>, []>;
@@ -408,7 +403,7 @@ def ineg : PatFrag<(ops node:$in), (sub 0, node:$in)>;
 def load : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::NON_EXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED;
+      LD->getAddressingMode() == ISD::UNINDEXED;
   return false;
 }]>;
 
@@ -416,253 +411,132 @@ def load : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
 def extloadi1  : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::EXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i1;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i1;
   return false;
 }]>;
 def extloadi8  : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::EXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i8;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i8;
   return false;
 }]>;
 def extloadi16 : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::EXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i16;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i16;
   return false;
 }]>;
 def extloadi32 : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::EXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i32;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i32;
   return false;
 }]>;
 def extloadf32 : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::EXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::f32;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::f32;
   return false;
 }]>;
 
 def sextloadi1  : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::SEXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i1;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i1;
   return false;
 }]>;
 def sextloadi8  : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::SEXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i8;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i8;
   return false;
 }]>;
 def sextloadi16 : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::SEXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i16;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i16;
   return false;
 }]>;
 def sextloadi32 : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::SEXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i32;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i32;
   return false;
 }]>;
 
 def zextloadi1  : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::ZEXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i1;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i1;
   return false;
 }]>;
 def zextloadi8  : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::ZEXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i8;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i8;
   return false;
 }]>;
 def zextloadi16 : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::ZEXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i16;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i16;
   return false;
 }]>;
 def zextloadi32 : PatFrag<(ops node:$ptr), (ld node:$ptr), [{
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
     return LD->getExtensionType() == ISD::ZEXTLOAD &&
-           LD->getAddressingMode() == ISD::UNINDEXED &&
-           LD->getLoadedVT() == MVT::i32;
+      LD->getAddressingMode() == ISD::UNINDEXED &&
+      LD->getLoadedVT() == MVT::i32;
   return false;
 }]>;
 
 // store fragments.
 def store : PatFrag<(ops node:$val, node:$ptr),
                     (st node:$val, node:$ptr), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N))
-    return !ST->isTruncatingStore() &&
-           ST->getAddressingMode() == ISD::UNINDEXED;
-  return false;
+  return ISD::isNON_TRUNCStore(N);
 }]>;
 
 // truncstore fragments.
 def truncstorei1 : PatFrag<(ops node:$val, node:$ptr),
                            (st node:$val, node:$ptr), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N))
-    return ST->isTruncatingStore() && ST->getStoredVT() == MVT::i1 &&
-           ST->getAddressingMode() == ISD::UNINDEXED;
+  if (ISD::isTRUNCStore(N))
+    return cast<StoreSDNode>(N)->getStoredVT() == MVT::i1;
   return false;
 }]>;
 def truncstorei8 : PatFrag<(ops node:$val, node:$ptr),
                            (st node:$val, node:$ptr), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N))
-    return ST->isTruncatingStore() && ST->getStoredVT() == MVT::i8 &&
-           ST->getAddressingMode() == ISD::UNINDEXED;
+  if (ISD::isTRUNCStore(N))
+    return cast<StoreSDNode>(N)->getStoredVT() == MVT::i8;
   return false;
 }]>;
 def truncstorei16 : PatFrag<(ops node:$val, node:$ptr),
                             (st node:$val, node:$ptr), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N))
-    return ST->isTruncatingStore() && ST->getStoredVT() == MVT::i16 &&
-           ST->getAddressingMode() == ISD::UNINDEXED;
+  if (ISD::isTRUNCStore(N))
+    return cast<StoreSDNode>(N)->getStoredVT() == MVT::i16;
   return false;
 }]>;
 def truncstorei32 : PatFrag<(ops node:$val, node:$ptr),
                             (st node:$val, node:$ptr), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N))
-    return ST->isTruncatingStore() && ST->getStoredVT() == MVT::i32 &&
-           ST->getAddressingMode() == ISD::UNINDEXED;
+  if (ISD::isTRUNCStore(N))
+    return cast<StoreSDNode>(N)->getStoredVT() == MVT::i32;
   return false;
 }]>;
 def truncstoref32 : PatFrag<(ops node:$val, node:$ptr),
                             (st node:$val, node:$ptr), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N))
-    return ST->isTruncatingStore() && ST->getStoredVT() == MVT::f32 &&
-           ST->getAddressingMode() == ISD::UNINDEXED;
-  return false;
-}]>;
-
-// indexed store fragments.
-def pre_store : PatFrag<(ops node:$val, node:$base, node:$offset),
-                        (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::PRE_INC || AM == ISD::PRE_DEC) &&
-           !ST->isTruncatingStore();
-  }
-  return false;
-}]>;
-
-def pre_truncsti1 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                            (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::PRE_INC || AM == ISD::PRE_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::i1;
-  }
-  return false;
-}]>;
-def pre_truncsti8 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                            (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::PRE_INC || AM == ISD::PRE_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::i8;
-  }
-  return false;
-}]>;
-def pre_truncsti16 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                             (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::PRE_INC || AM == ISD::PRE_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::i16;
-  }
-  return false;
-}]>;
-def pre_truncsti32 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                             (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::PRE_INC || AM == ISD::PRE_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::i32;
-  }
-  return false;
-}]>;
-def pre_truncstf32 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                             (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::PRE_INC || AM == ISD::PRE_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::f32;
-  }
-  return false;
-}]>;
-
-def post_store : PatFrag<(ops node:$val, node:$ptr, node:$offset),
-                         (ist node:$val, node:$ptr, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return !ST->isTruncatingStore() &&
-            (AM == ISD::POST_INC || AM == ISD::POST_DEC);
-  }
-  return false;
-}]>;
-
-def post_truncsti1 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                             (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::POST_INC || AM == ISD::POST_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::i1;
-  }
-  return false;
-}]>;
-def post_truncsti8 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                             (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::POST_INC || AM == ISD::POST_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::i8;
-  }
-  return false;
-}]>;
-def post_truncsti16 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                              (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::POST_INC || AM == ISD::POST_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::i16;
-  }
-  return false;
-}]>;
-def post_truncsti32 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                              (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::POST_INC || AM == ISD::POST_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::i32;
-  }
-  return false;
-}]>;
-def post_truncstf32 : PatFrag<(ops node:$val, node:$base, node:$offset),
-                              (ist node:$val, node:$base, node:$offset), [{
-  if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    ISD::MemIndexedMode AM = ST->getAddressingMode();
-    return (AM == ISD::POST_INC || AM == ISD::POST_DEC) &&
-           ST->isTruncatingStore() && ST->getStoredVT() == MVT::f32;
-  }
+  if (ISD::isTRUNCStore(N))
+    return cast<StoreSDNode>(N)->getStoredVT() == MVT::f32;
   return false;
 }]>;
 
@@ -754,6 +628,9 @@ class ComplexPattern<ValueType ty, int numops, string fn,
 def SDT_dwarf_loc : SDTypeProfile<0, 3,
                       [SDTCisInt<0>, SDTCisInt<1>, SDTCisInt<2>]>;
 def dwarf_loc : SDNode<"ISD::DEBUG_LOC", SDT_dwarf_loc,[SDNPHasChain]>;
+
+def SDT_dwarf_label : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
+def dwarf_label : SDNode<"ISD::DEBUG_LABEL", SDT_dwarf_label,[SDNPHasChain]>;
 
 
 

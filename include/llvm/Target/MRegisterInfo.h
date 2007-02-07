@@ -29,7 +29,6 @@ class MachineInstr;
 class MachineLocation;
 class MachineMove;
 class TargetRegisterClass;
-class CalleeSavedInfo;
 
 /// TargetRegisterDesc - This record contains all of the information known about
 /// a particular register.  The AliasSet field (if not null) contains a pointer
@@ -283,16 +282,16 @@ public:
     return false;
   }
 
-  /// getCalleeSavedRegs - Return a null-terminated list of all of the
-  /// callee saved registers on this target. The register should be in the
+  /// getCalleeSaveRegs - Return a null-terminated list of all of the
+  /// callee-save registers on this target. The register should be in the
   /// order of desired callee-save stack frame offset. The first register is
   /// closed to the incoming stack pointer if stack grows down, and vice versa.
-  virtual const unsigned* getCalleeSavedRegs() const = 0;
+  virtual const unsigned* getCalleeSaveRegs() const = 0;
 
-  /// getCalleeSavedRegClasses - Return a null-terminated list of the preferred
-  /// register classes to spill each callee saved register with.  The order and
+  /// getCalleeSaveRegClasses - Return a null-terminated list of the preferred
+  /// register classes to spill each callee-saved register with.  The order and
   /// length of this list match the getCalleeSaveRegs() list.
-  virtual const TargetRegisterClass* const *getCalleeSavedRegClasses() const =0;
+  virtual const TargetRegisterClass* const *getCalleeSaveRegClasses() const = 0;
 
   //===--------------------------------------------------------------------===//
   // Register Class Information
@@ -319,26 +318,6 @@ public:
   // manipulation passes to move data around between registers,
   // immediates and memory.  FIXME: Move these to TargetInstrInfo.h.
   //
-
-  /// spillCalleeSavedRegisters - Issues instruction(s) to spill all callee saved
-  /// registers and returns true if it isn't possible / profitable to do so by
-  /// issuing a series of store instructions via storeRegToStackSlot(). Returns
-  /// false otherwise.
-  virtual bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                         MachineBasicBlock::iterator MI,
-                                const std::vector<CalleeSavedInfo> &CSI) const {
-    return false;
-  }
-
-  /// restoreCalleeSavedRegisters - Issues instruction(s) to restore all callee
-  /// saved registers and returns true if it isn't possible / profitable to do
-  /// so by issuing a series of load instructions via loadRegToStackSlot().
-  /// Returns false otherwise.
-  virtual bool restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                           MachineBasicBlock::iterator MI,
-                                const std::vector<CalleeSavedInfo> &CSI) const {
-    return false;
-  }
 
   virtual void storeRegToStackSlot(MachineBasicBlock &MBB,
                                    MachineBasicBlock::iterator MI,
@@ -367,17 +346,6 @@ public:
     return 0;
   }
 
-  /// targetHandlesStackFrameRounding - Returns true if the target is responsible
-  /// for rounding up the stack frame (probably at emitPrologue time).
-  virtual bool targetHandlesStackFrameRounding() const {
-    return false;
-  }
-
-  /// hasFP - Return true if the specified function should have a dedicated frame
-  /// pointer register. For most targets this is true only if the function has
-  /// variable sized allocas or if frame pointer elimination is disabled.
-  virtual bool hasFP(const MachineFunction &MF) const = 0;
-
   /// getCallFrameSetup/DestroyOpcode - These methods return the opcode of the
   /// frame setup/destroy instructions if they exist (-1 otherwise).  Some
   /// targets use pseudo instructions in order to abstract away the difference
@@ -405,10 +373,10 @@ public:
     assert(0 && "Call Frame Pseudo Instructions do not exist on this target!");
   }
 
-  /// processFunctionBeforeCalleeSavedScan - This method is called immediately
+  /// processFunctionBeforeCalleeSaveScan - This method is called immediately
   /// before PrologEpilogInserter scans the physical registers used to determine
-  /// what callee saved registers should be spilled. This method is optional.
-  virtual void processFunctionBeforeCalleeSavedScan(MachineFunction &MF) const {
+  /// what callee-save registers should be spilled. This method is optional.
+  virtual void processFunctionBeforeCalleeSaveScan(MachineFunction &MF) const {
   }
 
   /// processFunctionBeforeFrameFinalized - This method is called immediately
@@ -462,10 +430,10 @@ public:
   /// getInitialFrameState - Returns a list of machine moves that are assumed
   /// on entry to all functions.  Note that LabelID is ignored (assumed to be
   /// the beginning of the function.)
-  virtual void getInitialFrameState(std::vector<MachineMove> &Moves) const;
+  virtual void getInitialFrameState(std::vector<MachineMove *> &Moves) const;
 };
 
-// This is useful when building IndexedMaps keyed on virtual registers
+// This is useful when building DenseMaps keyed on virtual registers
 struct VirtReg2IndexFunctor : std::unary_function<unsigned, unsigned> {
   unsigned operator()(unsigned Reg) const {
     return Reg - MRegisterInfo::FirstVirtualRegister;

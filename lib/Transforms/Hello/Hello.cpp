@@ -12,18 +12,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "hello"
 #include "llvm/Pass.h"
 #include "llvm/Function.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/SlowOperationInformer.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/ADT/Statistic.h"
+#include <iostream>
 using namespace llvm;
 
-STATISTIC(HelloCounter, "Counts number of functions greeted");
-
 namespace {
+  Statistic<int> HelloCounter("hellocount",
+      "Counts number of functions greeted");
   // Hello - The first implementation, without getAnalysisUsage.
   struct Hello : public FunctionPass {
     virtual bool runOnFunction(Function &F) {
@@ -31,7 +30,7 @@ namespace {
       HelloCounter++;
       std::string fname = F.getName();
       EscapeString(fname);
-      cerr << "Hello: " << fname << "\n";
+      std::cerr << "Hello: " << fname << "\n";
       return false;
     }
   };
@@ -44,7 +43,7 @@ namespace {
       HelloCounter++;
       std::string fname = F.getName();
       EscapeString(fname);
-      cerr << "Hello: " << fname << "\n";
+      std::cerr << "Hello: " << fname << "\n";
       return false;
     }
 

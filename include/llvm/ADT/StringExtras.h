@@ -18,7 +18,6 @@
 #include <cctype>
 #include <cstdio>
 #include <string>
-#include <vector>
 
 namespace llvm {
 
@@ -129,12 +128,6 @@ static inline bool StringsEqualNoCase(const std::string &LHS,
 /// and any delimiter prefix from it.
 std::string getToken(std::string &Source,
                      const char *Delimiters = " \t\n\v\f\r");
-
-/// SplitString - Split up the specified string according to the specified
-/// delimiters, appending the result fragments to the output list.
-void SplitString(const std::string &Source,
-                 std::vector<std::string> &OutFragments,
-                 const char *Delimiters = " \t\n\v\f\r");
 
 /// UnescapeString - Modify the argument string, turning two character sequences
 /// like '\\' 'n' into '\n'.  This handles: \e \a \b \f \n \r \t \v \' \\ and

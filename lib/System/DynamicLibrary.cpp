@@ -49,7 +49,6 @@ static inline void check_ltdl_initialization() {
   static bool did_initialize_ltdl = false;
   if (!did_initialize_ltdl) {
     int Err = lt_dlinit();
-    Err = Err; // Silence warning.
     assert(0 == Err && "Can't init the ltdl library");
     did_initialize_ltdl = true;
   }
@@ -142,11 +141,10 @@ void* DynamicLibrary::SearchForAddressOfSymbol(const char* symbolName) {
   // important symbols are marked 'private external' which doesn't allow
   // SearchForAddressOfSymbol to find them.  As such, we special case them here,
   // there is only a small handful of them.
-
 #ifdef __APPLE__
+  {
 #define EXPLICIT_SYMBOL(SYM) \
    extern void *SYM; if (!strcmp(symbolName, #SYM)) return &SYM
-  {
     EXPLICIT_SYMBOL(__ashldi3);
     EXPLICIT_SYMBOL(__ashrdi3);
     EXPLICIT_SYMBOL(__cmpdi2);
@@ -162,39 +160,9 @@ void* DynamicLibrary::SearchForAddressOfSymbol(const char* symbolName) {
     EXPLICIT_SYMBOL(__moddi3);
     EXPLICIT_SYMBOL(__udivdi3);
     EXPLICIT_SYMBOL(__umoddi3);
-  }
 #undef EXPLICIT_SYMBOL
-#endif
-
-// This macro returns the address of a well-known, explicit symbol
-#define EXPLICIT_SYMBOL(SYM) \
-   if (!strcmp(symbolName, #SYM)) return &SYM
-
-// On linux we have a weird situation. The stderr/out/in symbols are both
-// macros and global variables because of standards requirements. So, we 
-// boldly use the EXPLICIT_SYMBOL macro without checking for a #define first.
-#if defined(__linux__)
-  {
-    EXPLICIT_SYMBOL(stderr);
-    EXPLICIT_SYMBOL(stdout);
-    EXPLICIT_SYMBOL(stdin);
-  }
-#else
-  // For everything else, we want to check to make sure the symbol isn't defined
-  // as a macro before using EXPLICIT_SYMBOL.
-  {
-#ifndef stdin
-    EXPLICIT_SYMBOL(stdin);
-#endif
-#ifndef stdout
-    EXPLICIT_SYMBOL(stdout);
-#endif
-#ifndef stderr
-    EXPLICIT_SYMBOL(stderr);
-#endif
   }
 #endif
-#undef EXPLICIT_SYMBOL
 
   return 0;
 }

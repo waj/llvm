@@ -18,19 +18,15 @@
 #include "llvm/Module.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Mangler.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
+#include <iostream>
 #include <cerrno>
 using namespace llvm;
-
-static cl::opt<bool>
-AsmVerbose("asm-verbose", cl::Hidden, cl::desc("Add comments to directives."));
 
 AsmPrinter::AsmPrinter(std::ostream &o, TargetMachine &tm,
                        const TargetAsmInfo *T)
@@ -102,26 +98,14 @@ bool AsmPrinter::doInitialization(Module &M) {
 
   SwitchToDataSection("");   // Reset back to no section.
   
-  if (MachineModuleInfo *MMI = getAnalysisToUpdate<MachineModuleInfo>()) {
-    MMI->AnalyzeModule(M);
+  if (MachineDebugInfo *DebugInfo = getAnalysisToUpdate<MachineDebugInfo>()) {
+    DebugInfo->AnalyzeModule(M);
   }
   
   return false;
 }
 
 bool AsmPrinter::doFinalization(Module &M) {
-  if (TAI->getWeakRefDirective()) {
-    if (ExtWeakSymbols.begin() != ExtWeakSymbols.end())
-      SwitchToDataSection("");
-
-    for (std::set<const GlobalValue*>::iterator i = ExtWeakSymbols.begin(),
-         e = ExtWeakSymbols.end(); i != e; ++i) {
-      const GlobalValue *GV = *i;
-      std::string Name = Mang->getValueName(GV);
-      O << TAI->getWeakRefDirective() << Name << "\n";
-    }
-  }
-
   delete Mang; Mang = 0;
   return false;
 }
@@ -204,34 +188,36 @@ void AsmPrinter::EmitJumpTableInfo(MachineJumpTableInfo *MJTI,
                                    MachineFunction &MF) {
   const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
   if (JT.empty()) return;
-  bool IsPic = TM.getRelocationModel() == Reloc::PIC_;
+  const TargetData *TD = TM.getTargetData();
   
-  // Use JumpTableDirective otherwise honor the entry size from the jump table
-  // info.
+  // JTEntryDirective is a string to print sizeof(ptr) for non-PIC jump tables,
+  // and 32 bits for PIC since PIC jump table entries are differences, not
+  // pointers to blocks.
+  // Use the architecture specific relocation directive, if it is set
   const char *JTEntryDirective = TAI->getJumpTableDirective();
-  bool HadJTEntryDirective = JTEntryDirective != NULL;
-  if (!HadJTEntryDirective) {
-    JTEntryDirective = MJTI->getEntrySize() == 4 ?
-      TAI->getData32bitsDirective() : TAI->getData64bitsDirective();
-  }
+  if (!JTEntryDirective)
+    JTEntryDirective = TAI->getData32bitsDirective();
   
   // Pick the directive to use to print the jump table entries, and switch to 
   // the appropriate section.
-  TargetLowering *LoweringInfo = TM.getTargetLowering();
-
-  const char* JumpTableDataSection = TAI->getJumpTableDataSection();  
-  if ((IsPic && !(LoweringInfo && LoweringInfo->usesGlobalOffsetTable())) ||
-     !JumpTableDataSection) {
-    // In PIC mode, we need to emit the jump table to the same section as the
-    // function body itself, otherwise the label differences won't make sense.
-    // We should also do if the section name is NULL.
-    const Function *F = MF.getFunction();
-    SwitchToTextSection(getSectionForFunction(*F).c_str(), F);
+  if (TM.getRelocationModel() == Reloc::PIC_) {
+    TargetLowering *LoweringInfo = TM.getTargetLowering();
+    if (LoweringInfo && LoweringInfo->usesGlobalOffsetTable()) {
+      SwitchToDataSection(TAI->getJumpTableDataSection());
+      if (TD->getPointerSize() == 8 && !JTEntryDirective)
+        JTEntryDirective = TAI->getData64bitsDirective();
+    } else {      
+      // In PIC mode, we need to emit the jump table to the same section as the
+      // function body itself, otherwise the label differences won't make sense.
+      const Function *F = MF.getFunction();
+      SwitchToTextSection(getSectionForFunction(*F).c_str(), F);
+    }
   } else {
-    SwitchToDataSection(JumpTableDataSection);
+    SwitchToDataSection(TAI->getJumpTableDataSection());
+    if (TD->getPointerSize() == 8)
+      JTEntryDirective = TAI->getData64bitsDirective();
   }
-  
-  EmitAlignment(Log2_32(MJTI->getAlignment()));
+  EmitAlignment(Log2_32(TD->getPointerAlignment()));
   
   for (unsigned i = 0, e = JT.size(); i != e; ++i) {
     const std::vector<MachineBasicBlock*> &JTBBs = JT[i].MBBs;
@@ -243,17 +229,10 @@ void AsmPrinter::EmitJumpTableInfo(MachineJumpTableInfo *MJTI,
     // the number of relocations the assembler will generate for the jump table.
     // Set directives are all printed before the jump table itself.
     std::set<MachineBasicBlock*> EmittedSets;
-    if (TAI->getSetDirective() && IsPic)
+    if (TAI->getSetDirective() && TM.getRelocationModel() == Reloc::PIC_)
       for (unsigned ii = 0, ee = JTBBs.size(); ii != ee; ++ii)
         if (EmittedSets.insert(JTBBs[ii]).second)
           printSetLabel(i, JTBBs[ii]);
-    
-    // On some targets (e.g. darwin) we want to emit two consequtive labels
-    // before each jump table.  The first label is never referenced, but tells
-    // the assembler and linker the extents of the jump table object.  The
-    // second label is actually referenced by the code.
-    if (const char *JTLabelPrefix = TAI->getJumpTableSpecialLabelPrefix())
-      O << JTLabelPrefix << "JTI" << getFunctionNumber() << '_' << i << ":\n";
     
     O << TAI->getPrivateGlobalPrefix() << "JTI" << getFunctionNumber() 
       << '_' << i << ":\n";
@@ -268,13 +247,12 @@ void AsmPrinter::EmitJumpTableInfo(MachineJumpTableInfo *MJTI,
       if (!EmittedSets.empty()) {
         O << TAI->getPrivateGlobalPrefix() << getFunctionNumber()
           << '_' << i << "_set_" << JTBBs[ii]->getNumber();
-      } else if (IsPic) {
+      } else if (TM.getRelocationModel() == Reloc::PIC_) {
         printBasicBlockLabel(JTBBs[ii], false, false);
-        // If the arch uses custom Jump Table directives, don't calc relative to
-        // JT
-        if (!HadJTEntryDirective) 
-          O << '-' << TAI->getPrivateGlobalPrefix() << "JTI"
-            << getFunctionNumber() << '_' << i;
+	//If the arch uses custom Jump Table directives, don't calc relative to JT
+	if (!TAI->getJumpTableDirective()) 
+	  O << '-' << TAI->getPrivateGlobalPrefix() << "JTI"
+	    << getFunctionNumber() << '_' << i;
       } else {
         printBasicBlockLabel(JTBBs[ii], false, false);
       }
@@ -356,209 +334,11 @@ void AsmPrinter::EmitXXStructorList(Constant *List) {
 /// generate the appropriate value.
 const std::string AsmPrinter::getGlobalLinkName(const GlobalVariable *GV) const{
   std::string LinkName;
-  
-  if (isa<Function>(GV)) {
-    LinkName += TAI->getFunctionAddrPrefix();
-    LinkName += Mang->getValueName(GV);
-    LinkName += TAI->getFunctionAddrSuffix();
-  } else {
-    LinkName += TAI->getGlobalVarAddrPrefix();
-    LinkName += Mang->getValueName(GV);
-    LinkName += TAI->getGlobalVarAddrSuffix();
-  }  
-  
+  // Default action is to use a global symbol.                              
+  LinkName = TAI->getGlobalPrefix();
+  LinkName += GV->getName();
   return LinkName;
 }
-
-//===----------------------------------------------------------------------===//
-/// LEB 128 number encoding.
-
-/// PrintULEB128 - Print a series of hexidecimal values (separated by commas)
-/// representing an unsigned leb128 value.
-void AsmPrinter::PrintULEB128(unsigned Value) const {
-  do {
-    unsigned Byte = Value & 0x7f;
-    Value >>= 7;
-    if (Value) Byte |= 0x80;
-    O << "0x" << std::hex << Byte << std::dec;
-    if (Value) O << ", ";
-  } while (Value);
-}
-
-/// SizeULEB128 - Compute the number of bytes required for an unsigned leb128
-/// value.
-unsigned AsmPrinter::SizeULEB128(unsigned Value) {
-  unsigned Size = 0;
-  do {
-    Value >>= 7;
-    Size += sizeof(int8_t);
-  } while (Value);
-  return Size;
-}
-
-/// PrintSLEB128 - Print a series of hexidecimal values (separated by commas)
-/// representing a signed leb128 value.
-void AsmPrinter::PrintSLEB128(int Value) const {
-  int Sign = Value >> (8 * sizeof(Value) - 1);
-  bool IsMore;
-  
-  do {
-    unsigned Byte = Value & 0x7f;
-    Value >>= 7;
-    IsMore = Value != Sign || ((Byte ^ Sign) & 0x40) != 0;
-    if (IsMore) Byte |= 0x80;
-    O << "0x" << std::hex << Byte << std::dec;
-    if (IsMore) O << ", ";
-  } while (IsMore);
-}
-
-/// SizeSLEB128 - Compute the number of bytes required for a signed leb128
-/// value.
-unsigned AsmPrinter::SizeSLEB128(int Value) {
-  unsigned Size = 0;
-  int Sign = Value >> (8 * sizeof(Value) - 1);
-  bool IsMore;
-  
-  do {
-    unsigned Byte = Value & 0x7f;
-    Value >>= 7;
-    IsMore = Value != Sign || ((Byte ^ Sign) & 0x40) != 0;
-    Size += sizeof(int8_t);
-  } while (IsMore);
-  return Size;
-}
-
-//===--------------------------------------------------------------------===//
-// Emission and print routines
-//
-
-/// PrintHex - Print a value as a hexidecimal value.
-///
-void AsmPrinter::PrintHex(int Value) const { 
-  O << "0x" << std::hex << Value << std::dec;
-}
-
-/// EOL - Print a newline character to asm stream.  If a comment is present
-/// then it will be printed first.  Comments should not contain '\n'.
-void AsmPrinter::EOL(const std::string &Comment) const {
-  if (AsmVerbose && !Comment.empty()) {
-    O << "\t"
-      << TAI->getCommentString()
-      << " "
-      << Comment;
-  }
-  O << "\n";
-}
-
-/// EmitULEB128Bytes - Emit an assembler byte data directive to compose an
-/// unsigned leb128 value.
-void AsmPrinter::EmitULEB128Bytes(unsigned Value) const {
-  if (TAI->hasLEB128()) {
-    O << "\t.uleb128\t"
-      << Value;
-  } else {
-    O << TAI->getData8bitsDirective();
-    PrintULEB128(Value);
-  }
-}
-
-/// EmitSLEB128Bytes - print an assembler byte data directive to compose a
-/// signed leb128 value.
-void AsmPrinter::EmitSLEB128Bytes(int Value) const {
-  if (TAI->hasLEB128()) {
-    O << "\t.sleb128\t"
-      << Value;
-  } else {
-    O << TAI->getData8bitsDirective();
-    PrintSLEB128(Value);
-  }
-}
-
-/// EmitInt8 - Emit a byte directive and value.
-///
-void AsmPrinter::EmitInt8(int Value) const {
-  O << TAI->getData8bitsDirective();
-  PrintHex(Value & 0xFF);
-}
-
-/// EmitInt16 - Emit a short directive and value.
-///
-void AsmPrinter::EmitInt16(int Value) const {
-  O << TAI->getData16bitsDirective();
-  PrintHex(Value & 0xFFFF);
-}
-
-/// EmitInt32 - Emit a long directive and value.
-///
-void AsmPrinter::EmitInt32(int Value) const {
-  O << TAI->getData32bitsDirective();
-  PrintHex(Value);
-}
-
-/// EmitInt64 - Emit a long long directive and value.
-///
-void AsmPrinter::EmitInt64(uint64_t Value) const {
-  if (TAI->getData64bitsDirective()) {
-    O << TAI->getData64bitsDirective();
-    PrintHex(Value);
-  } else {
-    if (TM.getTargetData()->isBigEndian()) {
-      EmitInt32(unsigned(Value >> 32)); O << "\n";
-      EmitInt32(unsigned(Value));
-    } else {
-      EmitInt32(unsigned(Value)); O << "\n";
-      EmitInt32(unsigned(Value >> 32));
-    }
-  }
-}
-
-/// toOctal - Convert the low order bits of X into an octal digit.
-///
-static inline char toOctal(int X) {
-  return (X&7)+'0';
-}
-
-/// printStringChar - Print a char, escaped if necessary.
-///
-static void printStringChar(std::ostream &O, unsigned char C) {
-  if (C == '"') {
-    O << "\\\"";
-  } else if (C == '\\') {
-    O << "\\\\";
-  } else if (isprint(C)) {
-    O << C;
-  } else {
-    switch(C) {
-    case '\b': O << "\\b"; break;
-    case '\f': O << "\\f"; break;
-    case '\n': O << "\\n"; break;
-    case '\r': O << "\\r"; break;
-    case '\t': O << "\\t"; break;
-    default:
-      O << '\\';
-      O << toOctal(C >> 6);
-      O << toOctal(C >> 3);
-      O << toOctal(C >> 0);
-      break;
-    }
-  }
-}
-
-/// EmitString - Emit a string with quotes and a null terminator.
-/// Special characters are emitted properly.
-/// \literal (Eg. '\t') \endliteral
-void AsmPrinter::EmitString(const std::string &String) const {
-  O << TAI->getAsciiDirective()
-    << "\"";
-  for (unsigned i = 0, N = String.size(); i < N; ++i) {
-    unsigned char C = String[i];
-    printStringChar(O, C);
-  }
-  O << "\\0\"";
-}
-
-
-//===----------------------------------------------------------------------===//
 
 // EmitAlignment - Emit an alignment directive to the specified power of two.
 void AsmPrinter::EmitAlignment(unsigned NumBits, const GlobalValue *GV) const {
@@ -590,8 +370,17 @@ void AsmPrinter::EmitZeros(uint64_t NumZeros) const {
 void AsmPrinter::EmitConstantValueOnly(const Constant *CV) {
   if (CV->isNullValue() || isa<UndefValue>(CV))
     O << "0";
-  else if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
-    O << CI->getZExtValue();
+  else if (const ConstantBool *CB = dyn_cast<ConstantBool>(CV)) {
+    assert(CB->getValue());
+    O << "1";
+  } else if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
+    if (CI->getType()->isSigned()) {
+      if (((CI->getSExtValue() << 32) >> 32) == CI->getSExtValue())
+        O << CI->getSExtValue();
+      else
+        O << (uint64_t)CI->getSExtValue();
+    } else 
+      O << CI->getZExtValue();
   } else if (const GlobalValue *GV = dyn_cast<GlobalValue>(CV)) {
     // This is a constant address for a global variable or function. Use the
     // name of the variable or function as the address value, possibly
@@ -608,8 +397,7 @@ void AsmPrinter::EmitConstantValueOnly(const Constant *CV) {
     }
   } else if (const ConstantExpr *CE = dyn_cast<ConstantExpr>(CV)) {
     const TargetData *TD = TM.getTargetData();
-    unsigned Opcode = CE->getOpcode();    
-    switch (Opcode) {
+    switch(CE->getOpcode()) {
     case Instruction::GetElementPtr: {
       // generate a symbolic expression for the byte address
       const Constant *ptrVal = CE->getOperand(0);
@@ -627,50 +415,37 @@ void AsmPrinter::EmitConstantValueOnly(const Constant *CV) {
       }
       break;
     }
-    case Instruction::Trunc:
-    case Instruction::ZExt:
-    case Instruction::SExt:
-    case Instruction::FPTrunc:
-    case Instruction::FPExt:
-    case Instruction::UIToFP:
-    case Instruction::SIToFP:
-    case Instruction::FPToUI:
-    case Instruction::FPToSI:
-      assert(0 && "FIXME: Don't yet support this kind of constant cast expr");
-      break;
-    case Instruction::BitCast:
-      return EmitConstantValueOnly(CE->getOperand(0));
-
-    case Instruction::IntToPtr: {
-      // Handle casts to pointers by changing them into casts to the appropriate
-      // integer type.  This promotes constant folding and simplifies this code.
-      Constant *Op = CE->getOperand(0);
-      Op = ConstantExpr::getIntegerCast(Op, TD->getIntPtrType(), false/*ZExt*/);
-      return EmitConstantValueOnly(Op);
-    }
-      
-      
-    case Instruction::PtrToInt: {
+    case Instruction::Cast: {
       // Support only foldable casts to/from pointers that can be eliminated by
       // changing the pointer to the appropriately sized integer type.
       Constant *Op = CE->getOperand(0);
-      const Type *Ty = CE->getType();
+      const Type *OpTy = Op->getType(), *Ty = CE->getType();
 
-      // We can emit the pointer value into this slot if the slot is an
-      // integer slot greater or equal to the size of the pointer.
-      if (Ty->isInteger() &&
-          TD->getTypeSize(Ty) >= TD->getTypeSize(Op->getType()))
+      // Handle casts to pointers by changing them into casts to the appropriate
+      // integer type.  This promotes constant folding and simplifies this code.
+      if (isa<PointerType>(Ty)) {
+        const Type *IntPtrTy = TD->getIntPtrType();
+        Op = ConstantExpr::getCast(Op, IntPtrTy);
         return EmitConstantValueOnly(Op);
+      }
+      
+      // We know the dest type is not a pointer.  Is the src value a pointer or
+      // integral?
+      if (isa<PointerType>(OpTy) || OpTy->isIntegral()) {
+        // We can emit the pointer value into this slot if the slot is an
+        // integer slot greater or equal to the size of the pointer.
+        if (Ty->isIntegral() && TD->getTypeSize(Ty) >= TD->getTypeSize(OpTy))
+          return EmitConstantValueOnly(Op);
+      }
       
       assert(0 && "FIXME: Don't yet support this kind of constant cast expr");
       EmitConstantValueOnly(Op);
       break;
     }
     case Instruction::Add:
-    case Instruction::Sub:
       O << "(";
       EmitConstantValueOnly(CE->getOperand(0));
-      O << (Opcode==Instruction::Add ? ") + (" : ") - (");
+      O << ") + (";
       EmitConstantValueOnly(CE->getOperand(1));
       O << ")";
       break;
@@ -680,6 +455,12 @@ void AsmPrinter::EmitConstantValueOnly(const Constant *CV) {
   } else {
     assert(0 && "Unknown constant value!");
   }
+}
+
+/// toOctal - Convert the low order bits of X into an octal digit.
+///
+static inline char toOctal(int X) {
+  return (X&7)+'0';
 }
 
 /// printAsCString - Print the specified array as a C compatible string, only if
@@ -693,7 +474,28 @@ static void printAsCString(std::ostream &O, const ConstantArray *CVA,
   for (unsigned i = 0; i != LastElt; ++i) {
     unsigned char C =
         (unsigned char)cast<ConstantInt>(CVA->getOperand(i))->getZExtValue();
-    printStringChar(O, C);
+
+    if (C == '"') {
+      O << "\\\"";
+    } else if (C == '\\') {
+      O << "\\\\";
+    } else if (isprint(C)) {
+      O << C;
+    } else {
+      switch(C) {
+      case '\b': O << "\\b"; break;
+      case '\f': O << "\\f"; break;
+      case '\n': O << "\\n"; break;
+      case '\r': O << "\\r"; break;
+      case '\t': O << "\\t"; break;
+      default:
+        O << '\\';
+        O << toOctal(C >> 6);
+        O << toOctal(C >> 3);
+        O << toOctal(C >> 0);
+        break;
+      }
+    }
   }
   O << "\"";
 }
@@ -781,7 +583,7 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
         << "\t" << TAI->getCommentString() << " float " << Val << "\n";
       return;
     }
-  } else if (CV->getType() == Type::Int64Ty) {
+  } else if (CV->getType() == Type::ULongTy || CV->getType() == Type::LongTy) {
     if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
       uint64_t Val = CI->getZExtValue();
 
@@ -839,23 +641,13 @@ void AsmPrinter::PrintSpecial(const MachineInstr *MI, const char *Code) {
   } else if (!strcmp(Code, "uid")) {
     // Assign a unique ID to this machine instruction.
     static const MachineInstr *LastMI = 0;
-    static const Function *F = 0;
     static unsigned Counter = 0U-1;
-
-    // Comparing the address of MI isn't sufficient, because machineinstrs may
-    // be allocated to the same address across functions.
-    const Function *ThisF = MI->getParent()->getParent()->getFunction();
-    
     // If this is a new machine instruction, bump the counter.
-    if (LastMI != MI || F != ThisF) {
-      ++Counter;
-      LastMI = MI;
-      F = ThisF;
-    }
+    if (LastMI != MI) { ++Counter; LastMI = MI; }
     O << Counter;
   } else {
-    cerr << "Unknown special formatter '" << Code
-         << "' for machine instr: " << *MI;
+    std::cerr << "Unknown special formatter '" << Code
+              << "' for machine instr: " << *MI;
     exit(1);
   }    
 }
@@ -885,9 +677,9 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
   
   O << TAI->getInlineAsmStart() << "\n\t";
 
-  // The variant of the current asmprinter.
-  int AsmPrinterVariant = TAI->getAssemblerDialect();
-
+  // The variant of the current asmprinter: FIXME: change.
+  int AsmPrinterVariant = 0;
+  
   int CurVariant = -1;            // The number of the {.|.|.} region we are in.
   const char *LastEmitted = AsmStr; // One past the last character emitted.
   
@@ -923,8 +715,8 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
       case '(':             // $( -> same as GCC's { character.
         ++LastEmitted;      // Consume '(' character.
         if (CurVariant != -1) {
-          cerr << "Nested variants found in inline asm string: '"
-               << AsmStr << "'\n";
+          std::cerr << "Nested variants found in inline asm string: '"
+          << AsmStr << "'\n";
           exit(1);
         }
         CurVariant = 0;     // We're in the first variant now.
@@ -932,8 +724,8 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
       case '|':
         ++LastEmitted;  // consume '|' character.
         if (CurVariant == -1) {
-          cerr << "Found '|' character outside of variant in inline asm "
-               << "string: '" << AsmStr << "'\n";
+          std::cerr << "Found '|' character outside of variant in inline asm "
+          << "string: '" << AsmStr << "'\n";
           exit(1);
         }
         ++CurVariant;   // We're in the next variant.
@@ -941,8 +733,8 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
       case ')':         // $) -> same as GCC's } char.
         ++LastEmitted;  // consume ')' character.
         if (CurVariant == -1) {
-          cerr << "Found '}' character outside of variant in inline asm "
-               << "string: '" << AsmStr << "'\n";
+          std::cerr << "Found '}' character outside of variant in inline asm "
+                    << "string: '" << AsmStr << "'\n";
           exit(1);
         }
         CurVariant = -1;
@@ -958,11 +750,10 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
       
       const char *IDStart = LastEmitted;
       char *IDEnd;
-      errno = 0;
       long Val = strtol(IDStart, &IDEnd, 10); // We only accept numbers for IDs.
       if (!isdigit(*IDStart) || (Val == 0 && errno == EINVAL)) {
-        cerr << "Bad $ operand number in inline asm string: '" 
-             << AsmStr << "'\n";
+        std::cerr << "Bad $ operand number in inline asm string: '" 
+                  << AsmStr << "'\n";
         exit(1);
       }
       LastEmitted = IDEnd;
@@ -975,8 +766,8 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
         if (*LastEmitted == ':') {
           ++LastEmitted;    // Consume ':' character.
           if (*LastEmitted == 0) {
-            cerr << "Bad ${:} expression in inline asm string: '" 
-                 << AsmStr << "'\n";
+            std::cerr << "Bad ${:} expression in inline asm string: '" 
+                      << AsmStr << "'\n";
             exit(1);
           }
           
@@ -985,16 +776,16 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
         }
         
         if (*LastEmitted != '}') {
-          cerr << "Bad ${} expression in inline asm string: '" 
-               << AsmStr << "'\n";
+          std::cerr << "Bad ${} expression in inline asm string: '" 
+                    << AsmStr << "'\n";
           exit(1);
         }
         ++LastEmitted;    // Consume '}' character.
       }
       
       if ((unsigned)Val >= NumOperands-1) {
-        cerr << "Invalid $ operand number in inline asm string: '" 
-             << AsmStr << "'\n";
+        std::cerr << "Invalid $ operand number in inline asm string: '" 
+                  << AsmStr << "'\n";
         exit(1);
       }
       
@@ -1028,8 +819,8 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
           }
         }
         if (Error) {
-          cerr << "Invalid operand found in inline asm: '"
-               << AsmStr << "'\n";
+          std::cerr << "Invalid operand found in inline asm: '"
+                    << AsmStr << "'\n";
           MI->dump();
           exit(1);
         }
@@ -1039,16 +830,6 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
     }
   }
   O << "\n\t" << TAI->getInlineAsmEnd() << "\n";
-}
-
-/// printLabel - This method prints a local label used by debug and
-/// exception handling tables.
-void AsmPrinter::printLabel(const MachineInstr *MI) const {
-  O << "\n"
-    << TAI->getPrivateGlobalPrefix()
-    << "label_"
-    << MI->getOperand(0).getImmedValue()
-    << ":\n";
 }
 
 /// PrintAsmOperand - Print the specified operand of MI, an INLINEASM
@@ -1112,29 +893,28 @@ void AsmPrinter::printSetLabel(unsigned uid, unsigned uid2,
 void AsmPrinter::printDataDirective(const Type *type) {
   const TargetData *TD = TM.getTargetData();
   switch (type->getTypeID()) {
-  case Type::IntegerTyID: {
-    unsigned BitWidth = cast<IntegerType>(type)->getBitWidth();
-    if (BitWidth <= 8)
-      O << TAI->getData8bitsDirective();
-    else if (BitWidth <= 16)
-      O << TAI->getData16bitsDirective();
-    else if (BitWidth <= 32)
-      O << TAI->getData32bitsDirective();
-    else if (BitWidth <= 64) {
-      assert(TAI->getData64bitsDirective() &&
-             "Target cannot handle 64-bit constant exprs!");
-      O << TAI->getData64bitsDirective();
-    }
+  case Type::BoolTyID:
+  case Type::UByteTyID: case Type::SByteTyID:
+    O << TAI->getData8bitsDirective();
     break;
-  }
+  case Type::UShortTyID: case Type::ShortTyID:
+    O << TAI->getData16bitsDirective();
+    break;
   case Type::PointerTyID:
     if (TD->getPointerSize() == 8) {
       assert(TAI->getData64bitsDirective() &&
              "Target cannot handle 64-bit pointer exprs!");
       O << TAI->getData64bitsDirective();
-    } else {
-      O << TAI->getData32bitsDirective();
+      break;
     }
+    //Fall through for pointer size == int size
+  case Type::UIntTyID: case Type::IntTyID:
+    O << TAI->getData32bitsDirective();
+    break;
+  case Type::ULongTyID: case Type::LongTyID:
+    assert(TAI->getData64bitsDirective() &&
+           "Target cannot handle 64-bit constant exprs!");
+    O << TAI->getData64bitsDirective();
     break;
   case Type::FloatTyID: case Type::DoubleTyID:
     assert (0 && "Should have already output floating point constant.");

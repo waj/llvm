@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llc -march=x86 -mattr=+sse2 | grep pinsrw | wc -l | grep 2
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse2 | grep pinsrw | wc -l | grep 2
 
 <2 x long> %test(short %a) {
 entry:
@@ -11,7 +11,7 @@ entry:
 	ret <2 x long> %tmp19
 }
 
-<2 x long> %test2(sbyte %a) {
+<2 x long> %test(sbyte %a) {
 entry:
 	%tmp24 = insertelement <16 x sbyte> zeroinitializer, sbyte %a, uint 10
 	%tmp26 = insertelement <16 x sbyte> %tmp24, sbyte 0, uint 11

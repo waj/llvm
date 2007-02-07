@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -basicaa -load-vn -gcse -instcombine | llvm-dis | not grep sub
+; RUN: llvm-as < %s | opt -basicaa -load-vn -gcse -instcombine | llvm-dis | not grep sub
 
 %S = type { int, sbyte }
 
@@ -15,11 +15,11 @@ sbyte %test(sbyte** %P) {
 
 sbyte %test(%S ** %P) {
 	%A = load %S** %P
-	%B = getelementptr %S* %A, int 0, uint 1
+	%B = getelementptr %S* %A, int 0, ubyte 1
 	%C = load sbyte* %B
 
 	%X = load %S** %P
-	%Y = getelementptr %S* %X, int 0, uint 1
+	%Y = getelementptr %S* %X, int 0, ubyte 1
 	%Z = load sbyte* %Y
 
 	%R = sub sbyte %C, %Z

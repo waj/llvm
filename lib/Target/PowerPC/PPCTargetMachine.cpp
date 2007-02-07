@@ -28,10 +28,7 @@ namespace {
 }
 
 const TargetAsmInfo *PPCTargetMachine::createTargetAsmInfo() const {
-  if (Subtarget.isDarwin())
-    return new DarwinTargetAsmInfo(*this);
-  else
-    return new LinuxTargetAsmInfo(*this);
+  return new DarwinTargetAsmInfo(*this);
 }
 
 unsigned PPC32TargetMachine::getJITMatchQuality() {
@@ -84,16 +81,16 @@ unsigned PPC64TargetMachine::getModuleMatchQuality(const Module &M) {
 
 PPCTargetMachine::PPCTargetMachine(const Module &M, const std::string &FS,
                                    bool is64Bit)
-  : Subtarget(*this, M, FS, is64Bit),
+  : Subtarget(M, FS, is64Bit),
     DataLayout(Subtarget.getTargetDataString()), InstrInfo(*this),
-    FrameInfo(*this, is64Bit), JITInfo(*this, is64Bit), TLInfo(*this),
-    InstrItins(Subtarget.getInstrItineraryData()), MachOWriterInfo(*this) {
+    FrameInfo(*this, false), JITInfo(*this, is64Bit), TLInfo(*this),
+    InstrItins(Subtarget.getInstrItineraryData()) {
 
   if (getRelocationModel() == Reloc::Default)
     if (Subtarget.isDarwin())
       setRelocationModel(Reloc::DynamicNoPIC);
     else
-      setRelocationModel(Reloc::Static);
+      setRelocationModel(Reloc::PIC_);
 }
 
 PPC32TargetMachine::PPC32TargetMachine(const Module &M, const std::string &FS) 
@@ -131,9 +128,6 @@ bool PPCTargetMachine::addAssemblyEmitter(FunctionPassManager &PM, bool Fast,
 
 bool PPCTargetMachine::addObjectWriter(FunctionPassManager &PM, bool Fast,
                                        std::ostream &Out) {
-  // FIXME: until the macho writer is 100% functional, diable this by default.
-  return true;
-  
   // FIXME: support PPC ELF files at some point
   addPPCMachOObjectWriterPass(PM, Out, *this);
   return false;
@@ -141,20 +135,9 @@ bool PPCTargetMachine::addObjectWriter(FunctionPassManager &PM, bool Fast,
 
 bool PPCTargetMachine::addCodeEmitter(FunctionPassManager &PM, bool Fast,
                                       MachineCodeEmitter &MCE) {
-  // The JIT should use the static relocation model in ppc32 mode, PIC in ppc64.
+  // The JIT should use the static relocation model.
   // FIXME: This should be moved to TargetJITInfo!!
-  if (Subtarget.isPPC64()) {
-    // We use PIC codegen in ppc64 mode, because otherwise we'd have to use many
-    // instructions to materialize arbitrary global variable + function +
-    // constant pool addresses.
-    setRelocationModel(Reloc::PIC_);
-  } else {
-    setRelocationModel(Reloc::Static);
-  }
-  
-  // Inform the subtarget that we are in JIT mode.  FIXME: does this break macho
-  // writing?
-  Subtarget.SetJITMode();
+  setRelocationModel(Reloc::Static);
   
   // Machine code emitter pass for PowerPC.
   PM.add(createPPCCodeEmitterPass(*this, MCE));

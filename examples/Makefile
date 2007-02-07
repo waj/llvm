@@ -12,7 +12,7 @@ include $(LEVEL)/Makefile.config
 
 PARALLEL_DIRS:= Fibonacci HowToUseJIT ModuleMaker BFtoLLVM
 
-ifeq ($(HAVE_PTHREAD),1)
+ifeq ($(ENABLE_THREADS),1)
 PARALLEL_DIRS += ParallelJIT 
 endif
 

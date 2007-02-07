@@ -29,7 +29,6 @@ class ArrayValType;
 class StructValType;
 class PointerValType;
 class PackedValType;
-class IntegerValType;
 
 class DerivedType : public Type {
   friend class Type;
@@ -72,96 +71,32 @@ public:
   }
 };
 
-/// Class to represent integer types. Note that this class is also used to
-/// represent the built-in integer types: Int1Ty, Int8Ty, Int16Ty, Int32Ty and
-/// Int64Ty. 
-/// @brief Integer representation type
-class IntegerType : public DerivedType {
-protected:
-  IntegerType(unsigned NumBits) : DerivedType(IntegerTyID) {
-    setSubclassData(NumBits);
-  }
-  friend class TypeMap<IntegerValType, IntegerType>;
-public:
-  /// This enum is just used to hold constants we need for IntegerType.
-  enum {
-    MIN_INT_BITS = 1,        ///< Minimum number of bits that can be specified
-    MAX_INT_BITS = (1<<23)-1 ///< Maximum number of bits that can be specified
-      ///< Note that bit width is stored in the Type classes SubclassData field
-      ///< which has 23 bits. This yields a maximum bit width of 8,388,607 bits.
-  };
-
-  /// This static method is the primary way of constructing an IntegerType. 
-  /// If an IntegerType with the same NumBits value was previously instantiated,
-  /// that instance will be returned. Otherwise a new one will be created. Only
-  /// one instance with a given NumBits value is ever created.
-  /// @brief Get or create an IntegerType instance.
-  static const IntegerType* get(unsigned NumBits);
-
-  /// @brief Get the number of bits in this IntegerType
-  unsigned getBitWidth() const { return getSubclassData(); }
-
-  /// getBitMask - Return a bitmask with ones set for all of the bits
-  /// that can be set by an unsigned version of this type.  This is 0xFF for
-  /// sbyte/ubyte, 0xFFFF for shorts, etc.
-  uint64_t getBitMask() const {
-    return ~uint64_t(0UL) >> (64-getPrimitiveSizeInBits());
-  }
-
-  /// This method determines if the width of this IntegerType is a power-of-2
-  /// in terms of 8 bit bytes. 
-  /// @returns true if this is a power-of-2 byte width.
-  /// @brief Is this a power-of-2 byte-width IntegerType ?
-  bool isPowerOf2ByteWidth() const;
-
-  // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const IntegerType *T) { return true; }
-  static inline bool classof(const Type *T) {
-    return T->getTypeID() == IntegerTyID;
-  }
-};
-
 
 /// FunctionType - Class to represent function types
 ///
 class FunctionType : public DerivedType {
-public:
-  /// Function parameters can have attributes to indicate how they should be
-  /// treated by optimizations and code generation. This enumeration lists the
-  /// set of possible attributes.
-  /// @brief Function parameter attributes enumeration.
-  enum ParameterAttributes {
-    NoAttributeSet    = 0,      ///< No attribute value has been set 
-    ZExtAttribute     = 1,      ///< zero extended before/after call
-    SExtAttribute     = 1 << 1, ///< sign extended before/after call
-    NoReturnAttribute = 1 << 2, ///< mark the function as not returning
-    InRegAttribute    = 1 << 3, ///< force argument to be passed in register
-    StructRetAttribute= 1 << 4  ///< hidden pointer to structure to return
-  };
-  typedef std::vector<ParameterAttributes> ParamAttrsList;
-private:
   friend class TypeMap<FunctionValType, FunctionType>;
   bool isVarArgs;
-  ParamAttrsList *ParamAttrs;
 
   FunctionType(const FunctionType &);                   // Do not implement
   const FunctionType &operator=(const FunctionType &);  // Do not implement
+protected:
+  /// This should really be private, but it squelches a bogus warning
+  /// from GCC to make them protected:  warning: `class FunctionType' only
+  /// defines private constructors and has no friends
+  ///
+  /// Private ctor - Only can be created by a static member...
+  ///
   FunctionType(const Type *Result, const std::vector<const Type*> &Params,
-               bool IsVarArgs, const ParamAttrsList &Attrs);
+               bool IsVarArgs);
 
 public:
   /// FunctionType::get - This static method is the primary way of constructing
-  /// a FunctionType. 
+  /// a FunctionType
   ///
-  static FunctionType *get(
-    const Type *Result, ///< The result type
-    const std::vector<const Type*> &Params, ///< The types of the parameters
-    bool isVarArg, ///< Whether this is a variable argument length function
-    const ParamAttrsList & Attrs = ParamAttrsList()
-      ///< Indicates the parameter attributes to use, if any. The 0th entry
-      ///< in the list refers to the return type. Parameters are numbered
-      ///< starting at 1. 
-  );
+  static FunctionType *get(const Type *Result,
+                           const std::vector<const Type*> &Params,
+                           bool isVarArg);
 
   inline bool isVarArg() const { return isVarArgs; }
   inline const Type *getReturnType() const { return ContainedTys[0]; }
@@ -177,29 +112,6 @@ public:
   /// requires.  This does not consider varargs.
   ///
   unsigned getNumParams() const { return unsigned(ContainedTys.size()-1); }
-
-  bool isStructReturn() const {
-    return (getNumParams() && paramHasAttr(1, StructRetAttribute));
-  }
-  
-  /// The parameter attributes for the \p ith parameter are returned. The 0th
-  /// parameter refers to the return type of the function.
-  /// @returns The ParameterAttributes for the \p ith parameter.
-  /// @brief Get the attributes for a parameter
-  ParameterAttributes getParamAttrs(unsigned i) const;
-
-  /// @brief Determine if a parameter attribute is set
-  bool paramHasAttr(unsigned i, ParameterAttributes attr) const {
-    return getParamAttrs(i) & attr;
-  }
-
-  /// @brief Return the number of parameter attributes this type has.
-  unsigned getNumAttrs() const { 
-    return (ParamAttrs ?  unsigned(ParamAttrs->size()) : 0);
-  }
-
-  /// @brief Convert a ParameterAttribute into its assembly text
-  static std::string getParamAttrsText(ParameterAttributes Attr);
 
   // Implement the AbstractTypeUser interface.
   virtual void refineAbstractType(const DerivedType *OldTy, const Type *NewTy);
@@ -243,13 +155,21 @@ class StructType : public CompositeType {
   friend class TypeMap<StructValType, StructType>;
   StructType(const StructType &);                   // Do not implement
   const StructType &operator=(const StructType &);  // Do not implement
-  StructType(const std::vector<const Type*> &Types, bool isPacked);
+
+protected:
+  /// This should really be private, but it squelches a bogus warning
+  /// from GCC to make them protected:  warning: `class StructType' only
+  /// defines private constructors and has no friends
+  ///
+  /// Private ctor - Only can be created by a static member...
+  ///
+  StructType(const std::vector<const Type*> &Types);
+
 public:
   /// StructType::get - This static method is the primary way to create a
   /// StructType.
   ///
-  static StructType *get(const std::vector<const Type*> &Params, 
-                         bool isPacked=false);
+  static StructType *get(const std::vector<const Type*> &Params);
 
   // Iterator access to the elements
   typedef std::vector<PATypeHandle>::const_iterator element_iterator;
@@ -278,8 +198,6 @@ public:
   static inline bool classof(const Type *T) {
     return T->getTypeID() == StructTyID;
   }
-
-  bool isPacked() const { return getSubclassData(); }
 };
 
 
@@ -330,7 +248,15 @@ class ArrayType : public SequentialType {
 
   ArrayType(const ArrayType &);                   // Do not implement
   const ArrayType &operator=(const ArrayType &);  // Do not implement
+protected:
+  /// This should really be private, but it squelches a bogus warning
+  /// from GCC to make them protected:  warning: `class ArrayType' only
+  /// defines private constructors and has no friends
+  ///
+  /// Private ctor - Only can be created by a static member...
+  ///
   ArrayType(const Type *ElType, uint64_t NumEl);
+
 public:
   /// ArrayType::get - This static method is the primary way to construct an
   /// ArrayType
@@ -358,20 +284,22 @@ class PackedType : public SequentialType {
 
   PackedType(const PackedType &);                   // Do not implement
   const PackedType &operator=(const PackedType &);  // Do not implement
+protected:
+  /// This should really be private, but it squelches a bogus warning
+  /// from GCC to make them protected:  warning: `class PackedType' only
+  /// defines private constructors and has no friends
+  ///
+  /// Private ctor - Only can be created by a static member...
+  ///
   PackedType(const Type *ElType, unsigned NumEl);
+
 public:
   /// PackedType::get - This static method is the primary way to construct an
   /// PackedType
   ///
   static PackedType *get(const Type *ElementType, unsigned NumElements);
 
-  /// @brief Return the number of elements in the Packed type.
   inline unsigned getNumElements() const { return NumElements; }
-
-  /// @brief Return the number of bits in the Packed type.
-  inline unsigned getBitWidth() const { 
-    return NumElements *getElementType()->getPrimitiveSizeInBits();
-  }
 
   // Implement the AbstractTypeUser interface.
   virtual void refineAbstractType(const DerivedType *OldTy, const Type *NewTy);
@@ -391,7 +319,14 @@ class PointerType : public SequentialType {
   friend class TypeMap<PointerValType, PointerType>;
   PointerType(const PointerType &);                   // Do not implement
   const PointerType &operator=(const PointerType &);  // Do not implement
+protected:
+  // This should really be private, but it squelches a bogus warning
+  // from GCC to make them protected:  warning: `class PointerType' only
+  // defines private constructors and has no friends
+
+  // Private ctor - Only can be created by a static member...
   PointerType(const Type *ElType);
+
 public:
   /// PointerType::get - This is the only way to construct a new pointer type.
   static PointerType *get(const Type *ElementType);
@@ -413,7 +348,14 @@ public:
 class OpaqueType : public DerivedType {
   OpaqueType(const OpaqueType &);                   // DO NOT IMPLEMENT
   const OpaqueType &operator=(const OpaqueType &);  // DO NOT IMPLEMENT
+protected:
+  /// This should really be private, but it squelches a bogus warning
+  /// from GCC to make them protected:  warning: `class OpaqueType' only
+  /// defines private constructors and has no friends
+  ///
+  /// Private ctor - Only can be created by a static member...
   OpaqueType();
+
 public:
   /// OpaqueType::get - Static factory method for the OpaqueType class...
   ///

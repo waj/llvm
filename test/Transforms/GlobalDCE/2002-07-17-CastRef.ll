@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | opt -globaldce
+; RUN: llvm-as < %s | opt -globaldce
 ;
 implementation
 

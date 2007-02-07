@@ -20,7 +20,7 @@
 #include <pthread.h>
 #include "llvm/Module.h"
 #include "llvm/Constants.h"
-#include "llvm/DerivedTypes.h"
+#include "llvm/Type.h"
 #include "llvm/Instructions.h"
 #include "llvm/ModuleProvider.h"
 #include "llvm/ExecutionEngine/JIT.h"
@@ -29,20 +29,20 @@
 #include <iostream>
 using namespace llvm;
 
-static Function* createAdd1(Module *M) {
+static Function* createAdd1(Module* M)
+{
   // Create the add1 function entry and insert this entry into module M.  The
   // function will have a return type of "int" and take an argument of "int".
   // The '0' terminates the list of argument types.
-  Function *Add1F =
-    cast<Function>(M->getOrInsertFunction("add1", Type::Int32Ty, Type::Int32Ty,
-                                          (Type *)0));
+  Function *Add1F = M->getOrInsertFunction("add1", Type::IntTy, Type::IntTy,
+                                           (Type *)0);
 
   // Add a basic block to the function. As before, it automatically inserts
   // because of the last argument.
   BasicBlock *BB = new BasicBlock("EntryBlock", Add1F);
 
   // Get pointers to the constant `1'.
-  Value *One = ConstantInt::get(Type::Int32Ty, 1);
+  Value *One = ConstantInt::get(Type::IntTy, 1);
 
   // Get pointers to the integer argument of the add1 function...
   assert(Add1F->arg_begin() != Add1F->arg_end()); // Make sure there's an arg
@@ -59,19 +59,19 @@ static Function* createAdd1(Module *M) {
   return Add1F;
 }
 
-static Function *CreateFibFunction(Module *M) {
+static Function *CreateFibFunction(Module *M)
+{
   // Create the fib function and insert it into module M.  This function is said
   // to return an int and take an int parameter.
-  Function *FibF = 
-    cast<Function>(M->getOrInsertFunction("fib", Type::Int32Ty, Type::Int32Ty,
-                                          (Type *)0));
+  Function *FibF = M->getOrInsertFunction("fib", Type::IntTy, Type::IntTy,
+                                          (Type *)0);
 
   // Add a basic block to the function.
   BasicBlock *BB = new BasicBlock("EntryBlock", FibF);
 
   // Get pointers to the constants.
-  Value *One = ConstantInt::get(Type::Int32Ty, 1);
-  Value *Two = ConstantInt::get(Type::Int32Ty, 2);
+  Value *One = ConstantInt::get(Type::IntTy, 1);
+  Value *Two = ConstantInt::get(Type::IntTy, 2);
 
   // Get pointer to the integer argument of the add1 function...
   Argument *ArgX = FibF->arg_begin();   // Get the arg.
@@ -83,7 +83,7 @@ static Function *CreateFibFunction(Module *M) {
   BasicBlock* RecurseBB = new BasicBlock("recurse", FibF);
 
   // Create the "if (arg < 2) goto exitbb"
-  Value *CondInst = new ICmpInst(ICmpInst::ICMP_SLE, ArgX, Two, "cond", BB);
+  Value *CondInst = BinaryOperator::createSetLE(ArgX, Two, "cond", BB);
   new BranchInst(RetBB, RecurseBB, CondInst, BB);
 
   // Create: ret int 1
@@ -221,12 +221,12 @@ void* callFunc( void* param )
 
   // Call the `foo' function with no arguments:
   std::vector<GenericValue> Args(1);
-  Args[0].Int32Val = p->value;
+  Args[0].IntVal = p->value;
 
   synchronize.block(); // wait until other threads are at this point
   GenericValue gv = p->EE->runFunction(p->F, Args);
 
-  return (void*) intptr_t(gv.Int32Val);
+  return (void*) intptr_t(gv.IntVal);
 }
 
 int main()

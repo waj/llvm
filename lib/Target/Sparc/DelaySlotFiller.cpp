@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "delayslotfiller"
 #include "Sparc.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -20,9 +19,9 @@
 #include "llvm/ADT/Statistic.h"
 using namespace llvm;
 
-STATISTIC(FilledSlots, "Number of delay slots filled");
-
 namespace {
+  Statistic<> FilledSlots("delayslotfiller", "Num. of delay slots filled");
+
   struct Filler : public MachineFunctionPass {
     /// Target machine description which we query for reg. names, data
     /// layout, etc.
@@ -65,7 +64,7 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     if (TII->hasDelaySlot(I->getOpcode())) {
       MachineBasicBlock::iterator J = I;
       ++J;
-      BuildMI(MBB, J, TII->get(SP::NOP));
+      BuildMI(MBB, J, SP::NOP, 0);
       ++FilledSlots;
       Changed = true;
     }

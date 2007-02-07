@@ -20,7 +20,6 @@
 #include "llvm/Bytecode/Reader.h"
 #include "llvm/Bytecode/Archive.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/System/Signals.h"
 #include <cctype>
 #include <cerrno>
@@ -66,18 +65,18 @@ namespace {
   std::string ToolName;
 }
 
-static char TypeCharForSymbol(GlobalValue &GV) {
-  if (GV.isDeclaration())                                     return 'U';
-  if (GV.hasLinkOnceLinkage())                             return 'C';
-  if (GV.hasWeakLinkage())                                 return 'W';
-  if (isa<Function>(GV) && GV.hasInternalLinkage())       return 't';
-  if (isa<Function>(GV))                                   return 'T';
-  if (isa<GlobalVariable>(GV) && GV.hasInternalLinkage()) return 'd';
-  if (isa<GlobalVariable>(GV))                             return 'D';
+char TypeCharForSymbol (GlobalValue &GV) {
+  if (GV.isExternal ())                                     return 'U';
+  if (GV.hasLinkOnceLinkage ())                             return 'C';
+  if (GV.hasWeakLinkage ())                                 return 'W';
+  if (isa<Function> (GV) && GV.hasInternalLinkage ())       return 't';
+  if (isa<Function> (GV))                                   return 'T';
+  if (isa<GlobalVariable> (GV) && GV.hasInternalLinkage ()) return 'd';
+  if (isa<GlobalVariable> (GV))                             return 'D';
                                                             return '?';
 }
 
-static void DumpSymbolNameForGlobalValue(GlobalValue &GV) {
+void DumpSymbolNameForGlobalValue (GlobalValue &GV) {
   const std::string SymbolAddrStr = "        "; // Not used yet...
   char TypeChar = TypeCharForSymbol (GV);
   if ((TypeChar != 'U') && UndefinedOnly)
@@ -102,7 +101,7 @@ static void DumpSymbolNameForGlobalValue(GlobalValue &GV) {
   }
 }
 
-static void DumpSymbolNamesFromModule(Module *M) {
+void DumpSymbolNamesFromModule (Module *M) {
   const std::string &Filename = M->getModuleIdentifier ();
   if (OutputFormat == posix && MultipleFiles) {
     std::cout << Filename << ":\n";
@@ -117,7 +116,7 @@ static void DumpSymbolNamesFromModule(Module *M) {
   std::for_each (M->global_begin (), M->global_end (), DumpSymbolNameForGlobalValue);
 }
 
-static void DumpSymbolNamesFromFile(std::string &Filename) {
+void DumpSymbolNamesFromFile (std::string &Filename) {
   std::string ErrorMessage;
   sys::Path aPath(Filename);
   if (Filename != "-") {
@@ -127,9 +126,7 @@ static void DumpSymbolNamesFromFile(std::string &Filename) {
   }
   // Note: Currently we do not support reading an archive from stdin.
   if (Filename == "-" || aPath.isBytecodeFile()) {
-    Module *Result = ParseBytecodeFile(Filename,
-                                       Compressor::decompressToNewBuffer,
-                                       &ErrorMessage);
+    Module *Result = ParseBytecodeFile(Filename, &ErrorMessage);
     if (Result) {
       DumpSymbolNamesFromModule (Result);
     } else {
@@ -138,16 +135,16 @@ static void DumpSymbolNamesFromFile(std::string &Filename) {
     }
   } else if (aPath.isArchive()) {
     std::string ErrMsg;
-    Archive* archive = Archive::OpenAndLoad(sys::Path(Filename), &ErrorMessage);
+    Archive* archive = Archive::OpenAndLoad(sys::Path(Filename),&ErrorMessage);
     if (!archive)
       std::cerr << ToolName << ": " << Filename << ": " << ErrorMessage << "\n";
     std::vector<Module *> Modules;
-    if (archive->getAllModules(Modules, &ErrorMessage)) {
+    if (archive->getAllModules(Modules,&ErrorMessage)) {
       std::cerr << ToolName << ": " << Filename << ": " << ErrorMessage << "\n";
       return;
     }
     MultipleFiles = true;
-    std::for_each (Modules.begin(), Modules.end(), DumpSymbolNamesFromModule);
+    std::for_each (Modules.begin (), Modules.end (), DumpSymbolNamesFromModule);
   } else {
     std::cerr << ToolName << ": " << Filename << ": "
               << "unrecognizable file type\n";
@@ -156,7 +153,6 @@ static void DumpSymbolNamesFromFile(std::string &Filename) {
 }
 
 int main(int argc, char **argv) {
-  llvm_shutdown_obj X;  // Call llvm_shutdown() on exit.
   try {
     cl::ParseCommandLineOptions(argc, argv, " llvm symbol table dumper\n");
     sys::PrintStackTraceOnErrorSignal();

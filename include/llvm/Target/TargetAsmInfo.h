@@ -20,8 +20,9 @@
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
+
+  // Forward declaration.
   class TargetMachine;
-  class CallInst;
 
   /// TargetAsmInfo - This class is intended to be used as a base class for asm
   /// properties and features specific to the target.
@@ -29,7 +30,7 @@ namespace llvm {
   protected:
     //===------------------------------------------------------------------===//
     // Properties to be set by the target writer, used to configure asm printer.
-    //
+    // 
     
     /// TextSection - Section directive for standard text.
     ///
@@ -38,20 +39,11 @@ namespace llvm {
     /// DataSection - Section directive for standard data.
     ///
     const char *DataSection;              // Defaults to ".data".
-
-    /// BSSSection - Section directive for uninitialized data.  Null if this
-    /// target doesn't support a BSS section.
-    ///
-    const char *BSSSection;               // Default to ".bss".
-    
-    /// ZeroFillDirective - Directive for emitting a global to the ZeroFill
-    /// section on this target.  Null if this target doesn't support zerofill.
-    const char *ZeroFillDirective;        // Default is null.
     
     /// AddressSize - Size of addresses used in file.
     ///
     unsigned AddressSize;                 // Defaults to 4.
-    
+
     /// NeedsSet - True if target asm can't compute addresses on data
     /// directives.
     bool NeedsSet;                        // Defaults to false.
@@ -60,10 +52,6 @@ namespace llvm {
     /// which is needed to compute the size of an inline asm.
     unsigned MaxInstLength;               // Defaults to 4.
     
-    /// PCSymbol - The symbol used to represent the current PC.  Used in PC
-    /// relative expressions.
-    const char *PCSymbol;                 // Defaults to "$".
-
     /// SeparatorChar - This character, if specified, is used to separate
     /// instructions from each other when on the same line.  This is used to
     /// measure inline asm instructions.
@@ -81,10 +69,6 @@ namespace llvm {
     /// pool entries that are completely private to the .o file and should not
     /// have names in the .o file.  This is often "." or "L".
     const char *PrivateGlobalPrefix;      // Defaults to "."
-    
-    /// JumpTableSpecialLabelPrefix - If not null, a extra (dead) label is
-    /// emitted before jump tables with the specified prefix.
-    const char *JumpTableSpecialLabelPrefix;  // Default to null.
     
     /// GlobalVarAddrPrefix/Suffix - If these are nonempty, these strings
     /// will enclose any GlobalVariable (that isn't a function)
@@ -106,10 +90,7 @@ namespace llvm {
     /// emit before and after an inline assembly statement.
     const char *InlineAsmStart;           // Defaults to "#APP\n"
     const char *InlineAsmEnd;             // Defaults to "#NO_APP\n"
-
-    /// AssemblerDialect - Which dialect of an assembler variant to use.
-    unsigned AssemblerDialect;            // Defaults to 0
-
+    
     //===--- Data Emission Directives -------------------------------------===//
 
     /// ZeroDirective - this should be set to the directive used to get some
@@ -148,7 +129,7 @@ namespace llvm {
     /// Otherwise, it emits ".align log2(N)", e.g. 3 to align to an 8 byte
     /// boundary.
     bool AlignmentIsInBytes;              // Defaults to true
-
+    
     //===--- Section Switching Directives ---------------------------------===//
     
     /// SwitchToSectionDirective - This is the directive used when we want to
@@ -206,10 +187,6 @@ namespace llvm {
     
     //===--- Global Variable Emission Directives --------------------------===//
     
-    /// GlobalDirective - This is the directive used to declare a global entity.
-    ///
-    const char *GlobalDirective;          // Defaults to NULL.
-    
     /// SetDirective - This is the name of a directive that can be used to tell
     /// the assembler to set the value of a variable to some expression.
     const char *SetDirective;             // Defaults to null.
@@ -235,14 +212,6 @@ namespace llvm {
     /// as being used somehow that the assembler can't see.  This prevents dead
     /// code elimination on some targets.
     const char *UsedDirective;            // Defaults to null.
-
-    /// WeakRefDirective - This directive, if non-null, is used to declare a
-    /// global as being a weak undefined symbol.
-    const char *WeakRefDirective;         // Defaults to null.
-    
-    /// HiddenDirective - This directive, if non-null, is used to declare a
-    /// global or function as having hidden visibility.
-    const char *HiddenDirective;          // Defaults to "\t.hidden\t".
     
     //===--- Dwarf Emission Directives -----------------------------------===//
 
@@ -257,10 +226,6 @@ namespace llvm {
     /// HasDotFile - True if target asm supports .file directives.
     ///
     bool HasDotFile; // Defaults to false.
-    
-    /// SupportsExceptionHandling - True if target supports exception handling.
-    ///
-    bool SupportsExceptionHandling; // Defaults to false.
     
     /// RequiresFrameSection - true if the Dwarf2 output needs a frame section
     ///
@@ -309,14 +274,6 @@ namespace llvm {
     /// DwarfMacInfoSection - Section directive for Dwarf info.
     ///
     const char *DwarfMacInfoSection; // Defaults to ".debug_macinfo".
-    
-    /// DwarfEHFrameSection - Section directive for Exception frames.
-    ///
-    const char *DwarfEHFrameSection; // Defaults to ".eh_frame".
-
-    //===--- CBE Asm Translation Table -----------------------------------===//
-
-    const char** AsmTransCBE; // Defaults to empty
 
   public:
     TargetAsmInfo();
@@ -325,15 +282,8 @@ namespace llvm {
     /// Measure the specified inline asm to determine an approximation of its
     /// length.
     unsigned getInlineAsmLength(const char *Str) const;
-
-    /// ExpandInlineAsm - This hook allows the target to expand an inline asm
-    /// call to be explicit llvm code if it wants to.  This is useful for
-    /// turning simple inline asms into LLVM intrinsics, which gives the
-    /// compiler more information about the behavior of the code.
-    virtual bool ExpandInlineAsm(CallInst *CI) const {
-      return false;
-    }
     
+    //
     // Accessors.
     //
     const char *getTextSection() const {
@@ -342,23 +292,11 @@ namespace llvm {
     const char *getDataSection() const {
       return DataSection;
     }
-    const char *getBSSSection() const {
-      return BSSSection;
-    }
-    const char *getZeroFillDirective() const {
-      return ZeroFillDirective;
-    }
     unsigned getAddressSize() const {
       return AddressSize;
     }
     bool needsSet() const {
       return NeedsSet;
-    }
-    const char *getPCSymbol() const {
-      return PCSymbol;
-    }
-    char getSeparatorChar() const {
-      return SeparatorChar;
     }
     const char *getCommentString() const {
       return CommentString;
@@ -368,9 +306,6 @@ namespace llvm {
     }
     const char *getPrivateGlobalPrefix() const {
       return PrivateGlobalPrefix;
-    }
-    const char *getJumpTableSpecialLabelPrefix() const {
-      return JumpTableSpecialLabelPrefix;
     }
     const char *getGlobalVarAddrPrefix() const {
       return GlobalVarAddrPrefix;
@@ -389,9 +324,6 @@ namespace llvm {
     }
     const char *getInlineAsmEnd() const {
       return InlineAsmEnd;
-    }
-    unsigned getAssemblerDialect() const {
-      return AssemblerDialect;
     }
     const char *getZeroDirective() const {
       return ZeroDirective;
@@ -462,9 +394,6 @@ namespace llvm {
     const char *getSixteenByteConstantSection() const {
       return SixteenByteConstantSection;
     }
-    const char *getGlobalDirective() const {
-      return GlobalDirective;
-    }
     const char *getSetDirective() const {
       return SetDirective;
     }
@@ -483,12 +412,6 @@ namespace llvm {
     const char *getUsedDirective() const {
       return UsedDirective;
     }
-    const char *getWeakRefDirective() const {
-      return WeakRefDirective;
-    }
-    const char *getHiddenDirective() const {
-      return HiddenDirective;
-    }
     bool hasLEB128() const {
       return HasLEB128;
     }
@@ -497,9 +420,6 @@ namespace llvm {
     }
     bool hasDotFile() const {
       return HasDotFile;
-    }
-    bool getSupportsExceptionHandling() const {
-      return SupportsExceptionHandling;
     }
     bool getDwarfRequiresFrameSection() const {
       return DwarfRequiresFrameSection;
@@ -536,12 +456,6 @@ namespace llvm {
     }
     const char *getDwarfMacInfoSection() const {
       return DwarfMacInfoSection;
-    }
-    const char *getDwarfEHFrameSection() const {
-      return DwarfEHFrameSection;
-    }
-    const char** getAsmCBE() const {
-      return AsmTransCBE;
     }
   };
 }

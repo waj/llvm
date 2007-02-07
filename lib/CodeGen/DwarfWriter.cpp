@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains support for writing dwarf info into asm files.
+// This file contains support for writing dwarf debug info into asm files.
 //
 //===----------------------------------------------------------------------===//
 
@@ -19,7 +19,7 @@
 #include "llvm/Module.h"
 #include "llvm/Type.h"
 #include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/CodeGen/MachineDebugInfo.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineLocation.h"
 #include "llvm/Support/Dwarf.h"
@@ -29,13 +29,18 @@
 #include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetData.h"
-#include "llvm/Target/TargetFrameInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetOptions.h"
-#include <ostream>
+#include "llvm/Target/TargetFrameInfo.h"
+
+#include <iostream>
 #include <string>
+
 using namespace llvm;
 using namespace llvm::dwarf;
+
+static cl::opt<bool>
+DwarfVerbose("dwarf-verbose", cl::Hidden,
+                              cl::desc("Add comments to Dwarf directives."));
 
 namespace llvm {
   
@@ -52,6 +57,64 @@ static const unsigned InitValuesSetSize        = 9; // 512
 ///
 class DIE;
 class DIEValue;
+
+//===----------------------------------------------------------------------===//
+/// LEB 128 number encoding.
+
+/// PrintULEB128 - Print a series of hexidecimal values (separated by commas)
+/// representing an unsigned leb128 value.
+static void PrintULEB128(std::ostream &O, unsigned Value) {
+  do {
+    unsigned Byte = Value & 0x7f;
+    Value >>= 7;
+    if (Value) Byte |= 0x80;
+    O << "0x" << std::hex << Byte << std::dec;
+    if (Value) O << ", ";
+  } while (Value);
+}
+
+/// SizeULEB128 - Compute the number of bytes required for an unsigned leb128
+/// value.
+static unsigned SizeULEB128(unsigned Value) {
+  unsigned Size = 0;
+  do {
+    Value >>= 7;
+    Size += sizeof(int8_t);
+  } while (Value);
+  return Size;
+}
+
+/// PrintSLEB128 - Print a series of hexidecimal values (separated by commas)
+/// representing a signed leb128 value.
+static void PrintSLEB128(std::ostream &O, int Value) {
+  int Sign = Value >> (8 * sizeof(Value) - 1);
+  bool IsMore;
+  
+  do {
+    unsigned Byte = Value & 0x7f;
+    Value >>= 7;
+    IsMore = Value != Sign || ((Byte ^ Sign) & 0x40) != 0;
+    if (IsMore) Byte |= 0x80;
+    O << "0x" << std::hex << Byte << std::dec;
+    if (IsMore) O << ", ";
+  } while (IsMore);
+}
+
+/// SizeSLEB128 - Compute the number of bytes required for a signed leb128
+/// value.
+static unsigned SizeSLEB128(int Value) {
+  unsigned Size = 0;
+  int Sign = Value >> (8 * sizeof(Value) - 1);
+  bool IsMore;
+  
+  do {
+    unsigned Byte = Value & 0x7f;
+    Value >>= 7;
+    IsMore = Value != Sign || ((Byte ^ Sign) & 0x40) != 0;
+    Size += sizeof(int8_t);
+  } while (IsMore);
+  return Size;
+}
 
 //===----------------------------------------------------------------------===//
 /// DWLabel - Labels are used to track locations in the assembler file.
@@ -76,9 +139,6 @@ public:
   }
   
 #ifndef NDEBUG
-  void print(std::ostream *O) const {
-    if (O) print(*O);
-  }
   void print(std::ostream &O) const {
     O << ".debug_" << Tag;
     if (Number) O << Number;
@@ -181,12 +241,9 @@ public:
   
   /// Emit - Print the abbreviation using the specified Dwarf writer.
   ///
-  void Emit(const DwarfDebug &DD) const; 
+  void Emit(const Dwarf &DW) const; 
       
 #ifndef NDEBUG
-  void print(std::ostream *O) {
-    if (O) print(*O);
-  }
   void print(std::ostream &O);
   void dump();
 #endif
@@ -232,7 +289,6 @@ public:
   unsigned   getAbbrevNumber()               const {
     return Abbrev.getNumber();
   }
-  unsigned getTag()                          const { return Abbrev.getTag(); }
   unsigned getOffset()                       const { return Offset; }
   unsigned getSize()                         const { return Size; }
   const std::vector<DIE *> &getChildren()    const { return Children; }
@@ -274,9 +330,6 @@ public:
   void Profile(FoldingSetNodeID &ID) ;
       
 #ifndef NDEBUG
-  void print(std::ostream *O, unsigned IncIndent = 0) {
-    if (O) print(*O, IncIndent);
-  }
   void print(std::ostream &O, unsigned IncIndent = 0);
   void dump();
 #endif
@@ -314,20 +367,17 @@ public:
   
   /// EmitValue - Emit value via the Dwarf writer.
   ///
-  virtual void EmitValue(const DwarfDebug &DD, unsigned Form) const = 0;
+  virtual void EmitValue(const Dwarf &DW, unsigned Form) const = 0;
   
   /// SizeOf - Return the size of a value in bytes.
   ///
-  virtual unsigned SizeOf(const DwarfDebug &DD, unsigned Form) const = 0;
+  virtual unsigned SizeOf(const Dwarf &DW, unsigned Form) const = 0;
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
   virtual void Profile(FoldingSetNodeID &ID) = 0;
       
 #ifndef NDEBUG
-  void print(std::ostream *O) {
-    if (O) print(*O);
-  }
   virtual void print(std::ostream &O) = 0;
   void dump();
 #endif
@@ -364,19 +414,34 @@ public:
     
   /// EmitValue - Emit integer of appropriate size.
   ///
-  virtual void EmitValue(const DwarfDebug &DD, unsigned Form) const;
+  virtual void EmitValue(const Dwarf &DW, unsigned Form) const;
   
   /// SizeOf - Determine size of integer value in bytes.
   ///
-  virtual unsigned SizeOf(const DwarfDebug &DD, unsigned Form) const;
+  virtual unsigned SizeOf(const Dwarf &DW, unsigned Form) const {
+    switch (Form) {
+    case DW_FORM_flag:  // Fall thru
+    case DW_FORM_ref1:  // Fall thru
+    case DW_FORM_data1: return sizeof(int8_t);
+    case DW_FORM_ref2:  // Fall thru
+    case DW_FORM_data2: return sizeof(int16_t);
+    case DW_FORM_ref4:  // Fall thru
+    case DW_FORM_data4: return sizeof(int32_t);
+    case DW_FORM_ref8:  // Fall thru
+    case DW_FORM_data8: return sizeof(int64_t);
+    case DW_FORM_udata: return SizeULEB128(Integer);
+    case DW_FORM_sdata: return SizeSLEB128(Integer);
+    default: assert(0 && "DIE Value form not supported yet"); break;
+    }
+    return 0;
+  }
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, unsigned Integer) {
+  virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isInteger);
     ID.AddInteger(Integer);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, Integer); }
   
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -401,21 +466,20 @@ public:
   
   /// EmitValue - Emit string value.
   ///
-  virtual void EmitValue(const DwarfDebug &DD, unsigned Form) const;
+  virtual void EmitValue(const Dwarf &DW, unsigned Form) const;
   
   /// SizeOf - Determine size of string value in bytes.
   ///
-  virtual unsigned SizeOf(const DwarfDebug &DD, unsigned Form) const {
+  virtual unsigned SizeOf(const Dwarf &DW, unsigned Form) const {
     return String.size() + sizeof(char); // sizeof('\0');
   }
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, const std::string &String) {
+  virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isString);
     ID.AddString(String);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, String); }
   
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -440,19 +504,18 @@ public:
   
   /// EmitValue - Emit label value.
   ///
-  virtual void EmitValue(const DwarfDebug &DD, unsigned Form) const;
+  virtual void EmitValue(const Dwarf &DW, unsigned Form) const;
   
   /// SizeOf - Determine size of label value in bytes.
   ///
-  virtual unsigned SizeOf(const DwarfDebug &DD, unsigned Form) const;
+  virtual unsigned SizeOf(const Dwarf &DW, unsigned Form) const;
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, const DWLabel &Label) {
+  virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isLabel);
     Label.Profile(ID);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, Label); }
   
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -478,19 +541,18 @@ public:
   
   /// EmitValue - Emit label value.
   ///
-  virtual void EmitValue(const DwarfDebug &DD, unsigned Form) const;
+  virtual void EmitValue(const Dwarf &DW, unsigned Form) const;
   
   /// SizeOf - Determine size of label value in bytes.
   ///
-  virtual unsigned SizeOf(const DwarfDebug &DD, unsigned Form) const;
+  virtual unsigned SizeOf(const Dwarf &DW, unsigned Form) const;
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, const std::string &Label) {
+  virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isAsIsLabel);
     ID.AddString(Label);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, Label); }
 
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -516,21 +578,19 @@ public:
   
   /// EmitValue - Emit delta value.
   ///
-  virtual void EmitValue(const DwarfDebug &DD, unsigned Form) const;
+  virtual void EmitValue(const Dwarf &DW, unsigned Form) const;
   
   /// SizeOf - Determine size of delta value in bytes.
   ///
-  virtual unsigned SizeOf(const DwarfDebug &DD, unsigned Form) const;
+  virtual unsigned SizeOf(const Dwarf &DW, unsigned Form) const;
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, const DWLabel &LabelHi,
-                                            const DWLabel &LabelLo) {
+  virtual void Profile(FoldingSetNodeID &ID){
     ID.AddInteger(isDelta);
     LabelHi.Profile(ID);
     LabelLo.Profile(ID);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, LabelHi, LabelLo); }
 
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -558,20 +618,16 @@ public:
   
   /// EmitValue - Emit debug information entry offset.
   ///
-  virtual void EmitValue(const DwarfDebug &DD, unsigned Form) const;
+  virtual void EmitValue(const Dwarf &DW, unsigned Form) const;
   
   /// SizeOf - Determine size of debug information entry in bytes.
   ///
-  virtual unsigned SizeOf(const DwarfDebug &DD, unsigned Form) const {
+  virtual unsigned SizeOf(const Dwarf &DW, unsigned Form) const {
     return sizeof(int32_t);
   }
   
   /// Profile - Used to gather unique data for the value folding set.
   ///
-  static void Profile(FoldingSetNodeID &ID, DIE *Entry) {
-    ID.AddInteger(isEntry);
-    ID.AddPointer(Entry);
-  }
   virtual void Profile(FoldingSetNodeID &ID) {
     ID.AddInteger(isEntry);
     
@@ -610,7 +666,7 @@ public:
   
   /// ComputeSize - calculate the size of the block.
   ///
-  unsigned ComputeSize(DwarfDebug &DD);
+  unsigned ComputeSize(Dwarf &DW);
   
   /// BestForm - Choose the best form for data.
   ///
@@ -623,11 +679,11 @@ public:
 
   /// EmitValue - Emit block data.
   ///
-  virtual void EmitValue(const DwarfDebug &DD, unsigned Form) const;
+  virtual void EmitValue(const Dwarf &DW, unsigned Form) const;
   
   /// SizeOf - Determine size of block data in bytes.
   ///
-  virtual unsigned SizeOf(const DwarfDebug &DD, unsigned Form) const;
+  virtual unsigned SizeOf(const Dwarf &DW, unsigned Form) const;
   
 
   /// Profile - Used to gather unique data for the value folding set.
@@ -721,14 +777,14 @@ public:
   
   /// getDieMapSlotFor - Returns the debug information entry map slot for the
   /// specified debug descriptor.
-  DIE *&getDieMapSlotFor(DebugInfoDesc *DID) {
-    return DescToDieMap[DID];
+  DIE *&getDieMapSlotFor(DebugInfoDesc *DD) {
+    return DescToDieMap[DD];
   }
   
   /// getDIEntrySlotFor - Returns the debug information entry proxy slot for the
   /// specified debug descriptor.
-  DIEntry *&getDIEntrySlotFor(DebugInfoDesc *DID) {
-    return DescToDIEntryMap[DID];
+  DIEntry *&getDIEntrySlotFor(DebugInfoDesc *DD) {
+    return DescToDIEntryMap[DD];
   }
   
   /// AddDie - Adds or interns the DIE to the compile unit.
@@ -751,14 +807,14 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
-/// Dwarf - Emits general Dwarf directives. 
+/// Dwarf - Emits Dwarf debug and exception handling directives. 
 ///
 class Dwarf {
 
-protected:
+private:
 
   //===--------------------------------------------------------------------===//
-  // Core attributes used by the Dwarf writer.
+  // Core attributes used by the Dwarf  writer.
   //
   
   //
@@ -787,9 +843,9 @@ protected:
   ///
   MachineFunction *MF;
   
-  /// MMI - Collected machine module information.
+  /// DebugInfo - Collected debug information.
   ///
-  MachineModuleInfo *MMI;
+  MachineDebugInfo *DebugInfo;
   
   /// didInitial - Flag to indicate if initial emission has been done.
   ///
@@ -803,235 +859,12 @@ protected:
   ///
   unsigned SubprogramCount;
   
-  Dwarf(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T)
-  : O(OS)
-  , Asm(A)
-  , TAI(T)
-  , TD(Asm->TM.getTargetData())
-  , RI(Asm->TM.getRegisterInfo())
-  , M(NULL)
-  , MF(NULL)
-  , MMI(NULL)
-  , didInitial(false)
-  , shouldEmit(false)
-  , SubprogramCount(0)
-  {
-  }
-
-public:
-
-  //===--------------------------------------------------------------------===//
-  // Accessors.
-  //
-  AsmPrinter *getAsm() const { return Asm; }
-  MachineModuleInfo *getMMI() const { return MMI; }
-  const TargetAsmInfo *getTargetAsmInfo() const { return TAI; }
-
-  /// ShouldEmitDwarf - Returns true if Dwarf declarations should be made.
-  ///
-  bool ShouldEmitDwarf() const { return shouldEmit; }
-
-
-  /// PrintLabelName - Print label name in form used by Dwarf writer.
-  ///
-  void PrintLabelName(DWLabel Label) const {
-    PrintLabelName(Label.Tag, Label.Number);
-  }
-  void PrintLabelName(const char *Tag, unsigned Number) const {
-    O << TAI->getPrivateGlobalPrefix()
-      << ((Tag && *Tag) ? "debug_" : "label_")
-      << Tag;
-    if (Number) O << Number;
-  }
-  
-  /// EmitLabel - Emit location label for internal use by Dwarf.
-  ///
-  void EmitLabel(DWLabel Label) const {
-    EmitLabel(Label.Tag, Label.Number);
-  }
-  void EmitLabel(const char *Tag, unsigned Number) const {
-    PrintLabelName(Tag, Number);
-    O << ":\n";
-  }
-  
-  /// EmitReference - Emit a reference to a label.
-  ///
-  void EmitReference(DWLabel Label, bool IsPCRelative = false) const {
-    EmitReference(Label.Tag, Label.Number, IsPCRelative);
-  }
-  void EmitReference(const char *Tag, unsigned Number,
-                     bool IsPCRelative = false) const {
-    if (TAI->getAddressSize() == sizeof(int32_t))
-      O << TAI->getData32bitsDirective();
-    else
-      O << TAI->getData64bitsDirective();
-      
-    PrintLabelName(Tag, Number);
-    
-    if (IsPCRelative) O << "-" << TAI->getPCSymbol();
-  }
-  void EmitReference(const std::string &Name, bool IsPCRelative = false) const {
-    if (TAI->getAddressSize() == sizeof(int32_t))
-      O << TAI->getData32bitsDirective();
-    else
-      O << TAI->getData64bitsDirective();
-      
-    O << Name;
-    
-    if (IsPCRelative) O << "-" << TAI->getPCSymbol();
-  }
-
-  /// EmitDifference - Emit the difference between two labels.  Some
-  /// assemblers do not behave with absolute expressions with data directives,
-  /// so there is an option (needsSet) to use an intermediary set expression.
-  void EmitDifference(DWLabel LabelHi, DWLabel LabelLo,
-                      bool IsSmall = false) const {
-    EmitDifference(LabelHi.Tag, LabelHi.Number,
-                   LabelLo.Tag, LabelLo.Number,
-                   IsSmall);
-  }
-  void EmitDifference(const char *TagHi, unsigned NumberHi,
-                      const char *TagLo, unsigned NumberLo,
-                      bool IsSmall = false) const {
-    if (TAI->needsSet()) {
-      static unsigned SetCounter = 1;
-      
-      O << "\t.set\t";
-      PrintLabelName("set", SetCounter);
-      O << ",";
-      PrintLabelName(TagHi, NumberHi);
-      O << "-";
-      PrintLabelName(TagLo, NumberLo);
-      O << "\n";
-      
-      if (IsSmall || TAI->getAddressSize() == sizeof(int32_t))
-        O << TAI->getData32bitsDirective();
-      else
-        O << TAI->getData64bitsDirective();
-        
-      PrintLabelName("set", SetCounter);
-      
-      ++SetCounter;
-    } else {
-      if (IsSmall || TAI->getAddressSize() == sizeof(int32_t))
-        O << TAI->getData32bitsDirective();
-      else
-        O << TAI->getData64bitsDirective();
-        
-      PrintLabelName(TagHi, NumberHi);
-      O << "-";
-      PrintLabelName(TagLo, NumberLo);
-    }
-  }
-                      
-  /// EmitFrameMoves - Emit frame instructions to describe the layout of the
-  /// frame.
-  void EmitFrameMoves(const char *BaseLabel, unsigned BaseLabelID,
-                                   std::vector<MachineMove> &Moves) {
-    int stackGrowth =
-        Asm->TM.getFrameInfo()->getStackGrowthDirection() ==
-          TargetFrameInfo::StackGrowsUp ?
-            TAI->getAddressSize() : -TAI->getAddressSize();
-    bool IsLocal = BaseLabel && strcmp(BaseLabel, "") == 0;
-
-    for (unsigned i = 0, N = Moves.size(); i < N; ++i) {
-      MachineMove &Move = Moves[i];
-      unsigned LabelID = Move.getLabelID();
-      
-      if (LabelID) {
-        LabelID = MMI->MappedLabel(LabelID);
-      
-        // Throw out move if the label is invalid.
-        if (!LabelID) continue;
-      }
-      
-      const MachineLocation &Dst = Move.getDestination();
-      const MachineLocation &Src = Move.getSource();
-      
-      // Advance row if new location.
-      if (BaseLabel && LabelID && (BaseLabelID != LabelID || !IsLocal)) {
-        Asm->EmitInt8(DW_CFA_advance_loc4);
-        Asm->EOL("DW_CFA_advance_loc4");
-        EmitDifference("", LabelID, BaseLabel, BaseLabelID, true);
-        Asm->EOL("");
-        
-        BaseLabelID = LabelID;
-        BaseLabel = "";
-        IsLocal = true;
-      }
-      
-      // If advancing cfa.
-      if (Dst.isRegister() && Dst.getRegister() == MachineLocation::VirtualFP) {
-        if (!Src.isRegister()) {
-          if (Src.getRegister() == MachineLocation::VirtualFP) {
-            Asm->EmitInt8(DW_CFA_def_cfa_offset);
-            Asm->EOL("DW_CFA_def_cfa_offset");
-          } else {
-            Asm->EmitInt8(DW_CFA_def_cfa);
-            Asm->EOL("DW_CFA_def_cfa");
-            Asm->EmitULEB128Bytes(RI->getDwarfRegNum(Src.getRegister()));
-            Asm->EOL("Register");
-          }
-          
-          int Offset = -Src.getOffset();
-          
-          Asm->EmitULEB128Bytes(Offset);
-          Asm->EOL("Offset");
-        } else {
-          assert(0 && "Machine move no supported yet.");
-        }
-      } else if (Src.isRegister() &&
-        Src.getRegister() == MachineLocation::VirtualFP) {
-        if (Dst.isRegister()) {
-          Asm->EmitInt8(DW_CFA_def_cfa_register);
-          Asm->EOL("DW_CFA_def_cfa_register");
-          Asm->EmitULEB128Bytes(RI->getDwarfRegNum(Dst.getRegister()));
-          Asm->EOL("Register");
-        } else {
-          assert(0 && "Machine move no supported yet.");
-        }
-      } else {
-        unsigned Reg = RI->getDwarfRegNum(Src.getRegister());
-        int Offset = Dst.getOffset() / stackGrowth;
-        
-        if (Offset < 0) {
-          Asm->EmitInt8(DW_CFA_offset_extended_sf);
-          Asm->EOL("DW_CFA_offset_extended_sf");
-          Asm->EmitULEB128Bytes(Reg);
-          Asm->EOL("Reg");
-          Asm->EmitSLEB128Bytes(Offset);
-          Asm->EOL("Offset");
-        } else if (Reg < 64) {
-          Asm->EmitInt8(DW_CFA_offset + Reg);
-          Asm->EOL("DW_CFA_offset + Reg");
-          Asm->EmitULEB128Bytes(Offset);
-          Asm->EOL("Offset");
-        } else {
-          Asm->EmitInt8(DW_CFA_offset_extended);
-          Asm->EOL("DW_CFA_offset_extended");
-          Asm->EmitULEB128Bytes(Reg);
-          Asm->EOL("Reg");
-          Asm->EmitULEB128Bytes(Offset);
-          Asm->EOL("Offset");
-        }
-      }
-    }
-  }
-
-};
-
-//===----------------------------------------------------------------------===//
-/// DwarfDebug - Emits Dwarf debug directives. 
-///
-class DwarfDebug : public Dwarf {
-
-private:
   //===--------------------------------------------------------------------===//
   // Attributes used to construct specific Dwarf sections.
   //
   
   /// CompileUnits - All the compile units involved in this build.  The index
-  /// of each entry in this vector corresponds to the sources in MMI.
+  /// of each entry in this vector corresponds to the sources in DebugInfo.
   std::vector<CompileUnit *> CompileUnits;
   
   /// AbbreviationsSet - Used to uniquely define abbreviations.
@@ -1069,6 +902,213 @@ private:
 
 public:
 
+  //===--------------------------------------------------------------------===//
+  // Emission and print routines
+  //
+
+  /// PrintHex - Print a value as a hexidecimal value.
+  ///
+  void PrintHex(int Value) const { 
+    O << "0x" << std::hex << Value << std::dec;
+  }
+
+  /// EOL - Print a newline character to asm stream.  If a comment is present
+  /// then it will be printed first.  Comments should not contain '\n'.
+  void EOL(const std::string &Comment) const {
+    if (DwarfVerbose && !Comment.empty()) {
+      O << "\t"
+        << TAI->getCommentString()
+        << " "
+        << Comment;
+    }
+    O << "\n";
+  }
+  
+  /// EmitAlign - Print a align directive.
+  ///
+  void EmitAlign(unsigned Alignment) const {
+    O << TAI->getAlignDirective() << Alignment << "\n";
+  }
+                                        
+  /// EmitULEB128Bytes - Emit an assembler byte data directive to compose an
+  /// unsigned leb128 value.
+  void EmitULEB128Bytes(unsigned Value) const {
+    if (TAI->hasLEB128()) {
+      O << "\t.uleb128\t"
+        << Value;
+    } else {
+      O << TAI->getData8bitsDirective();
+      PrintULEB128(O, Value);
+    }
+  }
+  
+  /// EmitSLEB128Bytes - print an assembler byte data directive to compose a
+  /// signed leb128 value.
+  void EmitSLEB128Bytes(int Value) const {
+    if (TAI->hasLEB128()) {
+      O << "\t.sleb128\t"
+        << Value;
+    } else {
+      O << TAI->getData8bitsDirective();
+      PrintSLEB128(O, Value);
+    }
+  }
+  
+  /// EmitInt8 - Emit a byte directive and value.
+  ///
+  void EmitInt8(int Value) const {
+    O << TAI->getData8bitsDirective();
+    PrintHex(Value & 0xFF);
+  }
+
+  /// EmitInt16 - Emit a short directive and value.
+  ///
+  void EmitInt16(int Value) const {
+    O << TAI->getData16bitsDirective();
+    PrintHex(Value & 0xFFFF);
+  }
+
+  /// EmitInt32 - Emit a long directive and value.
+  ///
+  void EmitInt32(int Value) const {
+    O << TAI->getData32bitsDirective();
+    PrintHex(Value);
+  }
+
+  /// EmitInt64 - Emit a long long directive and value.
+  ///
+  void EmitInt64(uint64_t Value) const {
+    if (TAI->getData64bitsDirective()) {
+      O << TAI->getData64bitsDirective();
+      PrintHex(Value);
+    } else {
+      if (TD->isBigEndian()) {
+        EmitInt32(unsigned(Value >> 32)); O << "\n";
+        EmitInt32(unsigned(Value));
+      } else {
+        EmitInt32(unsigned(Value)); O << "\n";
+        EmitInt32(unsigned(Value >> 32));
+      }
+    }
+  }
+
+  /// EmitString - Emit a string with quotes and a null terminator.
+  /// Special characters are emitted properly.
+  /// \literal (Eg. '\t') \endliteral
+  void EmitString(const std::string &String) const {
+    O << TAI->getAsciiDirective()
+      << "\"";
+    for (unsigned i = 0, N = String.size(); i < N; ++i) {
+      unsigned char C = String[i];
+      
+      if (!isascii(C) || iscntrl(C)) {
+        switch(C) {
+        case '\b': O << "\\b"; break;
+        case '\f': O << "\\f"; break;
+        case '\n': O << "\\n"; break;
+        case '\r': O << "\\r"; break;
+        case '\t': O << "\\t"; break;
+        default:
+          O << '\\';
+          O << char('0' + ((C >> 6) & 7));
+          O << char('0' + ((C >> 3) & 7));
+          O << char('0' + ((C >> 0) & 7));
+          break;
+        }
+      } else if (C == '\"') {
+        O << "\\\"";
+      } else if (C == '\'') {
+        O << "\\\'";
+      } else {
+       O << C;
+      }
+    }
+    O << "\\0\"";
+  }
+
+  /// PrintLabelName - Print label name in form used by Dwarf writer.
+  ///
+  void PrintLabelName(DWLabel Label) const {
+    PrintLabelName(Label.Tag, Label.Number);
+  }
+  void PrintLabelName(const char *Tag, unsigned Number) const {
+    O << TAI->getPrivateGlobalPrefix()
+      << "debug_"
+      << Tag;
+    if (Number) O << Number;
+  }
+  
+  /// EmitLabel - Emit location label for internal use by Dwarf.
+  ///
+  void EmitLabel(DWLabel Label) const {
+    EmitLabel(Label.Tag, Label.Number);
+  }
+  void EmitLabel(const char *Tag, unsigned Number) const {
+    PrintLabelName(Tag, Number);
+    O << ":\n";
+  }
+  
+  /// EmitReference - Emit a reference to a label.
+  ///
+  void EmitReference(DWLabel Label) const {
+    EmitReference(Label.Tag, Label.Number);
+  }
+  void EmitReference(const char *Tag, unsigned Number) const {
+    if (TAI->getAddressSize() == 4)
+      O << TAI->getData32bitsDirective();
+    else
+      O << TAI->getData64bitsDirective();
+      
+    PrintLabelName(Tag, Number);
+  }
+  void EmitReference(const std::string &Name) const {
+    if (TAI->getAddressSize() == 4)
+      O << TAI->getData32bitsDirective();
+    else
+      O << TAI->getData64bitsDirective();
+      
+    O << Name;
+  }
+
+  /// EmitDifference - Emit the difference between two labels.  Some
+  /// assemblers do not behave with absolute expressions with data directives,
+  /// so there is an option (needsSet) to use an intermediary set expression.
+  void EmitDifference(DWLabel LabelHi, DWLabel LabelLo) const {
+    EmitDifference(LabelHi.Tag, LabelHi.Number, LabelLo.Tag, LabelLo.Number);
+  }
+  void EmitDifference(const char *TagHi, unsigned NumberHi,
+                      const char *TagLo, unsigned NumberLo) const {
+    if (TAI->needsSet()) {
+      static unsigned SetCounter = 0;
+      
+      O << "\t.set\t";
+      PrintLabelName("set", SetCounter);
+      O << ",";
+      PrintLabelName(TagHi, NumberHi);
+      O << "-";
+      PrintLabelName(TagLo, NumberLo);
+      O << "\n";
+      
+      if (TAI->getAddressSize() == sizeof(int32_t))
+        O << TAI->getData32bitsDirective();
+      else
+        O << TAI->getData64bitsDirective();
+        
+      PrintLabelName("set", SetCounter);
+      
+      ++SetCounter;
+    } else {
+      if (TAI->getAddressSize() == sizeof(int32_t))
+        O << TAI->getData32bitsDirective();
+      else
+        O << TAI->getData64bitsDirective();
+        
+      PrintLabelName(TagHi, NumberHi);
+      O << "-";
+      PrintLabelName(TagLo, NumberLo);
+    }
+  }
+                      
   /// AssignAbbrevNumber - Define a unique number for the abbreviation.
   ///  
   void AssignAbbrevNumber(DIEAbbrev &Abbrev) {
@@ -1105,7 +1145,7 @@ public:
     
     if (Entry) {
       FoldingSetNodeID ID;
-      DIEntry::Profile(ID, Entry);
+      ID.AddPointer(Entry);
       void *Where;
       Value = static_cast<DIEntry *>(ValuesSet.FindNodeOrInsertPos(ID, Where));
       
@@ -1136,7 +1176,7 @@ public:
     if (!Form) Form = DIEInteger::BestForm(false, Integer);
 
     FoldingSetNodeID ID;
-    DIEInteger::Profile(ID, Integer);
+    ID.AddInteger(Integer);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1154,7 +1194,7 @@ public:
     if (!Form) Form = DIEInteger::BestForm(true, Integer);
 
     FoldingSetNodeID ID;
-    DIEInteger::Profile(ID, (uint64_t)Integer);
+    ID.AddInteger((uint64_t)Integer);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1171,7 +1211,7 @@ public:
   void AddString(DIE *Die, unsigned Attribute, unsigned Form,
                  const std::string &String) {
     FoldingSetNodeID ID;
-    DIEString::Profile(ID, String);
+    ID.AddString(String);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1188,7 +1228,7 @@ public:
   void AddLabel(DIE *Die, unsigned Attribute, unsigned Form,
                      const DWLabel &Label) {
     FoldingSetNodeID ID;
-    DIEDwarfLabel::Profile(ID, Label);
+    Label.Profile(ID);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1205,7 +1245,7 @@ public:
   void AddObjectLabel(DIE *Die, unsigned Attribute, unsigned Form,
                       const std::string &Label) {
     FoldingSetNodeID ID;
-    DIEObjectLabel::Profile(ID, Label);
+    ID.AddString(Label);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1222,7 +1262,8 @@ public:
   void AddDelta(DIE *Die, unsigned Attribute, unsigned Form,
                           const DWLabel &Hi, const DWLabel &Lo) {
     FoldingSetNodeID ID;
-    DIEDelta::Profile(ID, Hi, Lo);
+    Hi.Profile(ID);
+    Lo.Profile(ID);
     void *Where;
     DIEValue *Value = ValuesSet.FindNodeOrInsertPos(ID, Where);
     if (!Value) {
@@ -1340,7 +1381,7 @@ private:
   ///
   void AddType(DIE *Entity, TypeDesc *TyDesc, CompileUnit *Unit) {
     if (!TyDesc) {
-      AddBasicType(Entity, Unit, "", DW_ATE_signed, sizeof(int32_t));
+      AddBasicType(Entity, Unit, "", DW_ATE_signed, 4);
     } else {
       // Check for pre-existence.
       DIEntry *&Slot = Unit->getDIEntrySlotFor(TyDesc);
@@ -1388,12 +1429,8 @@ private:
       Buffer.setTag(DW_TAG_base_type);
       AddUInt(&Buffer, DW_AT_encoding,  DW_FORM_data1, BasicTy->getEncoding());
     } else if (DerivedTypeDesc *DerivedTy = dyn_cast<DerivedTypeDesc>(TyDesc)) {
-      // Fetch tag.
-      unsigned Tag = DerivedTy->getTag();
-      // FIXME - Workaround for templates.
-      if (Tag == DW_TAG_inheritance) Tag = DW_TAG_reference_type;
-      // Pointers, typedefs et al. 
-      Buffer.setTag(Tag);
+      // Pointers, tyepdefs et al. 
+      Buffer.setTag(DerivedTy->getTag());
       // Map to main type, void will not have a type.
       if (TypeDesc *FromTy = DerivedTy->getFromType())
         AddType(&Buffer, FromTy, Unit);
@@ -1422,8 +1459,7 @@ private:
         Size = 0;
         
         // Construct an anonymous type for index type.
-        DIE *IndexTy = ConstructBasicType(Unit, "", DW_ATE_signed,
-                                          sizeof(int32_t));
+        DIE *IndexTy = ConstructBasicType(Unit, "", DW_ATE_signed, 4);
       
         // Add subranges to array type.
         for(unsigned i = 0, N = Elements.size(); i < N; ++i) {
@@ -1475,19 +1511,10 @@ private:
             uint64_t FieldAlign = Align;
             uint64_t FieldOffset = Offset;
             
-            // Set the member type.
-            TypeDesc *FromTy = MemberDesc->getFromType();
-            AddType(Member, FromTy, Unit);
-            
-            // Walk up typedefs until a real size is found.
-            while (FromTy) {
-              if (FromTy->getTag() != DW_TAG_typedef) {
-                FieldSize = FromTy->getSize();
-                FieldAlign = FromTy->getSize();
-                break;
-              }
-              
-              FromTy = dyn_cast<DerivedTypeDesc>(FromTy)->getFromType();
+            if (TypeDesc *FromTy = MemberDesc->getFromType()) {
+              AddType(Member, FromTy, Unit);
+              FieldSize = FromTy->getSize();
+              FieldAlign = FromTy->getSize();
             }
             
             // Unless we have a bit field.
@@ -1534,13 +1561,11 @@ private:
             DIE *Static = new DIE(DW_TAG_variable);
             
             // Add name and mangled name.
-            const std::string &Name = StaticDesc->getName();
-            const std::string &LinkageName = StaticDesc->getLinkageName();
+            const std::string &Name = StaticDesc->getDisplayName();
+            const std::string &MangledName = StaticDesc->getName();
             AddString(Static, DW_AT_name, DW_FORM_string, Name);
-            if (!LinkageName.empty()) {
-              AddString(Static, DW_AT_MIPS_linkage_name, DW_FORM_string,
-                                LinkageName);
-            }
+            AddString(Static, DW_AT_MIPS_linkage_name, DW_FORM_string,
+                              MangledName);
             
             // Add location.
             AddSourceLine(Static, StaticDesc->getFile(), StaticDesc->getLine());
@@ -1550,8 +1575,7 @@ private:
               AddType(Static, StaticTy, Unit);
             
             // Add flags.
-            if (!StaticDesc->isStatic())
-              AddUInt(Static, DW_AT_external, DW_FORM_flag, 1);
+            AddUInt(Static, DW_AT_external, DW_FORM_flag, 1);
             AddUInt(Static, DW_AT_declaration, DW_FORM_flag, 1);
             
             Buffer.AddChild(Static);
@@ -1563,15 +1587,17 @@ private:
             DIE *Method = new DIE(DW_TAG_subprogram);
            
             // Add name and mangled name.
-            const std::string &Name = MethodDesc->getName();
-            const std::string &LinkageName = MethodDesc->getLinkageName();
+            const std::string &Name = MethodDesc->getDisplayName();
+            const std::string &MangledName = MethodDesc->getName();
+            bool IsCTor = false;
             
-            AddString(Method, DW_AT_name, DW_FORM_string, Name);            
-            bool IsCTor = TyDesc->getName() == Name;
-            
-            if (!LinkageName.empty()) {
+            if (Name.empty()) {
+              AddString(Method, DW_AT_name, DW_FORM_string, MangledName);            
+              IsCTor = TyDesc->getName() == MangledName;
+            } else {
+              AddString(Method, DW_AT_name, DW_FORM_string, Name);            
               AddString(Method, DW_AT_MIPS_linkage_name, DW_FORM_string,
-                                LinkageName);
+                                MangledName);
             }
             
             // Add location.
@@ -1599,8 +1625,7 @@ private:
             }
 
             // Add flags.
-            if (!MethodDesc->isStatic())
-              AddUInt(Method, DW_AT_external, DW_FORM_flag, 1);
+            AddUInt(Method, DW_AT_external, DW_FORM_flag, 1);
             AddUInt(Method, DW_AT_declaration, DW_FORM_flag, 1);
               
             Buffer.AddChild(Method);
@@ -1670,18 +1695,15 @@ private:
     return Unit;
   }
 
-  /// GetBaseCompileUnit - Get the main compile unit.
-  ///
-  CompileUnit *GetBaseCompileUnit() const {
-    CompileUnit *Unit = CompileUnits[0];
-    assert(Unit && "Missing compile unit.");
-    return Unit;
-  }
-
   /// FindCompileUnit - Get the compile unit for the given descriptor.
   ///
   CompileUnit *FindCompileUnit(CompileUnitDesc *UnitDesc) {
+#if 1
+    // FIXME - Using only one compile unit.  Needs to me fixed at the FE.
+    CompileUnit *Unit = CompileUnits[0];
+#else
     CompileUnit *Unit = DescToUnitMap[UnitDesc];
+#endif
     assert(Unit && "Missing compile unit.");
     return Unit;
   }
@@ -1692,7 +1714,7 @@ private:
     // Get the compile unit context.
     CompileUnitDesc *UnitDesc =
       static_cast<CompileUnitDesc *>(GVD->getContext());
-    CompileUnit *Unit = GetBaseCompileUnit();
+    CompileUnit *Unit = FindCompileUnit(UnitDesc);
 
     // Check for pre-existence.
     DIE *&Slot = Unit->getDieMapSlotFor(GVD);
@@ -1701,28 +1723,31 @@ private:
     // Get the global variable itself.
     GlobalVariable *GV = GVD->getGlobalVariable();
 
-    const std::string &Name = GVD->getName();
-    const std::string &FullName = GVD->getFullName();
-    const std::string &LinkageName = GVD->getLinkageName();
+    const std::string &Name = GVD->hasMangledName() ? GVD->getDisplayName()
+                                                    : GVD->getName();
+    const std::string &MangledName = GVD->hasMangledName() ? GVD->getName()
+                                                           : "";
     // Create the global's variable DIE.
     DIE *VariableDie = new DIE(DW_TAG_variable);
     AddString(VariableDie, DW_AT_name, DW_FORM_string, Name);
-    if (!LinkageName.empty()) {
+    if (!MangledName.empty()) {
       AddString(VariableDie, DW_AT_MIPS_linkage_name, DW_FORM_string,
-                             LinkageName);
+                             MangledName);
     }
-    AddType(VariableDie, GVD->getType(), Unit);
-    if (!GVD->isStatic())
-      AddUInt(VariableDie, DW_AT_external, DW_FORM_flag, 1);
+    AddType(VariableDie, GVD->getType(), Unit); 
+    AddUInt(VariableDie, DW_AT_external, DW_FORM_flag, 1);
     
     // Add source line info if available.
     AddSourceLine(VariableDie, UnitDesc, GVD->getLine());
     
+    // Work up linkage name.
+    const std::string LinkageName = Asm->getGlobalLinkName(GV);
+
     // Add address.
     DIEBlock *Block = new DIEBlock();
     AddUInt(Block, 0, DW_FORM_data1, DW_OP_addr);
-    AddObjectLabel(Block, 0, DW_FORM_udata, Asm->getGlobalLinkName(GV));
-    AddBlock(VariableDie, DW_AT_location, 0, Block);
+    AddObjectLabel(Block, 0, DW_FORM_udata, LinkageName);
+    AddBlock(VariableDie, DW_AT_location,  0, Block);
     
     // Add to map.
     Slot = VariableDie;
@@ -1732,7 +1757,7 @@ private:
     
     // Expose as global.
     // FIXME - need to check external flag.
-    Unit->AddGlobal(FullName, VariableDie);
+    Unit->AddGlobal(Name, VariableDie);
     
     return VariableDie;
   }
@@ -1743,26 +1768,27 @@ private:
     // Get the compile unit context.
     CompileUnitDesc *UnitDesc =
       static_cast<CompileUnitDesc *>(SPD->getContext());
-    CompileUnit *Unit = GetBaseCompileUnit();
+    CompileUnit *Unit = FindCompileUnit(UnitDesc);
 
     // Check for pre-existence.
     DIE *&Slot = Unit->getDieMapSlotFor(SPD);
     if (Slot) return Slot;
     
     // Gather the details (simplify add attribute code.)
-    const std::string &Name = SPD->getName();
-    const std::string &FullName = SPD->getFullName();
-    const std::string &LinkageName = SPD->getLinkageName();
+    const std::string &Name = SPD->hasMangledName() ? SPD->getDisplayName()
+                                                    : SPD->getName();
+    const std::string &MangledName = SPD->hasMangledName() ? SPD->getName()
+                                                           : "";
+    unsigned IsExternal = SPD->isStatic() ? 0 : 1;
                                       
     DIE *SubprogramDie = new DIE(DW_TAG_subprogram);
     AddString(SubprogramDie, DW_AT_name, DW_FORM_string, Name);
-    if (!LinkageName.empty()) {
+    if (!MangledName.empty()) {
       AddString(SubprogramDie, DW_AT_MIPS_linkage_name, DW_FORM_string,
-                               LinkageName);
+                               MangledName);
     }
     if (SPD->getType()) AddType(SubprogramDie, SPD->getType(), Unit);
-    if (!SPD->isStatic())
-      AddUInt(SubprogramDie, DW_AT_external, DW_FORM_flag, 1);
+    AddUInt(SubprogramDie, DW_AT_external, DW_FORM_flag, IsExternal);
     AddUInt(SubprogramDie, DW_AT_prototyped, DW_FORM_flag, 1);
     
     // Add source line info if available.
@@ -1775,7 +1801,7 @@ private:
     Unit->getDie()->AddChild(SubprogramDie);
     
     // Expose as global.
-    Unit->AddGlobal(FullName, SubprogramDie);
+    Unit->AddGlobal(Name, SubprogramDie);
     
     return SubprogramDie;
   }
@@ -1810,15 +1836,14 @@ private:
     MachineLocation Location;
     RI->getLocation(*MF, DV->getFrameIndex(), Location);
     AddAddress(VariableDie, DW_AT_location, Location);
-
+    
     return VariableDie;
   }
 
   /// ConstructScope - Construct the components of a scope.
   ///
   void ConstructScope(DebugScope *ParentScope,
-                      unsigned ParentStartID, unsigned ParentEndID,
-                      DIE *ParentDie, CompileUnit *Unit) {
+                                   DIE *ParentDie, CompileUnit *Unit) {
     // Add variables to scope.
     std::vector<DebugVariable *> &Variables = ParentScope->getVariables();
     for (unsigned i = 0, N = Variables.size(); i < N; ++i) {
@@ -1834,39 +1859,35 @@ private:
       // FIXME - Ignore inlined functions for the time being.
       if (!Scope->getParent()) continue;
       
-      unsigned StartID = MMI->MappedLabel(Scope->getStartLabelID());
-      unsigned EndID = MMI->MappedLabel(Scope->getEndLabelID());
-
-      // Ignore empty scopes.
-      if (StartID == EndID && StartID != 0) continue;
-      if (Scope->getScopes().empty() && Scope->getVariables().empty()) continue;
+      unsigned StartID = Scope->getStartLabelID();
+      unsigned EndID = Scope->getEndLabelID();
       
-      if (StartID == ParentStartID && EndID == ParentEndID) {
-        // Just add stuff to the parent scope.
-        ConstructScope(Scope, ParentStartID, ParentEndID, ParentDie, Unit);
+      // Widen scope if label is discarded.
+      // FIXME - really need to find a GOOD label if a block is dead.
+      if (StartID && !DebugInfo->isLabelValid(StartID)) StartID = 0;
+      if (EndID && !DebugInfo->isLabelValid(EndID)) EndID = 0;
+      
+      DIE *ScopeDie = new DIE(DW_TAG_lexical_block);
+      
+      // Add the scope bounds.
+      if (StartID) {
+        AddLabel(ScopeDie, DW_AT_low_pc, DW_FORM_addr,
+                           DWLabel("loc", StartID));
       } else {
-        DIE *ScopeDie = new DIE(DW_TAG_lexical_block);
-        
-        // Add the scope bounds.
-        if (StartID) {
-          AddLabel(ScopeDie, DW_AT_low_pc, DW_FORM_addr,
-                             DWLabel("", StartID));
-        } else {
-          AddLabel(ScopeDie, DW_AT_low_pc, DW_FORM_addr,
-                             DWLabel("func_begin", SubprogramCount));
-        }
-        if (EndID) {
-          AddLabel(ScopeDie, DW_AT_high_pc, DW_FORM_addr,
-                             DWLabel("", EndID));
-        } else {
-          AddLabel(ScopeDie, DW_AT_high_pc, DW_FORM_addr,
-                             DWLabel("func_end", SubprogramCount));
-        }
-                           
-        // Add the scope contents.
-        ConstructScope(Scope, StartID, EndID, ScopeDie, Unit);
-        ParentDie->AddChild(ScopeDie);
+        AddLabel(ScopeDie, DW_AT_low_pc, DW_FORM_addr,
+                           DWLabel("func_begin", SubprogramCount));
       }
+      if (EndID) {
+        AddLabel(ScopeDie, DW_AT_high_pc, DW_FORM_addr,
+                           DWLabel("loc", EndID));
+      } else {
+        AddLabel(ScopeDie, DW_AT_high_pc, DW_FORM_addr,
+                           DWLabel("func_end", SubprogramCount));
+      }
+                         
+      // Add the scope contents.
+      ConstructScope(Scope, ScopeDie, Unit);
+      ParentDie->AddChild(ScopeDie);
     }
   }
 
@@ -1880,7 +1901,9 @@ private:
     SubprogramDesc *SPD = cast<SubprogramDesc>(RootScope->getDesc());
     
     // Get the compile unit context.
-    CompileUnit *Unit = GetBaseCompileUnit();
+    CompileUnitDesc *UnitDesc =
+      static_cast<CompileUnitDesc *>(SPD->getContext());
+    CompileUnit *Unit = FindCompileUnit(UnitDesc);
     
     // Get the subprogram die.
     DIE *SPDie = Unit->getDieMapSlotFor(SPD);
@@ -1893,8 +1916,8 @@ private:
                     DWLabel("func_end", SubprogramCount));
     MachineLocation Location(RI->getFrameRegister(*MF));
     AddAddress(SPDie, DW_AT_frame_base, Location);
-
-    ConstructScope(RootScope, 0, 0, SPDie, Unit);
+                    
+    ConstructScope(RootScope, SPDie, Unit);
   }
 
   /// EmitInitial - Emit initial Dwarf declarations.  This is necessary for cc
@@ -1944,15 +1967,15 @@ private:
     unsigned AbbrevNumber = Die->getAbbrevNumber();
     const DIEAbbrev *Abbrev = Abbreviations[AbbrevNumber - 1];
     
-    Asm->EOL("");
+    O << "\n";
 
     // Emit the code (index) for the abbreviation.
-    Asm->EmitULEB128Bytes(AbbrevNumber);
-    Asm->EOL(std::string("Abbrev [" +
-             utostr(AbbrevNumber) +
-             "] 0x" + utohexstr(Die->getOffset()) +
-             ":0x" + utohexstr(Die->getSize()) + " " +
-             TagString(Abbrev->getTag())));
+    EmitULEB128Bytes(AbbrevNumber);
+    EOL(std::string("Abbrev [" +
+        utostr(AbbrevNumber) +
+        "] 0x" + utohexstr(Die->getOffset()) +
+        ":0x" + utohexstr(Die->getSize()) + " " +
+        TagString(Abbrev->getTag())));
     
     const std::vector<DIEValue *> &Values = Die->getValues();
     const std::vector<DIEAbbrevData> &AbbrevData = Abbrev->getData();
@@ -1965,7 +1988,7 @@ private:
       
       switch (Attr) {
       case DW_AT_sibling: {
-        Asm->EmitInt32(Die->SiblingOffset());
+        EmitInt32(Die->SiblingOffset());
         break;
       }
       default: {
@@ -1975,7 +1998,7 @@ private:
       }
       }
       
-      Asm->EOL(AttributeString(Attr));
+      EOL(AttributeString(Attr));
     }
     
     // Emit the DIE children if any.
@@ -1986,7 +2009,7 @@ private:
         EmitDIE(Children[j]);
       }
       
-      Asm->EmitInt8(0); Asm->EOL("End Of Children Mark");
+      EmitInt8(0); EOL("End Of Children Mark");
     }
   }
 
@@ -2010,7 +2033,7 @@ private:
     Die->setOffset(Offset);
     
     // Start the size with the size of abbreviation code.
-    Offset += Asm->SizeULEB128(AbbrevNumber);
+    Offset += SizeULEB128(AbbrevNumber);
     
     const std::vector<DIEValue *> &Values = Die->getValues();
     const std::vector<DIEAbbrevData> &AbbrevData = Abbrev->getData();
@@ -2041,14 +2064,96 @@ private:
   /// SizeAndOffsets - Compute the size and offset of all the DIEs.
   ///
   void SizeAndOffsets() {
-    // Process base compile unit.
-    CompileUnit *Unit = GetBaseCompileUnit();
-    // Compute size of compile unit header
-    unsigned Offset = sizeof(int32_t) + // Length of Compilation Unit Info
-                      sizeof(int16_t) + // DWARF version number
-                      sizeof(int32_t) + // Offset Into Abbrev. Section
-                      sizeof(int8_t);   // Pointer Size (in bytes)
-    SizeAndOffsetDie(Unit->getDie(), Offset, true);
+    // Process each compile unit.
+    for (unsigned i = 0, N = CompileUnits.size(); i < N; ++i) {
+      CompileUnit *Unit = CompileUnits[i];
+      if (Unit->hasContent()) {
+        // Compute size of compile unit header
+        unsigned Offset = sizeof(int32_t) + // Length of Compilation Unit Info
+                          sizeof(int16_t) + // DWARF version number
+                          sizeof(int32_t) + // Offset Into Abbrev. Section
+                          sizeof(int8_t);   // Pointer Size (in bytes)
+        SizeAndOffsetDie(Unit->getDie(), Offset, (i + 1) == N);
+      }
+    }
+  }
+
+  /// EmitFrameMoves - Emit frame instructions to describe the layout of the
+  /// frame.
+  void EmitFrameMoves(const char *BaseLabel, unsigned BaseLabelID,
+                                   std::vector<MachineMove *> &Moves) {
+    for (unsigned i = 0, N = Moves.size(); i < N; ++i) {
+      MachineMove *Move = Moves[i];
+      unsigned LabelID = Move->getLabelID();
+      
+      // Throw out move if the label is invalid.
+      if (LabelID && !DebugInfo->isLabelValid(LabelID)) continue;
+      
+      const MachineLocation &Dst = Move->getDestination();
+      const MachineLocation &Src = Move->getSource();
+      
+      // Advance row if new location.
+      if (BaseLabel && LabelID && BaseLabelID != LabelID) {
+        EmitInt8(DW_CFA_advance_loc4);
+        EOL("DW_CFA_advance_loc4");
+        EmitDifference("loc", LabelID, BaseLabel, BaseLabelID);
+        EOL("");
+        
+        BaseLabelID = LabelID;
+        BaseLabel = "loc";
+      }
+      
+      int stackGrowth =
+          Asm->TM.getFrameInfo()->getStackGrowthDirection() ==
+            TargetFrameInfo::StackGrowsUp ?
+              TAI->getAddressSize() : -TAI->getAddressSize();
+
+      // If advancing cfa.
+      if (Dst.isRegister() && Dst.getRegister() == MachineLocation::VirtualFP) {
+        if (!Src.isRegister()) {
+          if (Src.getRegister() == MachineLocation::VirtualFP) {
+            EmitInt8(DW_CFA_def_cfa_offset);
+            EOL("DW_CFA_def_cfa_offset");
+          } else {
+            EmitInt8(DW_CFA_def_cfa);
+            EOL("DW_CFA_def_cfa");
+            EmitULEB128Bytes(RI->getDwarfRegNum(Src.getRegister()));
+            EOL("Register");
+          }
+          
+          int Offset = Src.getOffset() / stackGrowth;
+          
+          EmitULEB128Bytes(Offset);
+          EOL("Offset");
+        } else {
+          assert(0 && "Machine move no supported yet.");
+        }
+      } else {
+        unsigned Reg = RI->getDwarfRegNum(Src.getRegister());
+        int Offset = Dst.getOffset() / stackGrowth;
+        
+        if (Offset < 0) {
+          EmitInt8(DW_CFA_offset_extended_sf);
+          EOL("DW_CFA_offset_extended_sf");
+          EmitULEB128Bytes(Reg);
+          EOL("Reg");
+          EmitSLEB128Bytes(Offset);
+          EOL("Offset");
+        } else if (Reg < 64) {
+          EmitInt8(DW_CFA_offset + Reg);
+          EOL("DW_CFA_offset + Reg");
+          EmitULEB128Bytes(Offset);
+          EOL("Offset");
+        } else {
+          EmitInt8(DW_CFA_offset_extended);
+          EOL("DW_CFA_offset_extended");
+          EmitULEB128Bytes(Reg);
+          EOL("Reg");
+          EmitULEB128Bytes(Offset);
+          EOL("Offset");
+        }
+      }
+    }
   }
 
   /// EmitDebugInfo - Emit the debug info section.
@@ -2057,32 +2162,32 @@ private:
     // Start debug info section.
     Asm->SwitchToDataSection(TAI->getDwarfInfoSection());
     
-    CompileUnit *Unit = GetBaseCompileUnit();
-    DIE *Die = Unit->getDie();
-    // Emit the compile units header.
-    EmitLabel("info_begin", Unit->getID());
-    // Emit size of content not including length itself
-    unsigned ContentSize = Die->getSize() +
-                           sizeof(int16_t) + // DWARF version number
-                           sizeof(int32_t) + // Offset Into Abbrev. Section
-                           sizeof(int8_t) +  // Pointer Size (in bytes)
-                           sizeof(int32_t);  // FIXME - extra pad for gdb bug.
-                           
-    Asm->EmitInt32(ContentSize);  Asm->EOL("Length of Compilation Unit Info");
-    Asm->EmitInt16(DWARF_VERSION); Asm->EOL("DWARF version number");
-    EmitDifference("abbrev_begin", 0, "section_abbrev", 0, true);
-    Asm->EOL("Offset Into Abbrev. Section");
-    Asm->EmitInt8(TAI->getAddressSize()); Asm->EOL("Address Size (in bytes)");
-  
-    EmitDIE(Die);
-    // FIXME - extra padding for gdb bug.
-    Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
-    Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
-    Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
-    Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
-    EmitLabel("info_end", Unit->getID());
-    
-    Asm->EOL("");
+    // Process each compile unit.
+    for (unsigned i = 0, N = CompileUnits.size(); i < N; ++i) {
+      CompileUnit *Unit = CompileUnits[i];
+      
+      if (Unit->hasContent()) {
+        DIE *Die = Unit->getDie();
+        // Emit the compile units header.
+        EmitLabel("info_begin", Unit->getID());
+        // Emit size of content not including length itself
+        unsigned ContentSize = Die->getSize() +
+                               sizeof(int16_t) + // DWARF version number
+                               sizeof(int32_t) + // Offset Into Abbrev. Section
+                               sizeof(int8_t);   // Pointer Size (in bytes)
+                               
+        EmitInt32(ContentSize);  EOL("Length of Compilation Unit Info");
+        EmitInt16(DWARF_VERSION); EOL("DWARF version number");
+        EmitDifference("abbrev_begin", 0, "section_abbrev", 0);
+        EOL("Offset Into Abbrev. Section");
+        EmitInt8(TAI->getAddressSize()); EOL("Address Size (in bytes)");
+      
+        EmitDIE(Die);
+        EmitLabel("info_end", Unit->getID());
+      }
+      
+      O << "\n";
+    }
   }
 
   /// EmitAbbreviations - Emit the abbreviation section.
@@ -2101,18 +2206,17 @@ private:
         const DIEAbbrev *Abbrev = Abbreviations[i];
         
         // Emit the abbrevations code (base 1 index.)
-        Asm->EmitULEB128Bytes(Abbrev->getNumber());
-        Asm->EOL("Abbreviation Code");
+        EmitULEB128Bytes(Abbrev->getNumber()); EOL("Abbreviation Code");
         
         // Emit the abbreviations data.
         Abbrev->Emit(*this);
     
-        Asm->EOL("");
+        O << "\n";
       }
       
       EmitLabel("abbrev_end", 0);
     
-      Asm->EOL("");
+      O << "\n";
     }
   }
 
@@ -2129,62 +2233,58 @@ private:
     
     // Construct the section header.
     
-    EmitDifference("line_end", 0, "line_begin", 0, true);
-    Asm->EOL("Length of Source Line Info");
+    EmitDifference("line_end", 0, "line_begin", 0);
+    EOL("Length of Source Line Info");
     EmitLabel("line_begin", 0);
     
-    Asm->EmitInt16(DWARF_VERSION); Asm->EOL("DWARF version number");
+    EmitInt16(DWARF_VERSION); EOL("DWARF version number");
     
-    EmitDifference("line_prolog_end", 0, "line_prolog_begin", 0, true);
-    Asm->EOL("Prolog Length");
+    EmitDifference("line_prolog_end", 0, "line_prolog_begin", 0);
+    EOL("Prolog Length");
     EmitLabel("line_prolog_begin", 0);
     
-    Asm->EmitInt8(1); Asm->EOL("Minimum Instruction Length");
+    EmitInt8(1); EOL("Minimum Instruction Length");
 
-    Asm->EmitInt8(1); Asm->EOL("Default is_stmt_start flag");
+    EmitInt8(1); EOL("Default is_stmt_start flag");
 
-    Asm->EmitInt8(MinLineDelta); Asm->EOL("Line Base Value (Special Opcodes)");
+    EmitInt8(MinLineDelta);  EOL("Line Base Value (Special Opcodes)");
     
-    Asm->EmitInt8(MaxLineDelta); Asm->EOL("Line Range Value (Special Opcodes)");
+    EmitInt8(MaxLineDelta); EOL("Line Range Value (Special Opcodes)");
 
-    Asm->EmitInt8(-MinLineDelta); Asm->EOL("Special Opcode Base");
+    EmitInt8(-MinLineDelta); EOL("Special Opcode Base");
     
     // Line number standard opcode encodings argument count
-    Asm->EmitInt8(0); Asm->EOL("DW_LNS_copy arg count");
-    Asm->EmitInt8(1); Asm->EOL("DW_LNS_advance_pc arg count");
-    Asm->EmitInt8(1); Asm->EOL("DW_LNS_advance_line arg count");
-    Asm->EmitInt8(1); Asm->EOL("DW_LNS_set_file arg count");
-    Asm->EmitInt8(1); Asm->EOL("DW_LNS_set_column arg count");
-    Asm->EmitInt8(0); Asm->EOL("DW_LNS_negate_stmt arg count");
-    Asm->EmitInt8(0); Asm->EOL("DW_LNS_set_basic_block arg count");
-    Asm->EmitInt8(0); Asm->EOL("DW_LNS_const_add_pc arg count");
-    Asm->EmitInt8(1); Asm->EOL("DW_LNS_fixed_advance_pc arg count");
+    EmitInt8(0); EOL("DW_LNS_copy arg count");
+    EmitInt8(1); EOL("DW_LNS_advance_pc arg count");
+    EmitInt8(1); EOL("DW_LNS_advance_line arg count");
+    EmitInt8(1); EOL("DW_LNS_set_file arg count");
+    EmitInt8(1); EOL("DW_LNS_set_column arg count");
+    EmitInt8(0); EOL("DW_LNS_negate_stmt arg count");
+    EmitInt8(0); EOL("DW_LNS_set_basic_block arg count");
+    EmitInt8(0); EOL("DW_LNS_const_add_pc arg count");
+    EmitInt8(1); EOL("DW_LNS_fixed_advance_pc arg count");
 
-    const UniqueVector<std::string> &Directories = MMI->getDirectories();
+    const UniqueVector<std::string> &Directories = DebugInfo->getDirectories();
     const UniqueVector<SourceFileInfo>
-      &SourceFiles = MMI->getSourceFiles();
+      &SourceFiles = DebugInfo->getSourceFiles();
 
     // Emit directories.
     for (unsigned DirectoryID = 1, NDID = Directories.size();
                   DirectoryID <= NDID; ++DirectoryID) {
-      Asm->EmitString(Directories[DirectoryID]); Asm->EOL("Directory");
+      EmitString(Directories[DirectoryID]); EOL("Directory");
     }
-    Asm->EmitInt8(0); Asm->EOL("End of directories");
+    EmitInt8(0); EOL("End of directories");
     
     // Emit files.
     for (unsigned SourceID = 1, NSID = SourceFiles.size();
                  SourceID <= NSID; ++SourceID) {
       const SourceFileInfo &SourceFile = SourceFiles[SourceID];
-      Asm->EmitString(SourceFile.getName());
-      Asm->EOL("Source");
-      Asm->EmitULEB128Bytes(SourceFile.getDirectoryID());
-      Asm->EOL("Directory #");
-      Asm->EmitULEB128Bytes(0);
-      Asm->EOL("Mod date");
-      Asm->EmitULEB128Bytes(0);
-      Asm->EOL("File size");
+      EmitString(SourceFile.getName()); EOL("Source");
+      EmitULEB128Bytes(SourceFile.getDirectoryID());  EOL("Directory #");
+      EmitULEB128Bytes(0);  EOL("Mod date");
+      EmitULEB128Bytes(0);  EOL("File size");
     }
-    Asm->EmitInt8(0); Asm->EOL("End of files");
+    EmitInt8(0); EOL("End of files");
     
     EmitLabel("line_prolog_end", 0);
     
@@ -2193,7 +2293,12 @@ private:
       // Isolate current sections line info.
       const std::vector<SourceLineInfo> &LineInfos = SectionSourceLines[j];
       
-      Asm->EOL(std::string("Section ") + SectionMap[j + 1]);
+      if (DwarfVerbose) {
+        O << "\t"
+          << TAI->getCommentString() << " "
+          << "Section "
+          << SectionMap[j + 1].c_str() << "\n";
+      }
 
       // Dwarf assumes we start with first line of first source file.
       unsigned Source = 1;
@@ -2202,28 +2307,32 @@ private:
       // Construct rows of the address, source, line, column matrix.
       for (unsigned i = 0, N = LineInfos.size(); i < N; ++i) {
         const SourceLineInfo &LineInfo = LineInfos[i];
-        unsigned LabelID = MMI->MappedLabel(LineInfo.getLabelID());
-        if (!LabelID) continue;
+        unsigned LabelID = LineInfo.getLabelID();
         
-        unsigned SourceID = LineInfo.getSourceID();
-        const SourceFileInfo &SourceFile = SourceFiles[SourceID];
-        unsigned DirectoryID = SourceFile.getDirectoryID();
-        Asm->EOL(Directories[DirectoryID]
-          + SourceFile.getName()
-          + ":"
-          + utostr_32(LineInfo.getLine()));
+        // Source line labels are validated at the MachineDebugInfo level.
+        
+        if (DwarfVerbose) {
+          unsigned SourceID = LineInfo.getSourceID();
+          const SourceFileInfo &SourceFile = SourceFiles[SourceID];
+          unsigned DirectoryID = SourceFile.getDirectoryID();
+          O << "\t"
+            << TAI->getCommentString() << " "
+            << Directories[DirectoryID]
+            << SourceFile.getName() << ":"
+            << LineInfo.getLine() << "\n"; 
+        }
 
         // Define the line address.
-        Asm->EmitInt8(0); Asm->EOL("Extended Op");
-        Asm->EmitInt8(TAI->getAddressSize() + 1); Asm->EOL("Op size");
-        Asm->EmitInt8(DW_LNE_set_address); Asm->EOL("DW_LNE_set_address");
-        EmitReference("",  LabelID); Asm->EOL("Location label");
+        EmitInt8(0); EOL("Extended Op");
+        EmitInt8(4 + 1); EOL("Op size");
+        EmitInt8(DW_LNE_set_address); EOL("DW_LNE_set_address");
+        EmitReference("loc",  LabelID); EOL("Location label");
         
         // If change of source, then switch to the new source.
         if (Source != LineInfo.getSourceID()) {
           Source = LineInfo.getSourceID();
-          Asm->EmitInt8(DW_LNS_set_file); Asm->EOL("DW_LNS_set_file");
-          Asm->EmitULEB128Bytes(Source); Asm->EOL("New Source");
+          EmitInt8(DW_LNS_set_file); EOL("DW_LNS_set_file");
+          EmitULEB128Bytes(Source); EOL("New Source");
         }
         
         // If change of line.
@@ -2238,34 +2347,34 @@ private:
           // If delta is small enough and in range...
           if (Delta >= 0 && Delta < (MaxLineDelta - 1)) {
             // ... then use fast opcode.
-            Asm->EmitInt8(Delta - MinLineDelta); Asm->EOL("Line Delta");
+            EmitInt8(Delta - MinLineDelta); EOL("Line Delta");
           } else {
             // ... otherwise use long hand.
-            Asm->EmitInt8(DW_LNS_advance_line); Asm->EOL("DW_LNS_advance_line");
-            Asm->EmitSLEB128Bytes(Offset); Asm->EOL("Line Offset");
-            Asm->EmitInt8(DW_LNS_copy); Asm->EOL("DW_LNS_copy");
+            EmitInt8(DW_LNS_advance_line); EOL("DW_LNS_advance_line");
+            EmitSLEB128Bytes(Offset); EOL("Line Offset");
+            EmitInt8(DW_LNS_copy); EOL("DW_LNS_copy");
           }
         } else {
           // Copy the previous row (different address or source)
-          Asm->EmitInt8(DW_LNS_copy); Asm->EOL("DW_LNS_copy");
+          EmitInt8(DW_LNS_copy); EOL("DW_LNS_copy");
         }
       }
 
       // Define last address of section.
-      Asm->EmitInt8(0); Asm->EOL("Extended Op");
-      Asm->EmitInt8(TAI->getAddressSize() + 1); Asm->EOL("Op size");
-      Asm->EmitInt8(DW_LNE_set_address); Asm->EOL("DW_LNE_set_address");
-      EmitReference("section_end", j + 1); Asm->EOL("Section end label");
+      EmitInt8(0); EOL("Extended Op");
+      EmitInt8(4 + 1); EOL("Op size");
+      EmitInt8(DW_LNE_set_address); EOL("DW_LNE_set_address");
+      EmitReference("section_end", j + 1); EOL("Section end label");
 
       // Mark end of matrix.
-      Asm->EmitInt8(0); Asm->EOL("DW_LNE_end_sequence");
-      Asm->EmitULEB128Bytes(1); Asm->EOL("");
-      Asm->EmitInt8(1); Asm->EOL("");
+      EmitInt8(0); EOL("DW_LNE_end_sequence");
+      EmitULEB128Bytes(1);  O << "\n";
+      EmitInt8(1); O << "\n";
     }
     
     EmitLabel("line_end", 0);
     
-    Asm->EOL("");
+    O << "\n";
   }
     
   /// EmitInitialDebugFrame - Emit common frame info into a debug frame section.
@@ -2284,31 +2393,26 @@ private:
 
     EmitLabel("frame_common", 0);
     EmitDifference("frame_common_end", 0,
-                   "frame_common_begin", 0, true);
-    Asm->EOL("Length of Common Information Entry");
+                   "frame_common_begin", 0);
+    EOL("Length of Common Information Entry");
 
     EmitLabel("frame_common_begin", 0);
-    Asm->EmitInt32((int)DW_CIE_ID);
-    Asm->EOL("CIE Identifier Tag");
-    Asm->EmitInt8(DW_CIE_VERSION);
-    Asm->EOL("CIE Version");
-    Asm->EmitString("");
-    Asm->EOL("CIE Augmentation");
-    Asm->EmitULEB128Bytes(1);
-    Asm->EOL("CIE Code Alignment Factor");
-    Asm->EmitSLEB128Bytes(stackGrowth);
-    Asm->EOL("CIE Data Alignment Factor");   
-    Asm->EmitInt8(RI->getDwarfRegNum(RI->getRARegister()));
-    Asm->EOL("CIE RA Column");
+    EmitInt32(DW_CIE_ID); EOL("CIE Identifier Tag");
+    EmitInt8(DW_CIE_VERSION); EOL("CIE Version");
+    EmitString("");  EOL("CIE Augmentation");
+    EmitULEB128Bytes(1); EOL("CIE Code Alignment Factor");
+    EmitSLEB128Bytes(stackGrowth); EOL("CIE Data Alignment Factor");   
+    EmitInt8(RI->getDwarfRegNum(RI->getRARegister())); EOL("CIE RA Column");
     
-    std::vector<MachineMove> Moves;
+    std::vector<MachineMove *> Moves;
     RI->getInitialFrameState(Moves);
     EmitFrameMoves(NULL, 0, Moves);
+    for (unsigned i = 0, N = Moves.size(); i < N; ++i) delete Moves[i];
 
-    Asm->EmitAlignment(2);
+    EmitAlign(2);
     EmitLabel("frame_common_end", 0);
     
-    Asm->EOL("");
+    O << "\n";
   }
 
   /// EmitFunctionDebugFrame - Emit per function frame info into a debug frame
@@ -2316,33 +2420,31 @@ private:
   void EmitFunctionDebugFrame() {
     if (!TAI->getDwarfRequiresFrameSection())
       return;
-       
     // Start the dwarf frame section.
     Asm->SwitchToDataSection(TAI->getDwarfFrameSection());
     
     EmitDifference("frame_end", SubprogramCount,
-                   "frame_begin", SubprogramCount, true);
-    Asm->EOL("Length of Frame Information Entry");
+                   "frame_begin", SubprogramCount);
+    EOL("Length of Frame Information Entry");
     
     EmitLabel("frame_begin", SubprogramCount);
     
-    EmitDifference("frame_common_begin", 0, "section_frame", 0, true);
-    Asm->EOL("FDE CIE offset");
+    EmitDifference("frame_common", 0, "section_frame", 0);
+    EOL("FDE CIE offset");
 
-    EmitReference("func_begin", SubprogramCount);
-    Asm->EOL("FDE initial location");
+    EmitReference("func_begin", SubprogramCount); EOL("FDE initial location");
     EmitDifference("func_end", SubprogramCount,
                    "func_begin", SubprogramCount);
-    Asm->EOL("FDE address range");
+    EOL("FDE address range");
     
-    std::vector<MachineMove> &Moves = MMI->getFrameMoves();
+    std::vector<MachineMove *> &Moves = DebugInfo->getFrameMoves();
     
     EmitFrameMoves("func_begin", SubprogramCount, Moves);
     
-    Asm->EmitAlignment(2);
+    EmitAlign(2);
     EmitLabel("frame_end", SubprogramCount);
 
-    Asm->EOL("");
+    O << "\n";
   }
 
   /// EmitDebugPubNames - Emit visible names into a debug pubnames section.
@@ -2351,38 +2453,43 @@ private:
     // Start the dwarf pubnames section.
     Asm->SwitchToDataSection(TAI->getDwarfPubNamesSection());
       
-    CompileUnit *Unit = GetBaseCompileUnit(); 
- 
-    EmitDifference("pubnames_end", Unit->getID(),
-                   "pubnames_begin", Unit->getID(), true);
-    Asm->EOL("Length of Public Names Info");
-    
-    EmitLabel("pubnames_begin", Unit->getID());
-    
-    Asm->EmitInt16(DWARF_VERSION); Asm->EOL("DWARF Version");
-    
-    EmitDifference("info_begin", Unit->getID(), "section_info", 0, true);
-    Asm->EOL("Offset of Compilation Unit Info");
-
-    EmitDifference("info_end", Unit->getID(), "info_begin", Unit->getID(),true);
-    Asm->EOL("Compilation Unit Length");
-    
-    std::map<std::string, DIE *> &Globals = Unit->getGlobals();
-    
-    for (std::map<std::string, DIE *>::iterator GI = Globals.begin(),
-                                                GE = Globals.end();
-         GI != GE; ++GI) {
-      const std::string &Name = GI->first;
-      DIE * Entity = GI->second;
+    // Process each compile unit.
+    for (unsigned i = 0, N = CompileUnits.size(); i < N; ++i) {
+      CompileUnit *Unit = CompileUnits[i];
       
-      Asm->EmitInt32(Entity->getOffset()); Asm->EOL("DIE offset");
-      Asm->EmitString(Name); Asm->EOL("External Name");
+      if (Unit->hasContent()) {
+        EmitDifference("pubnames_end", Unit->getID(),
+                       "pubnames_begin", Unit->getID());
+        EOL("Length of Public Names Info");
+        
+        EmitLabel("pubnames_begin", Unit->getID());
+        
+        EmitInt16(DWARF_VERSION); EOL("DWARF Version");
+        
+        EmitDifference("info_begin", Unit->getID(), "section_info", 0);
+        EOL("Offset of Compilation Unit Info");
+
+        EmitDifference("info_end", Unit->getID(), "info_begin", Unit->getID());
+        EOL("Compilation Unit Length");
+        
+        std::map<std::string, DIE *> &Globals = Unit->getGlobals();
+        
+        for (std::map<std::string, DIE *>::iterator GI = Globals.begin(),
+                                                    GE = Globals.end();
+             GI != GE; ++GI) {
+          const std::string &Name = GI->first;
+          DIE * Entity = GI->second;
+          
+          EmitInt32(Entity->getOffset()); EOL("DIE offset");
+          EmitString(Name); EOL("External Name");
+        }
+      
+        EmitInt32(0); EOL("End Mark");
+        EmitLabel("pubnames_end", Unit->getID());
+      
+        O << "\n";
+      }
     }
-  
-    Asm->EmitInt32(0); Asm->EOL("End Mark");
-    EmitLabel("pubnames_end", Unit->getID());
-  
-    Asm->EOL("");
   }
 
   /// EmitDebugStr - Emit visible names into a debug str section.
@@ -2400,10 +2507,10 @@ private:
         EmitLabel("string", StringID);
         // Emit the string itself.
         const std::string &String = StringPool[StringID];
-        Asm->EmitString(String); Asm->EOL("");
+        EmitString(String); O << "\n";
       }
     
-      Asm->EOL("");
+      O << "\n";
     }
   }
 
@@ -2413,7 +2520,7 @@ private:
     // Start the dwarf loc section.
     Asm->SwitchToDataSection(TAI->getDwarfLocSection());
     
-    Asm->EOL("");
+    O << "\n";
   }
 
   /// EmitDebugARanges - Emit visible names into a debug aranges section.
@@ -2424,31 +2531,36 @@ private:
     
     // FIXME - Mock up
   #if 0
-    CompileUnit *Unit = GetBaseCompileUnit(); 
+    // Process each compile unit.
+    for (unsigned i = 0, N = CompileUnits.size(); i < N; ++i) {
+      CompileUnit *Unit = CompileUnits[i];
       
-    // Don't include size of length
-    Asm->EmitInt32(0x1c); Asm->EOL("Length of Address Ranges Info");
-    
-    Asm->EmitInt16(DWARF_VERSION); Asm->EOL("Dwarf Version");
-    
-    EmitReference("info_begin", Unit->getID());
-    Asm->EOL("Offset of Compilation Unit Info");
+      if (Unit->hasContent()) {
+        // Don't include size of length
+        EmitInt32(0x1c); EOL("Length of Address Ranges Info");
+        
+        EmitInt16(DWARF_VERSION); EOL("Dwarf Version");
+        
+        EmitReference("info_begin", Unit->getID());
+        EOL("Offset of Compilation Unit Info");
 
-    Asm->EmitInt8(TAI->getAddressSize()); Asm->EOL("Size of Address");
+        EmitInt8(TAI->getAddressSize()); EOL("Size of Address");
 
-    Asm->EmitInt8(0); Asm->EOL("Size of Segment Descriptor");
+        EmitInt8(0); EOL("Size of Segment Descriptor");
 
-    Asm->EmitInt16(0);  Asm->EOL("Pad (1)");
-    Asm->EmitInt16(0);  Asm->EOL("Pad (2)");
+        EmitInt16(0);  EOL("Pad (1)");
+        EmitInt16(0);  EOL("Pad (2)");
 
-    // Range 1
-    EmitReference("text_begin", 0); Asm->EOL("Address");
-    EmitDifference("text_end", 0, "text_begin", 0, true); Asm->EOL("Length");
+        // Range 1
+        EmitReference("text_begin", 0); EOL("Address");
+        EmitDifference("text_end", 0, "text_begin", 0); EOL("Length");
 
-    Asm->EmitInt32(0); Asm->EOL("EOM (1)");
-    Asm->EmitInt32(0); Asm->EOL("EOM (2)");
-    
-    Asm->EOL("");
+        EmitInt32(0); EOL("EOM (1)");
+        EmitInt32(0); EOL("EOM (2)");
+        
+        O << "\n";
+      }
+    }
   #endif
   }
 
@@ -2458,7 +2570,7 @@ private:
     // Start the dwarf ranges section.
     Asm->SwitchToDataSection(TAI->getDwarfRangesSection());
     
-    Asm->EOL("");
+    O << "\n";
   }
 
   /// EmitDebugMacInfo - Emit visible names into a debug macinfo section.
@@ -2467,17 +2579,16 @@ private:
     // Start the dwarf macinfo section.
     Asm->SwitchToDataSection(TAI->getDwarfMacInfoSection());
     
-    Asm->EOL("");
+    O << "\n";
   }
 
   /// ConstructCompileUnitDIEs - Create a compile unit DIE for each source and
   /// header file.
   void ConstructCompileUnitDIEs() {
-    const UniqueVector<CompileUnitDesc *> CUW = MMI->getCompileUnits();
+    const UniqueVector<CompileUnitDesc *> CUW = DebugInfo->getCompileUnits();
     
     for (unsigned i = 1, N = CUW.size(); i <= N; ++i) {
-      unsigned ID = MMI->RecordSource(CUW[i]);
-      CompileUnit *Unit = NewCompileUnit(CUW[i], ID);
+      CompileUnit *Unit = NewCompileUnit(CUW[i], i);
       CompileUnits.push_back(Unit);
     }
   }
@@ -2486,7 +2597,7 @@ private:
   /// global variables.
   void ConstructGlobalDIEs() {
     std::vector<GlobalVariableDesc *> GlobalVariables =
-        MMI->getAnchoredDescriptors<GlobalVariableDesc>(*M);
+        DebugInfo->getAnchoredDescriptors<GlobalVariableDesc>(*M);
     
     for (unsigned i = 0, N = GlobalVariables.size(); i < N; ++i) {
       GlobalVariableDesc *GVD = GlobalVariables[i];
@@ -2498,7 +2609,7 @@ private:
   /// subprograms.
   void ConstructSubprogramDIEs() {
     std::vector<SubprogramDesc *> Subprograms =
-        MMI->getAnchoredDescriptors<SubprogramDesc>(*M);
+        DebugInfo->getAnchoredDescriptors<SubprogramDesc>(*M);
     
     for (unsigned i = 0, N = Subprograms.size(); i < N; ++i) {
       SubprogramDesc *SPD = Subprograms[i];
@@ -2506,12 +2617,26 @@ private:
     }
   }
 
+  /// ShouldEmitDwarf - Returns true if Dwarf declarations should be made.
+  ///
+  bool ShouldEmitDwarf() const { return shouldEmit; }
+
 public:
   //===--------------------------------------------------------------------===//
   // Main entry points.
   //
-  DwarfDebug(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T)
-  : Dwarf(OS, A, T)
+  Dwarf(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T)
+  : O(OS)
+  , Asm(A)
+  , TAI(T)
+  , TD(Asm->TM.getTargetData())
+  , RI(Asm->TM.getRegisterInfo())
+  , M(NULL)
+  , MF(NULL)
+  , DebugInfo(NULL)
+  , didInitial(false)
+  , shouldEmit(false)
+  , SubprogramCount(0)
   , CompileUnits()
   , AbbreviationsSet(InitAbbreviationsSetSize)
   , Abbreviations()
@@ -2523,19 +2648,23 @@ public:
   , SectionSourceLines()
   {
   }
-  virtual ~DwarfDebug() {
+  virtual ~Dwarf() {
     for (unsigned i = 0, N = CompileUnits.size(); i < N; ++i)
       delete CompileUnits[i];
     for (unsigned j = 0, M = Values.size(); j < M; ++j)
       delete Values[j];
   }
 
-  /// SetModuleInfo - Set machine module information when it's known that pass
-  /// manager has created it.  Set by the target AsmPrinter.
-  void SetModuleInfo(MachineModuleInfo *mmi) {
+  // Accessors.
+  //
+  const TargetAsmInfo *getTargetAsmInfo() const { return TAI; }
+  
+  /// SetDebugInfo - Set DebugInfo when it's known that pass manager has
+  /// created it.  Set by the target AsmPrinter.
+  void SetDebugInfo(MachineDebugInfo *DI) {
     // Make sure initial declarations are made.
-    if (!MMI && mmi->hasDebugInfo()) {
-      MMI = mmi;
+    if (!DebugInfo && DI->hasInfo()) {
+      DebugInfo = DI;
       shouldEmit = true;
       
       // Emit initial sections
@@ -2561,12 +2690,14 @@ public:
     this->M = M;
     
     if (!ShouldEmitDwarf()) return;
+    EOL("Dwarf Begin Module");
   }
 
   /// EndModule - Emit all Dwarf sections that should come after the content.
   ///
   void EndModule() {
     if (!ShouldEmitDwarf()) return;
+    EOL("Dwarf End Module");
     
     // Standard sections final addresses.
     Asm->SwitchToTextSection(TAI->getTextSection());
@@ -2617,24 +2748,26 @@ public:
     this->MF = MF;
     
     if (!ShouldEmitDwarf()) return;
+    EOL("Dwarf Begin Function");
 
     // Begin accumulating function debug information.
-    MMI->BeginFunction(MF);
+    DebugInfo->BeginFunction(MF);
     
     // Assumes in correct section after the entry point.
     EmitLabel("func_begin", ++SubprogramCount);
   }
-  
+
   /// EndFunction - Gather and emit post-function debug information.
   ///
   void EndFunction() {
     if (!ShouldEmitDwarf()) return;
+    EOL("Dwarf End Function");
     
     // Define end label for subprogram.
     EmitLabel("func_end", SubprogramCount);
       
     // Get function line info.
-    const std::vector<SourceLineInfo> &LineInfos = MMI->getSourceLines();
+    const std::vector<SourceLineInfo> &LineInfos = DebugInfo->getSourceLines();
 
     if (!LineInfos.empty()) {
       // Get section line info.
@@ -2647,168 +2780,16 @@ public:
     }
     
     // Construct scopes for subprogram.
-    ConstructRootScope(MMI->getRootScope());
+    ConstructRootScope(DebugInfo->getRootScope());
     
     // Emit function frame information.
     EmitFunctionDebugFrame();
-  }
-};
-
-//===----------------------------------------------------------------------===//
-/// DwarfException - Emits Dwarf exception handling directives. 
-///
-class DwarfException : public Dwarf  {
-
-private:
-
-  /// EmitInitial - Emit initial exception information.
-  ///
-  void EmitInitial() {
-    int stackGrowth =
-        Asm->TM.getFrameInfo()->getStackGrowthDirection() ==
-          TargetFrameInfo::StackGrowsUp ?
-        TAI->getAddressSize() : -TAI->getAddressSize();
-
-    Asm->SwitchToTextSection(TAI->getDwarfEHFrameSection());
-    O << "EH_frame:\n";
-    EmitLabel("section_eh_frame", 0);
-
-    EmitLabel("eh_frame_common", 0);
-    EmitDifference("eh_frame_common_end", 0,
-                   "eh_frame_common_begin", 0, true);
-    Asm->EOL("Length of Common Information Entry");
-
-    EmitLabel("eh_frame_common_begin", 0);
-    Asm->EmitInt32((int)0);
-    Asm->EOL("CIE Identifier Tag");
-    Asm->EmitInt8(DW_CIE_VERSION);
-    Asm->EOL("CIE Version");
-    Asm->EmitString("zR");
-    Asm->EOL("CIE Augmentation");
-    Asm->EmitULEB128Bytes(1);
-    Asm->EOL("CIE Code Alignment Factor");
-    Asm->EmitSLEB128Bytes(stackGrowth);
-    Asm->EOL("CIE Data Alignment Factor");   
-    Asm->EmitInt8(RI->getDwarfRegNum(RI->getRARegister()));
-    Asm->EOL("CIE RA Column");
-    Asm->EmitULEB128Bytes(1);
-    Asm->EOL("Augmentation Size");
-    Asm->EmitULEB128Bytes(DW_EH_PE_pcrel);
-    Asm->EOL("FDE Encoding (pcrel)");
     
-    std::vector<MachineMove> Moves;
-    RI->getInitialFrameState(Moves);
-    EmitFrameMoves(NULL, 0, Moves);
+    // Reset the line numbers for the next function.
+    DebugInfo->ClearLineInfo();
 
-    Asm->EmitAlignment(2);
-    EmitLabel("eh_frame_common_end", 0);
-    
-    Asm->EOL("");
-    
-  }
-  
-  
-  /// EmitEHFrame - Emit initial exception information.
-  ///
-  void EmitEHFrame() {
-    EmitDifference("eh_frame_end", SubprogramCount,
-                   "eh_frame_begin", SubprogramCount, true);
-    Asm->EOL("Length of Frame Information Entry");
-    
-    EmitLabel("eh_frame_begin", SubprogramCount);
-    
-    EmitDifference("eh_frame_begin", SubprogramCount,
-                   "section_eh_frame", 0, true);
-    Asm->EOL("FDE CIE offset");
-
-    EmitReference("eh_func_begin", SubprogramCount, true);
-    Asm->EOL("FDE initial location");
-    EmitDifference("eh_func_end", SubprogramCount,
-                   "eh_func_begin", SubprogramCount);
-    Asm->EOL("FDE address range");
-    
-    Asm->EmitULEB128Bytes(0);
-    Asm->EOL("Augmentation size");
-    
-    std::vector<MachineMove> &Moves = MMI->getFrameMoves();
-    
-    EmitFrameMoves("eh_func_begin", SubprogramCount, Moves);
-    
-    Asm->EmitAlignment(2);
-    EmitLabel("eh_frame_end", SubprogramCount);
-  }
-
-public:
-  //===--------------------------------------------------------------------===//
-  // Main entry points.
-  //
-  DwarfException(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T)
-  : Dwarf(OS, A, T)
-  {}
-  
-  virtual ~DwarfException() {}
-
-  /// SetModuleInfo - Set machine module information when it's known that pass
-  /// manager has created it.  Set by the target AsmPrinter.
-  void SetModuleInfo(MachineModuleInfo *mmi) {
-#if 1  // Not ready for prime time.
-    return;
-#endif
-    // Make sure initial declarations are made.
-    if (!MMI && ExceptionHandling && TAI->getSupportsExceptionHandling()) {
-      MMI = mmi;
-      shouldEmit = true;
-      
-      EmitInitial();
-    }
-  }
-
-  /// BeginModule - Emit all exception information that should come prior to the
-  /// content.
-  void BeginModule(Module *M) {
-    this->M = M;
-    
-    if (!ShouldEmitDwarf()) return;
-  }
-
-  /// EndModule - Emit all exception information that should come after the
-  /// content.
-  void EndModule() {
-    if (!ShouldEmitDwarf()) return;
-  }
-
-  /// BeginFunction - Gather pre-function exception information.  Assumes being 
-  /// emitted immediately after the function entry point.
-  void BeginFunction(MachineFunction *MF) {
-    this->MF = MF;
-    
-    if (!ShouldEmitDwarf()) return;
-    
-    // Assumes in correct section after the entry point.
-    EmitLabel("eh_func_begin", ++SubprogramCount);
-  }
-
-  /// EndFunction - Gather and emit post-function exception information.
-  ///
-  void EndFunction() {
-    if (!ShouldEmitDwarf()) return;
-
-    EmitLabel("eh_func_end", SubprogramCount);
-
-    Asm->SwitchToTextSection(TAI->getDwarfEHFrameSection());
-
-    if (const char *GlobalDirective = TAI->getGlobalDirective())
-      O << GlobalDirective << getAsm()->CurrentFnName << ".eh\n";
-     
-    if (0) {
-      O << getAsm()->CurrentFnName << ".eh = 0\n";
-    } else {
-      O << getAsm()->CurrentFnName << ".eh:\n";
-      EmitEHFrame();
-    }
-    
-    if (const char *UsedDirective = TAI->getUsedDirective())
-      O << UsedDirective << getAsm()->CurrentFnName << ".eh\n\n";
+    // Clear function debug information.
+    DebugInfo->EndFunction();
   }
 };
 
@@ -2818,31 +2799,31 @@ public:
 
 /// Emit - Print the abbreviation using the specified Dwarf writer.
 ///
-void DIEAbbrev::Emit(const DwarfDebug &DD) const {
+void DIEAbbrev::Emit(const Dwarf &DW) const {
   // Emit its Dwarf tag type.
-  DD.getAsm()->EmitULEB128Bytes(Tag);
-  DD.getAsm()->EOL(TagString(Tag));
+  DW.EmitULEB128Bytes(Tag);
+  DW.EOL(TagString(Tag));
   
   // Emit whether it has children DIEs.
-  DD.getAsm()->EmitULEB128Bytes(ChildrenFlag);
-  DD.getAsm()->EOL(ChildrenString(ChildrenFlag));
+  DW.EmitULEB128Bytes(ChildrenFlag);
+  DW.EOL(ChildrenString(ChildrenFlag));
   
   // For each attribute description.
   for (unsigned i = 0, N = Data.size(); i < N; ++i) {
     const DIEAbbrevData &AttrData = Data[i];
     
     // Emit attribute type.
-    DD.getAsm()->EmitULEB128Bytes(AttrData.getAttribute());
-    DD.getAsm()->EOL(AttributeString(AttrData.getAttribute()));
+    DW.EmitULEB128Bytes(AttrData.getAttribute());
+    DW.EOL(AttributeString(AttrData.getAttribute()));
     
     // Emit form type.
-    DD.getAsm()->EmitULEB128Bytes(AttrData.getForm());
-    DD.getAsm()->EOL(FormEncodingString(AttrData.getForm()));
+    DW.EmitULEB128Bytes(AttrData.getForm());
+    DW.EOL(FormEncodingString(AttrData.getForm()));
   }
 
   // Mark end of abbreviation.
-  DD.getAsm()->EmitULEB128Bytes(0); DD.getAsm()->EOL("EOM(1)");
-  DD.getAsm()->EmitULEB128Bytes(0); DD.getAsm()->EOL("EOM(2)");
+  DW.EmitULEB128Bytes(0); DW.EOL("EOM(1)");
+  DW.EmitULEB128Bytes(0); DW.EOL("EOM(2)");
 }
 
 #ifndef NDEBUG
@@ -2863,14 +2844,14 @@ void DIEAbbrev::print(std::ostream &O) {
       << "\n";
   }
 }
-void DIEAbbrev::dump() { print(cerr); }
+void DIEAbbrev::dump() { print(std::cerr); }
 #endif
 
 //===----------------------------------------------------------------------===//
 
 #ifndef NDEBUG
 void DIEValue::dump() {
-  print(cerr);
+  print(std::cerr);
 }
 #endif
 
@@ -2878,113 +2859,91 @@ void DIEValue::dump() {
 
 /// EmitValue - Emit integer of appropriate size.
 ///
-void DIEInteger::EmitValue(const DwarfDebug &DD, unsigned Form) const {
+void DIEInteger::EmitValue(const Dwarf &DW, unsigned Form) const {
   switch (Form) {
   case DW_FORM_flag:  // Fall thru
   case DW_FORM_ref1:  // Fall thru
-  case DW_FORM_data1: DD.getAsm()->EmitInt8(Integer);         break;
+  case DW_FORM_data1: DW.EmitInt8(Integer);         break;
   case DW_FORM_ref2:  // Fall thru
-  case DW_FORM_data2: DD.getAsm()->EmitInt16(Integer);        break;
+  case DW_FORM_data2: DW.EmitInt16(Integer);        break;
   case DW_FORM_ref4:  // Fall thru
-  case DW_FORM_data4: DD.getAsm()->EmitInt32(Integer);        break;
+  case DW_FORM_data4: DW.EmitInt32(Integer);        break;
   case DW_FORM_ref8:  // Fall thru
-  case DW_FORM_data8: DD.getAsm()->EmitInt64(Integer);        break;
-  case DW_FORM_udata: DD.getAsm()->EmitULEB128Bytes(Integer); break;
-  case DW_FORM_sdata: DD.getAsm()->EmitSLEB128Bytes(Integer); break;
-  default: assert(0 && "DIE Value form not supported yet");   break;
-  }
-}
-
-/// SizeOf - Determine size of integer value in bytes.
-///
-unsigned DIEInteger::SizeOf(const DwarfDebug &DD, unsigned Form) const {
-  switch (Form) {
-  case DW_FORM_flag:  // Fall thru
-  case DW_FORM_ref1:  // Fall thru
-  case DW_FORM_data1: return sizeof(int8_t);
-  case DW_FORM_ref2:  // Fall thru
-  case DW_FORM_data2: return sizeof(int16_t);
-  case DW_FORM_ref4:  // Fall thru
-  case DW_FORM_data4: return sizeof(int32_t);
-  case DW_FORM_ref8:  // Fall thru
-  case DW_FORM_data8: return sizeof(int64_t);
-  case DW_FORM_udata: return DD.getAsm()->SizeULEB128(Integer);
-  case DW_FORM_sdata: return DD.getAsm()->SizeSLEB128(Integer);
+  case DW_FORM_data8: DW.EmitInt64(Integer);        break;
+  case DW_FORM_udata: DW.EmitULEB128Bytes(Integer); break;
+  case DW_FORM_sdata: DW.EmitSLEB128Bytes(Integer); break;
   default: assert(0 && "DIE Value form not supported yet"); break;
   }
-  return 0;
 }
 
 //===----------------------------------------------------------------------===//
 
 /// EmitValue - Emit string value.
 ///
-void DIEString::EmitValue(const DwarfDebug &DD, unsigned Form) const {
-  DD.getAsm()->EmitString(String);
+void DIEString::EmitValue(const Dwarf &DW, unsigned Form) const {
+  DW.EmitString(String);
 }
 
 //===----------------------------------------------------------------------===//
 
 /// EmitValue - Emit label value.
 ///
-void DIEDwarfLabel::EmitValue(const DwarfDebug &DD, unsigned Form) const {
-  DD.EmitReference(Label);
+void DIEDwarfLabel::EmitValue(const Dwarf &DW, unsigned Form) const {
+  DW.EmitReference(Label);
 }
 
 /// SizeOf - Determine size of label value in bytes.
 ///
-unsigned DIEDwarfLabel::SizeOf(const DwarfDebug &DD, unsigned Form) const {
-  return DD.getTargetAsmInfo()->getAddressSize();
+unsigned DIEDwarfLabel::SizeOf(const Dwarf &DW, unsigned Form) const {
+  return DW.getTargetAsmInfo()->getAddressSize();
 }
 
 //===----------------------------------------------------------------------===//
 
 /// EmitValue - Emit label value.
 ///
-void DIEObjectLabel::EmitValue(const DwarfDebug &DD, unsigned Form) const {
-  DD.EmitReference(Label);
+void DIEObjectLabel::EmitValue(const Dwarf &DW, unsigned Form) const {
+  DW.EmitReference(Label);
 }
 
 /// SizeOf - Determine size of label value in bytes.
 ///
-unsigned DIEObjectLabel::SizeOf(const DwarfDebug &DD, unsigned Form) const {
-  return DD.getTargetAsmInfo()->getAddressSize();
+unsigned DIEObjectLabel::SizeOf(const Dwarf &DW, unsigned Form) const {
+  return DW.getTargetAsmInfo()->getAddressSize();
 }
     
 //===----------------------------------------------------------------------===//
 
 /// EmitValue - Emit delta value.
 ///
-void DIEDelta::EmitValue(const DwarfDebug &DD, unsigned Form) const {
-  bool IsSmall = Form == DW_FORM_data4;
-  DD.EmitDifference(LabelHi, LabelLo, IsSmall);
+void DIEDelta::EmitValue(const Dwarf &DW, unsigned Form) const {
+  DW.EmitDifference(LabelHi, LabelLo);
 }
 
 /// SizeOf - Determine size of delta value in bytes.
 ///
-unsigned DIEDelta::SizeOf(const DwarfDebug &DD, unsigned Form) const {
-  if (Form == DW_FORM_data4) return 4;
-  return DD.getTargetAsmInfo()->getAddressSize();
+unsigned DIEDelta::SizeOf(const Dwarf &DW, unsigned Form) const {
+  return DW.getTargetAsmInfo()->getAddressSize();
 }
 
 //===----------------------------------------------------------------------===//
 
 /// EmitValue - Emit debug information entry offset.
 ///
-void DIEntry::EmitValue(const DwarfDebug &DD, unsigned Form) const {
-  DD.getAsm()->EmitInt32(Entry->getOffset());
+void DIEntry::EmitValue(const Dwarf &DW, unsigned Form) const {
+  DW.EmitInt32(Entry->getOffset());
 }
     
 //===----------------------------------------------------------------------===//
 
 /// ComputeSize - calculate the size of the block.
 ///
-unsigned DIEBlock::ComputeSize(DwarfDebug &DD) {
+unsigned DIEBlock::ComputeSize(Dwarf &DW) {
   if (!Size) {
     const std::vector<DIEAbbrevData> &AbbrevData = Abbrev.getData();
     
     for (unsigned i = 0, N = Values.size(); i < N; ++i) {
-      Size += Values[i]->SizeOf(DD, AbbrevData[i].getForm());
+      Size += Values[i]->SizeOf(DW, AbbrevData[i].getForm());
     }
   }
   return Size;
@@ -2992,31 +2951,31 @@ unsigned DIEBlock::ComputeSize(DwarfDebug &DD) {
 
 /// EmitValue - Emit block data.
 ///
-void DIEBlock::EmitValue(const DwarfDebug &DD, unsigned Form) const {
+void DIEBlock::EmitValue(const Dwarf &DW, unsigned Form) const {
   switch (Form) {
-  case DW_FORM_block1: DD.getAsm()->EmitInt8(Size);         break;
-  case DW_FORM_block2: DD.getAsm()->EmitInt16(Size);        break;
-  case DW_FORM_block4: DD.getAsm()->EmitInt32(Size);        break;
-  case DW_FORM_block:  DD.getAsm()->EmitULEB128Bytes(Size); break;
-  default: assert(0 && "Improper form for block");          break;
+  case DW_FORM_block1: DW.EmitInt8(Size);         break;
+  case DW_FORM_block2: DW.EmitInt16(Size);        break;
+  case DW_FORM_block4: DW.EmitInt32(Size);        break;
+  case DW_FORM_block:  DW.EmitULEB128Bytes(Size); break;
+  default: assert(0 && "Improper form for block"); break;
   }
   
   const std::vector<DIEAbbrevData> &AbbrevData = Abbrev.getData();
 
   for (unsigned i = 0, N = Values.size(); i < N; ++i) {
-    DD.getAsm()->EOL("");
-    Values[i]->EmitValue(DD, AbbrevData[i].getForm());
+    DW.EOL("");
+    Values[i]->EmitValue(DW, AbbrevData[i].getForm());
   }
 }
 
 /// SizeOf - Determine size of block data in bytes.
 ///
-unsigned DIEBlock::SizeOf(const DwarfDebug &DD, unsigned Form) const {
+unsigned DIEBlock::SizeOf(const Dwarf &DW, unsigned Form) const {
   switch (Form) {
   case DW_FORM_block1: return Size + sizeof(int8_t);
   case DW_FORM_block2: return Size + sizeof(int16_t);
   case DW_FORM_block4: return Size + sizeof(int32_t);
-  case DW_FORM_block: return Size + DD.getAsm()->SizeULEB128(Size);
+  case DW_FORM_block: return Size + SizeULEB128(Size);
   default: assert(0 && "Improper form for block"); break;
   }
   return 0;
@@ -3101,7 +3060,7 @@ void DIE::print(std::ostream &O, unsigned IncIndent) {
 }
 
 void DIE::dump() {
-  print(cerr);
+  print(std::cerr);
 }
 #endif
 
@@ -3111,51 +3070,39 @@ void DIE::dump() {
 
 DwarfWriter::DwarfWriter(std::ostream &OS, AsmPrinter *A,
                          const TargetAsmInfo *T) {
-  DE = new DwarfException(OS, A, T);
-  DD = new DwarfDebug(OS, A, T);
+  DW = new Dwarf(OS, A, T);
 }
 
 DwarfWriter::~DwarfWriter() {
-  delete DE;
-  delete DD;
+  delete DW;
 }
 
-/// SetModuleInfo - Set machine module info when it's known that pass manager
-/// has created it.  Set by the target AsmPrinter.
-void DwarfWriter::SetModuleInfo(MachineModuleInfo *MMI) {
-  DD->SetModuleInfo(MMI);
-  DE->SetModuleInfo(MMI);
+/// SetDebugInfo - Set DebugInfo when it's known that pass manager has
+/// created it.  Set by the target AsmPrinter.
+void DwarfWriter::SetDebugInfo(MachineDebugInfo *DI) {
+  DW->SetDebugInfo(DI);
 }
 
 /// BeginModule - Emit all Dwarf sections that should come prior to the
 /// content.
 void DwarfWriter::BeginModule(Module *M) {
-  DE->BeginModule(M);
-  DD->BeginModule(M);
+  DW->BeginModule(M);
 }
 
 /// EndModule - Emit all Dwarf sections that should come after the content.
 ///
 void DwarfWriter::EndModule() {
-  DE->EndModule();
-  DD->EndModule();
+  DW->EndModule();
 }
 
 /// BeginFunction - Gather pre-function debug information.  Assumes being 
 /// emitted immediately after the function entry point.
 void DwarfWriter::BeginFunction(MachineFunction *MF) {
-  DE->BeginFunction(MF);
-  DD->BeginFunction(MF);
+  DW->BeginFunction(MF);
 }
 
 /// EndFunction - Gather and emit post-function debug information.
 ///
 void DwarfWriter::EndFunction() {
-  DD->EndFunction();
-  DE->EndFunction();
-  
-  if (MachineModuleInfo *MMI = DD->getMMI()) {
-    // Clear function debug information.
-    MMI->EndFunction();
-  }
+  DW->EndFunction();
 }

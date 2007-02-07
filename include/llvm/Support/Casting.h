@@ -235,7 +235,7 @@ inline typename cast_retty<X, Y>::ret_type dyn_cast_or_null(Y Val) {
 
 
 #ifdef DEBUG_CAST_OPERATORS
-#include "llvm/Support/Debug.h"
+#include <iostream>
 
 struct bar {
   bar() {}

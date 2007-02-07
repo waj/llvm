@@ -1,4 +1,4 @@
-; RUN: llvm-upgrade < %s | llvm-as | llvm-dis
+; RUN: llvm-as < %s | llvm-dis
 
 %bar = external global <2 x int>		; <<2 x int>*> [#uses=1]
 

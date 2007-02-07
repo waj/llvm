@@ -23,8 +23,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/CommandLine.h"
 using namespace llvm;
 
 bool llvm::DebugFlag;  // DebugFlag - Exported boolean set by the -debug option
@@ -62,16 +62,4 @@ bool llvm::isCurrentDebugType(const char *DebugType) {
 #else
   return false;
 #endif
-}
-
-// getErrorOutputStream - Returns the error output stream (std::cerr). This
-// places the std::c* I/O streams into one .cpp file and relieves the whole
-// program from having to have hundreds of static c'tor/d'tors for them.
-// 
-OStream &llvm::getErrorOutputStream(const char *DebugType) {
-  static OStream cnoout(0);
-  if (DebugFlag && isCurrentDebugType(DebugType))
-    return cerr;
-  else
-    return cnoout;
 }

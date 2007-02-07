@@ -1,10 +1,9 @@
-; RUN: not llvm-as 2>&1 < %s > /dev/null &&
-; RUN: llvm-as 2>&1 < %s > /dev/null | \
-; RUN:    grep 'Cannot form a pointer to a basic block'
+; RUN: not llvm-as %s -o /dev/null -f &&
+; RUN: llvm-as %s -o /dev/null -f 2>&1 | grep 'Cannot form'
 
-define i32 @main() {
-         %foo  = call i8* %llvm.stacksave()
-         %foop = bitcast i8* %foo to label*
+int %main() {
+         %foo  = call sbyte* %llvm.stacksave()
+         %foop = cast sbyte* %foo to label*
          %nret = load label* %foop
          br label %nret;
 }

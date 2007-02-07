@@ -7,7 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the Function class for the VMCore library.
+// This file implements the Function & GlobalVariable classes for the VMCore
+// library.
 //
 //===----------------------------------------------------------------------===//
 
@@ -31,7 +32,7 @@ iplist<BasicBlock> &ilist_traits<BasicBlock>::getList(Function *F) {
 }
 
 Argument *ilist_traits<Argument>::createSentinel() {
-  Argument *Ret = new Argument(Type::Int32Ty);
+  Argument *Ret = new Argument(Type::IntTy);
   // This should not be garbage monitored.
   LeakDetector::removeGarbageObject(Ret);
   return Ret;
@@ -81,7 +82,7 @@ Function::Function(const FunctionType *Ty, LinkageTypes Linkage,
   BasicBlocks.setParent(this);
   ArgumentList.setItemParent(this);
   ArgumentList.setParent(this);
-  SymTab = new ValueSymbolTable();
+  SymTab = new SymbolTable();
 
   assert((getReturnType()->isFirstClassType() ||getReturnType() == Type::VoidTy)
          && "LLVM functions cannot return aggregate values!");
@@ -137,6 +138,46 @@ void Function::eraseFromParent() {
   getParent()->getFunctionList().erase(this);
 }
 
+
+/// renameLocalSymbols - This method goes through the Function's symbol table
+/// and renames any symbols that conflict with symbols at global scope.  This is
+/// required before printing out to a textual form, to ensure that there is no
+/// ambiguity when parsing.
+void Function::renameLocalSymbols() {
+  SymbolTable &LST = getSymbolTable();                 // Local Symtab
+  SymbolTable &GST = getParent()->getSymbolTable();    // Global Symtab
+
+  for (SymbolTable::plane_iterator LPI = LST.plane_begin(), E = LST.plane_end();
+       LPI != E; ++LPI)
+    // All global symbols are of pointer type, ignore any non-pointer planes.
+    if (isa<PointerType>(LPI->first)) {
+      // Only check if the global plane has any symbols of this type.
+      SymbolTable::plane_iterator GPI = GST.find(LPI->first);
+      if (GPI != GST.plane_end()) {
+        SymbolTable::ValueMap &LVM       = LPI->second;
+        const SymbolTable::ValueMap &GVM = GPI->second;
+
+        // Loop over all local symbols, renaming those that are in the global
+        // symbol table already.
+        for (SymbolTable::value_iterator VI = LVM.begin(), E = LVM.end();
+             VI != E;) {
+          Value *V                = VI->second;
+          const std::string &Name = VI->first;
+          ++VI;
+          if (GVM.count(Name)) {
+            static unsigned UniqueNum = 0;
+            // Find a name that does not conflict!
+            while (GVM.count(Name + "_" + utostr(++UniqueNum)) ||
+                   LVM.count(Name + "_" + utostr(UniqueNum)))
+              /* scan for UniqueNum that works */;
+            V->setName(Name + "_" + utostr(UniqueNum));
+          }
+        }
+      }
+    }
+}
+
+
 // dropAllReferences() - This function causes all the subinstructions to "let
 // go" of all references that they are maintaining.  This allows one to
 // 'delete' a whole class at a time, even though there may be circular
@@ -183,28 +224,9 @@ const char *Intrinsic::getName(ID id) {
   return Table[id];
 }
 
-const FunctionType *Intrinsic::getType(ID id) {
-  const Type *ResultTy = NULL;
-  std::vector<const Type*> ArgTys;
-  std::vector<FunctionType::ParameterAttributes> Attrs;
-  bool IsVarArg = false;
-  
-#define GET_INTRINSIC_GENERATOR
-#include "llvm/Intrinsics.gen"
-#undef GET_INTRINSIC_GENERATOR
-
-  return FunctionType::get(ResultTy, ArgTys, IsVarArg, Attrs); 
-}
-
-Function *Intrinsic::getDeclaration(Module *M, ID id) {
-// There can never be multiple globals with the same name of different types,
-// because intrinsics must be a specific type.
-  return cast<Function>(M->getOrInsertFunction(getName(id), getType(id)));
-}
-
 Value *IntrinsicInst::StripPointerCasts(Value *Ptr) {
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Ptr)) {
-    if (CE->getOpcode() == Instruction::BitCast) {
+    if (CE->getOpcode() == Instruction::Cast) {
       if (isa<PointerType>(CE->getOperand(0)->getType()))
         return StripPointerCasts(CE->getOperand(0));
     } else if (CE->getOpcode() == Instruction::GetElementPtr) {
@@ -216,7 +238,7 @@ Value *IntrinsicInst::StripPointerCasts(Value *Ptr) {
     return Ptr;
   }
 
-  if (BitCastInst *CI = dyn_cast<BitCastInst>(Ptr)) {
+  if (CastInst *CI = dyn_cast<CastInst>(Ptr)) {
     if (isa<PointerType>(CI->getOperand(0)->getType()))
       return StripPointerCasts(CI->getOperand(0));
   } else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Ptr)) {

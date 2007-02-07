@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements a handy way of adding debugging information to your
+// This file implements a handle way of adding debugging information to your
 // code, without it being enabled all of the time, and without having to add
 // command line options to enable it.
 //
@@ -25,8 +25,6 @@
 
 #ifndef LLVM_SUPPORT_DEBUG_H
 #define LLVM_SUPPORT_DEBUG_H
-
-#include "llvm/Support/Streams.h"
 
 namespace llvm {
 
@@ -59,18 +57,6 @@ bool isCurrentDebugType(const char *Type);
 #else
 #define DEBUG(X) \
   do { if (DebugFlag && isCurrentDebugType(DEBUG_TYPE)) { X; } } while (0)
-#endif
-
-/// getErrorOutputStream - Returns the error output stream (std::cerr). This
-/// places the std::c* I/O streams into one .cpp file and relieves the whole
-/// program from having to have hundreds of static c'tor/d'tors for them.
-/// 
-OStream &getErrorOutputStream(const char *DebugType);
-
-#ifdef NDEBUG
-#define DOUT OStream(0)
-#else
-#define DOUT getErrorOutputStream(DEBUG_TYPE)
 #endif
 
 } // End llvm namespace

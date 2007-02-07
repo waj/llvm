@@ -218,9 +218,6 @@ public:
   void removeBlockFromLoop(BasicBlock *BB);
 
   void print(std::ostream &O, unsigned Depth = 0) const;
-  void print(std::ostream *O, unsigned Depth = 0) const {
-    if (O) print(*O, Depth);
-  }
   void dump() const;
 private:
   friend class LoopInfo;
@@ -283,11 +280,7 @@ public:
   virtual bool runOnFunction(Function &F);
 
   virtual void releaseMemory();
-
   void print(std::ostream &O, const Module* = 0) const;
-  void print(std::ostream *O, const Module* M = 0) const {
-    if (O) print(*O, M);
-  }
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const;
 

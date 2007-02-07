@@ -17,7 +17,7 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/ilist"
-#include "llvm/Support/Streams.h"
+#include <iosfwd>
 
 namespace llvm {
   class MachineFunction;
@@ -190,7 +190,6 @@ public:
   // Debugging methods.
   void dump() const;
   void print(std::ostream &OS) const;
-  void print(std::ostream *OS) const { if (OS) print(*OS); }
 
   /// getNumber - MachineBasicBlocks are uniquely numbered at the function
   /// level, unless they're not in a MachineFunction yet, in which case this
@@ -223,7 +222,7 @@ private:   // Methods used to maintain doubly linked list of blocks...
   void removePredecessor(MachineBasicBlock *pred);
 };
 
-std::ostream& operator<<(std::ostream &OS, const MachineBasicBlock &MBB);
+
 
 //===--------------------------------------------------------------------===//
 // GraphTraits specializations for machine basic block graphs (machine-CFGs)

@@ -18,7 +18,6 @@
 
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/Support/DataTypes.h"
-#include <set>
 
 namespace llvm {
   class Constant;
@@ -39,10 +38,6 @@ namespace llvm {
     /// IncrementFunctionNumber().
     ///
     unsigned FunctionNumber;
-
-  protected:
-    // Necessary for external weak linkage support
-    std::set<const GlobalValue*> ExtWeakSymbols;
 
   public:
     /// Output stream on which we're printing assembly code.
@@ -174,76 +169,12 @@ namespace llvm {
     /// do nothing and return false.
     bool EmitSpecialLLVMGlobal(const GlobalVariable *GV);
     
-  public:
-    //===------------------------------------------------------------------===//
-    /// LEB 128 number encoding.
-
-    /// PrintULEB128 - Print a series of hexidecimal values(separated by commas)
-    /// representing an unsigned leb128 value.
-    void PrintULEB128(unsigned Value) const;
-
-    /// SizeULEB128 - Compute the number of bytes required for an unsigned
-    /// leb128 value.
-    static unsigned SizeULEB128(unsigned Value);
-
-    /// PrintSLEB128 - Print a series of hexidecimal values(separated by commas)
-    /// representing a signed leb128 value.
-    void PrintSLEB128(int Value) const;
-
-    /// SizeSLEB128 - Compute the number of bytes required for a signed leb128
-    /// value.
-    static unsigned SizeSLEB128(int Value);
-    
-    //===------------------------------------------------------------------===//
-    // Emission and print routines
-    //
-
-    /// PrintHex - Print a value as a hexidecimal value.
-    ///
-    void PrintHex(int Value) const;
-
-    /// EOL - Print a newline character to asm stream.  If a comment is present
-    /// then it will be printed first.  Comments should not contain '\n'.
-    void EOL(const std::string &Comment) const;
-    
-    /// EmitULEB128Bytes - Emit an assembler byte data directive to compose an
-    /// unsigned leb128 value.
-    void EmitULEB128Bytes(unsigned Value) const;
-    
-    /// EmitSLEB128Bytes - print an assembler byte data directive to compose a
-    /// signed leb128 value.
-    void EmitSLEB128Bytes(int Value) const;
-    
-    /// EmitInt8 - Emit a byte directive and value.
-    ///
-    void EmitInt8(int Value) const;
-
-    /// EmitInt16 - Emit a short directive and value.
-    ///
-    void EmitInt16(int Value) const;
-
-    /// EmitInt32 - Emit a long directive and value.
-    ///
-    void EmitInt32(int Value) const;
-
-    /// EmitInt64 - Emit a long long directive and value.
-    ///
-    void EmitInt64(uint64_t Value) const;
-
-    /// EmitString - Emit a string with quotes and a null terminator.
-    /// Special characters are emitted properly.
-    /// \literal (Eg. '\t') \endliteral
-    void EmitString(const std::string &String) const;
-    
-    //===------------------------------------------------------------------===//
-
     /// EmitAlignment - Emit an alignment directive to the specified power of
     /// two boundary.  For example, if you pass in 3 here, you will get an 8
     /// byte alignment.  If a global value is specified, and if that global has
     /// an explicit alignment requested, it will override the alignment request.
     void EmitAlignment(unsigned NumBits, const GlobalValue *GV = 0) const;
 
-  protected:
     /// EmitZeros - Emit a block of zeros.
     ///
     void EmitZeros(uint64_t NumZeros) const;
@@ -266,10 +197,6 @@ namespace llvm {
     /// instruction that is an inline asm.
     void printInlineAsm(const MachineInstr *MI) const;
     
-    /// printLabel - This method prints a local label used by debug and
-    /// exception handling tables.
-    void printLabel(const MachineInstr *MI) const;
-
     /// printBasicBlockLabel - This method prints the label for the specified
     /// MachineBasicBlock
     virtual void printBasicBlockLabel(const MachineBasicBlock *MBB,

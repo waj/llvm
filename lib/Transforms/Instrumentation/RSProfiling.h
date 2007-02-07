@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 #include "llvm/Transforms/RSProfiling.h"
-#include <set>
 
 namespace llvm {
   /// RSProfilers_std - a simple support class for profilers that handles most

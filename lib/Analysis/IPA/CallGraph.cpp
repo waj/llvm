@@ -16,14 +16,9 @@
 #include "llvm/Module.h"
 #include "llvm/Instructions.h"
 #include "llvm/Support/CallSite.h"
-#include "llvm/Support/Compiler.h"
-#include "llvm/Support/Streams.h"
-#include <ostream>
+#include <iostream>
 using namespace llvm;
 
-/// isOnlyADirectCall - Return true if this callsite is *just* a direct call to
-/// the specified function.  Specifically return false if the callsite also
-/// takes the address of the function.
 static bool isOnlyADirectCall(Function *F, CallSite CS) {
   if (!CS.getInstruction()) return false;
   for (CallSite::arg_iterator I = CS.arg_begin(), E = CS.arg_end(); I != E; ++I)
@@ -36,7 +31,7 @@ namespace {
 //===----------------------------------------------------------------------===//
 // BasicCallGraph class definition
 //
-class VISIBILITY_HIDDEN BasicCallGraph : public CallGraph, public ModulePass {
+class BasicCallGraph : public CallGraph, public ModulePass {
   // Root is root of the call graph, or the external node if a 'main' function
   // couldn't be found.
   //
@@ -52,9 +47,11 @@ class VISIBILITY_HIDDEN BasicCallGraph : public CallGraph, public ModulePass {
 
 public:
   BasicCallGraph() : Root(0), ExternalCallingNode(0), CallsExternalNode(0) {}
+  ~BasicCallGraph() { destroy(); }
 
   // runOnModule - Compute the call graph for the specified module.
   virtual bool runOnModule(Module &M) {
+    destroy();
     CallGraph::initialize(M);
     
     ExternalCallingNode = getOrInsertFunction(0);
@@ -75,10 +72,6 @@ public:
     AU.setPreservesAll();
   }
 
-  void print(std::ostream *o, const Module *M) const {
-    if (o) print(*o, M);
-  }
-
   virtual void print(std::ostream &o, const Module *M) const {
     o << "CallGraph Root is: ";
     if (Function *F = getRoot()->getFunction())
@@ -96,7 +89,7 @@ public:
   /// dump - Print out this call graph.
   ///
   inline void dump() const {
-    print(cerr, Mod);
+    print(std::cerr, Mod);
   }
 
   CallGraphNode* getExternalCallingNode() const { return ExternalCallingNode; }
@@ -134,7 +127,7 @@ private:
 
     // If this function is not defined in this translation unit, it could call
     // anything.
-    if (F->isDeclaration() && !F->getIntrinsicID())
+    if (F->isExternal() && !F->getIntrinsicID())
       Node->addCalledFunction(CallSite(), CallsExternalNode);
 
     // Loop over all of the users of the function... looking for callers...
@@ -181,10 +174,10 @@ private:
   //
   // destroy - Release memory for the call graph
   virtual void destroy() {
-    /// CallsExternalNode is not in the function map, delete it explicitly.
-    delete CallsExternalNode;
-    CallsExternalNode = 0;
-    CallGraph::destroy();
+    if (!CallsExternalNode) {
+      delete CallsExternalNode;
+      CallsExternalNode = 0;
+    }
   }
 };
 
@@ -195,6 +188,7 @@ RegisterAnalysisGroup<CallGraph, true> Z(Y);
 } //End anonymous namespace
 
 void CallGraph::initialize(Module &M) {
+  destroy();
   Mod = &M;
 }
 
@@ -213,7 +207,7 @@ void CallGraph::print(std::ostream &OS, const Module *M) const {
 }
 
 void CallGraph::dump() const {
-  print(cerr, 0);
+  print(std::cerr, 0);
 }
 
 //===----------------------------------------------------------------------===//
@@ -276,7 +270,7 @@ void CallGraphNode::print(std::ostream &OS) const {
   OS << "\n";
 }
 
-void CallGraphNode::dump() const { print(cerr); }
+void CallGraphNode::dump() const { print(std::cerr); }
 
 void CallGraphNode::removeCallEdgeTo(CallGraphNode *Callee) {
   for (unsigned i = CalledFunctions.size(); ; --i) {

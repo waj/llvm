@@ -3,8 +3,9 @@
 
 implementation   ; Functions:
 
-define i16 @foo(i64 %y) zext {
+ushort %foo(long %y) {
 entry:
-        %tmp.1 = trunc i64 %y to i16         ; <ushort> [#uses=1]
-        ret i16 %tmp.1
+        %tmp.1 = cast long %y to ushort         ; <ushort> [#uses=1]
+        ret ushort %tmp.1
 }
+

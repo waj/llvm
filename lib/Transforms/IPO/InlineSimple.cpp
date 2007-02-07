@@ -18,12 +18,11 @@
 #include "llvm/Function.h"
 #include "llvm/Type.h"
 #include "llvm/Support/CallSite.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Transforms/IPO.h"
 using namespace llvm;
 
 namespace {
-  struct VISIBILITY_HIDDEN ArgInfo {
+  struct ArgInfo {
     unsigned ConstantWeight;
     unsigned AllocaWeight;
 
@@ -33,7 +32,7 @@ namespace {
 
   // FunctionInfo - For each function, calculate the size of it in blocks and
   // instructions.
-  struct VISIBILITY_HIDDEN FunctionInfo {
+  struct FunctionInfo {
     // NumInsts, NumBlocks - Keep track of how large each function is, which is
     // used to estimate the code size cost of inlining it.
     unsigned NumInsts, NumBlocks;
@@ -51,7 +50,7 @@ namespace {
     void analyzeFunction(Function *F);
   };
 
-  class VISIBILITY_HIDDEN SimpleInliner : public Inliner {
+  class SimpleInliner : public Inliner {
     std::map<const Function*, FunctionInfo> CachedFunctionInfo;
   public:
     int getInlineCost(CallSite CS);
@@ -59,7 +58,7 @@ namespace {
   RegisterPass<SimpleInliner> X("inline", "Function Integration/Inlining");
 }
 
-Pass *llvm::createFunctionInliningPass() { return new SimpleInliner(); }
+ModulePass *llvm::createFunctionInliningPass() { return new SimpleInliner(); }
 
 // CountCodeReductionForConstant - Figure out an approximation for how many
 // instructions will be constant folded if the specified value is constant.
@@ -142,11 +141,14 @@ void FunctionInfo::analyzeFunction(Function *F) {
          II != E; ++II) {
       if (isa<DbgInfoIntrinsic>(II)) continue;  // Debug intrinsics don't count.
       
-      // Noop casts, including ptr <-> int,  don't count.
+      // Noop casts don't count.
       if (const CastInst *CI = dyn_cast<CastInst>(II)) {
-        if (CI->isLosslessCast() || isa<IntToPtrInst>(CI) || 
-            isa<PtrToIntInst>(CI))
+        const Type *OpTy = CI->getOperand(0)->getType();
+        if (CI->getType()->isLosslesslyConvertibleTo(OpTy))
           continue;
+        if ((isa<PointerType>(CI->getType()) && OpTy->isInteger()) ||
+            (isa<PointerType>(OpTy) && CI->getType()->isInteger()))
+          continue;  // ptr <-> int is *probably* noop cast.
       } else if (const GetElementPtrInst *GEPI =
                          dyn_cast<GetElementPtrInst>(II)) {
         // If a GEP has all constant indices, it will probably be folded with
