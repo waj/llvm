@@ -99,7 +99,7 @@ static bool isAlphaIntCondCode(unsigned Opcode) {
   }
 }
 
-unsigned AlphaInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
+void AlphaInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
                                   MachineBasicBlock *FBB,
                                   const std::vector<MachineOperand> &Cond)const{
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
@@ -117,7 +117,7 @@ unsigned AlphaInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *
       else
         BuildMI(&MBB, get(Alpha::COND_BRANCH_F))
           .addImm(Cond[0].getImm()).addReg(Cond[1].getReg()).addMBB(TBB);
-    return 1;
+    return;
   }
   
   // Two-way Conditional Branch.
@@ -128,7 +128,6 @@ unsigned AlphaInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *
     BuildMI(&MBB, get(Alpha::COND_BRANCH_F))
       .addImm(Cond[0].getImm()).addReg(Cond[1].getReg()).addMBB(TBB);
   BuildMI(&MBB, get(Alpha::BR)).addMBB(FBB);
-  return 2;
 }
 
 static unsigned AlphaRevCondCode(unsigned Opcode) {
@@ -204,29 +203,28 @@ bool AlphaInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,MachineBasicBlock *&TB
   return true;
 }
 
-unsigned AlphaInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+void AlphaInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator I = MBB.end();
-  if (I == MBB.begin()) return 0;
+  if (I == MBB.begin()) return;
   --I;
   if (I->getOpcode() != Alpha::BR && 
       I->getOpcode() != Alpha::COND_BRANCH_I &&
       I->getOpcode() != Alpha::COND_BRANCH_F)
-    return 0;
+    return;
   
   // Remove the branch.
   I->eraseFromParent();
   
   I = MBB.end();
 
-  if (I == MBB.begin()) return 1;
+  if (I == MBB.begin()) return;
   --I;
   if (I->getOpcode() != Alpha::COND_BRANCH_I && 
       I->getOpcode() != Alpha::COND_BRANCH_F)
-    return 1;
+    return;
   
   // Remove the branch.
   I->eraseFromParent();
-  return 2;
 }
 
 void AlphaInstrInfo::insertNoop(MachineBasicBlock &MBB, 
@@ -239,8 +237,6 @@ bool AlphaInstrInfo::BlockHasNoFallThrough(MachineBasicBlock &MBB) const {
   if (MBB.empty()) return false;
   
   switch (MBB.back().getOpcode()) {
-  case Alpha::RETDAG: // Return.
-  case Alpha::RETDAGp:
   case Alpha::BR:     // Uncond branch.
   case Alpha::JMP:  // Indirect branch.
     return true;

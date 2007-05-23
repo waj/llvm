@@ -97,12 +97,10 @@ unsigned SparcInstrInfo::isStoreToStackSlot(MachineInstr *MI,
   return 0;
 }
 
-unsigned
-SparcInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
-                             MachineBasicBlock *FBB,
-                             const std::vector<MachineOperand> &Cond)const{
+void SparcInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
+                                  MachineBasicBlock *FBB,
+                                  const std::vector<MachineOperand> &Cond)const{
   // Can only insert uncond branches so far.
   assert(Cond.empty() && !FBB && TBB && "Can only handle uncond branches!");
   BuildMI(&MBB, get(SP::BA)).addMBB(TBB);
-  return 1;
 }

@@ -82,23 +82,17 @@ APInt::APInt(uint32_t numBits, uint32_t numWords, uint64_t bigVal[])
 APInt::APInt(uint32_t numbits, const char StrStart[], uint32_t slen, 
              uint8_t radix) 
   : BitWidth(numbits), VAL(0) {
-  assert(BitWidth >= IntegerType::MIN_INT_BITS && "bitwidth too small");
-  assert(BitWidth <= IntegerType::MAX_INT_BITS && "bitwidth too large");
   fromString(numbits, StrStart, slen, radix);
 }
 
 APInt::APInt(uint32_t numbits, const std::string& Val, uint8_t radix)
   : BitWidth(numbits), VAL(0) {
-  assert(BitWidth >= IntegerType::MIN_INT_BITS && "bitwidth too small");
-  assert(BitWidth <= IntegerType::MAX_INT_BITS && "bitwidth too large");
   assert(!Val.empty() && "String empty?");
   fromString(numbits, Val.c_str(), Val.size(), radix);
 }
 
 APInt::APInt(const APInt& that)
   : BitWidth(that.BitWidth), VAL(0) {
-  assert(BitWidth >= IntegerType::MIN_INT_BITS && "bitwidth too small");
-  assert(BitWidth <= IntegerType::MAX_INT_BITS && "bitwidth too large");
   if (isSingleWord()) 
     VAL = that.VAL;
   else {
@@ -1149,12 +1143,6 @@ APInt APInt::lshr(uint32_t shiftAmt) const {
   if (shiftAmt == BitWidth)
     return APInt(BitWidth, 0);
 
-  // If none of the bits are shifted out, the result is *this. This avoids
-  // issues with shifting byt he size of the integer type, which produces 
-  // undefined results in the code below. This is also an optimization.
-  if (shiftAmt == 0)
-    return *this;
-
   // Create some space for the result.
   uint64_t * val = new uint64_t[getNumWords()];
 
@@ -1254,27 +1242,6 @@ APInt APInt::shl(uint32_t shiftAmt) const {
   return APInt(val, BitWidth).clearUnusedBits();
 }
 
-APInt APInt::rotl(uint32_t rotateAmt) const {
-  if (rotateAmt == 0)
-    return *this;
-  // Don't get too fancy, just use existing shift/or facilities
-  APInt hi(*this);
-  APInt lo(*this);
-  hi.shl(rotateAmt);
-  lo.lshr(BitWidth - rotateAmt);
-  return hi | lo;
-}
-
-APInt APInt::rotr(uint32_t rotateAmt) const {
-  if (rotateAmt == 0)
-    return *this;
-  // Don't get too fancy, just use existing shift/or facilities
-  APInt hi(*this);
-  APInt lo(*this);
-  lo.lshr(rotateAmt);
-  hi.shl(BitWidth - rotateAmt);
-  return hi | lo;
-}
 
 // Square Root - this method computes and returns the square root of "this".
 // Three mechanisms are used for computation. For small values (<= 5 bits),
@@ -1787,53 +1754,10 @@ APInt APInt::urem(const APInt& RHS) const {
     return APInt(BitWidth, pVal[0] % RHS.pVal[0]);
   }
 
-  // We have to compute it the hard way. Invoke the Knuth divide algorithm.
+  // We have to compute it the hard way. Invoke the Knute divide algorithm.
   APInt Remainder(1,0);
   divide(*this, lhsWords, RHS, rhsWords, 0, &Remainder);
   return Remainder;
-}
-
-void APInt::udivrem(const APInt &LHS, const APInt &RHS, 
-                    APInt &Quotient, APInt &Remainder) {
-  // Get some size facts about the dividend and divisor
-  uint32_t lhsBits  = LHS.getActiveBits();
-  uint32_t lhsWords = !lhsBits ? 0 : (APInt::whichWord(lhsBits - 1) + 1);
-  uint32_t rhsBits  = RHS.getActiveBits();
-  uint32_t rhsWords = !rhsBits ? 0 : (APInt::whichWord(rhsBits - 1) + 1);
-
-  // Check the degenerate cases
-  if (lhsWords == 0) {              
-    Quotient = 0;                // 0 / Y ===> 0
-    Remainder = 0;               // 0 % Y ===> 0
-    return;
-  } 
-  
-  if (lhsWords < rhsWords || LHS.ult(RHS)) { 
-    Quotient = 0;               // X / Y ===> 0, iff X < Y
-    Remainder = LHS;            // X % Y ===> X, iff X < Y
-    return;
-  } 
-  
-  if (LHS == RHS) {
-    Quotient  = 1;              // X / X ===> 1
-    Remainder = 0;              // X % X ===> 0;
-    return;
-  } 
-  
-  if (lhsWords == 1 && rhsWords == 1) {
-    // There is only one word to consider so use the native versions.
-    if (LHS.isSingleWord()) {
-      Quotient = APInt(LHS.getBitWidth(), LHS.VAL / RHS.VAL);
-      Remainder = APInt(LHS.getBitWidth(), LHS.VAL % RHS.VAL);
-    } else {
-      Quotient = APInt(LHS.getBitWidth(), LHS.pVal[0] / RHS.pVal[0]);
-      Remainder = APInt(LHS.getBitWidth(), LHS.pVal[0] % RHS.pVal[0]);
-    }
-    return;
-  }
-
-  // Okay, lets do it the long way
-  divide(LHS, lhsWords, RHS, rhsWords, &Quotient, &Remainder);
 }
 
 void APInt::fromString(uint32_t numbits, const char *str, uint32_t slen, 
@@ -1867,26 +1791,21 @@ void APInt::fromString(uint32_t numbits, const char *str, uint32_t slen,
     // Get a digit
     uint32_t digit = 0;
     char cdigit = str[i];
-    if (radix == 16) {
-      if (!isxdigit(cdigit))
-        assert(0 && "Invalid hex digit in string");
-      if (isdigit(cdigit))
-        digit = cdigit - '0';
-      else if (cdigit >= 'a')
+    if (isdigit(cdigit))
+      digit = cdigit - '0';
+    else if (isxdigit(cdigit))
+      if (cdigit >= 'a')
         digit = cdigit - 'a' + 10;
       else if (cdigit >= 'A')
         digit = cdigit - 'A' + 10;
       else
-        assert(0 && "huh? we shouldn't get here");
-    } else if (isdigit(cdigit)) {
-      digit = cdigit - '0';
-    } else {
+        assert(0 && "huh?");
+    else
       assert(0 && "Invalid character in digit string");
-    }
 
-    // Shift or multiply the value by the radix
+    // Shift or multiple the value by the radix
     if (shift)
-      *this <<= shift;
+      this->shl(shift);
     else
       *this *= apradix;
 
@@ -1938,33 +1857,14 @@ std::string APInt::toString(uint8_t radix, bool wantSigned) const {
   }
 
   if (radix != 10) {
-    // For the 2, 8 and 16 bit cases, we can just shift instead of divide 
-    // because the number of bits per digit (1,3 and 4 respectively) divides 
-    // equaly. We just shift until there value is zero.
-
-    // First, check for a zero value and just short circuit the logic below.
-    if (*this == 0)
-      result = "0";
-    else {
-      APInt tmp(*this);
-      size_t insert_at = 0;
-      if (wantSigned && this->isNegative()) {
-        // They want to print the signed version and it is a negative value
-        // Flip the bits and add one to turn it into the equivalent positive
-        // value and put a '-' in the result.
-        tmp.flip();
-        tmp++;
-        result = "-";
-        insert_at = 1;
-      }
-      // Just shift tmp right for each digit width until it becomes zero
-      uint32_t shift = (radix == 16 ? 4 : (radix == 8 ? 3 : 1));
-      uint64_t mask = radix - 1;
-      APInt zero(tmp.getBitWidth(), 0);
-      while (tmp.ne(zero)) {
-        unsigned digit = (tmp.isSingleWord() ? tmp.VAL : tmp.pVal[0]) & mask;
-        result.insert(insert_at, digits[digit]);
-        tmp = tmp.lshr(shift);
+    uint64_t mask = radix - 1;
+    uint32_t shift = (radix == 16 ? 4 : radix  == 8 ? 3 : 1);
+    uint32_t nibbles = APINT_BITS_PER_WORD / shift;
+    for (uint32_t i = 0; i < getNumWords(); ++i) {
+      uint64_t value = pVal[i];
+      for (uint32_t j = 0; j < nibbles; ++j) {
+        result.insert(0, digits[ value & mask ]);
+        value >>= shift;
       }
     }
     return result;

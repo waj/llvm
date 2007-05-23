@@ -59,28 +59,3 @@ MachineInstr *TargetInstrInfo::commuteInstruction(MachineInstr *MI) const {
     MI->getOperand(1).unsetIsKill();
   return MI;
 }
-
-bool TargetInstrInfo::PredicateInstruction(MachineInstr *MI,
-                                      std::vector<MachineOperand> &Pred) const {
-  bool MadeChange = false;
-  const TargetInstrDescriptor *TID = MI->getInstrDescriptor();
-  if (TID->Flags & M_PREDICABLE) {
-    for (unsigned j = 0, i = 0, e = MI->getNumOperands(); i != e; ++i) {
-      if ((TID->OpInfo[i].Flags & M_PREDICATE_OPERAND)) {
-        MachineOperand &MO = MI->getOperand(i);
-        if (MO.isReg()) {
-          MO.setReg(Pred[j].getReg());
-          MadeChange = true;
-        } else if (MO.isImm()) {
-          MO.setImm(Pred[j].getImmedValue());
-          MadeChange = true;
-        } else if (MO.isMBB()) {
-          MO.setMachineBasicBlock(Pred[j].getMachineBasicBlock());
-          MadeChange = true;
-        }
-        ++j;
-      }
-    }
-  }
-  return MadeChange;
-}

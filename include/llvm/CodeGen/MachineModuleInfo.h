@@ -33,7 +33,6 @@
 
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/DataTypes.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/UniqueVector.h"
 #include "llvm/GlobalValue.h"
 #include "llvm/Pass.h"
@@ -956,8 +955,8 @@ public:
 ///
 struct LandingPadInfo {
   MachineBasicBlock *LandingPadBlock;   // Landing pad block.
-  SmallVector<unsigned, 1> BeginLabels; // Labels prior to invoke.
-  SmallVector<unsigned, 1> EndLabels;   // Labels after invoke.
+  unsigned BeginLabel;                  // Label prior to invoke.
+  unsigned EndLabel;                    // Label after invoke.
   unsigned LandingPadLabel;             // Label at beginning of landing pad.
   Function *Personality;                // Personality function.
   std::vector<unsigned> TypeIds;        // List of type ids.
@@ -966,8 +965,9 @@ struct LandingPadInfo {
   
   LandingPadInfo(MachineBasicBlock *MBB)
   : LandingPadBlock(MBB)
+  , BeginLabel(0)
+  , EndLabel(0)
   , LandingPadLabel(0)
-  , Personality(NULL)  
   , TypeIds()
   , IsFilter(false)
   {}
@@ -1021,9 +1021,6 @@ private:
   //
   std::vector<GlobalVariable *> TypeInfos;
 
-  // Personalities - Vector of all personality functions ever seen. Used to emit
-  // common EH frames.
-  std::vector<Function *> Personalities;
 public:
   static char ID; // Pass identification, replacement for typeid
 
@@ -1204,16 +1201,7 @@ public:
   /// addPersonality - Provide the personality function for the exception
   /// information.
   void addPersonality(MachineBasicBlock *LandingPad, Function *Personality);
-
-  /// getPersonalityIndex - Get index of the current personality function inside
-  /// Personalitites array
-  unsigned getPersonalityIndex() const;
-
-  /// getPersonalities - Return array of personality functions ever seen.
-  const std::vector<Function *>& getPersonalities() const {
-    return Personalities;
-  }
-    
+  
   /// addCatchTypeInfo - Provide the catch typeinfo for a landing pad.
   ///
   void addCatchTypeInfo(MachineBasicBlock *LandingPad,
@@ -1231,7 +1219,7 @@ public:
   /// pads.
   void TidyLandingPads();
                         
-  /// getLandingPads - Return a reference to the landing pad info for the
+  /// getLandingPadInfos - Return a reference to the landing pad info for the
   /// current function.
   const std::vector<LandingPadInfo> &getLandingPads() const {
     return LandingPads;

@@ -113,6 +113,7 @@ X86TargetAsmInfo::X86TargetAsmInfo(const X86TargetMachine &TM) {
     AbsoluteDebugSectionOffsets = true;
     AbsoluteEHSectionOffsets = false;
     SupportsDebugInformation = true;
+    DwarfRequiresFrameSection = false;
     DwarfAbbrevSection =  "\t.section\t.debug_abbrev,\"\",@progbits";
     DwarfInfoSection =    "\t.section\t.debug_info,\"\",@progbits";
     DwarfLineSection =    "\t.section\t.debug_line,\"\",@progbits";
@@ -148,6 +149,7 @@ X86TargetAsmInfo::X86TargetAsmInfo(const X86TargetMachine &TM) {
     AbsoluteDebugSectionOffsets = true;
     AbsoluteEHSectionOffsets = false;
     SupportsDebugInformation = true;
+    DwarfRequiresFrameSection = false;
     DwarfSectionOffsetDirective = "\t.secrel32\t";
     DwarfAbbrevSection =  "\t.section\t.debug_abbrev,\"dr\"";
     DwarfInfoSection =    "\t.section\t.debug_info,\"dr\"";

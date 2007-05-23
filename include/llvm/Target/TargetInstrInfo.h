@@ -74,9 +74,9 @@ const unsigned M_USES_CUSTOM_DAG_SCHED_INSERTION = 1 << 10;
 // operands in addition to the minimum number operands specified.
 const unsigned M_VARIABLE_OPS = 1 << 11;
 
-// M_PREDICABLE - Set if this instruction has a predicate operand that
-// controls execution. It may be set to 'always'.
-const unsigned M_PREDICABLE = 1 << 12;
+// M_PREDICATED - Set if this instruction has a predicate that controls its
+// execution.
+const unsigned M_PREDICATED = 1 << 12;
 
 // M_REMATERIALIZIBLE - Set if this instruction can be trivally re-materialized
 // at any time, e.g. constant generation, load from constant pool.
@@ -88,8 +88,8 @@ const unsigned M_REMATERIALIZIBLE = 1 << 13;
 // requires a callback to look up its register class.
 const unsigned M_LOOK_UP_PTR_REG_CLASS = 1 << 0;
 
-/// M_PREDICATE_OPERAND - Set if this is one of the operands that made up of the
-/// predicate operand that controls an M_PREDICATED instruction.
+/// M_PREDICATE_OPERAND - Set if this is the first operand of a predicate
+/// operand that controls an M_PREDICATED instruction.
 const unsigned M_PREDICATE_OPERAND = 1 << 1;
 
 namespace TOI {
@@ -208,8 +208,8 @@ public:
     return get(Opcode).Flags & M_RET_FLAG;
   }
 
-  bool isPredicable(MachineOpCode Opcode) const {
-    return get(Opcode).Flags & M_PREDICABLE;
+  bool isPredicated(MachineOpCode Opcode) const {
+    return get(Opcode).Flags & M_PREDICATED;
   }
   bool isReMaterializable(MachineOpCode Opcode) const {
     return get(Opcode).Flags & M_REMATERIALIZIBLE;
@@ -217,7 +217,7 @@ public:
   bool isCommutableInstr(MachineOpCode Opcode) const {
     return get(Opcode).Flags & M_COMMUTABLE;
   }
-  bool isTerminatorInstr(MachineOpCode Opcode) const {
+  bool isTerminatorInstr(unsigned Opcode) const {
     return get(Opcode).Flags & M_TERMINATOR_FLAG;
   }
   
@@ -244,14 +244,14 @@ public:
   
   /// hasDelaySlot - Returns true if the specified instruction has a delay slot
   /// which must be filled by the code generator.
-  bool hasDelaySlot(MachineOpCode Opcode) const {
+  bool hasDelaySlot(unsigned Opcode) const {
     return get(Opcode).Flags & M_DELAY_SLOT_FLAG;
   }
   
   /// usesCustomDAGSchedInsertionHook - Return true if this instruction requires
   /// custom insertion support when the DAG scheduler is inserting it into a
   /// machine basic block.
-  bool usesCustomDAGSchedInsertionHook(MachineOpCode Opcode) const {
+  bool usesCustomDAGSchedInsertionHook(unsigned Opcode) const {
     return get(Opcode).Flags & M_USES_CUSTOM_DAG_SCHED_INSERTION;
   }
 
@@ -329,16 +329,10 @@ public:
   ///    just return false, leaving TBB/FBB null.
   /// 2. If this block ends with only an unconditional branch, it sets TBB to be
   ///    the destination block.
-  /// 3. If this block ends with an conditional branch and it falls through to
-  ///    an successor block, it sets TBB to be the branch destination block and a
-  ///    list of operands that evaluate the condition. These
-  ///    operands can be passed to other TargetInstrInfo methods to create new
-  ///    branches.
-  /// 4. If this block ends with an conditional branch and an unconditional
-  ///    block, it returns the 'true' destination in TBB, the 'false' destination
-  ///    in FBB, and a list of operands that evaluate the condition. These
-  ///    operands can be passed to other TargetInstrInfo methods to create new
-  ///    branches.
+  /// 3. If this block ends with an conditional branch, it returns the 'true'
+  ///    destination in TBB, the 'false' destination in FBB, and a list of
+  ///    operands that evaluate the condition.  These operands can be passed to
+  ///    other TargetInstrInfo methods to create new branches.
   ///
   /// Note that RemoveBranch and InsertBranch must be implemented to support
   /// cases where this method returns success.
@@ -350,24 +344,20 @@ public:
   }
   
   /// RemoveBranch - Remove the branching code at the end of the specific MBB.
-  /// this is only invoked in cases where AnalyzeBranch returns success. It
-  /// returns the number of instructions that were removed.
-  virtual unsigned RemoveBranch(MachineBasicBlock &MBB) const {
+  /// this is only invoked in cases where AnalyzeBranch returns success.
+  virtual void RemoveBranch(MachineBasicBlock &MBB) const {
     assert(0 && "Target didn't implement TargetInstrInfo::RemoveBranch!"); 
-    return 0;
   }
   
   /// InsertBranch - Insert a branch into the end of the specified
   /// MachineBasicBlock.  This operands to this method are the same as those
   /// returned by AnalyzeBranch.  This is invoked in cases where AnalyzeBranch
   /// returns success and when an unconditional branch (TBB is non-null, FBB is
-  /// null, Cond is empty) needs to be inserted. It returns the number of
-  /// instructions inserted.
-  virtual unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+  /// null, Cond is empty) needs to be inserted.
+  virtual void InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                             MachineBasicBlock *FBB,
                             const std::vector<MachineOperand> &Cond) const {
     assert(0 && "Target didn't implement TargetInstrInfo::InsertBranch!"); 
-    return 0;
   }
   
   /// BlockHasNoFallThrough - Return true if the specified block does not
@@ -391,24 +381,6 @@ public:
                           MachineBasicBlock::iterator MI) const {
     assert(0 && "Target didn't implement insertNoop!");
     abort();
-  }
-
-  /// isPredicable - Returns true if the instruction is already predicated.
-  ///
-  virtual bool isPredicated(MachineInstr *MI) const {
-    return false;
-  }
-
-  /// PredicateInstruction - Convert the instruction into a predicated
-  /// instruction. It returns true if the operation was successful.
-  virtual bool PredicateInstruction(MachineInstr *MI,
-                                    std::vector<MachineOperand> &Pred) const;
-
-  /// SubsumesPredicate - Returns true if the first specified predicated
-  /// subsumes the second, e.g. GE subsumes GT.
-  virtual bool SubsumesPredicate(std::vector<MachineOperand> &Pred1,
-                                 std::vector<MachineOperand> &Pred2) const {
-    return false;
   }
 
   /// getPointerRegClass - Returns a TargetRegisterClass used for pointer

@@ -434,12 +434,6 @@ public:
     return JumpBufAlignment;
   }
 
-  /// getIfCvtBlockLimit - returns the target specific if-conversion block size
-  /// limit. Any block whose size is greater should not be predicated.
-  virtual unsigned getIfCvtBlockSizeLimit() const {
-    return IfCvtBlockSizeLimit;
-  }
-
   /// getPreIndexedAddressParts - returns true by value, base pointer and
   /// offset pointer and addressing mode by reference if the node's address
   /// can be legally represented as pre-indexed load / store address.
@@ -756,12 +750,6 @@ protected:
   void setJumpBufAlignment(unsigned Align) {
     JumpBufAlignment = Align;
   }
-
-  /// setIfCvtBlockSizeLimit - Set the target's if-conversion block size
-  /// (in number of instructions); default is 2.
-  void setIfCvtBlockSizeLimit(unsigned Limit) {
-    IfCvtBlockSizeLimit = Limit;
-  }
   
 public:
 
@@ -994,10 +982,6 @@ private:
   /// JumpBufAlignment - The alignment, in bytes, of the target's jmp_buf
   /// buffers
   unsigned JumpBufAlignment;
-
-  /// IfCvtBlockSizeLimit - The maximum allowed block size for if-conversion.
-  /// 
-  unsigned IfCvtBlockSizeLimit;
   
   /// StackPointerRegisterToSaveRestore - If set to a physical register, this
   /// specifies the register that llvm.savestack/llvm.restorestack should save

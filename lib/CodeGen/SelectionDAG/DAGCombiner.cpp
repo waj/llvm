@@ -29,18 +29,17 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "dagcombine"
-#include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/Statistic.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/MathExtras.h"
 #include <algorithm>
 using namespace llvm;
 
@@ -345,117 +344,9 @@ CombineTo(SDNode *N, SDOperand Res0, SDOperand Res1) {
 }
 
 
-//===----------------------------------------------------------------------===//
-// Helper Functions
-//===----------------------------------------------------------------------===//
 
-/// isNegatibleForFree - Return 1 if we can compute the negated form of the
-/// specified expression for the same cost as the expression itself, or 2 if we
-/// can compute the negated form more cheaply than the expression itself.
-static char isNegatibleForFree(SDOperand Op, unsigned Depth = 0) {
-  // Don't recurse exponentially.
-  if (Depth > 6) return false;
-  
-  // fneg is removable even if it has multiple uses.
-  if (Op.getOpcode() == ISD::FNEG) return 2;
-  
-  // Don't allow anything with multiple uses.
-  if (!Op.hasOneUse()) return 0;
-  
-  switch (Op.getOpcode()) {
-  default: return false;
-  case ISD::ConstantFP:
-    return 1;
-  case ISD::FADD:
-    // FIXME: determine better conditions for this xform.
-    if (!UnsafeFPMath) return 0;
-    
-    // -(A+B) -> -A - B
-    if (char V = isNegatibleForFree(Op.getOperand(0), Depth+1))
-      return V;
-    // -(A+B) -> -B - A
-    return isNegatibleForFree(Op.getOperand(1), Depth+1);
-  case ISD::FSUB:
-    // We can't turn -(A-B) into B-A when we honor signed zeros. 
-    if (!UnsafeFPMath) return 0;
-    
-    // -(A-B) -> B-A
-    return 1;
-    
-  case ISD::FMUL:
-  case ISD::FDIV:
-    if (HonorSignDependentRoundingFPMath()) return 0;
-    
-    // -(X*Y) -> (-X * Y) or (X*-Y)
-    if (char V = isNegatibleForFree(Op.getOperand(0), Depth+1))
-      return V;
-      
-    return isNegatibleForFree(Op.getOperand(1), Depth+1);
-    
-  case ISD::FP_EXTEND:
-  case ISD::FP_ROUND:
-  case ISD::FSIN:
-    return isNegatibleForFree(Op.getOperand(0), Depth+1);
-  }
-}
 
-/// GetNegatedExpression - If isNegatibleForFree returns true, this function
-/// returns the newly negated expression.
-static SDOperand GetNegatedExpression(SDOperand Op, SelectionDAG &DAG) {
-  // fneg is removable even if it has multiple uses.
-  if (Op.getOpcode() == ISD::FNEG) return Op.getOperand(0);
-  
-  // Don't allow anything with multiple uses.
-  assert(Op.hasOneUse() && "Unknown reuse!");
-  
-  switch (Op.getOpcode()) {
-  default: assert(0 && "Unknown code");
-  case ISD::ConstantFP:
-    return DAG.getConstantFP(-cast<ConstantFPSDNode>(Op)->getValue(),
-                             Op.getValueType());
-  case ISD::FADD:
-    // FIXME: determine better conditions for this xform.
-    assert(UnsafeFPMath);
-    
-    // -(A+B) -> -A - B
-    if (isNegatibleForFree(Op.getOperand(0)))
-      return DAG.getNode(ISD::FSUB, Op.getValueType(),
-                         GetNegatedExpression(Op.getOperand(0), DAG),
-                         Op.getOperand(1));
-    // -(A+B) -> -B - A
-    return DAG.getNode(ISD::FSUB, Op.getValueType(),
-                       GetNegatedExpression(Op.getOperand(1), DAG),
-                       Op.getOperand(0));
-  case ISD::FSUB:
-    // We can't turn -(A-B) into B-A when we honor signed zeros. 
-    assert(UnsafeFPMath);
-    
-    // -(A-B) -> B-A
-    return DAG.getNode(ISD::FSUB, Op.getValueType(), Op.getOperand(1),
-                       Op.getOperand(0));
-    
-  case ISD::FMUL:
-  case ISD::FDIV:
-    assert(!HonorSignDependentRoundingFPMath());
-    
-    // -(X*Y) -> -X * Y
-    if (isNegatibleForFree(Op.getOperand(0)))
-      return DAG.getNode(Op.getOpcode(), Op.getValueType(),
-                         GetNegatedExpression(Op.getOperand(0), DAG),
-                         Op.getOperand(1));
-      
-    // -(X*Y) -> X * -Y
-    return DAG.getNode(Op.getOpcode(), Op.getValueType(),
-                       Op.getOperand(0),
-                       GetNegatedExpression(Op.getOperand(1), DAG));
-    
-  case ISD::FP_EXTEND:
-  case ISD::FP_ROUND:
-  case ISD::FSIN:
-    return DAG.getNode(Op.getOpcode(), Op.getValueType(),
-                       GetNegatedExpression(Op.getOperand(0), DAG));
-  }
-}
+//===----------------------------------------------------------------------===//
 
 
 // isSetCCEquivalent - Return true if this node is a setcc, or is a select_cc
@@ -524,10 +415,6 @@ SDOperand DAGCombiner::ReassociateOps(unsigned Opc, SDOperand N0, SDOperand N1){
   }
   return SDOperand();
 }
-
-//===----------------------------------------------------------------------===//
-//  Main DAG Combiner implementation
-//===----------------------------------------------------------------------===//
 
 void DAGCombiner::Run(bool RunningAfterLegalize) {
   // set the instance variable, so that the various visit routines may use it.
@@ -717,10 +604,10 @@ SDOperand DAGCombiner::visitTokenFactor(SDNode *N) {
       return N->getOperand(1);
   }
   
-  SmallVector<SDNode *, 8> TFs;     // List of token factors to visit.
-  SmallVector<SDOperand, 8> Ops;    // Ops for replacing token factor.
-  SmallPtrSet<SDNode*, 16> SeenOps; 
-  bool Changed = false;             // If we should replace this token factor.
+  
+  SmallVector<SDNode *, 8> TFs;   // List of token factors to visit.
+  SmallVector<SDOperand, 8> Ops;  // Ops for replacing token factor.
+  bool Changed = false;           // If we should replace this token factor.
   
   // Start out with this token factor.
   TFs.push_back(N);
@@ -754,11 +641,9 @@ SDOperand DAGCombiner::visitTokenFactor(SDNode *N) {
         // Fall thru
         
       default:
-        // Only add if it isn't already in the list.
-        if (SeenOps.insert(Op.Val))
+        // Only add if not there prior.
+        if (std::find(Ops.begin(), Ops.end(), Op) == Ops.end())
           Ops.push_back(Op);
-        else
-          Changed = true;
         break;
       }
     }
@@ -2688,11 +2573,10 @@ SDOperand DAGCombiner::visitBIT_CONVERT(SDNode *N) {
   // fold (conv (load x)) -> (load (conv*)x)
   // If the resultant load doesn't need a  higher alignment than the original!
   if (ISD::isNON_EXTLoad(N0.Val) && N0.hasOneUse() &&
-      ISD::isUNINDEXEDLoad(N0.Val) &&
       TLI.isOperationLegal(ISD::LOAD, VT)) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
     unsigned Align = TLI.getTargetMachine().getTargetData()->
-      getABITypeAlignment(MVT::getTypeForValueType(VT));
+      getPrefTypeAlignment(getTypeForValueType(VT));
     unsigned OrigAlign = LN0->getAlignment();
     if (Align <= OrigAlign) {
       SDOperand Load = DAG.getLoad(VT, LN0->getChain(), LN0->getBasePtr(),
@@ -2859,11 +2743,11 @@ SDOperand DAGCombiner::visitFADD(SDNode *N) {
   if (N0CFP && !N1CFP)
     return DAG.getNode(ISD::FADD, VT, N1, N0);
   // fold (A + (-B)) -> A-B
-  if (isNegatibleForFree(N1) == 2)
-    return DAG.getNode(ISD::FSUB, VT, N0, GetNegatedExpression(N1, DAG));
+  if (N1.getOpcode() == ISD::FNEG)
+    return DAG.getNode(ISD::FSUB, VT, N0, N1.getOperand(0));
   // fold ((-A) + B) -> B-A
-  if (isNegatibleForFree(N0) == 2)
-    return DAG.getNode(ISD::FSUB, VT, N1, GetNegatedExpression(N0, DAG));
+  if (N0.getOpcode() == ISD::FNEG)
+    return DAG.getNode(ISD::FSUB, VT, N1, N0.getOperand(0));
   
   // If allowed, fold (fadd (fadd x, c1), c2) -> (fadd x, (fadd c1, c2))
   if (UnsafeFPMath && N1CFP && N0.getOpcode() == ISD::FADD &&
@@ -2885,9 +2769,8 @@ SDOperand DAGCombiner::visitFSUB(SDNode *N) {
   if (N0CFP && N1CFP)
     return DAG.getNode(ISD::FSUB, VT, N0, N1);
   // fold (A-(-B)) -> A+B
-  if (isNegatibleForFree(N1))
-    return DAG.getNode(ISD::FADD, VT, N0, GetNegatedExpression(N1, DAG));
-  
+  if (N1.getOpcode() == ISD::FNEG)
+    return DAG.getNode(ISD::FADD, VT, N0, N1.getOperand(0));
   return SDOperand();
 }
 
@@ -2907,20 +2790,6 @@ SDOperand DAGCombiner::visitFMUL(SDNode *N) {
   // fold (fmul X, 2.0) -> (fadd X, X)
   if (N1CFP && N1CFP->isExactlyValue(+2.0))
     return DAG.getNode(ISD::FADD, VT, N0, N0);
-  // fold (fmul X, -1.0) -> (fneg X)
-  if (N1CFP && N1CFP->isExactlyValue(-1.0))
-    return DAG.getNode(ISD::FNEG, VT, N0);
-  
-  // -X * -Y -> X*Y
-  if (char LHSNeg = isNegatibleForFree(N0)) {
-    if (char RHSNeg = isNegatibleForFree(N1)) {
-      // Both can be negated for free, check to see if at least one is cheaper
-      // negated.
-      if (LHSNeg == 2 || RHSNeg == 2)
-        return DAG.getNode(ISD::FMUL, VT, GetNegatedExpression(N0, DAG),
-                           GetNegatedExpression(N1, DAG));
-    }
-  }
   
   // If allowed, fold (fmul (fmul x, c1), c2) -> (fmul x, (fmul c1, c2))
   if (UnsafeFPMath && N1CFP && N0.getOpcode() == ISD::FMUL &&
@@ -2941,19 +2810,6 @@ SDOperand DAGCombiner::visitFDIV(SDNode *N) {
   // fold (fdiv c1, c2) -> c1/c2
   if (N0CFP && N1CFP)
     return DAG.getNode(ISD::FDIV, VT, N0, N1);
-  
-  
-  // -X / -Y -> X*Y
-  if (char LHSNeg = isNegatibleForFree(N0)) {
-    if (char RHSNeg = isNegatibleForFree(N1)) {
-      // Both can be negated for free, check to see if at least one is cheaper
-      // negated.
-      if (LHSNeg == 2 || RHSNeg == 2)
-        return DAG.getNode(ISD::FDIV, VT, GetNegatedExpression(N0, DAG),
-                           GetNegatedExpression(N1, DAG));
-    }
-  }
-  
   return SDOperand();
 }
 
@@ -3567,12 +3423,11 @@ SDOperand DAGCombiner::visitSTORE(SDNode *N) {
   
   // If this is a store of a bit convert, store the input value if the
   // resultant store does not need a higher alignment than the original.
-  if (Value.getOpcode() == ISD::BIT_CONVERT && !ST->isTruncatingStore() &&
-      ST->getAddressingMode() == ISD::UNINDEXED) {
+  if (Value.getOpcode() == ISD::BIT_CONVERT && !ST->isTruncatingStore()) {
     unsigned Align = ST->getAlignment();
     MVT::ValueType SVT = Value.getOperand(0).getValueType();
     unsigned OrigAlign = TLI.getTargetMachine().getTargetData()->
-      getABITypeAlignment(MVT::getTypeForValueType(SVT));
+      getPrefTypeAlignment(getTypeForValueType(SVT));
     if (Align <= OrigAlign && TLI.isOperationLegal(ISD::STORE, SVT))
       return DAG.getStore(Chain, Value.getOperand(0), Ptr, ST->getSrcValue(),
                           ST->getSrcValueOffset());
@@ -3768,7 +3623,7 @@ SDOperand DAGCombiner::visitVBUILD_VECTOR(SDNode *N) {
     if (VecIn2.Val) {
       Ops[1] = VecIn2;
     } else {
-      // Use an undef vbuild_vector as input for the second operand.
+       // Use an undef vbuild_vector as input for the second operand.
       std::vector<SDOperand> UnOps(NumInScalars,
                                    DAG.getNode(ISD::UNDEF, 
                                            cast<VTSDNode>(EltType)->getVT()));

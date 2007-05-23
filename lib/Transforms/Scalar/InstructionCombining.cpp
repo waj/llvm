@@ -3918,18 +3918,13 @@ Instruction *InstCombiner::visitOr(BinaryOperator &I) {
             LHSCC != ICmpInst::ICMP_UGE && LHSCC != ICmpInst::ICMP_ULE &&
             RHSCC != ICmpInst::ICMP_UGE && RHSCC != ICmpInst::ICMP_ULE &&
             LHSCC != ICmpInst::ICMP_SGE && LHSCC != ICmpInst::ICMP_SLE &&
-            RHSCC != ICmpInst::ICMP_SGE && RHSCC != ICmpInst::ICMP_SLE &&
-            // We can't fold (ugt x, C) | (sgt x, C2).
-            PredicatesFoldable(LHSCC, RHSCC)) {
+            RHSCC != ICmpInst::ICMP_SGE && RHSCC != ICmpInst::ICMP_SLE) {
           // Ensure that the larger constant is on the RHS.
+          ICmpInst::Predicate GT = ICmpInst::isSignedPredicate(LHSCC) ? 
+            ICmpInst::ICMP_SGT : ICmpInst::ICMP_UGT;
+          Constant *Cmp = ConstantExpr::getICmp(GT, LHSCst, RHSCst);
           ICmpInst *LHS = cast<ICmpInst>(Op0);
-          bool NeedsSwap;
-          if (ICmpInst::isSignedPredicate(LHSCC))
-            NeedsSwap = LHSCst->getValue().sgt(RHSCst->getValue());
-          else
-            NeedsSwap = LHSCst->getValue().ugt(RHSCst->getValue());
-            
-          if (NeedsSwap) {
+          if (cast<ConstantInt>(Cmp)->getZExtValue()) {
             std::swap(LHS, RHS);
             std::swap(LHSCst, RHSCst);
             std::swap(LHSCC, RHSCC);
@@ -6372,7 +6367,7 @@ Instruction *InstCombiner::commonCastTransforms(CastInst &CI) {
   if (isa<UndefValue>(Src))   // cast undef -> undef
     return ReplaceInstUsesWith(CI, UndefValue::get(CI.getType()));
 
-  // Many cases of "cast of a cast" are eliminable. If it's eliminable we just
+  // Many cases of "cast of a cast" are eliminable. If its eliminable we just
   // eliminate it now.
   if (CastInst *CSrc = dyn_cast<CastInst>(Src)) {   // A->B->C cast
     if (Instruction::CastOps opc = 

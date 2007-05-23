@@ -182,6 +182,7 @@ while (scalar(@ARGV) and ($_ = $ARGV[0], /^[-+]/)) {
                              shift; next; }
   if (/^-compileflags/)    { $MAKEOPTS = "$MAKEOPTS $ARGV[0]"; shift; next; }
   if (/^-use-gmake/)       { $MAKECMD = "gmake"; shift; next; }
+  if (/^-compileflags/)    { $MAKEOPTS = "$MAKEOPTS $ARGV[0]"; shift; next; }
   if (/^-extraflags/)      { $CONFIGUREARGS .= 
                              " --with-extra-options=\'$ARGV[0]\'"; shift; next;}
   if (/^-noexternals$/)    { $NOEXTERNALS = 1; next; }

@@ -224,32 +224,30 @@ bool PPCInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,MachineBasicBlock *&TBB,
   return true;
 }
 
-unsigned PPCInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+void PPCInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator I = MBB.end();
-  if (I == MBB.begin()) return 0;
+  if (I == MBB.begin()) return;
   --I;
   if (I->getOpcode() != PPC::B && I->getOpcode() != PPC::BCC)
-    return 0;
+    return;
   
   // Remove the branch.
   I->eraseFromParent();
   
   I = MBB.end();
 
-  if (I == MBB.begin()) return 1;
+  if (I == MBB.begin()) return;
   --I;
   if (I->getOpcode() != PPC::BCC)
-    return 1;
+    return;
   
   // Remove the branch.
   I->eraseFromParent();
-  return 2;
 }
 
-unsigned
-PPCInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                           MachineBasicBlock *FBB,
-                           const std::vector<MachineOperand> &Cond) const {
+void PPCInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                                MachineBasicBlock *FBB,
+                                const std::vector<MachineOperand> &Cond) const {
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 2 || Cond.size() == 0) && 
@@ -262,21 +260,19 @@ PPCInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
     else                // Conditional branch
       BuildMI(&MBB, get(PPC::BCC))
         .addImm(Cond[0].getImm()).addReg(Cond[1].getReg()).addMBB(TBB);
-    return 1;
+    return;
   }
   
   // Two-way Conditional Branch.
   BuildMI(&MBB, get(PPC::BCC))
     .addImm(Cond[0].getImm()).addReg(Cond[1].getReg()).addMBB(TBB);
   BuildMI(&MBB, get(PPC::B)).addMBB(FBB);
-  return 2;
 }
 
 bool PPCInstrInfo::BlockHasNoFallThrough(MachineBasicBlock &MBB) const {
   if (MBB.empty()) return false;
   
   switch (MBB.back().getOpcode()) {
-  case PPC::BLR:   // Return.
   case PPC::B:     // Uncond branch.
   case PPC::BCTR:  // Indirect branch.
     return true;

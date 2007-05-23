@@ -47,9 +47,9 @@ namespace {
   static unsigned numIterations = 0;
   static unsigned numIntervals = 0;
 
-  struct VISIBILITY_HIDDEN RALinScan : public MachineFunctionPass {
+  struct VISIBILITY_HIDDEN RA : public MachineFunctionPass {
     static char ID;
-    RALinScan() : MachineFunctionPass((intptr_t)&ID) {}
+    RA() : MachineFunctionPass((intptr_t)&ID) {}
 
     typedef std::pair<LiveInterval*, LiveInterval::iterator> IntervalPtr;
     typedef std::vector<IntervalPtr> IntervalPtrs;
@@ -149,10 +149,10 @@ namespace {
       }
     }
   };
-  char RALinScan::ID = 0;
+  char RA::ID = 0;
 }
 
-void RALinScan::ComputeRelatedRegClasses() {
+void RA::ComputeRelatedRegClasses() {
   const MRegisterInfo &MRI = *mri_;
   
   // First pass, add all reg classes to the union, and determine at least one
@@ -187,7 +187,7 @@ void RALinScan::ComputeRelatedRegClasses() {
         RelatedRegClasses.unionSets(I->second, OneClassForEachPhysReg[*AS]);
 }
 
-bool RALinScan::runOnMachineFunction(MachineFunction &fn) {
+bool RA::runOnMachineFunction(MachineFunction &fn) {
   mf_ = &fn;
   tm_ = &fn.getTarget();
   mri_ = tm_->getRegisterInfo();
@@ -222,7 +222,7 @@ bool RALinScan::runOnMachineFunction(MachineFunction &fn) {
 
 /// initIntervalSets - initialize the interval sets.
 ///
-void RALinScan::initIntervalSets()
+void RA::initIntervalSets()
 {
   assert(unhandled_.empty() && fixed_.empty() &&
          active_.empty() && inactive_.empty() &&
@@ -237,7 +237,7 @@ void RALinScan::initIntervalSets()
   }
 }
 
-void RALinScan::linearScan()
+void RA::linearScan()
 {
   // linear scan algorithm
   DOUT << "********** LINEAR SCAN **********\n";
@@ -317,7 +317,7 @@ void RALinScan::linearScan()
 
 /// processActiveIntervals - expire old intervals and move non-overlapping ones
 /// to the inactive list.
-void RALinScan::processActiveIntervals(unsigned CurPoint)
+void RA::processActiveIntervals(unsigned CurPoint)
 {
   DOUT << "\tprocessing active intervals:\n";
 
@@ -363,7 +363,7 @@ void RALinScan::processActiveIntervals(unsigned CurPoint)
 
 /// processInactiveIntervals - expire old intervals and move overlapping
 /// ones to the active list.
-void RALinScan::processInactiveIntervals(unsigned CurPoint)
+void RA::processInactiveIntervals(unsigned CurPoint)
 {
   DOUT << "\tprocessing inactive intervals:\n";
 
@@ -412,18 +412,16 @@ static void updateSpillWeights(std::vector<float> &Weights,
     Weights[*as] += weight;
 }
 
-static
-RALinScan::IntervalPtrs::iterator
-FindIntervalInVector(RALinScan::IntervalPtrs &IP, LiveInterval *LI) {
-  for (RALinScan::IntervalPtrs::iterator I = IP.begin(), E = IP.end();
-       I != E; ++I)
+static RA::IntervalPtrs::iterator FindIntervalInVector(RA::IntervalPtrs &IP,
+                                                       LiveInterval *LI) {
+  for (RA::IntervalPtrs::iterator I = IP.begin(), E = IP.end(); I != E; ++I)
     if (I->first == LI) return I;
   return IP.end();
 }
 
-static void RevertVectorIteratorsTo(RALinScan::IntervalPtrs &V, unsigned Point){
+static void RevertVectorIteratorsTo(RA::IntervalPtrs &V, unsigned Point) {
   for (unsigned i = 0, e = V.size(); i != e; ++i) {
-    RALinScan::IntervalPtr &IP = V[i];
+    RA::IntervalPtr &IP = V[i];
     LiveInterval::iterator I = std::upper_bound(IP.first->begin(),
                                                 IP.second, Point);
     if (I != IP.first->begin()) --I;
@@ -433,7 +431,7 @@ static void RevertVectorIteratorsTo(RALinScan::IntervalPtrs &V, unsigned Point){
 
 /// assignRegOrStackSlotAtInterval - assign a register if one is available, or
 /// spill.
-void RALinScan::assignRegOrStackSlotAtInterval(LiveInterval* cur)
+void RA::assignRegOrStackSlotAtInterval(LiveInterval* cur)
 {
   DOUT << "\tallocating current interval: ";
 
@@ -754,7 +752,7 @@ void RALinScan::assignRegOrStackSlotAtInterval(LiveInterval* cur)
 
 /// getFreePhysReg - return a free physical register for this virtual register
 /// interval if we have one, otherwise return 0.
-unsigned RALinScan::getFreePhysReg(LiveInterval *cur) {
+unsigned RA::getFreePhysReg(LiveInterval *cur) {
   std::vector<unsigned> inactiveCounts(mri_->getNumRegs(), 0);
   unsigned MaxInactiveCount = 0;
   
@@ -823,5 +821,5 @@ unsigned RALinScan::getFreePhysReg(LiveInterval *cur) {
 }
 
 FunctionPass* llvm::createLinearScanRegisterAllocator() {
-  return new RALinScan();
+  return new RA();
 }

@@ -157,7 +157,6 @@ TargetLowering::TargetLowering(TargetMachine &tm)
   SchedPreferenceInfo = SchedulingForLatency;
   JumpBufSize = 0;
   JumpBufAlignment = 0;
-  IfCvtBlockSizeLimit = 2;
 
   InitLibcallNames(LibcallRoutineNames);
   InitCmpLibcallCCs(CmpLibcallCCs);
@@ -299,12 +298,12 @@ unsigned TargetLowering::getVectorTypeBreakdown(const VectorType *PTy,
   
   // Divide the input until we get to a supported size.  This will always
   // end with a scalar if the target doesn't support vectors.
-  while (NumElts > 1 && !isTypeLegal(MVT::getVectorType(EltTy, NumElts))) {
+  while (NumElts > 1 && !isTypeLegal(getVectorType(EltTy, NumElts))) {
     NumElts >>= 1;
     NumVectorRegs <<= 1;
   }
   
-  MVT::ValueType VT = MVT::getVectorType(EltTy, NumElts);
+  MVT::ValueType VT = getVectorType(EltTy, NumElts);
   if (!isTypeLegal(VT))
     VT = EltTy;
   PTyElementVT = VT;
@@ -365,11 +364,6 @@ bool TargetLowering::SimplifyDemandedBits(SDOperand Op, uint64_t DemandedMask,
                                           TargetLoweringOpt &TLO,
                                           unsigned Depth) const {
   KnownZero = KnownOne = 0;   // Don't know anything.
-
-  // The masks are not wide enough to represent this type!  Should use APInt.
-  if (Op.getValueType() == MVT::i128)
-    return false;
-  
   // Other users may use these bits.
   if (!Op.Val->hasOneUse()) { 
     if (Depth != 0) {
@@ -879,10 +873,6 @@ bool TargetLowering::SimplifyDemandedBits(SDOperand Op, uint64_t DemandedMask,
 /// for bits that V cannot have.
 bool TargetLowering::MaskedValueIsZero(SDOperand Op, uint64_t Mask, 
                                        unsigned Depth) const {
-  // The masks are not wide enough to represent this type!  Should use APInt.
-  if (Op.getValueType() == MVT::i128)
-    return false;
-  
   uint64_t KnownZero, KnownOne;
   ComputeMaskedBits(Op, Mask, KnownZero, KnownOne, Depth);
   assert((KnownZero & KnownOne) == 0 && "Bits known to be one AND zero?"); 
@@ -899,10 +889,6 @@ void TargetLowering::ComputeMaskedBits(SDOperand Op, uint64_t Mask,
   KnownZero = KnownOne = 0;   // Don't know anything.
   if (Depth == 6 || Mask == 0)
     return;  // Limit search depth.
-  
-  // The masks are not wide enough to represent this type!  Should use APInt.
-  if (Op.getValueType() == MVT::i128)
-    return;
   
   uint64_t KnownZero2, KnownOne2;
 
@@ -1785,7 +1771,7 @@ TargetLowering::SimplifySetCC(MVT::ValueType VT, SDOperand N0, SDOperand N1,
         if (DAG.isCommutativeBinOp(N0.getOpcode()))
           return DAG.getSetCC(VT, N0.getOperand(0),
                           DAG.getConstant(0, N0.getValueType()), Cond);
-        else if (N0.Val->hasOneUse()) {
+        else {
           assert(N0.getOpcode() == ISD::SUB && "Unexpected operation!");
           // (Z-X) == X  --> Z == X<<1
           SDOperand SH = DAG.getNode(ISD::SHL, N1.getValueType(),
@@ -1808,7 +1794,7 @@ TargetLowering::SimplifySetCC(MVT::ValueType VT, SDOperand N0, SDOperand N1,
         if (DAG.isCommutativeBinOp(N1.getOpcode())) {
           return DAG.getSetCC(VT, N1.getOperand(0),
                           DAG.getConstant(0, N1.getValueType()), Cond);
-        } else if (N1.Val->hasOneUse()) {
+        } else {
           assert(N1.getOpcode() == ISD::SUB && "Unexpected operation!");
           // X == (Z-X)  --> X<<1 == Z
           SDOperand SH = DAG.getNode(ISD::SHL, N1.getValueType(), N0, 

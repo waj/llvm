@@ -124,7 +124,6 @@ ARMTargetLowering::ARMTargetLowering(TargetMachine &TM)
     addRegisterClass(MVT::f32, ARM::SPRRegisterClass);
     addRegisterClass(MVT::f64, ARM::DPRRegisterClass);
   }
-  computeRegisterProperties();
 
   // ARM does not have f32 extending load.
   setLoadXAction(ISD::EXTLOAD, MVT::f32, Expand);
@@ -188,7 +187,7 @@ ARMTargetLowering::ARMTargetLowering(TargetMachine &TM)
 
   // Expand mem operations genericly.
   setOperationAction(ISD::MEMSET          , MVT::Other, Expand);
-  setOperationAction(ISD::MEMCPY          , MVT::Other, Custom);
+  setOperationAction(ISD::MEMCPY          , MVT::Other, Expand);
   setOperationAction(ISD::MEMMOVE         , MVT::Other, Expand);
   
   // Use the default implementation.
@@ -253,10 +252,9 @@ ARMTargetLowering::ARMTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::FP_TO_SINT, MVT::i32, Custom);
 
   setStackPointerRegisterToSaveRestore(ARM::SP);
-  setSchedulingPreference(SchedulingForRegPressure);
-  setIfCvtBlockSizeLimit(Subtarget->isThumb() ? 0 : 10);
 
-  maxStoresPerMemcpy = 1;   //// temporary - rewrite interface to use type
+  setSchedulingPreference(SchedulingForRegPressure);
+  computeRegisterProperties();
 }
 
 
@@ -794,7 +792,7 @@ SDOperand ARMTargetLowering::LowerGlobalAddressELF(SDOperand Op,
   GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   Reloc::Model RelocM = getTargetMachine().getRelocationModel();
   if (RelocM == Reloc::PIC_) {
-    bool UseGOTOFF = GV->hasInternalLinkage() || GV->hasHiddenVisibility();
+    bool UseGOTOFF = GV->hasInternalLinkage();
     ARMConstantPoolValue *CPV =
       new ARMConstantPoolValue(GV, ARMCP::CPValue, UseGOTOFF ? "GOTOFF":"GOT");
     SDOperand CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 2);
@@ -1330,78 +1328,6 @@ static SDOperand LowerSRx(SDOperand Op, SelectionDAG &DAG,
   return DAG.getNode(ISD::BUILD_PAIR, MVT::i64, Lo, Hi);
 }
 
-SDOperand ARMTargetLowering::LowerMEMCPY(SDOperand Op, SelectionDAG &DAG) {
-  SDOperand Chain = Op.getOperand(0);
-  SDOperand Dest = Op.getOperand(1);
-  SDOperand Src = Op.getOperand(2);
-  SDOperand Count = Op.getOperand(3);
-  unsigned Align =
-    (unsigned)cast<ConstantSDNode>(Op.getOperand(4))->getValue();
-  if (Align == 0) Align = 1;
-
-  ConstantSDNode *I = dyn_cast<ConstantSDNode>(Count);
-  // Just call memcpy if:
-  // not 4-byte aligned
-  // size is unknown
-  // size is >= the threshold.
-  if ((Align & 3) != 0 || 
-       !I ||
-       I->getValue() >= 64 ||
-       (I->getValue() & 3) != 0) {
-    MVT::ValueType IntPtr = getPointerTy();
-    TargetLowering::ArgListTy Args;
-    TargetLowering::ArgListEntry Entry;
-    Entry.Ty = getTargetData()->getIntPtrType();
-    Entry.Node = Op.getOperand(1); Args.push_back(Entry);
-    Entry.Node = Op.getOperand(2); Args.push_back(Entry);
-    Entry.Node = Op.getOperand(3); Args.push_back(Entry);
-    std::pair<SDOperand,SDOperand> CallResult =
-      LowerCallTo(Chain, Type::VoidTy, false, false, CallingConv::C, false,
-                  DAG.getExternalSymbol("memcpy", IntPtr), Args, DAG);
-    return CallResult.second;
-  }
-
-  // Otherwise do repeated 4-byte loads and stores.  To be improved.
-  assert((I->getValue() & 3) == 0);
-  assert((Align & 3) == 0);
-  unsigned NumMemOps = I->getValue() >> 2;
-  unsigned EmittedNumMemOps = 0;
-  unsigned SrcOff = 0, DstOff = 0;
-  MVT::ValueType VT = MVT::i32;
-  unsigned VTSize = 4;
-  const unsigned MAX_LOADS_IN_LDM = 6;
-  SDOperand LoadChains[MAX_LOADS_IN_LDM];
-  SDOperand Loads[MAX_LOADS_IN_LDM];
-
-  // Emit up to 4 loads, then a TokenFactor barrier, then the same
-  // number of stores.  The loads and stores will get combined into
-  // ldm/stm later on.
-  while(EmittedNumMemOps < NumMemOps) {
-    unsigned i;
-    for (i=0; i<MAX_LOADS_IN_LDM && EmittedNumMemOps+i < NumMemOps; i++) {
-      Loads[i] = DAG.getLoad(VT, Chain,
-                             DAG.getNode(ISD::ADD, VT, Src, 
-                                         DAG.getConstant(SrcOff, VT)),
-                             NULL, 0);
-      LoadChains[i] = Loads[i].getValue(1);
-      SrcOff += VTSize;
-    }
-
-    Chain = DAG.getNode(ISD::TokenFactor, MVT::Other, &LoadChains[0], i);
-
-    for (i=0; i<MAX_LOADS_IN_LDM && EmittedNumMemOps+i < NumMemOps; i++) {
-      Chain = DAG.getStore(Chain, Loads[i],
-                           DAG.getNode(ISD::ADD, VT, Dest, 
-                                       DAG.getConstant(DstOff, VT)),
-                           NULL, 0);
-      DstOff += VTSize;
-    }
-    EmittedNumMemOps += i;
-  }
-
-  return Chain;
-}
-
 SDOperand ARMTargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG) {
   switch (Op.getOpcode()) {
   default: assert(0 && "Don't know how to custom lower this!"); abort();
@@ -1432,7 +1358,6 @@ SDOperand ARMTargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG) {
   case ISD::RETURNADDR:    break;
   case ISD::FRAMEADDR:     break;
   case ISD::GLOBAL_OFFSET_TABLE: return LowerGLOBAL_OFFSET_TABLE(Op, DAG);
-  case ISD::MEMCPY:        return LowerMEMCPY(Op, DAG);
   }
   return SDOperand();
 }

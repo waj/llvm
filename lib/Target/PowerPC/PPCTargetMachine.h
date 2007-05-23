@@ -73,7 +73,6 @@ public:
                               MachineCodeEmitter &MCE);
   virtual bool addSimpleCodeEmitter(FunctionPassManager &PM, bool Fast,
                                     MachineCodeEmitter &MCE);
-  virtual const bool getEnableTailMergeDefault() const;
 };
 
 /// PPC32TargetMachine - PowerPC 32-bit target machine.

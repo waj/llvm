@@ -1323,7 +1323,7 @@ Constant *DISerializer::getString(const std::string &String) {
     // Otherwise create and return a new string global.
     GlobalVariable *StrGV = new GlobalVariable(ConstStr->getType(), true,
                                                GlobalVariable::InternalLinkage,
-                                               ConstStr, ".str", M);
+                                               ConstStr, "str", M);
     StrGV->setSection("llvm.metadata");
     // Convert to generic string pointer.
     Slot = ConstantExpr::getBitCast(StrGV, getStrPtrType());
@@ -1475,11 +1475,7 @@ MachineModuleInfo::MachineModuleInfo()
 , RootScope(NULL)
 , FrameMoves()
 , LandingPads()
-, Personalities()
-{
-  // Always emit "no personality" info
-  Personalities.push_back(NULL);
-}
+{}
 MachineModuleInfo::~MachineModuleInfo() {
 
 }
@@ -1673,8 +1669,8 @@ LandingPadInfo &MachineModuleInfo::getOrCreateLandingPadInfo
 void MachineModuleInfo::addInvoke(MachineBasicBlock *LandingPad,
                                   unsigned BeginLabel, unsigned EndLabel) {
   LandingPadInfo &LP = getOrCreateLandingPadInfo(LandingPad);
-  LP.BeginLabels.push_back(BeginLabel);
-  LP.EndLabels.push_back(EndLabel);
+  if (!LP.BeginLabel) LP.BeginLabel = BeginLabel;  
+  LP.EndLabel = EndLabel;  
 }
 
 /// addLandingPad - Provide the label of a try LandingPad block.
@@ -1692,12 +1688,6 @@ void MachineModuleInfo::addPersonality(MachineBasicBlock *LandingPad,
                                        Function *Personality) {
   LandingPadInfo &LP = getOrCreateLandingPadInfo(LandingPad);
   LP.Personality = Personality;
-
-  for (unsigned i = 0; i < Personalities.size(); ++i)
-    if (Personalities[i] == Personality)
-      return;
-  
-  Personalities.push_back(Personality);
 }
 
 /// addCatchTypeInfo - Provide the catch typeinfo for a landing pad.
@@ -1721,29 +1711,15 @@ void MachineModuleInfo::setIsFilterLandingPad(MachineBasicBlock *LandingPad) {
 void MachineModuleInfo::TidyLandingPads() {
   for (unsigned i = 0; i != LandingPads.size(); ) {
     LandingPadInfo &LandingPad = LandingPads[i];
+    LandingPad.BeginLabel = MappedLabel(LandingPad.BeginLabel);
+    LandingPad.EndLabel = MappedLabel(LandingPad.EndLabel);
     LandingPad.LandingPadLabel = MappedLabel(LandingPad.LandingPadLabel);
-
-    // Special case: we *should* emit LPs with null LP MBB. This indicates
-    // "rethrow" case.
-    if (!LandingPad.LandingPadLabel && LandingPad.LandingPadBlock) {
+    
+    if (!LandingPad.BeginLabel ||
+        !LandingPad.EndLabel ||
+        !LandingPad.LandingPadLabel) {
       LandingPads.erase(LandingPads.begin() + i);
       continue;
-    }
-          
-    for (unsigned j=0; j != LandingPads[i].BeginLabels.size(); ) {
-      unsigned BeginLabel = MappedLabel(LandingPad.BeginLabels[j]);
-      unsigned EndLabel = MappedLabel(LandingPad.EndLabels[j]);
-            
-          
-      if (!BeginLabel || !EndLabel) {
-        LandingPad.BeginLabels.erase(LandingPad.BeginLabels.begin() + j);
-        LandingPad.EndLabels.erase(LandingPad.EndLabels.begin() + j);
-        continue;
-      }
-
-      LandingPad.BeginLabels[j] = BeginLabel;
-      LandingPad.EndLabels[j] = EndLabel;
-      ++j;
     }
     
     ++i;
@@ -1760,34 +1736,12 @@ unsigned MachineModuleInfo::getTypeIDFor(GlobalVariable *TI) {
   return TypeInfos.size();
 }
 
-/// getPersonality - Return the personality function for the current function.
+/// getLandingPadInfos - Return a reference to the landing pad info for the
+/// current function.
 Function *MachineModuleInfo::getPersonality() const {
-  // FIXME: Until PR1414 will be fixed, we're using 1 personality function per
-  // function
   return !LandingPads.empty() ? LandingPads[0].Personality : NULL;
 }
 
-/// getPersonalityIndex - Return unique index for current personality
-/// function. NULL personality function should always get zero index.
-unsigned MachineModuleInfo::getPersonalityIndex() const {
-  const Function* Personality = NULL;
-  
-  // Scan landing pads. If there is at least one non-NULL personality - use it.
-  for (unsigned i = 0; i != LandingPads.size(); ++i)
-    if (LandingPads[i].Personality) {
-      Personality = LandingPads[i].Personality;
-      break;
-    }
-  
-  for (unsigned i = 0; i < Personalities.size(); ++i) {
-    if (Personalities[i] == Personality)
-      return i;
-  }
-
-  // This should never happen
-  assert(0 && "Personality function should be set!");
-  return 0;
-}
 
 //===----------------------------------------------------------------------===//
 /// DebugLabelFolding pass - This pass prunes out redundant labels.  This allows

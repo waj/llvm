@@ -183,7 +183,6 @@ class Instruction {
   bit isCommutable = 0;     // Is this 3 operand instruction commutable?
   bit isTerminator = 0;     // Is this part of the terminator for a basic block?
   bit isReMaterializable = 0; // Is this instruction re-materializable?
-  bit isPredicable = 0;     // Is this instruction predicable?
   bit hasDelaySlot = 0;     // Does this instruction have an delay slot?
   bit usesCustomDAGSchedInserter = 0; // Pseudo instr needing special help.
   bit hasCtrlDep   = 0;     // Does this instruction r/w ctrl-flow chains?
@@ -255,7 +254,7 @@ def i64imm : Operand<i64>;
 /// instruction.  OpTypes specifies the MIOperandInfo for the operand, and
 /// AlwaysVal specifies the value of this predicate when set to "always
 /// execute".
-class PredicateOperand<ValueType ty, dag OpTypes, dag AlwaysVal> : Operand<ty> {
+class PredicateOperand<dag OpTypes, dag AlwaysVal> : Operand<OtherVT> {
   let MIOperandInfo = OpTypes;
   dag ExecuteAlways = AlwaysVal;
 }

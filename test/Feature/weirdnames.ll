@@ -7,4 +7,3 @@
 "&^ " = type { int }
 "%.*+ foo" = global "&^ " { int 5 }
 "0" = global float 0.0                 ; This CANNOT be %0
-"\03foo" = global float 0.1            ; Make sure funny char gets round trip

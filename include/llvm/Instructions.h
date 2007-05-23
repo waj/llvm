@@ -1323,7 +1323,8 @@ public:
 
   BasicBlock *getSuccessor(unsigned i) const {
     assert(i < getNumSuccessors() && "Successor # out of range for Branch!");
-    return cast<BasicBlock>(getOperand(i));
+    return (i == 0) ? cast<BasicBlock>(getOperand(0)) :
+                      cast<BasicBlock>(getOperand(1));
   }
 
   void setSuccessor(unsigned idx, BasicBlock *NewSucc) {

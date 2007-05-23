@@ -30,14 +30,12 @@ struct DefaultDOTGraphTraits {
   /// getGraphName - Return the label for the graph as a whole.  Printed at the
   /// top of the graph.
   ///
-  template<typename GraphType>
-  static std::string getGraphName(GraphType Graph) { return ""; }
+  static std::string getGraphName(const void *Graph) { return ""; }
 
   /// getGraphProperties - Return any custom properties that should be included
   /// in the top level graph structure for dot.
   ///
-  template<typename GraphType>
-  static std::string getGraphProperties(GraphType Graph) {
+  static std::string getGraphProperties(const void *Graph) {
     return "";
   }
 
@@ -50,22 +48,19 @@ struct DefaultDOTGraphTraits {
 
   /// getNodeLabel - Given a node and a pointer to the top level graph, return
   /// the label to print in the node.
-  template<typename GraphType>
-  static std::string getNodeLabel(const void *Node, GraphType Graph) {
+  static std::string getNodeLabel(const void *Node, const void *Graph) {
     return "";
   }
   
   /// hasNodeAddressLabel - If this method returns true, the address of the node
   /// is added to the label of the node.
-  template<typename GraphType>
-  static bool hasNodeAddressLabel(const void *Node, GraphType Graph) {
+  static bool hasNodeAddressLabel(const void *Node, const void *Graph) {
     return false;
   }
 
   /// If you want to specify custom node attributes, this is the place to do so
   ///
-  template<typename GraphType>
-  static std::string getNodeAttributes(const void *Node, GraphType Graph) {
+  static std::string getNodeAttributes(const void *Node, const void *Graph) {
     return "";
   }
 
@@ -105,8 +100,8 @@ struct DefaultDOTGraphTraits {
   /// GraphType is passed in as an argument.  You may call arbitrary methods on
   /// it to add things to the output graph.
   ///
-  template<typename GraphType, typename GraphWriter>
-  static void addCustomGraphFeatures(GraphType Graph, GraphWriter &GW) {}
+  template<typename GraphWriter>
+  static void addCustomGraphFeatures(const void *Graph, GraphWriter &GW) {}
 };
 
 

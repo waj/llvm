@@ -27,7 +27,6 @@
 %{
 #include "ParserInternals.h"
 #include "llvm/Module.h"
-#include "llvm/Support/MathExtras.h"
 #include <list>
 #include "llvmAsmParser.h"
 #include <cctype>
@@ -96,32 +95,44 @@ static uint64_t HexIntToVal(const char *Buffer) {
 // point representation of it.
 //
 static double HexToFP(const char *Buffer) {
-  return BitsToDouble(HexIntToVal(Buffer));   // Cast Hex constant to double
+  // Behave nicely in the face of C TBAA rules... see:
+  // http://www.nullstone.com/htmls/category/aliastyp.htm
+  union {
+    uint64_t UI;
+    double FP;
+  } UIntToFP;
+  UIntToFP.UI = HexIntToVal(Buffer);
+
+  assert(sizeof(double) == sizeof(uint64_t) &&
+         "Data sizes incompatible on this target!");
+  return UIntToFP.FP;   // Cast Hex constant to double
 }
 
 
 // UnEscapeLexed - Run through the specified buffer and change \xx codes to the
-// appropriate character.
-char *UnEscapeLexed(char *Buffer, char* EndBuffer) {
+// appropriate character.  If AllowNull is set to false, a \00 value will cause
+// an exception to be thrown.
+//
+// If AllowNull is set to true, the return value of the function points to the
+// last character of the string in memory.
+//
+char *UnEscapeLexed(char *Buffer, bool AllowNull) {
   char *BOut = Buffer;
   for (char *BIn = Buffer; *BIn; ) {
-    if (BIn[0] == '\\') {
-      if (BIn < EndBuffer-1 && BIn[1] == '\\') {
-        *BOut++ = '\\'; // Two \ becomes one
-        BIn += 2;
-      } else if (BIn < EndBuffer-2 && isxdigit(BIn[1]) && isxdigit(BIn[2])) {
-        char Tmp = BIn[3]; BIn[3] = 0;      // Terminate string
-        *BOut = (char)strtol(BIn+1, 0, 16); // Convert to number
-        BIn[3] = Tmp;                       // Restore character
-        BIn += 3;                           // Skip over handled chars
-        ++BOut;
-      } else {
-        *BOut++ = *BIn++;
-      }
+    if (BIn[0] == '\\' && isxdigit(BIn[1]) && isxdigit(BIn[2])) {
+      char Tmp = BIn[3]; BIn[3] = 0;     // Terminate string
+      *BOut = (char)strtol(BIn+1, 0, 16);  // Convert to number
+      if (!AllowNull && !*BOut)
+        GenerateError("String literal cannot accept \\00 escape!");
+
+      BIn[3] = Tmp;                  // Restore character
+      BIn += 3;                      // Skip over handled chars
+      ++BOut;
     } else {
       *BOut++ = *BIn++;
     }
   }
+
   return BOut;
 }
 
@@ -150,7 +161,6 @@ QuoteLabel \"[^\"]+\":
 /* Quoted names can contain any character except " and \ */
 StringConstant \"[^\"]*\"
 AtStringConstant @\"[^\"]*\"
-PctStringConstant %\"[^\"]*\"
   
 /* LocalVarID/GlobalVarID: match an unnamed local variable slot ID. */
 LocalVarID     %[0-9]+
@@ -319,51 +329,46 @@ shufflevector   { RET_TOK(OtherOpVal, ShuffleVector, SHUFFLEVECTOR); }
 
 
 {LocalVarName}  {
-                  llvmAsmlval.StrVal = new std::string(yytext+1);   // Skip %
+                  UnEscapeLexed(yytext+1);
+                  llvmAsmlval.StrVal = strdup(yytext+1);             // Skip %
                   return LOCALVAR;
                 }
 {GlobalVarName} {
-                  llvmAsmlval.StrVal = new std::string(yytext+1);   // Skip @
+                  UnEscapeLexed(yytext+1);
+                  llvmAsmlval.StrVal = strdup(yytext+1);             // Skip @
                   return GLOBALVAR;
                 }
 {Label}         {
-                  yytext[yyleng-1] = 0;            // nuke colon
-                  llvmAsmlval.StrVal = new std::string(yytext);
+                  yytext[strlen(yytext)-1] = 0;  // nuke colon
+                  UnEscapeLexed(yytext);
+                  llvmAsmlval.StrVal = strdup(yytext);
                   return LABELSTR;
                 }
 {QuoteLabel}    {
-                  yytext[yyleng-2] = 0;  // nuke colon, end quote
-                  const char* EndChar = UnEscapeLexed(yytext+1, yytext+yyleng);
-                  llvmAsmlval.StrVal = 
-                    new std::string(yytext+1, EndChar - yytext - 1);
+                  yytext[strlen(yytext)-2] = 0;  // nuke colon, end quote
+                  UnEscapeLexed(yytext+1);
+                  llvmAsmlval.StrVal = strdup(yytext+1);
                   return LABELSTR;
                 }
 
-{StringConstant} { yytext[yyleng-1] = 0;           // nuke end quote
-                   const char* EndChar = UnEscapeLexed(yytext+1, yytext+yyleng);
-                   llvmAsmlval.StrVal = 
-                     new std::string(yytext+1, EndChar - yytext - 1);
+{StringConstant} { // Note that we cannot unescape a string constant here!  The
+                   // string constant might contain a \00 which would not be
+                   // understood by the string stuff.  It is valid to make a
+                   // [sbyte] c"Hello World\00" constant, for example.
+                   //
+                   yytext[strlen(yytext)-1] = 0;           // nuke end quote
+                   llvmAsmlval.StrVal = strdup(yytext+1);  // Nuke start quote
                    return STRINGCONSTANT;
                  }
 {AtStringConstant} {
-                     yytext[yyleng-1] = 0;         // nuke end quote
-                     const char* EndChar = 
-                       UnEscapeLexed(yytext+2, yytext+yyleng);
-                     llvmAsmlval.StrVal = 
-                       new std::string(yytext+2, EndChar - yytext - 2);
+                     yytext[strlen(yytext)-1] = 0;           // nuke end quote
+                     llvmAsmlval.StrVal = strdup(yytext+2);  // Nuke @, quote
                      return ATSTRINGCONSTANT;
                    }
-{PctStringConstant} {
-                     yytext[yyleng-1] = 0;           // nuke end quote
-                     const char* EndChar = 
-                       UnEscapeLexed(yytext+2, yytext+yyleng);
-                     llvmAsmlval.StrVal = 
-                       new std::string(yytext+2, EndChar - yytext - 2);
-                     return PCTSTRINGCONSTANT;
-                   }
-{PInteger}      { 
-                  uint32_t numBits = ((yyleng * 64) / 19) + 1;
-                  APInt Tmp(numBits, yytext, yyleng, 10);
+
+{PInteger}      { int len = strlen(yytext); 
+                  uint32_t numBits = ((len * 64) / 19) + 1;
+                  APInt Tmp(numBits, yytext, len, 10);
                   uint32_t activeBits = Tmp.getActiveBits();
                   if (activeBits > 0 && activeBits < numBits)
                     Tmp.trunc(activeBits);
@@ -375,9 +380,9 @@ shufflevector   { RET_TOK(OtherOpVal, ShuffleVector, SHUFFLEVECTOR); }
                     return EUINT64VAL;
                   }
                 }
-{NInteger}      {
-                  uint32_t numBits = (((yyleng-1) * 64) / 19) + 2;
-                  APInt Tmp(numBits, yytext, yyleng, 10);
+{NInteger}      { int len = strlen(yytext); 
+                  uint32_t numBits = (((len-1) * 64) / 19) + 2;
+                  APInt Tmp(numBits, yytext, len, 10);
                   uint32_t minBits = Tmp.getMinSignedBits();
                   if (minBits > 0 && minBits < numBits)
                     Tmp.trunc(minBits);
@@ -390,7 +395,7 @@ shufflevector   { RET_TOK(OtherOpVal, ShuffleVector, SHUFFLEVECTOR); }
                   }
                 }
 
-{HexIntConstant} { int len = yyleng - 3;
+{HexIntConstant} { int len = strlen(yytext+3) - 3;
                    uint32_t bits = len * 4;
                    APInt Tmp(bits, yytext+3, len, 16);
                    uint32_t activeBits = Tmp.getActiveBits();

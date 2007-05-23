@@ -96,10 +96,6 @@ PPCTargetMachine::PPCTargetMachine(const Module &M, const std::string &FS,
       setRelocationModel(Reloc::Static);
 }
 
-/// Override this for PowerPC.  Tail merging happily breaks up instruction issue
-/// groups, which typically degrades performance.
-const bool PPCTargetMachine::getEnableTailMergeDefault() const { return false; }
-
 PPC32TargetMachine::PPC32TargetMachine(const Module &M, const std::string &FS) 
   : PPCTargetMachine(M, FS, false) {
 }

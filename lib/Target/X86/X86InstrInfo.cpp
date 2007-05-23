@@ -431,33 +431,31 @@ bool X86InstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
   return true;
 }
 
-unsigned X86InstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+void X86InstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator I = MBB.end();
-  if (I == MBB.begin()) return 0;
+  if (I == MBB.begin()) return;
   --I;
   if (I->getOpcode() != X86::JMP && 
       GetCondFromBranchOpc(I->getOpcode()) == X86::COND_INVALID)
-    return 0;
+    return;
   
   // Remove the branch.
   I->eraseFromParent();
   
   I = MBB.end();
   
-  if (I == MBB.begin()) return 1;
+  if (I == MBB.begin()) return;
   --I;
   if (GetCondFromBranchOpc(I->getOpcode()) == X86::COND_INVALID)
-    return 1;
+    return;
   
   // Remove the branch.
   I->eraseFromParent();
-  return 2;
 }
 
-unsigned
-X86InstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                           MachineBasicBlock *FBB,
-                           const std::vector<MachineOperand> &Cond) const {
+void X86InstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                                MachineBasicBlock *FBB,
+                                const std::vector<MachineOperand> &Cond) const {
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 1 || Cond.size() == 0) &&
@@ -472,25 +470,19 @@ X86InstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
       unsigned Opc = GetCondBranchFromCond((X86::CondCode)Cond[0].getImm());
       BuildMI(&MBB, get(Opc)).addMBB(TBB);
     }
-    return 1;
+    return;
   }
   
   // Two-way Conditional branch.
   unsigned Opc = GetCondBranchFromCond((X86::CondCode)Cond[0].getImm());
   BuildMI(&MBB, get(Opc)).addMBB(TBB);
   BuildMI(&MBB, get(X86::JMP)).addMBB(FBB);
-  return 2;
 }
 
 bool X86InstrInfo::BlockHasNoFallThrough(MachineBasicBlock &MBB) const {
   if (MBB.empty()) return false;
   
   switch (MBB.back().getOpcode()) {
-  case X86::RET:     // Return.
-  case X86::RETI:
-  case X86::TAILJMPd:
-  case X86::TAILJMPr:
-  case X86::TAILJMPm:
   case X86::JMP:     // Uncond branch.
   case X86::JMP32r:  // Indirect branch.
   case X86::JMP32m:  // Indirect branch through mem.

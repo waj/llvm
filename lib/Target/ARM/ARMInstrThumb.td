@@ -32,9 +32,7 @@ class ThumbV5Pat<dag pattern, dag result> : Pat<pattern, result> {
 class ThumbI<dag ops, AddrMode am, SizeFlagVal sz,
              string asm, string cstr, list<dag> pattern>
   // FIXME: Set all opcodes to 0 for now.
-  : InstARM<0, am, sz, IndexModeNone, cstr> {
-  let OperandList = ops;
-  let AsmString   = asm;
+  : InstARM<0, am, sz, IndexModeNone, ops, asm, cstr> {
   let Pattern = pattern;
   list<Predicate> Predicates = [IsThumb];
 }
@@ -159,16 +157,6 @@ def t_addrmode_sp : Operand<i32>,
 //  Miscellaneous Instructions.
 //
 
-def tADJCALLSTACKUP :
-PseudoInst<(ops i32imm:$amt),
-           "@ tADJCALLSTACKUP $amt",
-           [(ARMcallseq_end imm:$amt)]>, Imp<[SP],[SP]>, Requires<[IsThumb]>;
-
-def tADJCALLSTACKDOWN : 
-PseudoInst<(ops i32imm:$amt),
-           "@ tADJCALLSTACKDOWN $amt",
-           [(ARMcallseq_start imm:$amt)]>, Imp<[SP],[SP]>, Requires<[IsThumb]>;
-
 def tPICADD : TIt<(ops GPR:$dst, GPR:$lhs, pclabel:$cp),
                   "$cp:\n\tadd $dst, pc",
                   [(set GPR:$dst, (ARMpic_add GPR:$lhs, imm:$cp))]>;
@@ -207,10 +195,8 @@ let isCall = 1, noResults = 1,
                   [(ARMcall_nolink GPR:$dst)]>;
 }
 
-let isBranch = 1, isTerminator = 1, noResults = 1 in {
-  let isBarrier = 1 in {
-    let isPredicable = 1 in
-    def tB   : TI<(ops brtarget:$dst), "b $dst", [(br bb:$dst)]>;
+let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
+  def tB   : TI<(ops brtarget:$dst), "b $dst", [(br bb:$dst)]>;
 
   // Far jump
   def tBfar  : TIx2<(ops brtarget:$dst), "bl $dst\t@ far jump", []>;
@@ -218,11 +204,10 @@ let isBranch = 1, isTerminator = 1, noResults = 1 in {
   def tBR_JTr : TJTI<(ops GPR:$dst, jtblock_operand:$jt, i32imm:$id),
                      "cpy pc, $dst \n\t.align\t2\n$jt",
                      [(ARMbrjt GPR:$dst, tjumptable:$jt, imm:$id)]>;
-  }
 }
 
 let isBranch = 1, isTerminator = 1, noResults = 1, isBarrier = 1 in
-  def tBcc : TI<(ops brtarget:$dst, ccop:$cc), "b$cc $dst",
+  def tBcc : TI<(ops brtarget:$dst, CCOp:$cc), "b$cc $dst",
                  [(ARMbrcond bb:$dst, imm:$cc)]>;
 
 //===----------------------------------------------------------------------===//
@@ -518,7 +503,7 @@ def tUXTH  : TI<(ops GPR:$dst, GPR:$src),
 // Expanded by the scheduler into a branch sequence.
 let usesCustomDAGSchedInserter = 1 in  // Expanded by the scheduler.
   def tMOVCCr :
-  PseudoInst<(ops GPR:$dst, GPR:$false, GPR:$true, ccop:$cc),
+  PseudoInst<(ops GPR:$dst, GPR:$false, GPR:$true, CCOp:$cc),
               "@ tMOVCCr $cc",
               [(set GPR:$dst, (ARMcmov GPR:$false, GPR:$true, imm:$cc))]>;
 

@@ -107,7 +107,7 @@ InstrInfoEmitter::GetOperandInfo(const CodeGenInstruction &Inst) {
 
       // Predicate operands.  Check to see if the original unexpanded operand
       // was of type PredicateOperand.
-      if (Inst.OperandList[i].Rec->isSubClassOf("PredicateOperand"))
+      if (j == 0 && Inst.OperandList[i].Rec->isSubClassOf("PredicateOperand"))
         Res += "|M_PREDICATE_OPERAND";
         
       // Fill in constraint info.
@@ -236,7 +236,7 @@ void InstrInfoEmitter::emitRecord(const CodeGenInstruction &Inst, unsigned Num,
   if (Inst.isCall)       OS << "|M_CALL_FLAG";
   if (Inst.isLoad)       OS << "|M_LOAD_FLAG";
   if (Inst.isStore || isStore) OS << "|M_STORE_FLAG";
-  if (Inst.isPredicable) OS << "|M_PREDICABLE";
+  if (Inst.isPredicated) OS << "|M_PREDICATED";
   if (Inst.isConvertibleToThreeAddress) OS << "|M_CONVERTIBLE_TO_3_ADDR";
   if (Inst.isCommutable) OS << "|M_COMMUTABLE";
   if (Inst.isTerminator) OS << "|M_TERMINATOR_FLAG";

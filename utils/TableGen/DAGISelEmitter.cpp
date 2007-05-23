@@ -775,10 +775,8 @@ bool TreePatternNode::ApplyTypeConstraints(TreePattern &TP, bool NotRegisters) {
       Record *OperandNode = Inst.getOperand(i);
       
       // If the instruction expects a predicate operand, we codegen this by
-      // setting the predicate to it's "execute always" value if it has a
-      // non-empty ExecuteAlways field.
-      if (OperandNode->isSubClassOf("PredicateOperand") &&
-          !ISE.getPredicateOperand(OperandNode).AlwaysOps.empty())
+      // setting the predicate to it's "execute always" value.
+      if (OperandNode->isSubClassOf("PredicateOperand"))
         continue;
        
       // Verify that we didn't run out of provided operands.
@@ -2799,16 +2797,12 @@ public:
       // in the 'execute always' values.  Match up the node operands to the
       // instruction operands to do this.
       std::vector<std::string> AllOps;
-      unsigned NumEAInputs = 0; // # of synthesized 'execute always' inputs.
       for (unsigned ChildNo = 0, InstOpNo = NumResults;
            InstOpNo != II.OperandList.size(); ++InstOpNo) {
         std::vector<std::string> Ops;
         
-        // If this is a normal operand or a predicate operand without
-        // 'execute always', emit it.
-        Record *OperandNode = II.OperandList[InstOpNo].Rec;
-        if (!OperandNode->isSubClassOf("PredicateOperand") ||
-            ISE.getPredicateOperand(OperandNode).AlwaysOps.empty()) {
+        // If this is a normal operand, emit it.
+        if (!II.OperandList[InstOpNo].Rec->isSubClassOf("PredicateOperand")) {
           Ops = EmitResultCode(N->getChild(ChildNo), RetSelected, 
                                InFlagDecled, ResNodeDecled);
           AllOps.insert(AllOps.end(), Ops.begin(), Ops.end());
@@ -2822,7 +2816,6 @@ public:
             Ops = EmitResultCode(Pred.AlwaysOps[i], RetSelected, 
                                  InFlagDecled, ResNodeDecled);
             AllOps.insert(AllOps.end(), Ops.begin(), Ops.end());
-            NumEAInputs += Ops.size();
           }
         }
       }
@@ -2901,7 +2894,7 @@ public:
           else if (NodeHasOptInFlag)
             EndAdjust = "-(HasInFlag?1:0)"; // May have a flag.
 
-          emitCode("for (unsigned i = " + utostr(NumInputs - NumEAInputs) +
+          emitCode("for (unsigned i = " + utostr(NumInputs) +
                    ", e = N.getNumOperands()" + EndAdjust + "; i != e; ++i) {");
 
           emitCode("  AddToISelQueue(N.getOperand(i));");

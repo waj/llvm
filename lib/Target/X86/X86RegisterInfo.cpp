@@ -1153,6 +1153,11 @@ void X86RegisterInfo::emitPrologue(MachineFunction &MF) const {
        TargetFrameInfo::StackGrowsUp ?
        TAI->getAddressSize() : -TAI->getAddressSize());
 
+    // Add return address to move list
+    MachineLocation CSDst(StackPtr, stackGrowth);
+    MachineLocation CSSrc(getRARegister());
+    Moves.push_back(MachineMove(StartLabelId, CSDst, CSSrc));
+
     if (NumBytes) {
       // Show update of SP.
       if (hasFP(MF)) {
@@ -1277,18 +1282,10 @@ unsigned X86RegisterInfo::getFrameRegister(MachineFunction &MF) const {
 
 void X86RegisterInfo::getInitialFrameState(std::vector<MachineMove> &Moves)
                                                                          const {
-  // Calculate amount of bytes used for return address storing
-  int stackGrowth = (Is64Bit ? -8 : -4);
-
-  // Initial state of the frame pointer is esp+4.
+  // Initial state of the frame pointer is esp.
   MachineLocation Dst(MachineLocation::VirtualFP);
-  MachineLocation Src(StackPtr, stackGrowth);
+  MachineLocation Src(StackPtr, 0);
   Moves.push_back(MachineMove(0, Dst, Src));
-
-  // Add return address to move list
-  MachineLocation CSDst(StackPtr, stackGrowth);
-  MachineLocation CSSrc(getRARegister());
-  Moves.push_back(MachineMove(0, CSDst, CSSrc));
 }
 
 unsigned X86RegisterInfo::getEHExceptionRegister() const {

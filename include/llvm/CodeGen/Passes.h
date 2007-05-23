@@ -79,10 +79,7 @@ namespace llvm {
   /// optimizations to delete branches to branches, eliminate branches to
   /// successor blocks (creating fall throughs), and eliminating branches over
   /// branches.
-  FunctionPass *createBranchFoldingPass(bool DefaultEnableTailMerge);
-
-  /// IfConverter Pass - This pass performs machine code if conversion.
-  FunctionPass *createIfConverterPass();
+  FunctionPass *createBranchFoldingPass();
 
   /// DebugLabelFoldingPass - This pass prunes out redundant debug labels.  This
   /// allows a debug emitter to determine if the range of two labels is empty,

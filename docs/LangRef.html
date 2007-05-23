@@ -4695,11 +4695,16 @@ only the <tt>%hiBit - %loBit</tt> bits set, as follows:</p>
   <li>A mask of the retained bits is created by shifting a -1 value.</li>
   <li>The mask is ANDed with <tt>%val</tt> to produce the result.
 </ol>
-<p>In reverse mode, a similar computation is made except that the bits are
-returned in the reverse order. So, for example, if <tt>X</tt> has the value
-<tt>i16 0x0ACF (101011001111)</tt> and we apply 
-<tt>part.select(i16 X, 8, 3)</tt> to it, we get back the value 
-<tt>i16 0x0026 (000000100110)</tt>.</p>
+<p>In reverse mode, a similar computation is made except that:</p>
+<ol>
+  <li>The bits selected wrap around to include both the highest and lowest bits.
+  For example, part.select(i16 X, 4, 7) selects bits from X with a mask of 
+  0x00F0 (forwards case) while part.select(i16 X, 8, 3) selects bits from X 
+  with a mask of 0xFF0F.</li>
+  <li>The bits returned in the reverse case are reversed. So, if X has the value
+  0x6ACF and we apply part.select(i16 X, 8, 3) to it, we get back the value
+  0x0A6F.</li>
+</ol>
 </div>
 
 <div class="doc_subsubsection">
@@ -4740,15 +4745,15 @@ up to that size.</p>
 are replaced with corresponding bits from <tt>%repl</tt>. That is the 0th bit
 in <tt>%repl</tt> replaces the <tt>%lo</tt>th bit in <tt>%val</tt> and etc. up
 to the <tt>%hi</tt>th bit. 
-<p>In reverse mode, a similar computation is made except that the bits are
-reversed.  That is, the <tt>0</tt>th bit in <tt>%repl</tt> replaces the 
-<tt>%hi</tt> bit in <tt>%val</tt> and etc. down to the <tt>%lo</tt>th bit.
+<p>In reverse mode, a similar computation is made except that the bits replaced
+wrap around to include both the highest and lowest bits. For example, if a
+16 bit value is being replaced then <tt>%lo=8</tt> and <tt>%hi=4</tt> would
+cause these bits to be set: <tt>0xFF1F</tt>.</p>
 <h5>Examples:</h5>
 <pre>
   llvm.part.set(0xFFFF, 0, 4, 7) -&gt; 0xFF0F
-  llvm.part.set(0xFFFF, 0, 7, 4) -&gt; 0xFF0F
-  llvm.part.set(0xFFFF, 1, 7, 4) -&gt; 0xFF8F
-  llvm.part.set(0xFFFF, F, 8, 3) -&gt; 0xFFE7
+  llvm.part.set(0xFFFF, 0, 7, 4) -&gt; 0x0060
+  llvm.part.set(0xFFFF, 0, 8, 3) -&gt; 0x00F0
   llvm.part.set(0xFFFF, 0, 3, 8) -&gt; 0xFE07
 </pre>
 </div>

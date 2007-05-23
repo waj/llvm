@@ -47,12 +47,10 @@ bool IA64InstrInfo::isMoveInstr(const MachineInstr& MI,
                 // move instruction
 }
 
-unsigned
-IA64InstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
-                            MachineBasicBlock *FBB,
-                            const std::vector<MachineOperand> &Cond)const {
+void IA64InstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
+                                 MachineBasicBlock *FBB,
+                                 const std::vector<MachineOperand> &Cond)const {
   // Can only insert uncond branches so far.
   assert(Cond.empty() && !FBB && TBB && "Can only handle uncond branches!");
   BuildMI(&MBB, get(IA64::BRL_NOTCALL)).addMBB(TBB);
-  return 1;
 }

@@ -52,8 +52,7 @@ bool ARMInstrInfo::isMoveInstr(const MachineInstr &MI,
     return true;
   case ARM::MOVr:
   case ARM::tMOVr:
-    assert(MI.getInstrDescriptor()->numOperands >= 2 &&
-           MI.getOperand(0).isRegister() &&
+    assert(MI.getNumOperands() >= 2 && MI.getOperand(0).isRegister() &&
            MI.getOperand(1).isRegister() &&
            "Invalid ARM MOV instruction");
     SrcReg = MI.getOperand(1).getReg();
@@ -189,17 +188,15 @@ ARMInstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   MachineInstr *UpdateMI = NULL;
   MachineInstr *MemMI = NULL;
   unsigned AddrMode = (TSFlags & ARMII::AddrModeMask);
-  const TargetInstrDescriptor *TID = MI->getInstrDescriptor();
-  unsigned NumOps = TID->numOperands;
-  bool isLoad = (TID->Flags & M_LOAD_FLAG) != 0;
+  unsigned NumOps = MI->getNumOperands();
+  bool isLoad = (MI->getInstrDescriptor()->Flags & M_LOAD_FLAG) != 0;
   const MachineOperand &WB = isLoad ? MI->getOperand(1) : MI->getOperand(0);
   const MachineOperand &Base = MI->getOperand(2);
-  const MachineOperand &Offset = MI->getOperand(NumOps-3);
+  const MachineOperand &Offset = MI->getOperand(NumOps-2);
   unsigned WBReg = WB.getReg();
   unsigned BaseReg = Base.getReg();
   unsigned OffReg = Offset.getReg();
-  unsigned OffImm = MI->getOperand(NumOps-2).getImm();
-  ARMCC::CondCodes Pred = (ARMCC::CondCodes)MI->getOperand(NumOps-1).getImm();
+  unsigned OffImm = MI->getOperand(NumOps-1).getImm();
   switch (AddrMode) {
   default:
     assert(false && "Unknown indexed op!");
@@ -214,15 +211,15 @@ ARMInstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
         // add more than 1 instruction. Abandon!
         return NULL;
       UpdateMI = BuildMI(get(isSub ? ARM::SUBri : ARM::ADDri), WBReg)
-        .addReg(BaseReg).addImm(SOImmVal).addImm(Pred);
+        .addReg(BaseReg).addImm(SOImmVal);
     } else if (Amt != 0) {
       ARM_AM::ShiftOpc ShOpc = ARM_AM::getAM2ShiftOpc(OffImm);
       unsigned SOOpc = ARM_AM::getSORegOpc(ShOpc, Amt);
       UpdateMI = BuildMI(get(isSub ? ARM::SUBrs : ARM::ADDrs), WBReg)
-        .addReg(BaseReg).addReg(OffReg).addReg(0).addImm(SOOpc).addImm(Pred);
+        .addReg(BaseReg).addReg(OffReg).addReg(0).addImm(SOOpc);
     } else 
       UpdateMI = BuildMI(get(isSub ? ARM::SUBrr : ARM::ADDrr), WBReg)
-        .addReg(BaseReg).addReg(OffReg).addImm(Pred);
+        .addReg(BaseReg).addReg(OffReg);
     break;
   }
   case ARMII::AddrMode3 : {
@@ -231,10 +228,10 @@ ARMInstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
     if (OffReg == 0)
       // Immediate is 8-bits. It's guaranteed to fit in a so_imm operand.
       UpdateMI = BuildMI(get(isSub ? ARM::SUBri : ARM::ADDri), WBReg)
-        .addReg(BaseReg).addImm(Amt).addImm(Pred);
+        .addReg(BaseReg).addImm(Amt);
     else
       UpdateMI = BuildMI(get(isSub ? ARM::SUBrr : ARM::ADDrr), WBReg)
-        .addReg(BaseReg).addReg(OffReg).addImm(Pred);
+        .addReg(BaseReg).addReg(OffReg);
     break;
   }
   }
@@ -243,19 +240,19 @@ ARMInstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   if (isPre) {
     if (isLoad)
       MemMI = BuildMI(get(MemOpc), MI->getOperand(0).getReg())
-        .addReg(WBReg).addReg(0).addImm(0).addImm(Pred);
+        .addReg(WBReg).addReg(0).addImm(0);
     else
       MemMI = BuildMI(get(MemOpc)).addReg(MI->getOperand(1).getReg())
-        .addReg(WBReg).addReg(0).addImm(0).addImm(Pred);
+        .addReg(WBReg).addReg(0).addImm(0);
     NewMIs.push_back(MemMI);
     NewMIs.push_back(UpdateMI);
   } else {
     if (isLoad)
       MemMI = BuildMI(get(MemOpc), MI->getOperand(0).getReg())
-        .addReg(BaseReg).addReg(0).addImm(0).addImm(Pred);
+        .addReg(BaseReg).addReg(0).addImm(0);
     else
       MemMI = BuildMI(get(MemOpc)).addReg(MI->getOperand(1).getReg())
-        .addReg(BaseReg).addReg(0).addImm(0).addImm(Pred);
+        .addReg(BaseReg).addReg(0).addImm(0);
     if (WB.isDead())
       UpdateMI->getOperand(0).setIsDead();
     NewMIs.push_back(UpdateMI);
@@ -312,8 +309,7 @@ bool ARMInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,MachineBasicBlock *&TBB,
   
   // If there is only one terminator instruction, process it.
   unsigned LastOpc = LastInst->getOpcode();
-  if (I == MBB.begin() ||
-      isPredicated(--I) || !isTerminatorInstr(I->getOpcode())) {
+  if (I == MBB.begin() || !isTerminatorInstr((--I)->getOpcode())) {
     if (LastOpc == ARM::B || LastOpc == ARM::tB) {
       TBB = LastInst->getOperand(0).getMachineBasicBlock();
       return false;
@@ -332,7 +328,7 @@ bool ARMInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,MachineBasicBlock *&TBB,
   
   // If there are three terminators, we don't know what sort of block this is.
   if (SecondLastInst && I != MBB.begin() &&
-      !isPredicated(--I) && isTerminatorInstr(I->getOpcode()))
+      isTerminatorInstr((--I)->getOpcode()))
     return true;
   
   // If the block ends with ARM::B/ARM::tB and a ARM::Bcc/ARM::tBcc, handle it.
@@ -350,34 +346,33 @@ bool ARMInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,MachineBasicBlock *&TBB,
 }
 
 
-unsigned ARMInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+void ARMInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   MachineFunction &MF = *MBB.getParent();
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   int BOpc   = AFI->isThumbFunction() ? ARM::tB : ARM::B;
   int BccOpc = AFI->isThumbFunction() ? ARM::tBcc : ARM::Bcc;
 
   MachineBasicBlock::iterator I = MBB.end();
-  if (I == MBB.begin()) return 0;
+  if (I == MBB.begin()) return;
   --I;
   if (I->getOpcode() != BOpc && I->getOpcode() != BccOpc)
-    return 0;
+    return;
   
   // Remove the branch.
   I->eraseFromParent();
   
   I = MBB.end();
   
-  if (I == MBB.begin()) return 1;
+  if (I == MBB.begin()) return;
   --I;
   if (I->getOpcode() != BccOpc)
-    return 1;
+    return;
   
   // Remove the branch.
   I->eraseFromParent();
-  return 2;
 }
 
-unsigned ARMInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+void ARMInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                                 MachineBasicBlock *FBB,
                                 const std::vector<MachineOperand> &Cond) const {
   MachineFunction &MF = *MBB.getParent();
@@ -395,24 +390,18 @@ unsigned ARMInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *T
       BuildMI(&MBB, get(BOpc)).addMBB(TBB);
     else
       BuildMI(&MBB, get(BccOpc)).addMBB(TBB).addImm(Cond[0].getImm());
-    return 1;
+    return;
   }
   
   // Two-way conditional branch.
   BuildMI(&MBB, get(BccOpc)).addMBB(TBB).addImm(Cond[0].getImm());
   BuildMI(&MBB, get(BOpc)).addMBB(FBB);
-  return 2;
 }
 
 bool ARMInstrInfo::BlockHasNoFallThrough(MachineBasicBlock &MBB) const {
   if (MBB.empty()) return false;
   
   switch (MBB.back().getOpcode()) {
-  case ARM::BX_RET:   // Return.
-  case ARM::LDM_RET:
-  case ARM::tBX_RET:
-  case ARM::tBX_RET_vararg:
-  case ARM::tPOP_RET:
   case ARM::B:
   case ARM::tB:       // Uncond branch.
   case ARM::tBR_JTr:
@@ -431,53 +420,6 @@ ReverseBranchCondition(std::vector<MachineOperand> &Cond) const {
   return false;
 }
 
-bool ARMInstrInfo::isPredicated(MachineInstr *MI) const {
-  MachineOperand *PMO = MI->findFirstPredOperand();
-  return PMO && PMO->getImmedValue() != ARMCC::AL;
-}
-
-bool ARMInstrInfo::PredicateInstruction(MachineInstr *MI,
-                                      std::vector<MachineOperand> &Pred) const {
-  unsigned Opc = MI->getOpcode();
-  if (Opc == ARM::B || Opc == ARM::tB) {
-    MI->setInstrDescriptor(get(Opc == ARM::B ? ARM::Bcc : ARM::tBcc));
-    MI->addImmOperand(Pred[0].getImmedValue());
-    return true;
-  }
-
-  MachineOperand *PMO = MI->findFirstPredOperand();
-  if (PMO) {
-    PMO->setImm(Pred[0].getImmedValue());
-    return true;
-  }
-  return false;
-}
-
-bool ARMInstrInfo::SubsumesPredicate(std::vector<MachineOperand> &Pred1,
-                                     std::vector<MachineOperand> &Pred2) const{
-  if (Pred1.size() > 1 || Pred2.size() > 1)
-    return false;
-
-  ARMCC::CondCodes CC1 = (ARMCC::CondCodes)Pred1[0].getImmedValue();
-  ARMCC::CondCodes CC2 = (ARMCC::CondCodes)Pred2[0].getImmedValue();
-  if (CC1 == CC2)
-    return true;
-
-  switch (CC1) {
-  default:
-    return false;
-  case ARMCC::AL:
-    return true;
-  case ARMCC::HS:
-    return CC2 == ARMCC::HI || CC2 == ARMCC::EQ;
-  case ARMCC::LS:
-    return CC2 == ARMCC::LO || CC2 == ARMCC::EQ;
-  case ARMCC::GE:
-    return CC2 == ARMCC::GT || CC2 == ARMCC::EQ;
-  case ARMCC::LE:  return "le";
-    return CC2 == ARMCC::LT || CC2 == ARMCC::EQ;
-  }
-}
 
 /// FIXME: Works around a gcc miscompilation with -fstrict-aliasing
 static unsigned getNumJTEntries(const std::vector<MachineJumpTableEntry> &JT,
@@ -495,8 +437,7 @@ unsigned ARM::GetInstSize(MachineInstr *MI) {
   const TargetAsmInfo *TAI = MF->getTarget().getTargetAsmInfo();
 
   // Basic size info comes from the TSFlags field.
-  const TargetInstrDescriptor *TID = MI->getInstrDescriptor();
-  unsigned TSFlags = TID->TSFlags;
+  unsigned TSFlags = MI->getInstrDescriptor()->TSFlags;
   
   switch ((TSFlags & ARMII::SizeMask) >> ARMII::SizeShift) {
   default:
@@ -522,10 +463,7 @@ unsigned ARM::GetInstSize(MachineInstr *MI) {
     case ARM::tBR_JTr: {
       // These are jumptable branches, i.e. a branch followed by an inlined
       // jumptable. The size is 4 + 4 * number of entries.
-      unsigned NumOps = TID->numOperands;
-      MachineOperand JTOP =
-        MI->getOperand(NumOps - ((TID->Flags & M_PREDICABLE) ? 3 : 2));
-      unsigned JTI = JTOP.getJumpTableIndex();
+      unsigned JTI = MI->getOperand(MI->getNumOperands()-2).getJumpTableIndex();
       MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
       const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
       assert(JTI < JT.size());

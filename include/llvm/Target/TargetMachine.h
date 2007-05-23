@@ -185,10 +185,6 @@ public:
     AssemblyFile, ObjectFile, DynamicLibrary
   };
 
-  /// getEnableTailMergeDefault - the default setting for -enable-tail-merge
-  /// on this target.  User flag overrides.
-  virtual const bool getEnableTailMergeDefault() const { return true; }
-
   /// addPassesToEmitFile - Add passes to the specified pass manager to get the
   /// specified file emitted.  Typically this will involve several steps of code
   /// generation.  If Fast is set to true, the code generator should emit code
@@ -319,10 +315,6 @@ public:
                                     MachineCodeEmitter &MCE) {
     return true;
   }
-
-  /// getEnableTailMergeDefault - the default setting for -enable-tail-merge
-  /// on this target.  User flag overrides.
-  virtual const bool getEnableTailMergeDefault() const { return true; }
 };
 
 } // End llvm namespace

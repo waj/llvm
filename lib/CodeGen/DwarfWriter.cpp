@@ -13,7 +13,6 @@
 
 #include "llvm/CodeGen/DwarfWriter.h"
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/UniqueVector.h"
@@ -32,7 +31,6 @@
 #include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetFrameInfo.h"
-#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include <ostream>
@@ -965,7 +963,7 @@ public:
   /// EmitFrameMoves - Emit frame instructions to describe the layout of the
   /// frame.
   void EmitFrameMoves(const char *BaseLabel, unsigned BaseLabelID,
-                      const std::vector<MachineMove> &Moves) {
+                                   std::vector<MachineMove> &Moves) {
     int stackGrowth =
         Asm->TM.getFrameInfo()->getStackGrowthDirection() ==
           TargetFrameInfo::StackGrowsUp ?
@@ -973,7 +971,7 @@ public:
     bool IsLocal = BaseLabel && strcmp(BaseLabel, "label") == 0;
 
     for (unsigned i = 0, N = Moves.size(); i < N; ++i) {
-      const MachineMove &Move = Moves[i];
+      MachineMove &Move = Moves[i];
       unsigned LabelID = Move.getLabelID();
       
       if (LabelID) {
@@ -1112,16 +1110,6 @@ private:
   ///
   bool shouldEmit;
 
-  struct FunctionDebugFrameInfo {
-    unsigned Number;
-    std::vector<MachineMove> Moves;
-
-    FunctionDebugFrameInfo(unsigned Num, const std::vector<MachineMove> &M):
-      Number(Num), Moves(M) { };
-  };
-
-  std::vector<FunctionDebugFrameInfo> DebugFrames;
-  
 public:
   
   /// ShouldEmitDwarf - Returns true if Dwarf declarations should be made.
@@ -1969,7 +1957,7 @@ private:
     // Dwarf sections base addresses.
     if (TAI->doesDwarfRequireFrameSection()) {
       Asm->SwitchToDataSection(TAI->getDwarfFrameSection());
-      EmitLabel("section_debug_frame", 0);
+      EmitLabel("section_frame", 0);
     }
     Asm->SwitchToDataSection(TAI->getDwarfInfoSection());
     EmitLabel("section_info", 0);
@@ -1994,6 +1982,9 @@ private:
     EmitLabel("text_begin", 0);
     Asm->SwitchToDataSection(TAI->getDataSection());
     EmitLabel("data_begin", 0);
+
+    // Emit common frame information.
+    EmitInitialDebugFrame();
   }
 
   /// EmitDIE - Recusively Emits a debug information entry.
@@ -2330,9 +2321,9 @@ private:
     Asm->EOL();
   }
     
-  /// EmitCommonDebugFrame - Emit common frame info into a debug frame section.
+  /// EmitInitialDebugFrame - Emit common frame info into a debug frame section.
   ///
-  void EmitCommonDebugFrame() {
+  void EmitInitialDebugFrame() {
     if (!TAI->doesDwarfRequireFrameSection())
       return;
 
@@ -2344,12 +2335,12 @@ private:
     // Start the dwarf frame section.
     Asm->SwitchToDataSection(TAI->getDwarfFrameSection());
 
-    EmitLabel("debug_frame_common", 0);
-    EmitDifference("debug_frame_common_end", 0,
-                   "debug_frame_common_begin", 0, true);
+    EmitLabel("frame_common", 0);
+    EmitDifference("frame_common_end", 0,
+                   "frame_common_begin", 0, true);
     Asm->EOL("Length of Common Information Entry");
 
-    EmitLabel("debug_frame_common_begin", 0);
+    EmitLabel("frame_common_begin", 0);
     Asm->EmitInt32((int)DW_CIE_ID);
     Asm->EOL("CIE Identifier Tag");
     Asm->EmitInt8(DW_CIE_VERSION);
@@ -2365,44 +2356,44 @@ private:
     
     std::vector<MachineMove> Moves;
     RI->getInitialFrameState(Moves);
-
     EmitFrameMoves(NULL, 0, Moves);
 
     Asm->EmitAlignment(2);
-    EmitLabel("debug_frame_common_end", 0);
+    EmitLabel("frame_common_end", 0);
     
     Asm->EOL();
   }
 
   /// EmitFunctionDebugFrame - Emit per function frame info into a debug frame
   /// section.
-  void EmitFunctionDebugFrame(const FunctionDebugFrameInfo &DebugFrameInfo) {
+  void EmitFunctionDebugFrame() {
     if (!TAI->doesDwarfRequireFrameSection())
       return;
        
     // Start the dwarf frame section.
     Asm->SwitchToDataSection(TAI->getDwarfFrameSection());
     
-    EmitDifference("debug_frame_end", DebugFrameInfo.Number,
-                   "debug_frame_begin", DebugFrameInfo.Number, true);
+    EmitDifference("frame_end", SubprogramCount,
+                   "frame_begin", SubprogramCount, true);
     Asm->EOL("Length of Frame Information Entry");
     
-    EmitLabel("debug_frame_begin", DebugFrameInfo.Number);
+    EmitLabel("frame_begin", SubprogramCount);
 
-    EmitSectionOffset("debug_frame_common", "section_debug_frame",
-                      0, 0, true, false);
+    EmitSectionOffset("frame_common_begin", "section_frame", 0, 0, true, false);
     Asm->EOL("FDE CIE offset");
 
-    EmitReference("func_begin", DebugFrameInfo.Number);
+    EmitReference("func_begin", SubprogramCount);
     Asm->EOL("FDE initial location");
-    EmitDifference("func_end", DebugFrameInfo.Number,
-                   "func_begin", DebugFrameInfo.Number);
+    EmitDifference("func_end", SubprogramCount,
+                   "func_begin", SubprogramCount);
     Asm->EOL("FDE address range");
     
-    EmitFrameMoves("func_begin", DebugFrameInfo.Number, DebugFrameInfo.Moves);
+    std::vector<MachineMove> &Moves = MMI->getFrameMoves();
+    
+    EmitFrameMoves("func_begin", SubprogramCount, Moves);
     
     Asm->EmitAlignment(2);
-    EmitLabel("debug_frame_end", DebugFrameInfo.Number);
+    EmitLabel("frame_end", SubprogramCount);
 
     Asm->EOL();
   }
@@ -2644,15 +2635,7 @@ public:
       Asm->SwitchToTextSection(SectionMap[i].c_str());
       EmitLabel("section_end", i);
     }
-
-    // Emit common frame information.
-    EmitCommonDebugFrame();
-
-    // Emit function debug frame information
-    for (std::vector<FunctionDebugFrameInfo>::iterator I = DebugFrames.begin(),
-           E = DebugFrames.end(); I != E; ++I)
-      EmitFunctionDebugFrame(*I);
-
+    
     // Compute DIE offsets and sizes.
     SizeAndOffsets();
     
@@ -2721,9 +2704,9 @@ public:
     
     // Construct scopes for subprogram.
     ConstructRootScope(MMI->getRootScope());
-
-    DebugFrames.push_back(FunctionDebugFrameInfo(SubprogramCount,
-                                                 MMI->getFrameMoves()));
+    
+    // Emit function frame information.
+    EmitFunctionDebugFrame();
   }
 };
 
@@ -2733,30 +2716,26 @@ public:
 class DwarfException : public Dwarf  {
 
 private:
-  struct FunctionEHFrameInfo {
-    std::string FnName;
-    unsigned Number;
-    unsigned PersonalityIndex;
-    bool hasCalls;
-    bool hasLandingPads;
-    std::vector<MachineMove> Moves;
 
-    FunctionEHFrameInfo(const std::string &FN, unsigned Num, unsigned P,
-                        bool hC, bool hL,
-                        const std::vector<MachineMove> &M):
-      FnName(FN), Number(Num), PersonalityIndex(P),
-      hasCalls(hC), hasLandingPads(hL), Moves(M) { };
-  };
-
-  std::vector<FunctionEHFrameInfo> EHFrames;
-    
+  /// didInitial - Flag to indicate if initial emission has been done.
+  ///
+  bool didInitial;
+  
   /// shouldEmit - Flag to indicate if debug information should be emitted.
   ///
   bool shouldEmit;
   
   /// EmitCommonEHFrame - Emit the common eh unwind frame.
   ///
-  void EmitCommonEHFrame(const Function *Personality, unsigned Index) {
+  void EmitCommonEHFrame() {
+    // Only do it once.
+    if (didInitial) return;
+    didInitial = true;
+    
+    // If there is a personality present then we need to indicate that
+    // in the common eh frame.
+    Function *Personality = MMI->getPersonality();
+
     // Size and sign of stack growth.
     int stackGrowth =
         Asm->TM.getFrameInfo()->getStackGrowthDirection() ==
@@ -2765,19 +2744,19 @@ private:
 
     // Begin eh frame section.
     Asm->SwitchToTextSection(TAI->getDwarfEHFrameSection());
-    O << "EH_frame" << Index << ":\n";
-    EmitLabel("section_eh_frame", Index);
+    O << "EH_frame:\n";
+    EmitLabel("section_eh_frame", 0);
 
     // Define base labels.
-    EmitLabel("eh_frame_common", Index);
+    EmitLabel("eh_frame_common", 0);
     
     // Define the eh frame length.
-    EmitDifference("eh_frame_common_end", Index,
-                   "eh_frame_common_begin", Index, true);
+    EmitDifference("eh_frame_common_end", 0,
+                   "eh_frame_common_begin", 0, true);
     Asm->EOL("Length of Common Information Entry");
 
     // EH frame header.
-    EmitLabel("eh_frame_common_begin", Index);
+    EmitLabel("eh_frame_common_begin", 0);
     Asm->EmitInt32((int)0);
     Asm->EOL("CIE Identifier Tag");
     Asm->EmitInt8(DW_CIE_VERSION);
@@ -2825,52 +2804,56 @@ private:
     EmitFrameMoves(NULL, 0, Moves);
 
     Asm->EmitAlignment(2);
-    EmitLabel("eh_frame_common_end", Index);
+    EmitLabel("eh_frame_common_end", 0);
     
     Asm->EOL();
   }
   
-  /// EmitEHFrame - Emit function exception frame information.
+  /// EmitEHFrame - Emit initial exception information.
   ///
-  void EmitEHFrame(const FunctionEHFrameInfo &EHFrameInfo) {
+  void EmitEHFrame() {
+    // If there is a personality present then we need to indicate that
+    // in the common eh frame.
+    Function *Personality = MMI->getPersonality();
+    MachineFrameInfo *MFI = MF->getFrameInfo();
+
     Asm->SwitchToTextSection(TAI->getDwarfEHFrameSection());
 
     // Externally visible entry into the functions eh frame info.
     if (const char *GlobalDirective = TAI->getGlobalDirective())
-      O << GlobalDirective << EHFrameInfo.FnName << ".eh\n";
+      O << GlobalDirective << getAsm()->CurrentFnName << ".eh\n";
     
     // If there are no calls then you can't unwind.
-    if (!EHFrameInfo.hasCalls) { 
-      O << EHFrameInfo.FnName << ".eh = 0\n";
+    if (!MFI->hasCalls()) { 
+      O << getAsm()->CurrentFnName << ".eh = 0\n";
     } else {
-      O << EHFrameInfo.FnName << ".eh:\n";
+      O << getAsm()->CurrentFnName << ".eh:\n";
       
       // EH frame header.
-      EmitDifference("eh_frame_end", EHFrameInfo.Number,
-                     "eh_frame_begin", EHFrameInfo.Number, true);
+      EmitDifference("eh_frame_end", SubprogramCount,
+                     "eh_frame_begin", SubprogramCount, true);
       Asm->EOL("Length of Frame Information Entry");
       
-      EmitLabel("eh_frame_begin", EHFrameInfo.Number);
+      EmitLabel("eh_frame_begin", SubprogramCount);
 
-      EmitSectionOffset("eh_frame_begin", "eh_frame_common",
-                        EHFrameInfo.Number, EHFrameInfo.PersonalityIndex,
-                        true, true);
+      EmitSectionOffset("eh_frame_begin", "section_eh_frame",
+                        SubprogramCount, 0, true, true);
       Asm->EOL("FDE CIE offset");
 
-      EmitReference("eh_func_begin", EHFrameInfo.Number, true);
+      EmitReference("eh_func_begin", SubprogramCount, true);
       Asm->EOL("FDE initial location");
-      EmitDifference("eh_func_end", EHFrameInfo.Number,
-                     "eh_func_begin", EHFrameInfo.Number);
+      EmitDifference("eh_func_end", SubprogramCount,
+                     "eh_func_begin", SubprogramCount);
       Asm->EOL("FDE address range");
       
       // If there is a personality and landing pads then point to the language
       // specific data area in the exception table.
-      if (EHFrameInfo.PersonalityIndex) {
+      if (Personality) {
         Asm->EmitULEB128Bytes(4);
         Asm->EOL("Augmentation size");
         
-        if (EHFrameInfo.hasLandingPads) {
-          EmitReference("exception", EHFrameInfo.Number, true);
+        if (!MMI->getLandingPads().empty()) {
+          EmitReference("exception", SubprogramCount, true);
         } else if(TAI->getAddressSize() == 8) {
           Asm->EmitInt64((int)0);
         } else {
@@ -2884,55 +2867,17 @@ private:
       
       // Indicate locations of function specific  callee saved registers in
       // frame.
-      EmitFrameMoves("eh_func_begin", EHFrameInfo.Number, EHFrameInfo.Moves);
+      std::vector<MachineMove> &Moves = MMI->getFrameMoves();
+      EmitFrameMoves("eh_func_begin", SubprogramCount, Moves);
       
       Asm->EmitAlignment(2);
-      EmitLabel("eh_frame_end", EHFrameInfo.Number);
+      EmitLabel("eh_frame_end", SubprogramCount);
     }
     
     if (const char *UsedDirective = TAI->getUsedDirective())
-      O << UsedDirective << EHFrameInfo.FnName << ".eh\n\n";
+      O << UsedDirective << getAsm()->CurrentFnName << ".eh\n\n";
   }
-
-  /// EquivPads - Whether two landing pads have equivalent actions.
-  static bool EquivPads(const LandingPadInfo *L, const LandingPadInfo *R) {
-    const std::vector<unsigned> &LIds = L->TypeIds;
-    const std::vector<unsigned> &RIds = R->TypeIds;
-    unsigned LSize = LIds.size(), RSize = RIds.size();
-
-    if (L->IsFilter != R->IsFilter)
-      return false;
-
-    if (LSize != RSize)
-      return false;
-
-    for (unsigned i = 0; i != LSize; ++i)
-      if (LIds[i] != RIds[i])
-        return false;
-
-    return true;
-  }
-
-  /// PadLT - An order on landing pads, with EquivPads as order equivalence.
-  static bool PadLT(const LandingPadInfo *L, const LandingPadInfo *R) {
-    const std::vector<unsigned> &LIds = L->TypeIds;
-    const std::vector<unsigned> &RIds = R->TypeIds;
-    unsigned LSize = LIds.size(), RSize = RIds.size();
-
-    if (L->IsFilter != R->IsFilter)
-      // Make filters come last
-      return L->IsFilter < R->IsFilter;
-
-    if (LSize != RSize)
-      return LSize < RSize;
-
-    for (unsigned i = 0; i != LSize; ++i)
-      if (LIds[i] != RIds[i])
-        return LIds[i] < RIds[i];
-
-    return false; // Equivalent
-  }
-
+  
   /// EmitExceptionTable - Emit landpads and actions.
   ///
   /// The general organization of the table is complex, but the basic concepts
@@ -2952,121 +2897,94 @@ private:
   ///     found the the frame is unwound and handling continues.
   ///  3. Type id table contains references to all the C++ typeinfo for all
   ///     catches in the function.  This tables is reversed indexed base 1.
-
-  struct KeyInfo {
-    static inline unsigned getEmptyKey() { return -1U; }
-    static inline unsigned getTombstoneKey() { return -2U; }
-    static unsigned getHashValue(const unsigned &Key) { return Key; }
-    static bool isPod() { return true; }
-  };
-
-  struct PadSite {
-    unsigned PadIndex;
-    unsigned SiteIndex;
-  };
-
-  typedef DenseMap<unsigned, PadSite, KeyInfo> PadMapType;
-
   void EmitExceptionTable() {
     // Map all labels and get rid of any dead landing pads.
     MMI->TidyLandingPads();
-
+    
     const std::vector<GlobalVariable *> &TypeInfos = MMI->getTypeInfos();
-    const std::vector<LandingPadInfo> &PadInfos = MMI->getLandingPads();
-    if (PadInfos.empty()) return;
-
-    // Sort the landing pads in order of their type ids.  This is used to fold
-    // duplicate actions.
-    SmallVector<const LandingPadInfo *, 32> LandingPads(PadInfos.size(), NULL);
-    for (unsigned i = 0, N = PadInfos.size(); i != N; ++i)
-      LandingPads[i] = &PadInfos[i];
-    std::sort(LandingPads.begin(), LandingPads.end(), PadLT);
-
+    const std::vector<LandingPadInfo> &LandingPads = MMI->getLandingPads();
+    if (LandingPads.empty()) return;
+    
+    // FIXME - Should fold actions for multiple landing pads.
+    
     // Gather first action index for each landing pad site.
-    SmallVector<unsigned, 32> Actions;
-
+    SmallVector<unsigned, 8> Actions;
+    
     // FIXME - Assume there is only one filter typeinfo list per function
     // time being.  I.E., Each call to eh_filter will have the same list.
     // This can change if a function is inlined. 
     const LandingPadInfo *Filter = 0;
 
     // Compute sizes for exception table.
+    unsigned SizeHeader = sizeof(int8_t) + // LPStart format
+                          sizeof(int8_t) + // TType format
+                          sizeof(int8_t) + // TType base offset (NEED ULEB128)
+                          sizeof(int8_t) + // Call site format
+                          sizeof(int8_t);  // Call-site table length
     unsigned SizeSites = 0;
     unsigned SizeActions = 0;
 
     // Look at each landing pad site to compute size.  We need the size of each
     // landing pad site info and the size of the landing pad's actions.
-    signed FirstAction = 0;
-
     for (unsigned i = 0, N = LandingPads.size(); i != N; ++i) {
-      const LandingPadInfo *LandingPad = LandingPads[i];
+      const LandingPadInfo &LandingPad = LandingPads[i];
+      bool IsFilter = LandingPad.IsFilter;
       unsigned SizeSiteActions = 0;
-
-      if (!i || !EquivPads(LandingPad, LandingPads[i-1])) {
-        const std::vector<unsigned> &TypeIds = LandingPad->TypeIds;
-        unsigned SizeAction = 0;
-
-        if (LandingPad->IsFilter) {
-          // FIXME - Assume there is only one filter typeinfo list per function
-          // time being.  I.E., Each call to eh_filter will have the same list.
-          // This can change if a function is inlined.
-          Filter = LandingPad;
-          SizeAction =  Asm->SizeSLEB128(-1) + Asm->SizeSLEB128(0);
+      const std::vector<unsigned> &TypeIds = LandingPad.TypeIds;
+      unsigned SizeAction = 0;
+      signed FirstAction;
+      
+      if (IsFilter) {
+        // FIXME - Assume there is only one filter typeinfo list per function
+        // time being.  I.E., Each call to eh_filter will have the same list.
+        // This can change if a function is inlined. 
+        Filter = &LandingPad;
+        SizeAction =  Asm->SizeSLEB128(-1) + Asm->SizeSLEB128(0);
+        SizeSiteActions += SizeAction;
+        // Record the first action of the landing pad site.
+        FirstAction = SizeActions + SizeSiteActions - SizeAction + 1;
+      } else if (TypeIds.empty()) {
+        FirstAction = 0;
+      } else {
+        // Gather the action sizes
+        for (unsigned j = 0, M = TypeIds.size(); j != M; ++j) {
+          unsigned TypeID = TypeIds[i];
+          unsigned SizeTypeID = Asm->SizeSLEB128(TypeID);
+          signed Action = j ? -(SizeAction + SizeTypeID) : 0;
+          SizeAction = SizeTypeID + Asm->SizeSLEB128(Action);
           SizeSiteActions += SizeAction;
-          // Record the first action of the landing pad site.
-          FirstAction = SizeActions + SizeSiteActions - SizeAction + 1;
-        } else if (TypeIds.empty()) {
-          FirstAction = 0;
-        } else {
-          // Gather the action sizes
-          for (unsigned j = 0, M = TypeIds.size(); j != M; ++j) {
-            unsigned TypeID = TypeIds[j];
-            unsigned SizeTypeID = Asm->SizeSLEB128(TypeID);
-            signed Action = j ? -(SizeAction + SizeTypeID) : 0;
-            SizeAction = SizeTypeID + Asm->SizeSLEB128(Action);
-            SizeSiteActions += SizeAction;
-          }
-
-          // Record the first action of the landing pad site.
-          FirstAction = SizeActions + SizeSiteActions - SizeAction + 1;
         }
-      } // else re-use previous FirstAction
-
+        
+        // Record the first action of the landing pad site.
+        FirstAction = SizeActions + SizeSiteActions - SizeAction + 1;
+      }
+      
       Actions.push_back(FirstAction);
-
+      
       // Compute this sites contribution to size.
       SizeActions += SizeSiteActions;
-      unsigned M = LandingPad->BeginLabels.size();
-      SizeSites += M*(sizeof(int32_t) +               // Site start.
-                      sizeof(int32_t) +               // Site length.
-                      sizeof(int32_t) +               // Landing pad.
-                      Asm->SizeULEB128(FirstAction)); // Action.
+      SizeSites += sizeof(int32_t) + // Site start.
+                   sizeof(int32_t) + // Site length.
+                   sizeof(int32_t) + // Landing pad.
+                   Asm->SizeSLEB128(FirstAction); // Action.
     }
     
     // Final tallies.
     unsigned SizeTypes = TypeInfos.size() * TAI->getAddressSize();
-
-    unsigned TypeOffset = sizeof(int8_t) + // Call site format
-                          Asm->SizeULEB128(SizeSites) + // Call-site table length
-                          SizeSites + SizeActions + SizeTypes;
-
-    unsigned TotalSize = sizeof(int8_t) + // LPStart format
-                         sizeof(int8_t) + // TType format
-                         Asm->SizeULEB128(TypeOffset) + // TType base offset
-                         TypeOffset;
-
-    unsigned SizeAlign = (4 - TotalSize) & 3;
-
+    unsigned SizePreType = SizeHeader + SizeSites + SizeActions;
+    unsigned SizeAlign =  (4 - SizePreType) & 3;
+    unsigned TypeOffset = SizePreType +
+                          SizeTypes +
+                          SizeAlign - 
+                          sizeof(int8_t) - // LPStart format
+                          sizeof(int8_t) - // TType format
+                          sizeof(int8_t);  // TType base offset (NEED ULEB128)
+    
     // Begin the exception table.
     Asm->SwitchToDataSection(TAI->getDwarfExceptionSection());
     O << "GCC_except_table" << SubprogramCount << ":\n";
-    Asm->EmitAlignment(2);
-    for (unsigned i = 0; i != SizeAlign; ++i) {
-      Asm->EmitInt8(0);
-      Asm->EOL("Padding");
-    }
     EmitLabel("exception", SubprogramCount);
-
+    
     // Emit the header.
     Asm->EmitInt8(DW_EH_PE_omit);
     Asm->EOL("LPStart format (DW_EH_PE_omit)");
@@ -3078,92 +2996,60 @@ private:
     Asm->EOL("Call site format (DW_EH_PE_udata4)");
     Asm->EmitULEB128Bytes(SizeSites);
     Asm->EOL("Call-site table length");
-
-    // Emit the landing pad site information in order of address.
-    PadMapType PadMap;
-
+    
+    // Emit the landng pad site information.
     for (unsigned i = 0, N = LandingPads.size(); i != N; ++i) {
-      const LandingPadInfo *LandingPad = LandingPads[i];
-      for (unsigned j=0, E = LandingPad->BeginLabels.size(); j != E; ++j) {
-        unsigned BeginLabel = LandingPad->BeginLabels[j];
-        assert(!PadMap.count(BeginLabel) && "duplicate landing pad labels!");
-        PadSite P = { i, j };
-        PadMap[BeginLabel] = P;
+      const LandingPadInfo &LandingPad = LandingPads[i];
+      EmitSectionOffset("label", "eh_func_begin",
+                        LandingPad.BeginLabel, SubprogramCount, false, true);
+      Asm->EOL("Region start");
+      
+      EmitDifference("label", LandingPad.EndLabel,
+                     "label", LandingPad.BeginLabel);
+      Asm->EOL("Region length");
+      
+      if (LandingPad.TypeIds.empty()) {
+        if (TAI->getAddressSize() == sizeof(int32_t))
+          Asm->EmitInt32(0);
+        else
+          Asm->EmitInt64(0);
+      } else {
+        EmitSectionOffset("label", "eh_func_begin", LandingPad.LandingPadLabel,
+                          SubprogramCount, false, true);
       }
+      Asm->EOL("Landing pad");
+
+      Asm->EmitULEB128Bytes(Actions[i]);
+      Asm->EOL("Action");
     }
-
-    for (MachineFunction::const_iterator I = MF->begin(), E = MF->end();
-         I != E; ++I) {
-      for (MachineBasicBlock::const_iterator MI = I->begin(), E = I->end();
-           MI != E; ++MI) {
-        if (MI->getOpcode() != TargetInstrInfo::LABEL)
-          continue;
-
-        unsigned BeginLabel = MI->getOperand(0).getImmedValue();
-        PadMapType::iterator L = PadMap.find(BeginLabel);
-
-        if (L == PadMap.end())
-          continue;
-
-        PadSite P = L->second;
-        const LandingPadInfo *LandingPad = LandingPads[P.PadIndex];
-
-        assert(BeginLabel == LandingPad->BeginLabels[P.SiteIndex] &&
-               "Inconsistent landing pad map!");
-
-        EmitSectionOffset("label", "eh_func_begin", BeginLabel, SubprogramCount,
-                          false, true);
-        Asm->EOL("Region start");
-
-        EmitDifference("label", LandingPad->EndLabels[P.SiteIndex],
-                       "label", BeginLabel);
-        Asm->EOL("Region length");
-
-        if (LandingPad->TypeIds.empty()) {
-          if (TAI->getAddressSize() == sizeof(int32_t))
-            Asm->EmitInt32(0);
-          else
-            Asm->EmitInt64(0);
-        } else {
-          EmitSectionOffset("label", "eh_func_begin",
-                            LandingPad->LandingPadLabel, SubprogramCount,
-                            false, true);
-        }
-        Asm->EOL("Landing pad");
-
-        Asm->EmitULEB128Bytes(Actions[P.PadIndex]);
-        Asm->EOL("Action");
-      }
-    }
-
+    
     // Emit the actions.
     for (unsigned i = 0, N = LandingPads.size(); i != N; ++i) {
-      if (!i || Actions[i] != Actions[i-1]) {
-        const LandingPadInfo *LandingPad = LandingPads[i];
-        const std::vector<unsigned> &TypeIds = LandingPad->TypeIds;
-        unsigned SizeAction = 0;
-
-        if (LandingPad->IsFilter) {
-          Asm->EmitSLEB128Bytes(-1);
+      const LandingPadInfo &LandingPad = LandingPads[i];
+      const std::vector<unsigned> &TypeIds = LandingPad.TypeIds;
+      unsigned SizeAction = 0;
+      
+      if (LandingPad.IsFilter) {
+        Asm->EmitSLEB128Bytes(-1);
+        Asm->EOL("TypeInfo index");
+        Asm->EmitSLEB128Bytes(0);
+        Asm->EOL("Next action");
+      } else {
+        for (unsigned j = 0, M = TypeIds.size(); j < M; ++j) {
+          unsigned TypeID = TypeIds[j];
+          unsigned SizeTypeID = Asm->SizeSLEB128(TypeID);
+          Asm->EmitSLEB128Bytes(TypeID);
           Asm->EOL("TypeInfo index");
-          Asm->EmitSLEB128Bytes(0);
+          signed Action = j ? -(SizeAction + SizeTypeID) : 0;
+          SizeAction = SizeTypeID + Asm->SizeSLEB128(Action);
+          Asm->EmitSLEB128Bytes(Action);
           Asm->EOL("Next action");
-        } else {
-          for (unsigned j = 0, M = TypeIds.size(); j < M; ++j) {
-            unsigned TypeID = TypeIds[j];
-            unsigned SizeTypeID = Asm->SizeSLEB128(TypeID);
-            Asm->EmitSLEB128Bytes(TypeID);
-            Asm->EOL("TypeInfo index");
-            signed Action = j ? -(SizeAction + SizeTypeID) : 0;
-            SizeAction = SizeTypeID + Asm->SizeSLEB128(Action);
-            Asm->EmitSLEB128Bytes(Action);
-            Asm->EOL("Next action");
-          }
         }
       }
     }
 
     // Emit the type ids.
+    Asm->EmitAlignment(2);
     for (unsigned M = TypeInfos.size(); M; --M) {
       GlobalVariable *GV = TypeInfos[M - 1];
       
@@ -3201,6 +3087,7 @@ public:
   //
   DwarfException(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T)
   : Dwarf(OS, A, T)
+  , didInitial(false)
   , shouldEmit(false)
   {}
   
@@ -3221,15 +3108,6 @@ public:
   /// EndModule - Emit all exception information that should come after the
   /// content.
   void EndModule() {
-    if (!shouldEmit) return;
-
-    const std::vector<Function *> Personalities = MMI->getPersonalities();
-    for (unsigned i =0; i < Personalities.size(); ++i)
-      EmitCommonEHFrame(Personalities[i], i);
-    
-    for (std::vector<FunctionEHFrameInfo>::iterator I = EHFrames.begin(),
-           E = EHFrames.end(); I != E; ++I)
-      EmitEHFrame(*I);
   }
 
   /// BeginFunction - Gather pre-function exception information.  Assumes being 
@@ -3253,14 +3131,8 @@ public:
 
     EmitLabel("eh_func_end", SubprogramCount);
     EmitExceptionTable();
-
-    // Save EH frame information
-    EHFrames.push_back(FunctionEHFrameInfo(getAsm()->CurrentFnName,
-                                           SubprogramCount,
-                                           MMI->getPersonalityIndex(),
-                                           MF->getFrameInfo()->hasCalls(),
-                                           !MMI->getLandingPads().empty(),
-                                           MMI->getFrameMoves()));
+    EmitCommonEHFrame();
+    EmitEHFrame();
   }
 };
 

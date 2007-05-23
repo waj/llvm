@@ -42,10 +42,10 @@ namespace {
                   createLocalRegisterAllocator);
 
 
-  class VISIBILITY_HIDDEN RALocal : public MachineFunctionPass {
+  class VISIBILITY_HIDDEN RA : public MachineFunctionPass {
   public:
     static char ID;
-    RALocal() : MachineFunctionPass((intptr_t)&ID) {}
+    RA() : MachineFunctionPass((intptr_t)&ID) {}
   private:
     const TargetMachine *TM;
     MachineFunction *MF;
@@ -228,12 +228,12 @@ namespace {
     void reloadPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator &I,
                        unsigned PhysReg);
   };
-  char RALocal::ID = 0;
+  char RA::ID = 0;
 }
 
 /// getStackSpaceFor - This allocates space for the specified virtual register
 /// to be held on the stack.
-int RALocal::getStackSpaceFor(unsigned VirtReg, const TargetRegisterClass *RC) {
+int RA::getStackSpaceFor(unsigned VirtReg, const TargetRegisterClass *RC) {
   // Find the location Reg would belong...
   std::map<unsigned, int>::iterator I =StackSlotForVirtReg.lower_bound(VirtReg);
 
@@ -253,7 +253,7 @@ int RALocal::getStackSpaceFor(unsigned VirtReg, const TargetRegisterClass *RC) {
 /// removePhysReg - This method marks the specified physical register as no
 /// longer being in use.
 ///
-void RALocal::removePhysReg(unsigned PhysReg) {
+void RA::removePhysReg(unsigned PhysReg) {
   PhysRegsUsed[PhysReg] = -1;      // PhyReg no longer used
 
   std::vector<unsigned>::iterator It =
@@ -267,9 +267,8 @@ void RALocal::removePhysReg(unsigned PhysReg) {
 /// virtual register slot specified by VirtReg.  It then updates the RA data
 /// structures to indicate the fact that PhysReg is now available.
 ///
-void RALocal::spillVirtReg(MachineBasicBlock &MBB,
-                           MachineBasicBlock::iterator I,
-                           unsigned VirtReg, unsigned PhysReg) {
+void RA::spillVirtReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                      unsigned VirtReg, unsigned PhysReg) {
   assert(VirtReg && "Spilling a physical register is illegal!"
          " Must not have appropriate kill for the register or use exists beyond"
          " the intended one.");
@@ -301,8 +300,8 @@ void RALocal::spillVirtReg(MachineBasicBlock &MBB,
 /// then the request is ignored if the physical register does not contain a
 /// virtual register.
 ///
-void RALocal::spillPhysReg(MachineBasicBlock &MBB, MachineInstr *I,
-                           unsigned PhysReg, bool OnlyVirtRegs) {
+void RA::spillPhysReg(MachineBasicBlock &MBB, MachineInstr *I,
+                      unsigned PhysReg, bool OnlyVirtRegs) {
   if (PhysRegsUsed[PhysReg] != -1) {            // Only spill it if it's used!
     assert(PhysRegsUsed[PhysReg] != -2 && "Non allocable reg used!");
     if (PhysRegsUsed[PhysReg] || !OnlyVirtRegs)
@@ -335,7 +334,7 @@ void RALocal::spillPhysReg(MachineBasicBlock &MBB, MachineInstr *I,
 /// that PhysReg is the proper container for VirtReg now.  The physical
 /// register must not be used for anything else when this is called.
 ///
-void RALocal::assignVirtToPhysReg(unsigned VirtReg, unsigned PhysReg) {
+void RA::assignVirtToPhysReg(unsigned VirtReg, unsigned PhysReg) {
   assert(PhysRegsUsed[PhysReg] == -1 && "Phys reg already assigned!");
   // Update information to note the fact that this register was just used, and
   // it holds VirtReg.
@@ -349,7 +348,7 @@ void RALocal::assignVirtToPhysReg(unsigned VirtReg, unsigned PhysReg) {
 /// and available for use.  This also includes checking to see if aliased
 /// registers are all free...
 ///
-bool RALocal::isPhysRegAvailable(unsigned PhysReg) const {
+bool RA::isPhysRegAvailable(unsigned PhysReg) const {
   if (PhysRegsUsed[PhysReg] != -1) return false;
 
   // If the selected register aliases any other allocated registers, it is
@@ -365,7 +364,7 @@ bool RALocal::isPhysRegAvailable(unsigned PhysReg) const {
 /// getFreeReg - Look to see if there is a free register available in the
 /// specified register class.  If not, return 0.
 ///
-unsigned RALocal::getFreeReg(const TargetRegisterClass *RC) {
+unsigned RA::getFreeReg(const TargetRegisterClass *RC) {
   // Get iterators defining the range of registers that are valid to allocate in
   // this class, which also specifies the preferred allocation order.
   TargetRegisterClass::iterator RI = RC->allocation_order_begin(*MF);
@@ -384,9 +383,8 @@ unsigned RALocal::getFreeReg(const TargetRegisterClass *RC) {
 /// use.  If there is currently a value in it, it is either moved out of the way
 /// or spilled to memory.
 ///
-void RALocal::liberatePhysReg(MachineBasicBlock &MBB,
-                              MachineBasicBlock::iterator &I,
-                              unsigned PhysReg) {
+void RA::liberatePhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator &I,
+                         unsigned PhysReg) {
   spillPhysReg(MBB, I, PhysReg);
 }
 
@@ -395,8 +393,8 @@ void RALocal::liberatePhysReg(MachineBasicBlock &MBB,
 /// register.  If all compatible physical registers are used, this method spills
 /// the last used virtual register to the stack, and uses that register.
 ///
-unsigned RALocal::getReg(MachineBasicBlock &MBB, MachineInstr *I,
-                         unsigned VirtReg) {
+unsigned RA::getReg(MachineBasicBlock &MBB, MachineInstr *I,
+                    unsigned VirtReg) {
   const TargetRegisterClass *RC = MF->getSSARegMap()->getRegClass(VirtReg);
 
   // First check to see if we have a free register of the requested type...
@@ -472,8 +470,8 @@ unsigned RALocal::getReg(MachineBasicBlock &MBB, MachineInstr *I,
 /// subsequent instructions can use the reloaded value.  This method returns the
 /// modified instruction.
 ///
-MachineInstr *RALocal::reloadVirtReg(MachineBasicBlock &MBB, MachineInstr *MI,
-                                     unsigned OpNum) {
+MachineInstr *RA::reloadVirtReg(MachineBasicBlock &MBB, MachineInstr *MI,
+                                unsigned OpNum) {
   unsigned VirtReg = MI->getOperand(OpNum).getReg();
 
   // If the virtual register is already available, just update the instruction
@@ -524,7 +522,7 @@ MachineInstr *RALocal::reloadVirtReg(MachineBasicBlock &MBB, MachineInstr *MI,
 
 
 
-void RALocal::AllocateBasicBlock(MachineBasicBlock &MBB) {
+void RA::AllocateBasicBlock(MachineBasicBlock &MBB) {
   // loop over each instruction
   MachineBasicBlock::iterator MII = MBB.begin();
   const TargetInstrInfo &TII = *TM->getInstrInfo();
@@ -778,7 +776,7 @@ void RALocal::AllocateBasicBlock(MachineBasicBlock &MBB) {
 
 /// runOnMachineFunction - Register allocate the whole function
 ///
-bool RALocal::runOnMachineFunction(MachineFunction &Fn) {
+bool RA::runOnMachineFunction(MachineFunction &Fn) {
   DOUT << "Machine Function " << "\n";
   MF = &Fn;
   TM = &Fn.getTarget();
@@ -814,5 +812,5 @@ bool RALocal::runOnMachineFunction(MachineFunction &Fn) {
 }
 
 FunctionPass *llvm::createLocalRegisterAllocator() {
-  return new RALocal();
+  return new RA();
 }

@@ -45,6 +45,8 @@ class Module;
 class AnalysisUsage;
 class PassInfo;
 class ImmutablePass;
+class BasicBlockPassManager;
+class ModulePassManager;
 class PMStack;
 class AnalysisResolver;
 class PMDataManager;
@@ -84,7 +86,7 @@ class Pass {
   void operator=(const Pass&);  // DO NOT IMPLEMENT
   Pass(const Pass &);           // DO NOT IMPLEMENT
 public:
-  explicit Pass(intptr_t pid) : Resolver(0), PassID(pid) {}
+  Pass(intptr_t pid) : Resolver(0), PassID(pid) {}
   virtual ~Pass();
 
   /// getPassName - Return a nice clean name for a pass.  This usually
@@ -229,7 +231,7 @@ public:
     return PMT_ModulePassManager;
   }
 
-  explicit ModulePass(intptr_t pid) : Pass(pid) {}
+  ModulePass(intptr_t pid) : Pass(pid) {}
   // Force out-of-line virtual method.
   virtual ~ModulePass();
 };
@@ -254,7 +256,7 @@ public:
   ///
   virtual bool runOnModule(Module &M) { return false; }
 
-  explicit ImmutablePass(intptr_t pid) : ModulePass(pid) {}
+  ImmutablePass(intptr_t pid) : ModulePass(pid) {}
   // Force out-of-line virtual method.
   virtual ~ImmutablePass();
 };
@@ -270,7 +272,7 @@ public:
 ///
 class FunctionPass : public Pass {
 public:
-  explicit FunctionPass(intptr_t pid) : Pass(pid) {}
+  FunctionPass(intptr_t pid) : Pass(pid) {}
 
   /// doInitialization - Virtual method overridden by subclasses to do
   /// any necessary per-module initialization.
@@ -321,7 +323,7 @@ public:
 ///
 class BasicBlockPass : public Pass {
 public:
-  explicit BasicBlockPass(intptr_t pid) : Pass(pid) {}
+  BasicBlockPass(intptr_t pid) : Pass(pid) {}
 
   /// doInitialization - Virtual method overridden by subclasses to do
   /// any necessary per-module initialization.
