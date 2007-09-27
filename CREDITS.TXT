@@ -106,10 +106,6 @@ E: greened@obbligato.org
 D: Miscellaneous bug fixes
 D: Register allocation refactoring
 
-N: Gordon Henriksen
-E: gordonhenriksen@mac.com
-D: C interface
-
 N: Raul Fernandes Herbster
 E: raul@dsc.ufcg.edu.br
 D: JIT support for ARM
@@ -246,6 +242,6 @@ D: Thread Local Storage implementation
 N: Bill Wendling
 E: isanbard@gmail.com
 W: http://web.mac.com/bwendling/
-D: Darwin exception handling
 D: MMX & SSSE3 instructions
 D: SPEC2006 support
+

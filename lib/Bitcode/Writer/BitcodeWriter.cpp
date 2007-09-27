@@ -529,14 +529,11 @@ static void WriteConstants(unsigned FirstVal, unsigned LastVal,
       if (Ty == Type::FloatTy || Ty == Type::DoubleTy) {
         Record.push_back(CFP->getValueAPF().convertToAPInt().getZExtValue());
       } else if (Ty == Type::X86_FP80Ty) {
-        // api needed to prevent premature destruction
-        APInt api = CFP->getValueAPF().convertToAPInt();
-        const uint64_t *p = api.getRawData();
+        const uint64_t *p = CFP->getValueAPF().convertToAPInt().getRawData();
         Record.push_back(p[0]);
         Record.push_back((uint16_t)p[1]);
       } else if (Ty == Type::FP128Ty) {
-        APInt api = CFP->getValueAPF().convertToAPInt();
-        const uint64_t *p = api.getRawData();
+        const uint64_t *p = CFP->getValueAPF().convertToAPInt().getRawData();
         Record.push_back(p[0]);
         Record.push_back(p[1]);
       } else if (Ty == Type::PPC_FP128Ty) {

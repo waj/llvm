@@ -103,19 +103,17 @@ bool Constant::ContainsRelocations() const {
 
 // Static constructor to create a '0' constant of arbitrary type...
 Constant *Constant::getNullValue(const Type *Ty) {
-  static uint64_t zero[2] = {0, 0};
   switch (Ty->getTypeID()) {
   case Type::IntegerTyID:
     return ConstantInt::get(Ty, 0);
   case Type::FloatTyID:
-    return ConstantFP::get(Ty, APFloat(APInt(32, 0)));
+    return ConstantFP::get(Ty, APFloat(0.0f));
   case Type::DoubleTyID:
-    return ConstantFP::get(Ty, APFloat(APInt(64, 0)));
+    return ConstantFP::get(Ty, APFloat(0.0));
   case Type::X86_FP80TyID:
-    return ConstantFP::get(Ty, APFloat(APInt(80, 2, zero)));
-  case Type::FP128TyID:
   case Type::PPC_FP128TyID:
-    return ConstantFP::get(Ty, APFloat(APInt(128, 2, zero)));
+  case Type::FP128TyID:
+    return ConstantFP::get(Ty, APFloat(0.0));   //FIXME
   case Type::PointerTyID:
     return ConstantPointerNull::get(cast<PointerType>(Ty));
   case Type::StructTyID:
@@ -203,11 +201,8 @@ namespace {
     static inline KeyTy getEmptyKey() { return KeyTy(APInt(1,0), 0); }
     static inline KeyTy getTombstoneKey() { return KeyTy(APInt(1,1), 0); }
     static unsigned getHashValue(const KeyTy &Key) {
-      return DenseMapInfo<void*>::getHashValue(Key.type) ^ 
+      return DenseMapKeyInfo<void*>::getHashValue(Key.type) ^ 
         Key.val.getHashValue();
-    }
-    static bool isEqual(const KeyTy &LHS, const KeyTy &RHS) {
-      return LHS == RHS;
     }
     static bool isPod() { return false; }
   };
@@ -264,12 +259,6 @@ bool ConstantFP::isNullValue() const {
   return Val.isZero() && !Val.isNegative();
 }
 
-ConstantFP *ConstantFP::getNegativeZero(const Type *Ty) {
-  APFloat apf = cast <ConstantFP>(Constant::getNullValue(Ty))->getValueAPF();
-  apf.changeSign();
-  return ConstantFP::get(Ty, apf);
-}
-
 bool ConstantFP::isExactlyValue(const APFloat& V) const {
   return Val.bitwiseIsEqual(V);
 }
@@ -295,9 +284,6 @@ namespace {
     }
     static unsigned getHashValue(const KeyTy &Key) {
       return Key.val.getHashValue();
-    }
-    static bool isEqual(const KeyTy &LHS, const KeyTy &RHS) {
-      return LHS == RHS;
     }
     static bool isPod() { return false; }
   };
@@ -1939,12 +1925,15 @@ Constant *ConstantExpr::getZeroValueForNegationExpr(const Type *Ty) {
   if (const VectorType *PTy = dyn_cast<VectorType>(Ty))
     if (PTy->getElementType()->isFloatingPoint()) {
       std::vector<Constant*> zeros(PTy->getNumElements(),
-                           ConstantFP::getNegativeZero(PTy->getElementType()));
+                                   ConstantFP::get(PTy->getElementType(),
+                                       PTy->getElementType()==Type::FloatTy ?
+                                       APFloat(-0.0f) : APFloat(0.0)));
       return ConstantVector::get(PTy, zeros);
     }
 
-  if (Ty->isFloatingPoint()) 
-    return ConstantFP::getNegativeZero(Ty);
+  if (Ty->isFloatingPoint())
+    return ConstantFP::get(Ty, Ty==Type::FloatTy ? APFloat(-0.0f) : 
+                                                   APFloat(-0.0));
 
   return Constant::getNullValue(Ty);
 }

@@ -157,8 +157,8 @@ PPCRegisterInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
                       .addReg(PPC::R0, false, false, true), FrameIdx);
   } else if (RC == PPC::VRRCRegisterClass) {
     // We don't have indexed addressing for vector loads.  Emit:
-    // R0 = ADDI FI#
-    // STVX VAL, 0, R0
+    // R11 = ADDI FI#
+    // Dest = LVX R0, R11
     // 
     // FIXME: We use R0 here, because it isn't available for RA.
     addFrameReference(BuildMI(MBB, MI, TII.get(PPC::ADDI), PPC::R0),
@@ -210,8 +210,8 @@ PPCRegisterInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     BuildMI(MBB, MI, TII.get(PPC::MTCRF), DestReg).addReg(PPC::R0);
   } else if (RC == PPC::VRRCRegisterClass) {
     // We don't have indexed addressing for vector loads.  Emit:
-    // R0 = ADDI FI#
-    // Dest = LVX 0, R0
+    // R11 = ADDI FI#
+    // Dest = LVX R0, R11
     // 
     // FIXME: We use R0 here, because it isn't available for RA.
     addFrameReference(BuildMI(MBB, MI, TII.get(PPC::ADDI), PPC::R0),
@@ -226,24 +226,18 @@ PPCRegisterInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
 void PPCRegisterInfo::copyRegToReg(MachineBasicBlock &MBB,
                                    MachineBasicBlock::iterator MI,
                                    unsigned DestReg, unsigned SrcReg,
-                                   const TargetRegisterClass *DestRC,
-                                   const TargetRegisterClass *SrcRC) const {
-  if (DestRC != SrcRC) {
-    cerr << "Not yet supported!";
-    abort();
-  }
-
-  if (DestRC == PPC::GPRCRegisterClass) {
+                                   const TargetRegisterClass *RC) const {
+  if (RC == PPC::GPRCRegisterClass) {
     BuildMI(MBB, MI, TII.get(PPC::OR), DestReg).addReg(SrcReg).addReg(SrcReg);
-  } else if (DestRC == PPC::G8RCRegisterClass) {
+  } else if (RC == PPC::G8RCRegisterClass) {
     BuildMI(MBB, MI, TII.get(PPC::OR8), DestReg).addReg(SrcReg).addReg(SrcReg);
-  } else if (DestRC == PPC::F4RCRegisterClass) {
+  } else if (RC == PPC::F4RCRegisterClass) {
     BuildMI(MBB, MI, TII.get(PPC::FMRS), DestReg).addReg(SrcReg);
-  } else if (DestRC == PPC::F8RCRegisterClass) {
+  } else if (RC == PPC::F8RCRegisterClass) {
     BuildMI(MBB, MI, TII.get(PPC::FMRD), DestReg).addReg(SrcReg);
-  } else if (DestRC == PPC::CRRCRegisterClass) {
+  } else if (RC == PPC::CRRCRegisterClass) {
     BuildMI(MBB, MI, TII.get(PPC::MCRF), DestReg).addReg(SrcReg);
-  } else if (DestRC == PPC::VRRCRegisterClass) {
+  } else if (RC == PPC::VRRCRegisterClass) {
     BuildMI(MBB, MI, TII.get(PPC::VOR), DestReg).addReg(SrcReg).addReg(SrcReg);
   } else {
     cerr << "Attempt to copy register that is not GPR or FPR";

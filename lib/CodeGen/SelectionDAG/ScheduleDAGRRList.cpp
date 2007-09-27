@@ -25,16 +25,11 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Compiler.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include <climits>
 #include <queue>
 #include "llvm/Support/CommandLine.h"
 using namespace llvm;
-
-STATISTIC(NumBacktracks, "Number of times scheduler backtraced");
-STATISTIC(NumDups,       "Number of duplicated nodes");
-STATISTIC(NumCCCopies,   "Number of cross class copies");
 
 static RegisterScheduler
   burrListDAGScheduler("list-burr",
@@ -57,15 +52,8 @@ private:
   bool isBottomUp;
   
   /// AvailableQueue - The priority queue to use for the available SUnits.
-  ///a
+  ///
   SchedulingPriorityQueue *AvailableQueue;
-
-  /// LiveRegs / LiveRegDefs - A set of physical registers and their definition
-  /// that are "live". These nodes must be scheduled before any other nodes that
-  /// modifies the registers can be scheduled.
-  SmallSet<unsigned, 4> LiveRegs;
-  std::vector<SUnit*> LiveRegDefs;
-  std::vector<unsigned> LiveRegCycles;
 
 public:
   ScheduleDAGRRList(SelectionDAG &dag, MachineBasicBlock *bb,
@@ -82,19 +70,10 @@ public:
   void Schedule();
 
 private:
-  void ReleasePred(SUnit*, bool, unsigned);
-  void ReleaseSucc(SUnit*, bool isChain, unsigned);
-  void CapturePred(SUnit*, SUnit*, bool);
-  void ScheduleNodeBottomUp(SUnit*, unsigned);
-  void ScheduleNodeTopDown(SUnit*, unsigned);
-  void UnscheduleNodeBottomUp(SUnit*);
-  void BacktrackBottomUp(SUnit*, unsigned, unsigned&);
-  SUnit *CopyAndMoveSuccessors(SUnit*);
-  void InsertCCCopiesAndMoveSuccs(SUnit*, unsigned,
-                                  const TargetRegisterClass*,
-                                  const TargetRegisterClass*,
-                                  SmallVector<SUnit*, 2>&);
-  bool DelayForLiveRegsBottomUp(SUnit*, SmallVector<unsigned, 4>&);
+  void ReleasePred(SUnit *PredSU, bool isChain, unsigned CurCycle);
+  void ReleaseSucc(SUnit *SuccSU, bool isChain, unsigned CurCycle);
+  void ScheduleNodeBottomUp(SUnit *SU, unsigned CurCycle);
+  void ScheduleNodeTopDown(SUnit *SU, unsigned CurCycle);
   void ListScheduleTopDown();
   void ListScheduleBottomUp();
   void CommuteNodesToReducePressure();
@@ -105,10 +84,7 @@ private:
 /// Schedule - Schedule the DAG using list scheduling.
 void ScheduleDAGRRList::Schedule() {
   DOUT << "********** List Scheduling **********\n";
-
-  LiveRegDefs.resize(MRI->getNumRegs(), NULL);  
-  LiveRegCycles.resize(MRI->getNumRegs(), 0);
-
+  
   // Build scheduling units.
   BuildSchedUnits();
 
@@ -144,7 +120,7 @@ void ScheduleDAGRRList::CommuteNodesToReducePressure() {
   SmallPtrSet<SUnit*, 4> OperandSeen;
   for (unsigned i = Sequence.size()-1; i != 0; --i) {  // Ignore first node.
     SUnit *SU = Sequence[i];
-    if (!SU || !SU->Node) continue;
+    if (!SU) continue;
     if (SU->isCommutable) {
       unsigned Opc = SU->Node->getTargetOpcode();
       unsigned NumRes = TII->getNumDefs(Opc);
@@ -154,7 +130,7 @@ void ScheduleDAGRRList::CommuteNodesToReducePressure() {
           continue;
 
         SDNode *OpN = SU->Node->getOperand(j).Val;
-        SUnit *OpSU = SUnitMap[OpN][SU->InstanceNo];
+        SUnit *OpSU = SUnitMap[OpN];
         if (OpSU && OperandSeen.count(OpSU) == 1) {
           // Ok, so SU is not the last use of OpSU, but SU is two-address so
           // it will clobber OpSU. Try to commute SU if no other source operands
@@ -163,7 +139,7 @@ void ScheduleDAGRRList::CommuteNodesToReducePressure() {
           for (unsigned k = 0; k < NumOps; ++k) {
             if (k != j) {
               OpN = SU->Node->getOperand(k).Val;
-              OpSU = SUnitMap[OpN][SU->InstanceNo];
+              OpSU = SUnitMap[OpN];
               if (OpSU && OperandSeen.count(OpSU) == 1) {
                 DoCommute = false;
                 break;
@@ -181,8 +157,8 @@ void ScheduleDAGRRList::CommuteNodesToReducePressure() {
 
     for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
          I != E; ++I) {
-      if (!I->isCtrl)
-        OperandSeen.insert(I->Dep);
+      if (!I->second)
+        OperandSeen.insert(I->first);
     }
   }
 }
@@ -202,9 +178,9 @@ void ScheduleDAGRRList::ReleasePred(SUnit *PredSU, bool isChain,
   PredSU->CycleBound = std::max(PredSU->CycleBound, CurCycle + PredSU->Latency);
 
   if (!isChain)
-    --PredSU->NumSuccsLeft;
+    PredSU->NumSuccsLeft--;
   else
-    --PredSU->NumChainSuccsLeft;
+    PredSU->NumChainSuccsLeft--;
   
 #ifndef NDEBUG
   if (PredSU->NumSuccsLeft < 0 || PredSU->NumChainSuccsLeft < 0) {
@@ -217,7 +193,7 @@ void ScheduleDAGRRList::ReleasePred(SUnit *PredSU, bool isChain,
   
   if ((PredSU->NumSuccsLeft + PredSU->NumChainSuccsLeft) == 0) {
     // EntryToken has to go last!  Special case it here.
-    if (!PredSU->Node || PredSU->Node->getOpcode() != ISD::EntryToken) {
+    if (PredSU->Node->getOpcode() != ISD::EntryToken) {
       PredSU->isAvailable = true;
       AvailableQueue->push(PredSU);
     }
@@ -233,465 +209,50 @@ void ScheduleDAGRRList::ScheduleNodeBottomUp(SUnit *SU, unsigned CurCycle) {
   SU->Cycle = CurCycle;
 
   AvailableQueue->ScheduledNode(SU);
+  Sequence.push_back(SU);
 
   // Bottom up: release predecessors
   for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
-       I != E; ++I) {
-    ReleasePred(I->Dep, I->isCtrl, CurCycle);
-    if (I->Cost < 0)  {
-      // This is a physical register dependency and it's impossible or
-      // expensive to copy the register. Make sure nothing that can 
-      // clobber the register is scheduled between the predecessor and
-      // this node.
-      if (LiveRegs.insert(I->Reg)) {
-        LiveRegDefs[I->Reg] = I->Dep;
-        LiveRegCycles[I->Reg] = CurCycle;
-      }
-    }
-  }
-
-  // Release all the implicit physical register defs that are live.
-  for (SUnit::succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
-       I != E; ++I) {
-    if (I->Cost < 0)  {
-      if (LiveRegCycles[I->Reg] == I->Dep->Cycle) {
-        LiveRegs.erase(I->Reg);
-        assert(LiveRegDefs[I->Reg] == SU &&
-               "Physical register dependency violated?");
-        LiveRegDefs[I->Reg] = NULL;
-        LiveRegCycles[I->Reg] = 0;
-      }
-    }
-  }
-
+       I != E; ++I)
+    ReleasePred(I->first, I->second, CurCycle);
   SU->isScheduled = true;
 }
 
-/// CapturePred - This does the opposite of ReleasePred. Since SU is being
-/// unscheduled, incrcease the succ left count of its predecessors. Remove
-/// them from AvailableQueue if necessary.
-void ScheduleDAGRRList::CapturePred(SUnit *PredSU, SUnit *SU, bool isChain) {
-  PredSU->CycleBound = 0;
-  for (SUnit::succ_iterator I = PredSU->Succs.begin(), E = PredSU->Succs.end();
-       I != E; ++I) {
-    if (I->Dep == SU)
-      continue;
-    PredSU->CycleBound = std::max(PredSU->CycleBound,
-                                  I->Dep->Cycle + PredSU->Latency);
-  }
-
-  if (PredSU->isAvailable) {
-    PredSU->isAvailable = false;
-    if (!PredSU->isPending)
-      AvailableQueue->remove(PredSU);
-  }
-
-  if (!isChain)
-    ++PredSU->NumSuccsLeft;
-  else
-    ++PredSU->NumChainSuccsLeft;
+/// isReady - True if node's lower cycle bound is less or equal to the current
+/// scheduling cycle. Always true if all nodes have uniform latency 1.
+static inline bool isReady(SUnit *SU, unsigned CurCycle) {
+  return SU->CycleBound <= CurCycle;
 }
-
-/// UnscheduleNodeBottomUp - Remove the node from the schedule, update its and
-/// its predecessor states to reflect the change.
-void ScheduleDAGRRList::UnscheduleNodeBottomUp(SUnit *SU) {
-  DOUT << "*** Unscheduling [" << SU->Cycle << "]: ";
-  DEBUG(SU->dump(&DAG));
-
-  AvailableQueue->UnscheduledNode(SU);
-
-  for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
-       I != E; ++I) {
-    CapturePred(I->Dep, SU, I->isCtrl);
-    if (I->Cost < 0 && SU->Cycle == LiveRegCycles[I->Reg])  {
-      LiveRegs.erase(I->Reg);
-      assert(LiveRegDefs[I->Reg] == I->Dep &&
-             "Physical register dependency violated?");
-      LiveRegDefs[I->Reg] = NULL;
-      LiveRegCycles[I->Reg] = 0;
-    }
-  }
-
-  for (SUnit::succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
-       I != E; ++I) {
-    if (I->Cost < 0)  {
-      if (LiveRegs.insert(I->Reg)) {
-        assert(!LiveRegDefs[I->Reg] &&
-               "Physical register dependency violated?");
-        LiveRegDefs[I->Reg] = SU;
-      }
-      if (I->Dep->Cycle < LiveRegCycles[I->Reg])
-        LiveRegCycles[I->Reg] = I->Dep->Cycle;
-    }
-  }
-
-  SU->Cycle = 0;
-  SU->isScheduled = false;
-  SU->isAvailable = true;
-  AvailableQueue->push(SU);
-}
-
-// FIXME: This is probably too slow!
-static void isReachable(SUnit *SU, SUnit *TargetSU,
-                        SmallPtrSet<SUnit*, 32> &Visited, bool &Reached) {
-  if (Reached) return;
-  if (SU == TargetSU) {
-    Reached = true;
-    return;
-  }
-  if (!Visited.insert(SU)) return;
-
-  for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end(); I != E;
-       ++I)
-    isReachable(I->Dep, TargetSU, Visited, Reached);
-}
-
-static bool isReachable(SUnit *SU, SUnit *TargetSU) {
-  SmallPtrSet<SUnit*, 32> Visited;
-  bool Reached = false;
-  isReachable(SU, TargetSU, Visited, Reached);
-  return Reached;
-}
-
-/// willCreateCycle - Returns true if adding an edge from SU to TargetSU will
-/// create a cycle.
-static bool WillCreateCycle(SUnit *SU, SUnit *TargetSU) {
-  if (isReachable(TargetSU, SU))
-    return true;
-  for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
-       I != E; ++I)
-    if (I->Cost < 0 && isReachable(TargetSU, I->Dep))
-      return true;
-  return false;
-}
-
-/// BacktrackBottomUp - Backtrack scheduling to a previous cycle specified in
-/// BTCycle in order to schedule a specific node. Returns the last unscheduled
-/// SUnit. Also returns if a successor is unscheduled in the process.
-void ScheduleDAGRRList::BacktrackBottomUp(SUnit *SU, unsigned BtCycle,
-                                          unsigned &CurCycle) {
-  SUnit *OldSU = NULL;
-  while (CurCycle > BtCycle) {
-    OldSU = Sequence.back();
-    Sequence.pop_back();
-    if (SU->isSucc(OldSU))
-      // Don't try to remove SU from AvailableQueue.
-      SU->isAvailable = false;
-    UnscheduleNodeBottomUp(OldSU);
-    --CurCycle;
-  }
-
-      
-  if (SU->isSucc(OldSU)) {
-    assert(false && "Something is wrong!");
-    abort();
-  }
-
-  ++NumBacktracks;
-}
-
-/// isSafeToCopy - True if the SUnit for the given SDNode can safely cloned,
-/// i.e. the node does not produce a flag, it does not read a flag and it does
-/// not have an incoming chain.
-static bool isSafeToCopy(SDNode *N) {
-  if (!N)
-    return true;
-
-  for (unsigned i = 0, e = N->getNumValues(); i != e; ++i)
-    if (N->getValueType(i) == MVT::Flag)
-      return false;
-  for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i) {
-    const SDOperand &Op = N->getOperand(i);
-    MVT::ValueType VT = Op.Val->getValueType(Op.ResNo);
-    if (VT == MVT::Other || VT == MVT::Flag)
-      return false;
-  }
-
-  return true;
-}
-
-/// CopyAndMoveSuccessors - Clone the specified node and move its scheduled
-/// successors to the newly created node.
-SUnit *ScheduleDAGRRList::CopyAndMoveSuccessors(SUnit *SU) {
-  DOUT << "Duplicating SU # " << SU->NodeNum << "\n";
-
-  SUnit *NewSU = Clone(SU);
-
-  // New SUnit has the exact same predecessors.
-  for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
-       I != E; ++I)
-    if (!I->isSpecial) {
-      NewSU->addPred(I->Dep, I->isCtrl, false, I->Reg, I->Cost);
-      NewSU->Depth = std::max(NewSU->Depth, I->Dep->Depth+1);
-    }
-
-  // Only copy scheduled successors. Cut them from old node's successor
-  // list and move them over.
-  SmallVector<std::pair<SUnit*, bool>, 4> DelDeps;
-  for (SUnit::succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
-       I != E; ++I) {
-    if (I->isSpecial)
-      continue;
-    if (I->Dep->isScheduled) {
-      NewSU->Height = std::max(NewSU->Height, I->Dep->Height+1);
-      I->Dep->addPred(NewSU, I->isCtrl, false, I->Reg, I->Cost);
-      DelDeps.push_back(std::make_pair(I->Dep, I->isCtrl));
-    }
-  }
-  for (unsigned i = 0, e = DelDeps.size(); i != e; ++i) {
-    SUnit *Succ = DelDeps[i].first;
-    bool isCtrl = DelDeps[i].second;
-    Succ->removePred(SU, isCtrl, false);
-  }
-
-  AvailableQueue->updateNode(SU);
-  AvailableQueue->addNode(NewSU);
-
-  ++NumDups;
-  return NewSU;
-}
-
-/// InsertCCCopiesAndMoveSuccs - Insert expensive cross register class copies
-/// and move all scheduled successors of the given SUnit to the last copy.
-void ScheduleDAGRRList::InsertCCCopiesAndMoveSuccs(SUnit *SU, unsigned Reg,
-                                              const TargetRegisterClass *DestRC,
-                                              const TargetRegisterClass *SrcRC,
-                                               SmallVector<SUnit*, 2> &Copies) {
-  SUnit *CopyFromSU = NewSUnit(NULL);
-  CopyFromSU->CopySrcRC = SrcRC;
-  CopyFromSU->CopyDstRC = DestRC;
-  CopyFromSU->Depth = SU->Depth;
-  CopyFromSU->Height = SU->Height;
-
-  SUnit *CopyToSU = NewSUnit(NULL);
-  CopyToSU->CopySrcRC = DestRC;
-  CopyToSU->CopyDstRC = SrcRC;
-
-  // Only copy scheduled successors. Cut them from old node's successor
-  // list and move them over.
-  SmallVector<std::pair<SUnit*, bool>, 4> DelDeps;
-  for (SUnit::succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
-       I != E; ++I) {
-    if (I->isSpecial)
-      continue;
-    if (I->Dep->isScheduled) {
-      CopyToSU->Height = std::max(CopyToSU->Height, I->Dep->Height+1);
-      I->Dep->addPred(CopyToSU, I->isCtrl, false, I->Reg, I->Cost);
-      DelDeps.push_back(std::make_pair(I->Dep, I->isCtrl));
-    }
-  }
-  for (unsigned i = 0, e = DelDeps.size(); i != e; ++i) {
-    SUnit *Succ = DelDeps[i].first;
-    bool isCtrl = DelDeps[i].second;
-    Succ->removePred(SU, isCtrl, false);
-  }
-
-  CopyFromSU->addPred(SU, false, false, Reg, -1);
-  CopyToSU->addPred(CopyFromSU, false, false, Reg, 1);
-
-  AvailableQueue->updateNode(SU);
-  AvailableQueue->addNode(CopyFromSU);
-  AvailableQueue->addNode(CopyToSU);
-  Copies.push_back(CopyFromSU);
-  Copies.push_back(CopyToSU);
-
-  ++NumCCCopies;
-}
-
-/// getPhysicalRegisterVT - Returns the ValueType of the physical register
-/// definition of the specified node.
-/// FIXME: Move to SelectionDAG?
-static MVT::ValueType getPhysicalRegisterVT(SDNode *N, unsigned Reg,
-                                            const TargetInstrInfo *TII) {
-  const TargetInstrDescriptor &TID = TII->get(N->getTargetOpcode());
-  assert(TID.ImplicitDefs && "Physical reg def must be in implicit def list!");
-  unsigned NumRes = TID.numDefs;
-  for (const unsigned *ImpDef = TID.ImplicitDefs; *ImpDef; ++ImpDef) {
-    if (Reg == *ImpDef)
-      break;
-    ++NumRes;
-  }
-  return N->getValueType(NumRes);
-}
-
-/// DelayForLiveRegsBottomUp - Returns true if it is necessary to delay
-/// scheduling of the given node to satisfy live physical register dependencies.
-/// If the specific node is the last one that's available to schedule, do
-/// whatever is necessary (i.e. backtracking or cloning) to make it possible.
-bool ScheduleDAGRRList::DelayForLiveRegsBottomUp(SUnit *SU,
-                                                 SmallVector<unsigned, 4> &LRegs){
-  if (LiveRegs.empty())
-    return false;
-
-  // If this node would clobber any "live" register, then it's not ready.
-  for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
-       I != E; ++I) {
-    if (I->Cost < 0)  {
-      unsigned Reg = I->Reg;
-      if (LiveRegs.count(Reg) && LiveRegDefs[Reg] != I->Dep)
-        LRegs.push_back(Reg);
-      for (const unsigned *Alias = MRI->getAliasSet(Reg);
-           *Alias; ++Alias)
-        if (LiveRegs.count(*Alias) && LiveRegDefs[*Alias] != I->Dep)
-          LRegs.push_back(*Alias);
-    }
-  }
-
-  for (unsigned i = 0, e = SU->FlaggedNodes.size()+1; i != e; ++i) {
-    SDNode *Node = (i == 0) ? SU->Node : SU->FlaggedNodes[i-1];
-    if (!Node || !Node->isTargetOpcode())
-      continue;
-    const TargetInstrDescriptor &TID = TII->get(Node->getTargetOpcode());
-    if (!TID.ImplicitDefs)
-      continue;
-    for (const unsigned *Reg = TID.ImplicitDefs; *Reg; ++Reg) {
-      if (LiveRegs.count(*Reg) && LiveRegDefs[*Reg] != SU)
-        LRegs.push_back(*Reg);
-      for (const unsigned *Alias = MRI->getAliasSet(*Reg);
-           *Alias; ++Alias)
-        if (LiveRegs.count(*Alias) && LiveRegDefs[*Alias] != SU)
-          LRegs.push_back(*Alias);
-    }
-  }
-  return !LRegs.empty();
-}
-
 
 /// ListScheduleBottomUp - The main loop of list scheduling for bottom-up
 /// schedulers.
 void ScheduleDAGRRList::ListScheduleBottomUp() {
   unsigned CurCycle = 0;
   // Add root to Available queue.
-  SUnit *RootSU = SUnitMap[DAG.getRoot().Val].front();
-  RootSU->isAvailable = true;
-  AvailableQueue->push(RootSU);
+  AvailableQueue->push(SUnitMap[DAG.getRoot().Val]);
 
   // While Available queue is not empty, grab the node with the highest
   // priority. If it is not ready put it back.  Schedule the node.
-  SmallVector<SUnit*, 4> NotReady;
+  std::vector<SUnit*> NotReady;
   while (!AvailableQueue->empty()) {
-    bool Delayed = false;
-    DenseMap<SUnit*, SmallVector<unsigned, 4> > LRegsMap;
-    SUnit *CurSU = AvailableQueue->pop();
-    while (CurSU) {
-      if (CurSU->CycleBound <= CurCycle) {
-        SmallVector<unsigned, 4> LRegs;
-        if (!DelayForLiveRegsBottomUp(CurSU, LRegs))
-          break;
-        Delayed = true;
-        LRegsMap.insert(std::make_pair(CurSU, LRegs));
-      }
-
-      CurSU->isPending = true;  // This SU is not in AvailableQueue right now.
-      NotReady.push_back(CurSU);
-      CurSU = AvailableQueue->pop();
+    SUnit *CurNode = AvailableQueue->pop();
+    while (CurNode && !isReady(CurNode, CurCycle)) {
+      NotReady.push_back(CurNode);
+      CurNode = AvailableQueue->pop();
     }
-
-    // All candidates are delayed due to live physical reg dependencies.
-    // Try backtracking, code duplication, or inserting cross class copies
-    // to resolve it.
-    if (Delayed && !CurSU) {
-      for (unsigned i = 0, e = NotReady.size(); i != e; ++i) {
-        SUnit *TrySU = NotReady[i];
-        SmallVector<unsigned, 4> &LRegs = LRegsMap[TrySU];
-
-        // Try unscheduling up to the point where it's safe to schedule
-        // this node.
-        unsigned LiveCycle = CurCycle;
-        for (unsigned j = 0, ee = LRegs.size(); j != ee; ++j) {
-          unsigned Reg = LRegs[j];
-          unsigned LCycle = LiveRegCycles[Reg];
-          LiveCycle = std::min(LiveCycle, LCycle);
-        }
-        SUnit *OldSU = Sequence[LiveCycle];
-        if (!WillCreateCycle(TrySU, OldSU))  {
-          BacktrackBottomUp(TrySU, LiveCycle, CurCycle);
-          // Force the current node to be scheduled before the node that
-          // requires the physical reg dep.
-          if (OldSU->isAvailable) {
-            OldSU->isAvailable = false;
-            AvailableQueue->remove(OldSU);
-          }
-          TrySU->addPred(OldSU, true, true);
-          // If one or more successors has been unscheduled, then the current
-          // node is no longer avaialable. Schedule a successor that's now
-          // available instead.
-          if (!TrySU->isAvailable)
-            CurSU = AvailableQueue->pop();
-          else {
-            CurSU = TrySU;
-            TrySU->isPending = false;
-            NotReady.erase(NotReady.begin()+i);
-          }
-          break;
-        }
-      }
-
-      if (!CurSU) {
-        // Can't backtrace. Try duplicating the nodes that produces these
-        // "expensive to copy" values to break the dependency. In case even
-        // that doesn't work, insert cross class copies.
-        SUnit *TrySU = NotReady[0];
-        SmallVector<unsigned, 4> &LRegs = LRegsMap[TrySU];
-        assert(LRegs.size() == 1 && "Can't handle this yet!");
-        unsigned Reg = LRegs[0];
-        SUnit *LRDef = LiveRegDefs[Reg];
-        SUnit *NewDef;
-        if (isSafeToCopy(LRDef->Node))
-          NewDef = CopyAndMoveSuccessors(LRDef);
-        else {
-          // Issue expensive cross register class copies.
-          MVT::ValueType VT = getPhysicalRegisterVT(LRDef->Node, Reg, TII);
-          const TargetRegisterClass *RC =
-            MRI->getPhysicalRegisterRegClass(VT, Reg);
-          const TargetRegisterClass *DestRC = MRI->getCrossCopyRegClass(RC);
-          if (!DestRC) {
-            assert(false && "Don't know how to copy this physical register!");
-            abort();
-          }
-          SmallVector<SUnit*, 2> Copies;
-          InsertCCCopiesAndMoveSuccs(LRDef, Reg, DestRC, RC, Copies);
-          DOUT << "Adding an edge from SU # " << TrySU->NodeNum
-               << " to SU #" << Copies.front()->NodeNum << "\n";
-          TrySU->addPred(Copies.front(), true, true);
-          NewDef = Copies.back();
-        }
-
-        DOUT << "Adding an edge from SU # " << NewDef->NodeNum
-             << " to SU #" << TrySU->NodeNum << "\n";
-        LiveRegDefs[Reg] = NewDef;
-        NewDef->addPred(TrySU, true, true);
-        TrySU->isAvailable = false;
-        CurSU = NewDef;
-      }
-
-      if (!CurSU) {
-        assert(false && "Unable to resolve live physical register dependencies!");
-        abort();
-      }
-    }
-
+    
     // Add the nodes that aren't ready back onto the available list.
-    for (unsigned i = 0, e = NotReady.size(); i != e; ++i) {
-      NotReady[i]->isPending = false;
-      // May no longer be available due to backtracking.
-      if (NotReady[i]->isAvailable)
-        AvailableQueue->push(NotReady[i]);
-    }
+    AvailableQueue->push_all(NotReady);
     NotReady.clear();
 
-    if (!CurSU)
-      Sequence.push_back(0);
-    else {
-      ScheduleNodeBottomUp(CurSU, CurCycle);
-      Sequence.push_back(CurSU);
-    }
-    ++CurCycle;
+    if (CurNode != NULL)
+      ScheduleNodeBottomUp(CurNode, CurCycle);
+    CurCycle++;
   }
 
   // Add entry node last
   if (DAG.getEntryNode().Val != DAG.getRoot().Val) {
-    SUnit *Entry = SUnitMap[DAG.getEntryNode().Val].front();
+    SUnit *Entry = SUnitMap[DAG.getEntryNode().Val];
     Sequence.push_back(Entry);
   }
 
@@ -730,9 +291,9 @@ void ScheduleDAGRRList::ReleaseSucc(SUnit *SuccSU, bool isChain,
   SuccSU->CycleBound = std::max(SuccSU->CycleBound, CurCycle + SuccSU->Latency);
 
   if (!isChain)
-    --SuccSU->NumPredsLeft;
+    SuccSU->NumPredsLeft--;
   else
-    --SuccSU->NumChainPredsLeft;
+    SuccSU->NumChainPredsLeft--;
   
 #ifndef NDEBUG
   if (SuccSU->NumPredsLeft < 0 || SuccSU->NumChainPredsLeft < 0) {
@@ -759,11 +320,12 @@ void ScheduleDAGRRList::ScheduleNodeTopDown(SUnit *SU, unsigned CurCycle) {
   SU->Cycle = CurCycle;
 
   AvailableQueue->ScheduledNode(SU);
+  Sequence.push_back(SU);
 
   // Top down: release successors
   for (SUnit::succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
        I != E; ++I)
-    ReleaseSucc(I->Dep, I->isCtrl, CurCycle);
+    ReleaseSucc(I->first, I->second, CurCycle);
   SU->isScheduled = true;
 }
 
@@ -771,7 +333,7 @@ void ScheduleDAGRRList::ScheduleNodeTopDown(SUnit *SU, unsigned CurCycle) {
 /// schedulers.
 void ScheduleDAGRRList::ListScheduleTopDown() {
   unsigned CurCycle = 0;
-  SUnit *Entry = SUnitMap[DAG.getEntryNode().Val].front();
+  SUnit *Entry = SUnitMap[DAG.getEntryNode().Val];
 
   // All leaves to Available queue.
   for (unsigned i = 0, e = SUnits.size(); i != e; ++i) {
@@ -784,29 +346,24 @@ void ScheduleDAGRRList::ListScheduleTopDown() {
   
   // Emit the entry node first.
   ScheduleNodeTopDown(Entry, CurCycle);
-  Sequence.push_back(Entry);
-  ++CurCycle;
+  CurCycle++;
 
   // While Available queue is not empty, grab the node with the highest
   // priority. If it is not ready put it back.  Schedule the node.
   std::vector<SUnit*> NotReady;
   while (!AvailableQueue->empty()) {
-    SUnit *CurSU = AvailableQueue->pop();
-    while (CurSU && CurSU->CycleBound > CurCycle) {
-      NotReady.push_back(CurSU);
-      CurSU = AvailableQueue->pop();
+    SUnit *CurNode = AvailableQueue->pop();
+    while (CurNode && !isReady(CurNode, CurCycle)) {
+      NotReady.push_back(CurNode);
+      CurNode = AvailableQueue->pop();
     }
     
     // Add the nodes that aren't ready back onto the available list.
     AvailableQueue->push_all(NotReady);
     NotReady.clear();
 
-    if (!CurSU)
-      Sequence.push_back(0);
-    else {
-      ScheduleNodeTopDown(CurSU, CurCycle);
-      Sequence.push_back(CurSU);
-    }
+    if (CurNode != NULL)
+      ScheduleNodeTopDown(CurNode, CurCycle);
     CurCycle++;
   }
   
@@ -860,7 +417,7 @@ namespace {
 
 static inline bool isCopyFromLiveIn(const SUnit *SU) {
   SDNode *N = SU->Node;
-  return N && N->getOpcode() == ISD::CopyFromReg &&
+  return N->getOpcode() == ISD::CopyFromReg &&
     N->getOperand(N->getNumOperands()-1).getValueType() != MVT::Flag;
 }
 
@@ -874,21 +431,14 @@ namespace {
     RegReductionPriorityQueue() :
     Queue(SF(this)) {}
     
-    virtual void initNodes(DenseMap<SDNode*, std::vector<SUnit*> > &sumap,
+    virtual void initNodes(DenseMap<SDNode*, SUnit*> &sumap,
                            std::vector<SUnit> &sunits) {}
-
-    virtual void addNode(const SUnit *SU) {}
-
-    virtual void updateNode(const SUnit *SU) {}
-
     virtual void releaseState() {}
     
     virtual unsigned getNodePriority(const SUnit *SU) const {
       return 0;
     }
     
-    unsigned size() const { return Queue.size(); }
-
     bool empty() const { return Queue.empty(); }
     
     void push(SUnit *U) {
@@ -906,33 +456,16 @@ namespace {
       return V;
     }
 
-    /// remove - This is a really inefficient way to remove a node from a
-    /// priority queue.  We should roll our own heap to make this better or
-    /// something.
-    void remove(SUnit *SU) {
-      std::vector<SUnit*> Temp;
-      
-      assert(!Queue.empty() && "Not in queue!");
-      while (Queue.top() != SU) {
-        Temp.push_back(Queue.top());
-        Queue.pop();
-        assert(!Queue.empty() && "Not in queue!");
-      }
-
-      // Remove the node from the PQ.
-      Queue.pop();
-      
-      // Add all the other nodes back.
-      for (unsigned i = 0, e = Temp.size(); i != e; ++i)
-        Queue.push(Temp[i]);
+    virtual bool isDUOperand(const SUnit *SU1, const SUnit *SU2) {
+      return false;
     }
   };
 
   template<class SF>
   class VISIBILITY_HIDDEN BURegReductionPriorityQueue
    : public RegReductionPriorityQueue<SF> {
-    // SUnitMap SDNode to SUnit mapping (n -> n).
-    DenseMap<SDNode*, std::vector<SUnit*> > *SUnitMap;
+    // SUnitMap SDNode to SUnit mapping (n -> 1).
+    DenseMap<SDNode*, SUnit*> *SUnitMap;
 
     // SUnits - The SUnits for the current graph.
     const std::vector<SUnit> *SUnits;
@@ -945,7 +478,7 @@ namespace {
     explicit BURegReductionPriorityQueue(const TargetInstrInfo *tii)
       : TII(tii) {}
 
-    void initNodes(DenseMap<SDNode*, std::vector<SUnit*> > &sumap,
+    void initNodes(DenseMap<SDNode*, SUnit*> &sumap,
                    std::vector<SUnit> &sunits) {
       SUnitMap = &sumap;
       SUnits = &sunits;
@@ -955,16 +488,6 @@ namespace {
       CalculateSethiUllmanNumbers();
     }
 
-    void addNode(const SUnit *SU) {
-      SethiUllmanNumbers.resize(SUnits->size(), 0);
-      CalcNodeSethiUllmanNumber(SU);
-    }
-
-    void updateNode(const SUnit *SU) {
-      SethiUllmanNumbers[SU->NodeNum] = 0;
-      CalcNodeSethiUllmanNumber(SU);
-    }
-
     void releaseState() {
       SUnits = 0;
       SethiUllmanNumbers.clear();
@@ -972,7 +495,7 @@ namespace {
 
     unsigned getNodePriority(const SUnit *SU) const {
       assert(SU->NodeNum < SethiUllmanNumbers.size());
-      unsigned Opc = SU->Node ? SU->Node->getOpcode() : 0;
+      unsigned Opc = SU->Node->getOpcode();
       if (Opc == ISD::CopyFromReg && !isCopyFromLiveIn(SU))
         // CopyFromReg should be close to its def because it restricts
         // allocation choices. But if it is a livein then perhaps we want it
@@ -996,6 +519,18 @@ namespace {
         return SethiUllmanNumbers[SU->NodeNum];
     }
 
+    bool isDUOperand(const SUnit *SU1, const SUnit *SU2) {
+      unsigned Opc = SU1->Node->getTargetOpcode();
+      unsigned NumRes = TII->getNumDefs(Opc);
+      unsigned NumOps = ScheduleDAG::CountOperands(SU1->Node);
+      for (unsigned i = 0; i != NumOps; ++i) {
+        if (TII->getOperandConstraint(Opc, i+NumRes, TOI::TIED_TO) == -1)
+          continue;
+        if (SU1->Node->getOperand(i).isOperand(SU2->Node))
+          return true;
+      }
+      return false;
+    }
   private:
     bool canClobber(SUnit *SU, SUnit *Op);
     void AddPseudoTwoAddrDeps();
@@ -1007,8 +542,8 @@ namespace {
   template<class SF>
   class VISIBILITY_HIDDEN TDRegReductionPriorityQueue
    : public RegReductionPriorityQueue<SF> {
-    // SUnitMap SDNode to SUnit mapping (n -> n).
-    DenseMap<SDNode*, std::vector<SUnit*> > *SUnitMap;
+    // SUnitMap SDNode to SUnit mapping (n -> 1).
+    DenseMap<SDNode*, SUnit*> *SUnitMap;
 
     // SUnits - The SUnits for the current graph.
     const std::vector<SUnit> *SUnits;
@@ -1019,22 +554,12 @@ namespace {
   public:
     TDRegReductionPriorityQueue() {}
 
-    void initNodes(DenseMap<SDNode*, std::vector<SUnit*> > &sumap,
+    void initNodes(DenseMap<SDNode*, SUnit*> &sumap,
                    std::vector<SUnit> &sunits) {
       SUnitMap = &sumap;
       SUnits = &sunits;
       // Calculate node priorities.
       CalculateSethiUllmanNumbers();
-    }
-
-    void addNode(const SUnit *SU) {
-      SethiUllmanNumbers.resize(SUnits->size(), 0);
-      CalcNodeSethiUllmanNumber(SU);
-    }
-
-    void updateNode(const SUnit *SU) {
-      SethiUllmanNumbers[SU->NodeNum] = 0;
-      CalcNodeSethiUllmanNumber(SU);
     }
 
     void releaseState() {
@@ -1059,11 +584,11 @@ static unsigned closestSucc(const SUnit *SU) {
   unsigned MaxCycle = 0;
   for (SUnit::const_succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
        I != E; ++I) {
-    unsigned Cycle = I->Dep->Cycle;
+    unsigned Cycle = I->first->Cycle;
     // If there are bunch of CopyToRegs stacked up, they should be considered
     // to be at the same position.
-    if (I->Dep->Node && I->Dep->Node->getOpcode() == ISD::CopyToReg)
-      Cycle = closestSucc(I->Dep)+1;
+    if (I->first->Node->getOpcode() == ISD::CopyToReg)
+      Cycle = closestSucc(I->first)+1;
     if (Cycle > MaxCycle)
       MaxCycle = Cycle;
   }
@@ -1077,14 +602,14 @@ static unsigned calcMaxScratches(const SUnit *SU) {
   unsigned Scratches = 0;
   for (SUnit::const_pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
        I != E; ++I) {
-    if (I->isCtrl) continue;  // ignore chain preds
-    if (!I->Dep->Node || I->Dep->Node->getOpcode() != ISD::CopyFromReg)
+    if (I->second) continue;  // ignore chain preds
+    if (I->first->Node->getOpcode() != ISD::CopyFromReg)
       Scratches++;
   }
   for (SUnit::const_succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
        I != E; ++I) {
-    if (I->isCtrl) continue;  // ignore chain succs
-    if (!I->Dep->Node || I->Dep->Node->getOpcode() != ISD::CopyToReg)
+    if (I->second) continue;  // ignore chain succs
+    if (I->first->Node->getOpcode() != ISD::CopyToReg)
       Scratches += 10;
   }
   return Scratches;
@@ -1154,6 +679,28 @@ bool bu_ls_rr_sort::operator()(const SUnit *left, const SUnit *right) const {
   return false;
 }
 
+// FIXME: This is probably too slow!
+static void isReachable(SUnit *SU, SUnit *TargetSU,
+                        SmallPtrSet<SUnit*, 32> &Visited, bool &Reached) {
+  if (Reached) return;
+  if (SU == TargetSU) {
+    Reached = true;
+    return;
+  }
+  if (!Visited.insert(SU)) return;
+
+  for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end(); I != E;
+       ++I)
+    isReachable(I->first, TargetSU, Visited, Reached);
+}
+
+static bool isReachable(SUnit *SU, SUnit *TargetSU) {
+  SmallPtrSet<SUnit*, 32> Visited;
+  bool Reached = false;
+  isReachable(SU, TargetSU, Visited, Reached);
+  return Reached;
+}
+
 template<class SF>
 bool BURegReductionPriorityQueue<SF>::canClobber(SUnit *SU, SUnit *Op) {
   if (SU->isTwoAddress) {
@@ -1163,7 +710,7 @@ bool BURegReductionPriorityQueue<SF>::canClobber(SUnit *SU, SUnit *Op) {
     for (unsigned i = 0; i != NumOps; ++i) {
       if (TII->getOperandConstraint(Opc, i+NumRes, TOI::TIED_TO) != -1) {
         SDNode *DU = SU->Node->getOperand(i).Val;
-        if (Op == (*SUnitMap)[DU][SU->InstanceNo])
+        if (Op == (*SUnitMap)[DU])
           return true;
       }
     }
@@ -1184,7 +731,7 @@ void BURegReductionPriorityQueue<SF>::AddPseudoTwoAddrDeps() {
       continue;
 
     SDNode *Node = SU->Node;
-    if (!Node || !Node->isTargetOpcode())
+    if (!Node->isTargetOpcode())
       continue;
 
     unsigned Opc = Node->getTargetOpcode();
@@ -1193,25 +740,23 @@ void BURegReductionPriorityQueue<SF>::AddPseudoTwoAddrDeps() {
     for (unsigned j = 0; j != NumOps; ++j) {
       if (TII->getOperandConstraint(Opc, j+NumRes, TOI::TIED_TO) != -1) {
         SDNode *DU = SU->Node->getOperand(j).Val;
-        SUnit *DUSU = (*SUnitMap)[DU][SU->InstanceNo];
+        SUnit *DUSU = (*SUnitMap)[DU];
         if (!DUSU) continue;
         for (SUnit::succ_iterator I = DUSU->Succs.begin(),E = DUSU->Succs.end();
              I != E; ++I) {
-          if (I->isCtrl) continue;
-          SUnit *SuccSU = I->Dep;
-          // Don't constraint nodes with implicit defs. It can create cycles
-          // plus it may increase register pressures.
-          if (SuccSU == SU || SuccSU->hasImplicitDefs)
-            continue;
-          // Be conservative. Ignore if nodes aren't at the same depth.
-          if (SuccSU->Depth != SU->Depth)
-            continue;
-          if ((!canClobber(SuccSU, DUSU) ||
-               (!SU->isCommutable && SuccSU->isCommutable)) &&
-              !isReachable(SuccSU, SU)) {
-            DOUT << "Adding an edge from SU # " << SU->NodeNum
-                 << " to SU #" << SuccSU->NodeNum << "\n";
-            SU->addPred(SuccSU, true, true);
+          if (I->second) continue;
+          SUnit *SuccSU = I->first;
+          if (SuccSU != SU &&
+              (!canClobber(SuccSU, DUSU) ||
+               (!SU->isCommutable && SuccSU->isCommutable))){
+            if (SuccSU->Depth == SU->Depth && !isReachable(SuccSU, SU)) {
+              DOUT << "Adding an edge from SU # " << SU->NodeNum
+                   << " to SU #" << SuccSU->NodeNum << "\n";
+              if (SU->addPred(SuccSU, true))
+                SU->NumChainPredsLeft++;
+              if (SuccSU->addSucc(SU, true))
+                SuccSU->NumChainSuccsLeft++;
+            }
           }
         }
       }
@@ -1231,14 +776,14 @@ CalcNodeSethiUllmanNumber(const SUnit *SU) {
   unsigned Extra = 0;
   for (SUnit::const_pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
        I != E; ++I) {
-    if (I->isCtrl) continue;  // ignore chain preds
-    SUnit *PredSU = I->Dep;
+    if (I->second) continue;  // ignore chain preds
+    SUnit *PredSU = I->first;
     unsigned PredSethiUllman = CalcNodeSethiUllmanNumber(PredSU);
     if (PredSethiUllman > SethiUllmanNumber) {
       SethiUllmanNumber = PredSethiUllman;
       Extra = 0;
-    } else if (PredSethiUllman == SethiUllmanNumber && !I->isCtrl)
-      ++Extra;
+    } else if (PredSethiUllman == SethiUllmanNumber && !I->second)
+      Extra++;
   }
 
   SethiUllmanNumber += Extra;
@@ -1263,12 +808,12 @@ static unsigned SumOfUnscheduledPredsOfSuccs(const SUnit *SU) {
   unsigned Sum = 0;
   for (SUnit::const_succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
        I != E; ++I) {
-    SUnit *SuccSU = I->Dep;
+    SUnit *SuccSU = I->first;
     for (SUnit::const_pred_iterator II = SuccSU->Preds.begin(),
          EE = SuccSU->Preds.end(); II != EE; ++II) {
-      SUnit *PredSU = II->Dep;
+      SUnit *PredSU = II->first;
       if (!PredSU->isScheduled)
-        ++Sum;
+        Sum++;
     }
   }
 
@@ -1280,8 +825,8 @@ static unsigned SumOfUnscheduledPredsOfSuccs(const SUnit *SU) {
 bool td_ls_rr_sort::operator()(const SUnit *left, const SUnit *right) const {
   unsigned LPriority = SPQ->getNodePriority(left);
   unsigned RPriority = SPQ->getNodePriority(right);
-  bool LIsTarget = left->Node && left->Node->isTargetOpcode();
-  bool RIsTarget = right->Node && right->Node->isTargetOpcode();
+  bool LIsTarget = left->Node->isTargetOpcode();
+  bool RIsTarget = right->Node->isTargetOpcode();
   bool LIsFloater = LIsTarget && left->NumPreds == 0;
   bool RIsFloater = RIsTarget && right->NumPreds == 0;
   unsigned LBonus = (SumOfUnscheduledPredsOfSuccs(left) == 1) ? 2 : 0;
@@ -1338,7 +883,7 @@ CalcNodeSethiUllmanNumber(const SUnit *SU) {
   if (SethiUllmanNumber != 0)
     return SethiUllmanNumber;
 
-  unsigned Opc = SU->Node ? SU->Node->getOpcode() : 0;
+  unsigned Opc = SU->Node->getOpcode();
   if (Opc == ISD::TokenFactor || Opc == ISD::CopyToReg)
     SethiUllmanNumber = 0xffff;
   else if (SU->NumSuccsLeft == 0)
@@ -1354,14 +899,14 @@ CalcNodeSethiUllmanNumber(const SUnit *SU) {
     int Extra = 0;
     for (SUnit::const_pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
          I != E; ++I) {
-      if (I->isCtrl) continue;  // ignore chain preds
-      SUnit *PredSU = I->Dep;
+      if (I->second) continue;  // ignore chain preds
+      SUnit *PredSU = I->first;
       unsigned PredSethiUllman = CalcNodeSethiUllmanNumber(PredSU);
       if (PredSethiUllman > SethiUllmanNumber) {
         SethiUllmanNumber = PredSethiUllman;
         Extra = 0;
-      } else if (PredSethiUllman == SethiUllmanNumber && !I->isCtrl)
-        ++Extra;
+      } else if (PredSethiUllman == SethiUllmanNumber && !I->second)
+        Extra++;
     }
 
     SethiUllmanNumber += Extra;

@@ -61,6 +61,7 @@ namespace {
       (void) llvm::createDeadStoreEliminationPass();
       (void) llvm::createDeadTypeEliminationPass();
       (void) llvm::createEdgeProfilerPass();
+      (void) llvm::createRedundantLoadEliminationPass();
       (void) llvm::createFunctionInliningPass();
       (void) llvm::createFunctionProfilerPass();
       (void) llvm::createGCSEPass();

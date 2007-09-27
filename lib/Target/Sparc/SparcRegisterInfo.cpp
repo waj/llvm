@@ -65,18 +65,12 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
 void SparcRegisterInfo::copyRegToReg(MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I,
                                      unsigned DestReg, unsigned SrcReg,
-                                     const TargetRegisterClass *DestRC,
-                                     const TargetRegisterClass *SrcRC) const {
-  if (DestRC != SrcRC) {
-    cerr << "Not yet supported!";
-    abort();
-  }
-
-  if (DestRC == SP::IntRegsRegisterClass)
+                                     const TargetRegisterClass *RC) const {
+  if (RC == SP::IntRegsRegisterClass)
     BuildMI(MBB, I, TII.get(SP::ORrr), DestReg).addReg(SP::G0).addReg(SrcReg);
-  else if (DestRC == SP::FPRegsRegisterClass)
+  else if (RC == SP::FPRegsRegisterClass)
     BuildMI(MBB, I, TII.get(SP::FMOVS), DestReg).addReg(SrcReg);
-  else if (DestRC == SP::DFPRegsRegisterClass)
+  else if (RC == SP::DFPRegsRegisterClass)
     BuildMI(MBB, I, TII.get(Subtarget.isV9() ? SP::FMOVD : SP::FpMOVD),DestReg)
       .addReg(SrcReg);
   else

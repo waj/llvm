@@ -264,7 +264,7 @@ namespace llvm {
     /// edge, override this method.
     template<typename EdgeIter>
     static std::string getEdgeAttributes(const void *Node, EdgeIter EI) {
-      if (EI.isCtrlDep())
+      if (EI.isChain())
         return "color=blue,style=dashed";
       return "";
     }
@@ -281,7 +281,7 @@ namespace llvm {
                                        GraphWriter<ScheduleDAG*> &GW) {
       GW.emitSimpleNode(0, "plaintext=circle", "GraphRoot");
       if (G->DAG.getRoot().Val)
-        GW.emitEdge(0, -1, G->SUnitMap[G->DAG.getRoot().Val].front(), -1, "");
+        GW.emitEdge(0, -1, G->SUnitMap[G->DAG.getRoot().Val], -1, "");
     }
   };
 }

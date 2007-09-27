@@ -22,7 +22,7 @@ namespace llvm {
   class AlphaTargetMachine;
 
   struct AlphaTargetAsmInfo : public TargetAsmInfo {
-    explicit AlphaTargetAsmInfo(const AlphaTargetMachine &TM);
+    AlphaTargetAsmInfo(const AlphaTargetMachine &TM);
   };
 
 } // namespace llvm

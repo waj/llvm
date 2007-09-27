@@ -20,7 +20,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Target/TargetAsmInfo.h"
 using namespace llvm;
 
 /// InitLibcallNames - Set default libcall names.
@@ -70,18 +69,14 @@ static void InitLibcallNames(const char **Names) {
   Names[RTLIB::FPTOSINT_F32_I64] = "__fixsfdi";
   Names[RTLIB::FPTOSINT_F64_I32] = "__fixdfsi";
   Names[RTLIB::FPTOSINT_F64_I64] = "__fixdfdi";
-  Names[RTLIB::FPTOSINT_LD_I64] = "__fixxfdi";
   Names[RTLIB::FPTOUINT_F32_I32] = "__fixunssfsi";
   Names[RTLIB::FPTOUINT_F32_I64] = "__fixunssfdi";
   Names[RTLIB::FPTOUINT_F64_I32] = "__fixunsdfsi";
   Names[RTLIB::FPTOUINT_F64_I64] = "__fixunsdfdi";
-  Names[RTLIB::FPTOUINT_LD_I32] = "__fixunsxfsi";
-  Names[RTLIB::FPTOUINT_LD_I64] = "__fixunsxfdi";
   Names[RTLIB::SINTTOFP_I32_F32] = "__floatsisf";
   Names[RTLIB::SINTTOFP_I32_F64] = "__floatsidf";
   Names[RTLIB::SINTTOFP_I64_F32] = "__floatdisf";
   Names[RTLIB::SINTTOFP_I64_F64] = "__floatdidf";
-  Names[RTLIB::SINTTOFP_I64_LD] = "__floatdixf";
   Names[RTLIB::UINTTOFP_I32_F32] = "__floatunsisf";
   Names[RTLIB::UINTTOFP_I32_F64] = "__floatunsidf";
   Names[RTLIB::UINTTOFP_I64_F32] = "__floatundisf";
@@ -170,10 +165,6 @@ TargetLowering::TargetLowering(TargetMachine &tm)
 
   InitLibcallNames(LibcallRoutineNames);
   InitCmpLibcallCCs(CmpLibcallCCs);
-
-  // Tell Legalize whether the assembler supports DEBUG_LOC.
-  if (!TM.getTargetAsmInfo()->hasDotLocAndDotFile())
-    setOperationAction(ISD::DEBUG_LOC, MVT::Other, Expand);
 }
 
 TargetLowering::~TargetLowering() {}

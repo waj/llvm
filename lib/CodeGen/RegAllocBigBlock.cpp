@@ -63,7 +63,6 @@ namespace {
   struct VRegKeyInfo {
     static inline unsigned getEmptyKey() { return -1U; }
     static inline unsigned getTombstoneKey() { return -2U; }
-    static bool isEqual(unsigned LHS, unsigned RHS) { return LHS == RHS; }
     static unsigned getHashValue(const unsigned &Key) { return Key; }
   };
 

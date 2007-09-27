@@ -28,7 +28,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/Mangler.h"
-#include "llvm/System/Path.h"
 #include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetData.h"
@@ -799,14 +798,9 @@ protected:
   /// SubprogramCount - The running count of functions being compiled.
   ///
   unsigned SubprogramCount;
-  
-  /// Flavor - A unique string indicating what dwarf producer this is, used to
-  /// unique labels.
-  const char * const Flavor;
 
   unsigned SetCounter;
-  Dwarf(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T,
-        const char *flavor)
+  Dwarf(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T)
   : O(OS)
   , Asm(A)
   , TAI(T)
@@ -816,7 +810,6 @@ protected:
   , MF(NULL)
   , MMI(NULL)
   , SubprogramCount(0)
-  , Flavor(flavor)
   , SetCounter(1)
   {
   }
@@ -846,15 +839,9 @@ public:
     PrintLabelName(Label.Tag, Label.Number);
   }
   void PrintLabelName(const char *Tag, unsigned Number) const {
+    
     O << TAI->getPrivateGlobalPrefix() << Tag;
     if (Number) O << Number;
-  }
-  
-  void PrintLabelName(const char *Tag, unsigned Number,
-                      const char *Suffix) const {
-    O << TAI->getPrivateGlobalPrefix() << Tag;
-    if (Number) O << Number;
-    O << Suffix;
   }
   
   /// EmitLabel - Emit location label for internal use by Dwarf.
@@ -901,7 +888,7 @@ public:
                       bool IsSmall = false) {
     if (TAI->needsSet()) {
       O << "\t.set\t";
-      PrintLabelName("set", SetCounter, Flavor);
+      PrintLabelName("set", SetCounter);
       O << ",";
       PrintLabelName(TagHi, NumberHi);
       O << "-";
@@ -909,7 +896,9 @@ public:
       O << "\n";
 
       PrintRelDirective(IsSmall);
-      PrintLabelName("set", SetCounter, Flavor);
+        
+      PrintLabelName("set", SetCounter);
+      
       ++SetCounter;
     } else {
       PrintRelDirective(IsSmall);
@@ -926,7 +915,7 @@ public:
     bool printAbsolute = false;
     if (TAI->needsSet()) {
       O << "\t.set\t";
-      PrintLabelName("set", SetCounter, Flavor);
+      PrintLabelName("set", SetCounter);
       O << ",";
       PrintLabelName(Label, LabelNumber);
 
@@ -943,7 +932,7 @@ public:
 
       PrintRelDirective(IsSmall);
         
-      PrintLabelName("set", SetCounter, Flavor);
+      PrintLabelName("set", SetCounter);
       ++SetCounter;
     } else {
       PrintRelDirective(IsSmall, true);
@@ -1312,9 +1301,7 @@ public:
       ValuesSet.InsertNode(Value, Where);
       Values.push_back(Value);
     } else {
-      // Already exists, reuse the previous one.
       delete Block;
-      Block = cast<DIEBlock>(Value);
     }
   
     Die->AddValue(Attribute, Block->BestForm(), Value);
@@ -1968,19 +1955,6 @@ private:
     if (didInitial) return;
     didInitial = true;
     
-    // Print out .file directives to specify files for .loc directives.
-    if (TAI->hasDotLocAndDotFile()) {
-      const UniqueVector<SourceFileInfo> &SourceFiles = MMI->getSourceFiles();
-      const UniqueVector<std::string> &Directories = MMI->getDirectories();
-      for (unsigned i = 1, e = SourceFiles.size(); i <= e; ++i) {
-        sys::Path FullPath(Directories[SourceFiles[i].getDirectoryID()]);
-        bool AppendOk = FullPath.appendComponent(SourceFiles[i].getName());
-        assert(AppendOk && "Could not append filename to directory!");
-        Asm->EmitFile(i, FullPath.toString());
-        Asm->EOL();
-      }
-    }
-
     // Dwarf sections base addresses.
     if (TAI->doesDwarfRequireFrameSection()) {
       Asm->SwitchToDataSection(TAI->getDwarfFrameSection());
@@ -2196,11 +2170,6 @@ private:
   /// EmitDebugLines - Emit source line information.
   ///
   void EmitDebugLines() {
-    // If there are no lines to emit (such as when we're using .loc directives
-    // to emit .debug_line information) don't emit a .debug_line header.
-    if (SectionSourceLines.empty())
-      return;
-
     // Minimum line delta, thus ranging from -10..(255-10).
     const int MinLineDelta = -(DW_LNS_fixed_advance_pc + 1);
     // Maximum line delta, thus ranging from -10..(255-10).
@@ -2530,9 +2499,9 @@ private:
 
     Asm->EmitInt32(0); Asm->EOL("EOM (1)");
     Asm->EmitInt32(0); Asm->EOL("EOM (2)");
-  #endif
     
     Asm->EOL();
+  #endif
   }
 
   /// EmitDebugRanges - Emit visible names into a debug ranges section.
@@ -2594,7 +2563,7 @@ public:
   // Main entry points.
   //
   DwarfDebug(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T)
-  : Dwarf(OS, A, T, "dbg")
+  : Dwarf(OS, A, T)
   , CompileUnits()
   , AbbreviationsSet(InitAbbreviationsSetSize)
   , Abbreviations()
@@ -2864,13 +2833,13 @@ private:
 
     // Externally visible entry into the functions eh frame info.
     if (const char *GlobalDirective = TAI->getGlobalDirective())
-      O << GlobalDirective << EHFrameInfo.FnName << "\n";
+      O << GlobalDirective << EHFrameInfo.FnName << ".eh\n";
     
     // If there are no calls then you can't unwind.
     if (!EHFrameInfo.hasCalls) { 
-      O << EHFrameInfo.FnName << " = 0\n";
+      O << EHFrameInfo.FnName << ".eh = 0\n";
     } else {
-      O << EHFrameInfo.FnName << ":\n";
+      O << EHFrameInfo.FnName << ".eh:\n";
       
       // EH frame header.
       EmitDifference("eh_frame_end", EHFrameInfo.Number,
@@ -2918,7 +2887,7 @@ private:
     }
     
     if (const char *UsedDirective = TAI->getUsedDirective())
-      O << UsedDirective << EHFrameInfo.FnName << "\n\n";
+      O << UsedDirective << EHFrameInfo.FnName << ".eh\n\n";
   }
 
   /// EmitExceptionTable - Emit landing pads and actions.
@@ -2973,7 +2942,6 @@ private:
     static inline unsigned getEmptyKey() { return -1U; }
     static inline unsigned getTombstoneKey() { return -2U; }
     static unsigned getHashValue(const unsigned &Key) { return Key; }
-    static bool isEqual(unsigned LHS, unsigned RHS) { return LHS == RHS; }
     static bool isPod() { return true; }
   };
 
@@ -3297,7 +3265,7 @@ public:
   // Main entry points.
   //
   DwarfException(std::ostream &OS, AsmPrinter *A, const TargetAsmInfo *T)
-  : Dwarf(OS, A, T, "eh")
+  : Dwarf(OS, A, T)
   , shouldEmit(false)
   {}
   
@@ -3352,13 +3320,12 @@ public:
     EmitExceptionTable();
 
     // Save EH frame information
-    EHFrames.
-      push_back(FunctionEHFrameInfo(getAsm()->getCurrentFunctionEHName(MF),
-                                    SubprogramCount,
-                                    MMI->getPersonalityIndex(),
-                                    MF->getFrameInfo()->hasCalls(),
-                                    !MMI->getLandingPads().empty(),
-                                    MMI->getFrameMoves()));
+    EHFrames.push_back(FunctionEHFrameInfo(getAsm()->CurrentFnName,
+                                           SubprogramCount,
+                                           MMI->getPersonalityIndex(),
+                                           MF->getFrameInfo()->hasCalls(),
+                                           !MMI->getLandingPads().empty(),
+                                           MMI->getFrameMoves()));
   }
 };
 

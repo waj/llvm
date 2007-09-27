@@ -446,7 +446,7 @@ static void InvalidateKills(MachineInstr &MI, BitVector &RegKills,
                             SmallVector<unsigned, 1> *KillRegs = NULL) {
   for (unsigned i = 0, e = MI.getNumOperands(); i != e; ++i) {
     MachineOperand &MO = MI.getOperand(i);
-    if (!MO.isRegister() || !MO.isUse() || !MO.isKill())
+    if (!MO.isReg() || !MO.isUse() || !MO.isKill())
       continue;
     unsigned Reg = MO.getReg();
     if (KillRegs)
@@ -471,7 +471,7 @@ static bool InvalidateRegDef(MachineBasicBlock::iterator I,
   MachineOperand *DefOp = NULL;
   for (unsigned i = 0, e = DefMI->getNumOperands(); i != e; ++i) {
     MachineOperand &MO = DefMI->getOperand(i);
-    if (MO.isRegister() && MO.isDef()) {
+    if (MO.isReg() && MO.isDef()) {
       if (MO.getReg() == Reg)
         DefOp = &MO;
       else if (!MO.isDead())
@@ -488,7 +488,7 @@ static bool InvalidateRegDef(MachineBasicBlock::iterator I,
     MachineInstr *NMI = I;
     for (unsigned j = 0, ee = NMI->getNumOperands(); j != ee; ++j) {
       MachineOperand &MO = NMI->getOperand(j);
-      if (!MO.isRegister() || MO.getReg() != Reg)
+      if (!MO.isReg() || MO.getReg() != Reg)
         continue;
       if (MO.isUse())
         FoundUse = true;
@@ -511,7 +511,7 @@ static void UpdateKills(MachineInstr &MI, BitVector &RegKills,
   const TargetInstrDescriptor *TID = MI.getInstrDescriptor();
   for (unsigned i = 0, e = MI.getNumOperands(); i != e; ++i) {
     MachineOperand &MO = MI.getOperand(i);
-    if (!MO.isRegister() || !MO.isUse())
+    if (!MO.isReg() || !MO.isUse())
       continue;
     unsigned Reg = MO.getReg();
     if (Reg == 0)
@@ -535,7 +535,7 @@ static void UpdateKills(MachineInstr &MI, BitVector &RegKills,
 
   for (unsigned i = 0, e = MI.getNumOperands(); i != e; ++i) {
     const MachineOperand &MO = MI.getOperand(i);
-    if (!MO.isRegister() || !MO.isDef())
+    if (!MO.isReg() || !MO.isDef())
       continue;
     unsigned Reg = MO.getReg();
     RegKills.reset(Reg);
@@ -826,7 +826,7 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
         bool CanReuse = true;
         int ti = TID->getOperandConstraint(i, TOI::TIED_TO);
         if (ti != -1 &&
-            MI.getOperand(ti).isRegister() && 
+            MI.getOperand(ti).isReg() && 
             MI.getOperand(ti).getReg() == VirtReg) {
           // Okay, we have a two address operand.  We can reuse this physreg as
           // long as we are allowed to clobber the value and there isn't an
@@ -926,7 +926,7 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
         const TargetRegisterClass* RC = MF.getSSARegMap()->getRegClass(VirtReg);
         MF.setPhysRegUsed(DesignatedReg);
         ReusedOperands.markClobbered(DesignatedReg);
-        MRI->copyRegToReg(MBB, &MI, DesignatedReg, PhysReg, RC, RC);
+        MRI->copyRegToReg(MBB, &MI, DesignatedReg, PhysReg, RC);
 
         MachineInstr *CopyMI = prior(MII);
         UpdateKills(*CopyMI, RegKills, KillOps);
@@ -1009,9 +1009,8 @@ void LocalSpiller::RewriteMBB(MachineBasicBlock &MBB, VirtRegMap &VRM) {
             if (unsigned InReg = Spills.getSpillSlotOrReMatPhysReg(SS)) {
               DOUT << "Promoted Load To Copy: " << MI;
               if (DestReg != InReg) {
-                const TargetRegisterClass *RC =
-                  MF.getSSARegMap()->getRegClass(VirtReg);
-                MRI->copyRegToReg(MBB, &MI, DestReg, InReg, RC, RC);
+                MRI->copyRegToReg(MBB, &MI, DestReg, InReg,
+                                  MF.getSSARegMap()->getRegClass(VirtReg));
                 // Revisit the copy so we make sure to notice the effects of the
                 // operation on the destreg (either needing to RA it if it's 
                 // virtual or needing to clobber any values if it's physical).

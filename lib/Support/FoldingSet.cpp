@@ -40,9 +40,6 @@ void FoldingSetImpl::NodeID::AddInteger(signed I) {
 void FoldingSetImpl::NodeID::AddInteger(unsigned I) {
   Bits.push_back(I);
 }
-void FoldingSetImpl::NodeID::AddInteger(int64_t I) {
-  AddInteger((uint64_t)I);
-}
 void FoldingSetImpl::NodeID::AddInteger(uint64_t I) {
   Bits.push_back(unsigned(I));
   
@@ -55,12 +52,6 @@ void FoldingSetImpl::NodeID::AddFloat(float F) {
 }
 void FoldingSetImpl::NodeID::AddDouble(double D) {
  AddInteger(DoubleToBits(D));
-}
-void FoldingSetImpl::NodeID::AddAPFloat(const APFloat& apf) {
-  APInt api = apf.convertToAPInt();
-  const uint64_t *p = api.getRawData();
-  for (unsigned i=0; i<api.getNumWords(); i++)
-    AddInteger(*p++);
 }
 void FoldingSetImpl::NodeID::AddString(const std::string &String) {
   unsigned Size = String.size();

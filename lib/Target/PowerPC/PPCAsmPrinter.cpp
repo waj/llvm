@@ -450,7 +450,7 @@ bool PPCAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
     case 'I':
       // Write 'i' if an integer constant, otherwise nothing.  Used to print
       // addi vs add, etc.
-      if (MI->getOperand(OpNo).isImmediate())
+      if (MI->getOperand(OpNo).isImm())
         O << "i";
       return false;
     }
@@ -661,9 +661,9 @@ bool LinuxAsmPrinter::doFinalization(Module &M) {
     unsigned Align = TD->getPreferredAlignmentLog(I);
 
     if (C->isNullValue() && /* FIXME: Verify correct */
-        !I->hasSection() &&
         (I->hasInternalLinkage() || I->hasWeakLinkage() ||
-         I->hasLinkOnceLinkage() || I->hasExternalLinkage())) {
+         I->hasLinkOnceLinkage() ||
+         (I->hasExternalLinkage() && !I->hasSection()))) {
       if (Size == 0) Size = 1;   // .comm Foo, 0 is undefined, avoid it.
       if (I->hasExternalLinkage()) {
         O << "\t.global " << name << '\n';
@@ -911,9 +911,9 @@ bool DarwinAsmPrinter::doFinalization(Module &M) {
     unsigned Align = TD->getPreferredAlignmentLog(I);
 
     if (C->isNullValue() && /* FIXME: Verify correct */
-        !I->hasSection() &&
         (I->hasInternalLinkage() || I->hasWeakLinkage() ||
-         I->hasLinkOnceLinkage() || I->hasExternalLinkage())) {
+         I->hasLinkOnceLinkage() ||
+         (I->hasExternalLinkage() && !I->hasSection()))) {
       if (Size == 0) Size = 1;   // .comm Foo, 0 is undefined, avoid it.
       if (I->hasExternalLinkage()) {
         O << "\t.globl " << name << '\n';

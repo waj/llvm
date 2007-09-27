@@ -112,11 +112,6 @@ namespace llvm {
     /// Should be overridden if an indirect reference should be used.
     virtual void EmitExternalGlobal(const GlobalVariable *GV);
 
-    /// getCurrentFunctionEHName - Called to return (and cache) the
-    /// CurrentFnEHName.
-    /// 
-    std::string getCurrentFunctionEHName(const MachineFunction *MF);
-
   protected:
     /// doInitialization - Set up the AsmPrinter when we are working on a new
     /// module.  If your pass overrides this, it must make sure to explicitly
@@ -248,9 +243,6 @@ namespace llvm {
     /// @verbatim (Eg. '\t') @endverbatim
     void EmitString(const std::string &String) const;
     
-    /// EmitFile - Emit a .file directive.
-    void EmitFile(unsigned Number, const std::string &Name) const;
-
     //===------------------------------------------------------------------===//
 
     /// EmitAlignment - Emit an alignment directive to the specified power of

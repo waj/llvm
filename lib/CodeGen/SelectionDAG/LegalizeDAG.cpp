@@ -486,18 +486,15 @@ static SDOperand ExpandConstantFP(ConstantFPSDNode *CFP, bool UseCP,
   // double.
   MVT::ValueType VT = CFP->getValueType(0);
   bool isDouble = VT == MVT::f64;
-  ConstantFP *LLVMC = ConstantFP::get(MVT::getTypeForValueType(VT),
-                                      CFP->getValueAPF());
+  ConstantFP *LLVMC = ConstantFP::get(isDouble ? Type::DoubleTy :
+                                      Type::FloatTy, CFP->getValueAPF());
   if (!UseCP) {
-    if (VT!=MVT::f64 && VT!=MVT::f32)
-      assert(0 && "Invalid type expansion");
     return DAG.getConstant(LLVMC->getValueAPF().convertToAPInt().getZExtValue(),
                            isDouble ? MVT::i64 : MVT::i32);
   }
 
   if (isDouble && CFP->isValueValidForType(MVT::f32, CFP->getValueAPF()) &&
       // Only do this if the target has a native EXTLOAD instruction from f32.
-      // Do not try to be clever about long doubles (so far)
       TLI.isLoadXLegal(ISD::EXTLOAD, MVT::f32)) {
     LLVMC = cast<ConstantFP>(ConstantExpr::getFPTrunc(LLVMC,Type::FloatTy));
     VT = MVT::f32;
@@ -893,8 +890,7 @@ SDOperand SelectionDAGLegalize::LegalizeOp(SDOperand Op) {
       if (MVT::isInteger(VT))
         Result = DAG.getConstant(0, VT);
       else if (MVT::isFloatingPoint(VT))
-        Result = DAG.getConstantFP(APFloat(APInt(MVT::getSizeInBits(VT), 0)),
-                                   VT);
+        Result = DAG.getConstantFP(0, VT);
       else
         assert(0 && "Unknown value type!");
       break;
@@ -1980,22 +1976,19 @@ SDOperand SelectionDAGLegalize::LegalizeOp(SDOperand Op) {
       // to phase ordering between legalized code and the dag combiner.  This
       // probably means that we need to integrate dag combiner and legalizer
       // together.
-      // We generally can't do this one for long doubles.
-      if (ConstantFPSDNode *CFP =dyn_cast<ConstantFPSDNode>(ST->getValue())) {
+      if (ConstantFPSDNode *CFP = dyn_cast<ConstantFPSDNode>(ST->getValue())) {
         if (CFP->getValueType(0) == MVT::f32) {
           Tmp3 = DAG.getConstant((uint32_t)CFP->getValueAPF().
                                           convertToAPInt().getZExtValue(),
                                   MVT::i32);
-          Result = DAG.getStore(Tmp1, Tmp3, Tmp2, ST->getSrcValue(),
-                                SVOffset, isVolatile, Alignment);
-          break;
-        } else if (CFP->getValueType(0) == MVT::f64) {
+        } else {
+          assert(CFP->getValueType(0) == MVT::f64 && "Unknown FP type!");
           Tmp3 = DAG.getConstant(CFP->getValueAPF().convertToAPInt().
                                    getZExtValue(), MVT::i64);
-          Result = DAG.getStore(Tmp1, Tmp3, Tmp2, ST->getSrcValue(),
-                                SVOffset, isVolatile, Alignment);
-          break;
         }
+        Result = DAG.getStore(Tmp1, Tmp3, Tmp2, ST->getSrcValue(),
+                              SVOffset, isVolatile, Alignment);
+        break;
       }
       
       switch (getTypeAction(ST->getStoredVT())) {
@@ -3212,13 +3205,8 @@ SDOperand SelectionDAGLegalize::LegalizeOp(SDOperand Op) {
           SDOperand True, False;
           MVT::ValueType VT =  Node->getOperand(0).getValueType();
           MVT::ValueType NVT = Node->getValueType(0);
-          unsigned ShiftAmt = MVT::getSizeInBits(NVT)-1;
-          const uint64_t zero[] = {0, 0};
-          APFloat apf = APFloat(APInt(MVT::getSizeInBits(VT), 2, zero));
-          uint64_t x = 1ULL << ShiftAmt;
-          (void)apf.convertFromInteger(&x, MVT::getSizeInBits(NVT), false, 
-                                       APFloat::rmTowardZero);
-          Tmp2 = DAG.getConstantFP(apf, VT);
+          unsigned ShiftAmt = MVT::getSizeInBits(Node->getValueType(0))-1;
+          Tmp2 = DAG.getConstantFP((double)(1ULL << ShiftAmt), VT);
           Tmp3 = DAG.getSetCC(TLI.getSetCCResultTy(),
                             Node->getOperand(0), Tmp2, ISD::SETLT);
           True = DAG.getNode(ISD::FP_TO_SINT, NVT, Node->getOperand(0));
@@ -3240,34 +3228,22 @@ SDOperand SelectionDAGLegalize::LegalizeOp(SDOperand Op) {
       MVT::ValueType VT = Op.getValueType();
       RTLIB::Libcall LC = RTLIB::UNKNOWN_LIBCALL;
       switch (Node->getOpcode()) {
-      case ISD::FP_TO_SINT: {
-        MVT::ValueType OVT = Node->getOperand(0).getValueType();
-        if (OVT == MVT::f32)
+      case ISD::FP_TO_SINT:
+        if (Node->getOperand(0).getValueType() == MVT::f32)
           LC = (VT == MVT::i32)
             ? RTLIB::FPTOSINT_F32_I32 : RTLIB::FPTOSINT_F32_I64;
-        else if (OVT == MVT::f64)
+        else
           LC = (VT == MVT::i32)
             ? RTLIB::FPTOSINT_F64_I32 : RTLIB::FPTOSINT_F64_I64;
-        else if (OVT == MVT::f80 || OVT == MVT::f128 || OVT == MVT::ppcf128) {
-          assert(VT == MVT::i64);
-          LC = RTLIB::FPTOSINT_LD_I64;
-        }
         break;
-      }
-      case ISD::FP_TO_UINT: {
-        MVT::ValueType OVT = Node->getOperand(0).getValueType();
-        if (OVT == MVT::f32)
+      case ISD::FP_TO_UINT:
+        if (Node->getOperand(0).getValueType() == MVT::f32)
           LC = (VT == MVT::i32)
             ? RTLIB::FPTOUINT_F32_I32 : RTLIB::FPTOSINT_F32_I64;
-        else if (OVT == MVT::f64)
+        else
           LC = (VT == MVT::i32)
             ? RTLIB::FPTOUINT_F64_I32 : RTLIB::FPTOSINT_F64_I64;
-        else if (OVT == MVT::f80 || OVT == MVT::f128 || OVT == MVT::ppcf128) {
-          LC = (VT == MVT::i32)
-            ? RTLIB::FPTOUINT_LD_I32 : RTLIB::FPTOUINT_LD_I64;
-        }
         break;
-      }
       default: assert(0 && "Unreachable!");
       }
       SDOperand Dummy;
@@ -3871,7 +3847,8 @@ SDOperand SelectionDAGLegalize::ExpandEXTRACT_VECTOR_ELT(SDOperand Op) {
   SDOperand Vec = Op.getOperand(0);
   SDOperand Idx = Op.getOperand(1);
   
-  MVT::ValueType TVT = Vec.getValueType();
+  SDNode *InVal = Vec.Val;
+  MVT::ValueType TVT = InVal->getValueType(0);
   unsigned NumElems = MVT::getVectorNumElements(TVT);
   
   switch (TLI.getOperationAction(ISD::EXTRACT_VECTOR_ELT, TVT)) {
@@ -4632,13 +4609,12 @@ ExpandIntToFP(bool isSigned, MVT::ValueType DestTy, SDOperand Source) {
     SDOperand FudgeInReg;
     if (DestTy == MVT::f32)
       FudgeInReg = DAG.getLoad(MVT::f32, DAG.getEntryNode(), CPIdx, NULL, 0);
-    else if (MVT::getSizeInBits(DestTy) > MVT::getSizeInBits(MVT::f32))
+    else {
+      assert(DestTy == MVT::f64 && "Unexpected conversion");
       // FIXME: Avoid the extend by construction the right constantpool?
-      FudgeInReg = DAG.getExtLoad(ISD::EXTLOAD, DestTy, DAG.getEntryNode(),
+      FudgeInReg = DAG.getExtLoad(ISD::EXTLOAD, MVT::f64, DAG.getEntryNode(),
                                   CPIdx, NULL, 0, MVT::f32);
-    else 
-      assert(0 && "Unexpected conversion");
-
+    }
     MVT::ValueType SCVT = SignedConv.getValueType();
     if (SCVT != DestTy) {
       // Destination type needs to be expanded as well. The FADD now we are
@@ -4746,10 +4722,9 @@ SDOperand SelectionDAGLegalize::ExpandLegalINT_TO_FP(bool isSigned,
     if (DestVT == MVT::f64) {
       // do nothing
       Result = Sub;
-    } else if (MVT::getSizeInBits(DestVT) < MVT::getSizeInBits(MVT::f64)) {
-      Result = DAG.getNode(ISD::FP_ROUND, DestVT, Sub);
-    } else if (MVT::getSizeInBits(DestVT) > MVT::getSizeInBits(MVT::f64)) {
-      Result = DAG.getNode(ISD::FP_EXTEND, DestVT, Sub);
+    } else {
+     // if f32 then cast to f32
+      Result = DAG.getNode(ISD::FP_ROUND, MVT::f32, Sub);
     }
     return Result;
   }
@@ -4783,7 +4758,8 @@ SDOperand SelectionDAGLegalize::ExpandLegalINT_TO_FP(bool isSigned,
   if (DestVT == MVT::f32)
     FudgeInReg = DAG.getLoad(MVT::f32, DAG.getEntryNode(), CPIdx, NULL, 0);
   else {
-    FudgeInReg = LegalizeOp(DAG.getExtLoad(ISD::EXTLOAD, DestVT,
+    assert(DestVT == MVT::f64 && "Unexpected conversion");
+    FudgeInReg = LegalizeOp(DAG.getExtLoad(ISD::EXTLOAD, MVT::f64,
                                            DAG.getEntryNode(), CPIdx,
                                            NULL, 0, MVT::f32));
   }
@@ -5365,10 +5341,8 @@ void SelectionDAGLegalize::ExpandOp(SDOperand Op, SDOperand &Lo, SDOperand &Hi){
     RTLIB::Libcall LC;
     if (Node->getOperand(0).getValueType() == MVT::f32)
       LC = RTLIB::FPTOSINT_F32_I64;
-    else if (Node->getOperand(0).getValueType() == MVT::f64)
-      LC = RTLIB::FPTOSINT_F64_I64;
     else
-      LC = RTLIB::FPTOSINT_LD_I64;
+      LC = RTLIB::FPTOSINT_F64_I64;
     Lo = ExpandLibCall(TLI.getLibcallName(LC), Node,
                        false/*sign irrelevant*/, Hi);
     break;
@@ -5743,16 +5717,12 @@ void SelectionDAGLegalize::ExpandOp(SDOperand Op, SDOperand &Lo, SDOperand &Hi){
   case ISD::UINT_TO_FP: {
     bool isSigned = Node->getOpcode() == ISD::SINT_TO_FP;
     MVT::ValueType SrcVT = Node->getOperand(0).getValueType();
-    RTLIB::Libcall LC = RTLIB::UNKNOWN_LIBCALL;
+    RTLIB::Libcall LC;
     if (Node->getOperand(0).getValueType() == MVT::i64) {
       if (VT == MVT::f32)
         LC = isSigned ? RTLIB::SINTTOFP_I64_F32 : RTLIB::UINTTOFP_I64_F32;
-      else if (VT == MVT::f64)
+      else
         LC = isSigned ? RTLIB::SINTTOFP_I64_F64 : RTLIB::UINTTOFP_I64_F64;
-      else if (VT == MVT::f80 || VT == MVT::f128 || VT == MVT::ppcf128) {
-        assert(isSigned);
-        LC = RTLIB::SINTTOFP_I64_LD;
-      }
     } else {
       if (VT == MVT::f32)
         LC = isSigned ? RTLIB::SINTTOFP_I32_F32 : RTLIB::UINTTOFP_I32_F32;
@@ -5803,10 +5773,10 @@ void SelectionDAGLegalize::SplitVectorOp(SDOperand Op, SDOperand &Lo,
                                          SDOperand &Hi) {
   assert(MVT::isVector(Op.getValueType()) && "Cannot split non-vector type!");
   SDNode *Node = Op.Val;
-  unsigned NumElements = MVT::getVectorNumElements(Op.getValueType());
+  unsigned NumElements = MVT::getVectorNumElements(Node->getValueType(0));
   assert(NumElements > 1 && "Cannot split a single element vector!");
   unsigned NewNumElts = NumElements/2;
-  MVT::ValueType NewEltVT = MVT::getVectorElementType(Op.getValueType());
+  MVT::ValueType NewEltVT = MVT::getVectorElementType(Node->getValueType(0));
   MVT::ValueType NewVT = MVT::getVectorType(NewEltVT, NewNumElts);
   
   // See if we already split it.

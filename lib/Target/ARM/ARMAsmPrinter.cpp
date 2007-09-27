@@ -835,7 +835,7 @@ bool ARMAsmPrinter::doFinalization(Module &M) {
     if (Subtarget->isTargetELF())
       O << "\t.type " << name << ",%object\n";
     
-    if (C->isNullValue() && !I->hasSection()) {
+    if (C->isNullValue()) {
       if (I->hasExternalLinkage()) {
         if (const char *Directive = TAI->getZeroFillDirective()) {
           O << "\t.globl\t" << name << "\n";
@@ -845,8 +845,9 @@ bool ARMAsmPrinter::doFinalization(Module &M) {
         }
       }
 
-      if (I->hasInternalLinkage() || I->hasWeakLinkage() ||
-          I->hasLinkOnceLinkage()) {
+      if (!I->hasSection() &&
+          (I->hasInternalLinkage() || I->hasWeakLinkage() ||
+           I->hasLinkOnceLinkage())) {
         if (Size == 0) Size = 1;   // .comm Foo, 0 is undefined, avoid it.
         if (!NoZerosInBSS && TAI->getBSSSection())
           SwitchToDataSection(TAI->getBSSSection(), I);

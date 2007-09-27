@@ -116,7 +116,7 @@ MachineInstr::~MachineInstr() {
 
 /// getOpcode - Returns the opcode of this MachineInstr.
 ///
-int MachineInstr::getOpcode() const {
+const int MachineInstr::getOpcode() const {
   return TID->Opcode;
 }
 
@@ -188,7 +188,7 @@ bool MachineOperand::isIdenticalTo(const MachineOperand &Other) const {
 int MachineInstr::findRegisterUseOperandIdx(unsigned Reg, bool isKill) const {
   for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
     const MachineOperand &MO = getOperand(i);
-    if (MO.isRegister() && MO.isUse() && MO.getReg() == Reg)
+    if (MO.isReg() && MO.isUse() && MO.getReg() == Reg)
       if (!isKill || MO.isKill())
         return i;
   }
@@ -200,7 +200,7 @@ int MachineInstr::findRegisterUseOperandIdx(unsigned Reg, bool isKill) const {
 MachineOperand *MachineInstr::findRegisterDefOperand(unsigned Reg) {
   for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
     MachineOperand &MO = getOperand(i);
-    if (MO.isRegister() && MO.isDef() && MO.getReg() == Reg)
+    if (MO.isReg() && MO.isDef() && MO.getReg() == Reg)
       return &MO;
   }
   return NULL;
@@ -225,7 +225,7 @@ int MachineInstr::findFirstPredOperandIdx() const {
 void MachineInstr::copyKillDeadInfo(const MachineInstr *MI) {
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
     const MachineOperand &MO = MI->getOperand(i);
-    if (!MO.isRegister() || (!MO.isKill() && !MO.isDead()))
+    if (!MO.isReg() || (!MO.isKill() && !MO.isDead()))
       continue;
     for (unsigned j = 0, ee = getNumOperands(); j != ee; ++j) {
       MachineOperand &MOp = getOperand(j);
@@ -248,7 +248,7 @@ void MachineInstr::copyPredicates(const MachineInstr *MI) {
       if ((TID->OpInfo[i].Flags & M_PREDICATE_OPERAND)) {
         const MachineOperand &MO = MI->getOperand(i);
         // Predicated operands must be last operands.
-        if (MO.isRegister())
+        if (MO.isReg())
           addRegOperand(MO.getReg(), false);
         else {
           addImmOperand(MO.getImm());
@@ -319,7 +319,7 @@ void MachineInstr::print(std::ostream &OS, const TargetMachine *TM) const {
   unsigned StartOp = 0;
 
    // Specialize printing if op#0 is definition
-  if (getNumOperands() && getOperand(0).isRegister() && getOperand(0).isDef()) {
+  if (getNumOperands() && getOperand(0).isReg() && getOperand(0).isDef()) {
     ::print(getOperand(0), OS, TM);
     if (getOperand(0).isDead())
       OS << "<dead>";
@@ -337,7 +337,7 @@ void MachineInstr::print(std::ostream &OS, const TargetMachine *TM) const {
     OS << " ";
     ::print(mop, OS, TM);
 
-    if (mop.isRegister()) {
+    if (mop.isReg()) {
       if (mop.isDef() || mop.isKill() || mop.isDead() || mop.isImplicit()) {
         OS << "<";
         bool NeedComma = false;
@@ -381,7 +381,7 @@ void MachineInstr::print(std::ostream &os) const {
 
   for (unsigned i = 0, N = getNumOperands(); i < N; i++) {
     os << "\t" << getOperand(i);
-    if (getOperand(i).isRegister() && getOperand(i).isDef())
+    if (getOperand(i).isReg() && getOperand(i).isDef())
       os << "<d>";
   }
 

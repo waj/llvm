@@ -22,7 +22,7 @@ namespace llvm {
   class IA64TargetMachine;
 
   struct IA64TargetAsmInfo : public TargetAsmInfo {
-    explicit IA64TargetAsmInfo(const IA64TargetMachine &TM);
+    IA64TargetAsmInfo(const IA64TargetMachine &TM);
   };
 
 

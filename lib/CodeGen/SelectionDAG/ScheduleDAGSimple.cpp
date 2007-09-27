@@ -125,8 +125,6 @@ public:
     , StageEnd(NULL)
     , Latency(0)
     , IsCall(false)
-    , IsLoad(false)
-    , IsStore(false)
     , Slot(0)
     , Group(NULL)
 #ifndef NDEBUG
@@ -684,11 +682,9 @@ void ScheduleDAGSimple::EmitAll() {
   if (&MF.front() == BB && MF.livein_begin() != MF.livein_end()) {
     for (MachineFunction::livein_iterator LI = MF.livein_begin(),
          E = MF.livein_end(); LI != E; ++LI)
-      if (LI->second) {
-        const TargetRegisterClass *RC = RegMap->getRegClass(LI->second);
+      if (LI->second)
         MRI->copyRegToReg(*MF.begin(), MF.begin()->end(), LI->second,
-                          LI->first, RC, RC);
-      }
+                          LI->first, RegMap->getRegClass(LI->second));
   }
   
   DenseMap<SDOperand, unsigned> VRBaseMap;
@@ -699,9 +695,9 @@ void ScheduleDAGSimple::EmitAll() {
     NodeInfo *NI = Ordering[i];
     if (NI->isInGroup()) {
       NodeGroupIterator NGI(Ordering[i]);
-      while (NodeInfo *NI = NGI.next()) EmitNode(NI->Node, 0, VRBaseMap);
+      while (NodeInfo *NI = NGI.next()) EmitNode(NI->Node, VRBaseMap);
     } else {
-      EmitNode(NI->Node, 0, VRBaseMap);
+      EmitNode(NI->Node, VRBaseMap);
     }
   }
 }

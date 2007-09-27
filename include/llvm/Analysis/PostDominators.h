@@ -29,7 +29,7 @@ struct PostDominatorTree : public DominatorTreeBase {
 
   virtual bool runOnFunction(Function &F) {
     reset();     // Reset from the last time we were run...
-    PDTcalculate(*this, F);
+    calculate(F);
     return false;
   }
 
@@ -37,10 +37,17 @@ struct PostDominatorTree : public DominatorTreeBase {
     AU.setPreservesAll();
   }
 private:
+  void calculate(Function &F);
+  DomTreeNode *getNodeForBlock(BasicBlock *BB);
   unsigned DFSPass(BasicBlock *V, unsigned N);
-  friend void PDTcalculate(PostDominatorTree& PDT, Function &F);
-  friend void PDTLink(PostDominatorTree& PDT,BasicBlock *V,
-                      BasicBlock *W, InfoRec &WInfo);
+  void Compress(BasicBlock *V, InfoRec &VInfo);
+  BasicBlock *Eval(BasicBlock *V);
+  void Link(BasicBlock *V, BasicBlock *W, InfoRec &WInfo);
+
+  inline BasicBlock *getIDom(BasicBlock *BB) const {
+    DenseMap<BasicBlock*, BasicBlock*>::const_iterator I = IDoms.find(BB);
+    return I != IDoms.end() ? I->second : 0;
+  }
 };
 
 

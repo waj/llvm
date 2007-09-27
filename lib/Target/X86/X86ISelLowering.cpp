@@ -31,7 +31,6 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SSARegMap.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/ADT/StringExtras.h"
@@ -41,8 +40,7 @@ using namespace llvm;
 X86TargetLowering::X86TargetLowering(TargetMachine &TM)
   : TargetLowering(TM) {
   Subtarget = &TM.getSubtarget<X86Subtarget>();
-  X86ScalarSSEf64 = Subtarget->hasSSE2();
-  X86ScalarSSEf32 = Subtarget->hasSSE1();
+  X86ScalarSSE = Subtarget->hasSSE2();
   X86StackPtr = Subtarget->is64Bit() ? X86::RSP : X86::ESP;
 
   RegInfo = TM.getRegisterInfo();
@@ -89,7 +87,7 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
     setOperationAction(ISD::UINT_TO_FP     , MVT::i64  , Expand);
     setOperationAction(ISD::UINT_TO_FP     , MVT::i32  , Promote);
   } else {
-    if (X86ScalarSSEf64)
+    if (X86ScalarSSE)
       // If SSE i64 SINT_TO_FP is not available, expand i32 UINT_TO_FP.
       setOperationAction(ISD::UINT_TO_FP   , MVT::i32  , Expand);
     else
@@ -101,29 +99,26 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
   setOperationAction(ISD::SINT_TO_FP       , MVT::i1   , Promote);
   setOperationAction(ISD::SINT_TO_FP       , MVT::i8   , Promote);
   // SSE has no i16 to fp conversion, only i32
-  if (X86ScalarSSEf32) {
+  if (X86ScalarSSE)
     setOperationAction(ISD::SINT_TO_FP     , MVT::i16  , Promote);
-    // f32 and f64 cases are Legal, f80 case is not
-    setOperationAction(ISD::SINT_TO_FP     , MVT::i32  , Custom);
-  } else {
+  else {
     setOperationAction(ISD::SINT_TO_FP     , MVT::i16  , Custom);
     setOperationAction(ISD::SINT_TO_FP     , MVT::i32  , Custom);
   }
 
-  // In 32-bit mode these are custom lowered.  In 64-bit mode F32 and F64
-  // are Legal, f80 is custom lowered.
-  setOperationAction(ISD::FP_TO_SINT     , MVT::i64  , Custom);
-  setOperationAction(ISD::SINT_TO_FP     , MVT::i64  , Custom);
+  if (!Subtarget->is64Bit()) {
+    // Custom lower SINT_TO_FP and FP_TO_SINT from/to i64 in 32-bit mode.
+    setOperationAction(ISD::SINT_TO_FP     , MVT::i64  , Custom);
+    setOperationAction(ISD::FP_TO_SINT     , MVT::i64  , Custom);
+  }
 
   // Promote i1/i8 FP_TO_SINT to larger FP_TO_SINTS's, as X86 doesn't have
   // this operation.
   setOperationAction(ISD::FP_TO_SINT       , MVT::i1   , Promote);
   setOperationAction(ISD::FP_TO_SINT       , MVT::i8   , Promote);
 
-  if (X86ScalarSSEf32) {
+  if (X86ScalarSSE) {
     setOperationAction(ISD::FP_TO_SINT     , MVT::i16  , Promote);
-    // f32 and f64 cases are Legal, f80 case is not
-    setOperationAction(ISD::FP_TO_SINT     , MVT::i32  , Custom);
   } else {
     setOperationAction(ISD::FP_TO_SINT     , MVT::i16  , Custom);
     setOperationAction(ISD::FP_TO_SINT     , MVT::i32  , Custom);
@@ -139,7 +134,7 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
     setOperationAction(ISD::FP_TO_UINT     , MVT::i64  , Expand);
     setOperationAction(ISD::FP_TO_UINT     , MVT::i32  , Promote);
   } else {
-    if (X86ScalarSSEf32 && !Subtarget->hasSSE3())
+    if (X86ScalarSSE && !Subtarget->hasSSE3())
       // Expand FP_TO_UINT into a select.
       // FIXME: We would like to use a Custom expander here eventually to do
       // the optimal thing for SSE vs. the default expansion in the legalizer.
@@ -150,31 +145,10 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
   }
 
   // TODO: when we have SSE, these could be more efficient, by using movd/movq.
-  if (!X86ScalarSSEf64) {
+  if (!X86ScalarSSE) {
     setOperationAction(ISD::BIT_CONVERT      , MVT::f32  , Expand);
     setOperationAction(ISD::BIT_CONVERT      , MVT::i32  , Expand);
   }
-
-  // Divide and remainder are lowered to use div or idiv in legalize in
-  // order to expose the intermediate computations to trivial CSE. This is
-  // most noticeable when both x/y and x%y are being computed; they can be
-  // done with a single div or idiv.
-  setOperationAction(ISD::SDIV            , MVT::i8    , Custom);
-  setOperationAction(ISD::UDIV            , MVT::i8    , Custom);
-  setOperationAction(ISD::SREM            , MVT::i8    , Custom);
-  setOperationAction(ISD::UREM            , MVT::i8    , Custom);
-  setOperationAction(ISD::SDIV            , MVT::i16   , Custom);
-  setOperationAction(ISD::UDIV            , MVT::i16   , Custom);
-  setOperationAction(ISD::SREM            , MVT::i16   , Custom);
-  setOperationAction(ISD::UREM            , MVT::i16   , Custom);
-  setOperationAction(ISD::SDIV            , MVT::i32   , Custom);
-  setOperationAction(ISD::UDIV            , MVT::i32   , Custom);
-  setOperationAction(ISD::SREM            , MVT::i32   , Custom);
-  setOperationAction(ISD::UREM            , MVT::i32   , Custom);
-  setOperationAction(ISD::SDIV            , MVT::i64   , Custom);
-  setOperationAction(ISD::UDIV            , MVT::i64   , Custom);
-  setOperationAction(ISD::SREM            , MVT::i64   , Custom);
-  setOperationAction(ISD::UREM            , MVT::i64   , Custom);
 
   setOperationAction(ISD::BR_JT            , MVT::Other, Expand);
   setOperationAction(ISD::BRCOND           , MVT::Other, Custom);
@@ -215,13 +189,11 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
   setOperationAction(ISD::SELECT          , MVT::i32  , Custom);
   setOperationAction(ISD::SELECT          , MVT::f32  , Custom);
   setOperationAction(ISD::SELECT          , MVT::f64  , Custom);
-  setOperationAction(ISD::SELECT          , MVT::f80  , Custom);
   setOperationAction(ISD::SETCC           , MVT::i8   , Custom);
   setOperationAction(ISD::SETCC           , MVT::i16  , Custom);
   setOperationAction(ISD::SETCC           , MVT::i32  , Custom);
   setOperationAction(ISD::SETCC           , MVT::f32  , Custom);
   setOperationAction(ISD::SETCC           , MVT::f64  , Custom);
-  setOperationAction(ISD::SETCC           , MVT::f80  , Custom);
   if (Subtarget->is64Bit()) {
     setOperationAction(ISD::SELECT        , MVT::i64  , Custom);
     setOperationAction(ISD::SETCC         , MVT::i64  , Custom);
@@ -251,8 +223,9 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
   setOperationAction(ISD::MEMSET          , MVT::Other, Custom);
   setOperationAction(ISD::MEMCPY          , MVT::Other, Custom);
 
-  // Use the default ISD::LOCATION expansion.
+  // We don't have line number support yet.
   setOperationAction(ISD::LOCATION, MVT::Other, Expand);
+  setOperationAction(ISD::DEBUG_LOC, MVT::Other, Expand);
   // FIXME - use subtarget debug flags
   if (!Subtarget->isTargetDarwin() &&
       !Subtarget->isTargetELF() &&
@@ -293,8 +266,7 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
   else
     setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
 
-  if (X86ScalarSSEf64) {
-    // f32 and f64 use SSE.
+  if (X86ScalarSSE) {
     // Set up the FP register classes.
     addRegisterClass(MVT::f32, X86::FR32RegisterClass);
     addRegisterClass(MVT::f64, X86::FR64RegisterClass);
@@ -323,8 +295,7 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
     // cases we handle.
     setOperationAction(ISD::ConstantFP, MVT::f64, Expand);
     setOperationAction(ISD::ConstantFP, MVT::f32, Expand);
-    addLegalFPImmediate(APFloat(+0.0)); // xorpd
-    addLegalFPImmediate(APFloat(+0.0f)); // xorps
+    addLegalFPImmediate(APFloat(+0.0)); // xorps / xorpd
 
     // Conversions to long double (in X87) go through memory.
     setConvertAction(MVT::f32, MVT::f80, Expand);
@@ -333,55 +304,7 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
     // Conversions from long double (in X87) go through memory.
     setConvertAction(MVT::f80, MVT::f32, Expand);
     setConvertAction(MVT::f80, MVT::f64, Expand);
-  } else if (X86ScalarSSEf32) {
-    // Use SSE for f32, x87 for f64.
-    // Set up the FP register classes.
-    addRegisterClass(MVT::f32, X86::FR32RegisterClass);
-    addRegisterClass(MVT::f64, X86::RFP64RegisterClass);
-
-    // Use ANDPS to simulate FABS.
-    setOperationAction(ISD::FABS , MVT::f32, Custom);
-
-    // Use XORP to simulate FNEG.
-    setOperationAction(ISD::FNEG , MVT::f32, Custom);
-
-    setOperationAction(ISD::UNDEF,     MVT::f64, Expand);
-
-    // Use ANDPS and ORPS to simulate FCOPYSIGN.
-    setOperationAction(ISD::FCOPYSIGN, MVT::f64, Expand);
-    setOperationAction(ISD::FCOPYSIGN, MVT::f32, Custom);
-
-    // We don't support sin/cos/fmod
-    setOperationAction(ISD::FSIN , MVT::f32, Expand);
-    setOperationAction(ISD::FCOS , MVT::f32, Expand);
-    setOperationAction(ISD::FREM , MVT::f32, Expand);
-
-    // Expand FP immediates into loads from the stack, except for the special
-    // cases we handle.
-    setOperationAction(ISD::ConstantFP, MVT::f64, Expand);
-    setOperationAction(ISD::ConstantFP, MVT::f32, Expand);
-    addLegalFPImmediate(APFloat(+0.0f)); // xorps
-    addLegalFPImmediate(APFloat(+0.0)); // FLD0
-    addLegalFPImmediate(APFloat(+1.0)); // FLD1
-    addLegalFPImmediate(APFloat(-0.0)); // FLD0/FCHS
-    addLegalFPImmediate(APFloat(-1.0)); // FLD1/FCHS
-
-    // SSE->x87 conversions go through memory.
-    setConvertAction(MVT::f32, MVT::f64, Expand);
-    setConvertAction(MVT::f32, MVT::f80, Expand);
-
-    // x87->SSE truncations need to go through memory.
-    setConvertAction(MVT::f80, MVT::f32, Expand);    
-    setConvertAction(MVT::f64, MVT::f32, Expand);
-    // And x87->x87 truncations also.
-    setConvertAction(MVT::f80, MVT::f64, Expand);
-
-    if (!UnsafeFPMath) {
-      setOperationAction(ISD::FSIN           , MVT::f64  , Expand);
-      setOperationAction(ISD::FCOS           , MVT::f64  , Expand);
-    }
   } else {
-    // f32 and f64 in x87.
     // Set up the FP register classes.
     addRegisterClass(MVT::f64, X86::RFP64RegisterClass);
     addRegisterClass(MVT::f32, X86::RFP32RegisterClass);
@@ -407,21 +330,10 @@ X86TargetLowering::X86TargetLowering(TargetMachine &TM)
     addLegalFPImmediate(APFloat(+1.0)); // FLD1
     addLegalFPImmediate(APFloat(-0.0)); // FLD0/FCHS
     addLegalFPImmediate(APFloat(-1.0)); // FLD1/FCHS
-    addLegalFPImmediate(APFloat(+0.0f)); // FLD0
-    addLegalFPImmediate(APFloat(+1.0f)); // FLD1
-    addLegalFPImmediate(APFloat(-0.0f)); // FLD0/FCHS
-    addLegalFPImmediate(APFloat(-1.0f)); // FLD1/FCHS
   }
 
   // Long double always uses X87.
   addRegisterClass(MVT::f80, X86::RFP80RegisterClass);
-  setOperationAction(ISD::UNDEF,     MVT::f80, Expand);
-  setOperationAction(ISD::FCOPYSIGN, MVT::f80, Expand);
-  setOperationAction(ISD::ConstantFP, MVT::f80, Expand);
-  if (!UnsafeFPMath) {
-    setOperationAction(ISD::FSIN           , MVT::f80  , Expand);
-    setOperationAction(ISD::FCOS           , MVT::f80  , Expand);
-  }
 
   // First set operation action for all vector types to expand. Then we
   // will selectively turn on ones that can be effectively codegen'd.
@@ -663,8 +575,7 @@ SDOperand X86TargetLowering::LowerRET(SDOperand Op, SelectionDAG &DAG) {
     
     // If this is an FP return with ScalarSSE, we need to move the value from
     // an XMM register onto the fp-stack.
-    if ((X86ScalarSSEf32 && RVLocs[0].getValVT()==MVT::f32) ||
-        (X86ScalarSSEf64 && RVLocs[0].getValVT()==MVT::f64)) {
+    if (X86ScalarSSE) {
       SDOperand MemLoc;
       
       // If this is a load into a scalarsse value, don't store the loaded value
@@ -740,8 +651,7 @@ LowerCallResult(SDOperand Chain, SDOperand InFlag, SDNode *TheCall,
     
     // If we are using ScalarSSE, store ST(0) to the stack and reload it into
     // an XMM register.
-    if ((X86ScalarSSEf32 && RVLocs[0].getValVT() == MVT::f32) ||
-        (X86ScalarSSEf64 && RVLocs[0].getValVT() == MVT::f64)) {
+    if (X86ScalarSSE) {
       // FIXME: Currently the FST is flagged to the FP_GET_RESULT. This
       // shouldn't be necessary except that RFP cannot be live across
       // multiple blocks. When stackifier is fixed, they can be uncoupled.
@@ -782,23 +692,6 @@ static unsigned AddLiveIn(MachineFunction &MF, unsigned PReg,
   unsigned VReg = MF.getSSARegMap()->createVirtualRegister(RC);
   MF.addLiveIn(PReg, VReg);
   return VReg;
-}
-
-SDOperand X86TargetLowering::LowerMemArgument(SDOperand Op, SelectionDAG &DAG,
-                                              const CCValAssign &VA,
-                                              MachineFrameInfo *MFI,
-                                              SDOperand Root, unsigned i) {
-  // Create the nodes corresponding to a load from this parameter slot.
-  int FI = MFI->CreateFixedObject(MVT::getSizeInBits(VA.getValVT())/8,
-                                  VA.getLocMemOffset());
-  SDOperand FIN = DAG.getFrameIndex(FI, getPointerTy());
-
-  unsigned Flags =  cast<ConstantSDNode>(Op.getOperand(3 + i))->getValue();
-
-  if (Flags & ISD::ParamFlags::ByVal)
-    return FIN;
-  else
-    return DAG.getLoad(VA.getValVT(), Root, FIN, NULL, 0);
 }
 
 SDOperand X86TargetLowering::LowerCCCArguments(SDOperand Op, SelectionDAG &DAG,
@@ -854,7 +747,12 @@ SDOperand X86TargetLowering::LowerCCCArguments(SDOperand Op, SelectionDAG &DAG,
       ArgValues.push_back(ArgValue);
     } else {
       assert(VA.isMemLoc());
-      ArgValues.push_back(LowerMemArgument(Op, DAG, VA, MFI, Root, i));
+      
+      // Create the nodes corresponding to a load from this parameter slot.
+      int FI = MFI->CreateFixedObject(MVT::getSizeInBits(VA.getValVT())/8,
+                                      VA.getLocMemOffset());
+      SDOperand FIN = DAG.getFrameIndex(FI, getPointerTy());
+      ArgValues.push_back(DAG.getLoad(VA.getValVT(), Root, FIN, NULL, 0));
     }
   }
   
@@ -941,9 +839,9 @@ SDOperand X86TargetLowering::LowerCCCCallTo(SDOperand Op, SelectionDAG &DAG,
       assert(VA.isMemLoc());
       if (StackPtr.Val == 0)
         StackPtr = DAG.getRegister(getStackPtrReg(), getPointerTy());
-
-      MemOpChains.push_back(LowerMemOpCallTo(Op, DAG, StackPtr, VA, Chain,
-                                             Arg));
+      SDOperand PtrOff = DAG.getConstant(VA.getLocMemOffset(), getPointerTy());
+      PtrOff = DAG.getNode(ISD::ADD, getPointerTy(), StackPtr, PtrOff);
+      MemOpChains.push_back(DAG.getStore(Chain, Arg, PtrOff, NULL, 0));
     }
   }
 
@@ -1104,7 +1002,12 @@ X86TargetLowering::LowerFastCCArguments(SDOperand Op, SelectionDAG &DAG) {
       ArgValues.push_back(ArgValue);
     } else {
       assert(VA.isMemLoc());
-      ArgValues.push_back(LowerMemArgument(Op, DAG, VA, MFI, Root, i));
+      
+      // Create the nodes corresponding to a load from this parameter slot.
+      int FI = MFI->CreateFixedObject(MVT::getSizeInBits(VA.getValVT())/8,
+                                      VA.getLocMemOffset());
+      SDOperand FIN = DAG.getFrameIndex(FI, getPointerTy());
+      ArgValues.push_back(DAG.getLoad(VA.getValVT(), Root, FIN, NULL, 0));
     }
   }
   
@@ -1146,6 +1049,7 @@ X86TargetLowering::LowerMemOpCallTo(SDOperand Op, SelectionDAG &DAG,
     unsigned Align = 1 << ((Flags & ISD::ParamFlags::ByValAlign) >>
                            ISD::ParamFlags::ByValAlignOffs);
 
+    assert (Align >= 8);
     unsigned  Size = (Flags & ISD::ParamFlags::ByValSize) >>
         ISD::ParamFlags::ByValSizeOffs;
 
@@ -1214,9 +1118,9 @@ SDOperand X86TargetLowering::LowerFastCCCallTo(SDOperand Op, SelectionDAG &DAG,
       assert(VA.isMemLoc());
       if (StackPtr.Val == 0)
         StackPtr = DAG.getRegister(getStackPtrReg(), getPointerTy());
-
-      MemOpChains.push_back(LowerMemOpCallTo(Op, DAG, StackPtr, VA, Chain,
-                                             Arg));
+      SDOperand PtrOff = DAG.getConstant(VA.getLocMemOffset(), getPointerTy());
+      PtrOff = DAG.getNode(ISD::ADD, getPointerTy(), StackPtr, PtrOff);
+      MemOpChains.push_back(DAG.getStore(Chain, Arg, PtrOff, NULL, 0));
     }
   }
 
@@ -1375,7 +1279,17 @@ X86TargetLowering::LowerX86_64CCCArguments(SDOperand Op, SelectionDAG &DAG) {
       ArgValues.push_back(ArgValue);
     } else {
       assert(VA.isMemLoc());
-      ArgValues.push_back(LowerMemArgument(Op, DAG, VA, MFI, Root, i));
+    
+      // Create the nodes corresponding to a load from this parameter slot.
+      int FI = MFI->CreateFixedObject(MVT::getSizeInBits(VA.getValVT())/8,
+                                      VA.getLocMemOffset());
+      SDOperand FIN = DAG.getFrameIndex(FI, getPointerTy());
+
+      unsigned Flags =  cast<ConstantSDNode>(Op.getOperand(3 + i))->getValue();
+      if (Flags & ISD::ParamFlags::ByVal)
+        ArgValues.push_back(FIN);
+      else
+        ArgValues.push_back(DAG.getLoad(VA.getValVT(), Root, FIN, NULL, 0));
     }
   }
   
@@ -1620,11 +1534,6 @@ static bool translateX86CC(ISD::CondCode SetCCOpcode, bool isFP,
       } else if (SetCCOpcode == ISD::SETLT && RHSC->isNullValue()) {
         // X < 0   -> X == 0, jump on sign.
         X86CC = X86::COND_S;
-        return true;
-      } else if (SetCCOpcode == ISD::SETLT && RHSC->getValue() == 1) {
-        // X < 1   -> X <= 0
-        RHS = DAG.getConstant(0, RHS.getValueType());
-        X86CC = X86::COND_LE;
         return true;
       }
     }
@@ -3357,58 +3266,41 @@ SDOperand X86TargetLowering::LowerShift(SDOperand Op, SelectionDAG &DAG) {
     SDOperand AndNode = DAG.getNode(ISD::AND, MVT::i8, ShAmt,
                                     DAG.getConstant(32, MVT::i8));
     SDOperand COps[]={DAG.getEntryNode(), AndNode, DAG.getConstant(0, MVT::i8)};
-    SDOperand Cond = NewCCModeling
-      ? DAG.getNode(X86ISD::CMP_NEW, MVT::i32,
-                    AndNode, DAG.getConstant(0, MVT::i8))
-      : DAG.getNode(X86ISD::CMP, VTs, 2, COps, 3).getValue(1);
+    SDOperand InFlag = DAG.getNode(X86ISD::CMP, VTs, 2, COps, 3).getValue(1);
 
     SDOperand Hi, Lo;
     SDOperand CC = DAG.getConstant(X86::COND_NE, MVT::i8);
-    unsigned Opc = NewCCModeling ? X86ISD::CMOV_NEW : X86ISD::CMOV;
+
     VTs = DAG.getNodeValueTypes(MVT::i32, MVT::Flag);
     SmallVector<SDOperand, 4> Ops;
     if (Op.getOpcode() == ISD::SHL_PARTS) {
       Ops.push_back(Tmp2);
       Ops.push_back(Tmp3);
       Ops.push_back(CC);
-      Ops.push_back(Cond);
-      if (NewCCModeling)
-        Hi = DAG.getNode(Opc, MVT::i32, &Ops[0], Ops.size());
-      else {
-        Hi = DAG.getNode(Opc, VTs, 2, &Ops[0], Ops.size());
-        Cond = Hi.getValue(1);
-      }
+      Ops.push_back(InFlag);
+      Hi = DAG.getNode(X86ISD::CMOV, VTs, 2, &Ops[0], Ops.size());
+      InFlag = Hi.getValue(1);
 
       Ops.clear();
       Ops.push_back(Tmp3);
       Ops.push_back(Tmp1);
       Ops.push_back(CC);
-      Ops.push_back(Cond);
-      if (NewCCModeling) 
-        Lo = DAG.getNode(Opc, MVT::i32, &Ops[0], Ops.size());
-      else
-        Lo = DAG.getNode(Opc, VTs, 2, &Ops[0], Ops.size());
+      Ops.push_back(InFlag);
+      Lo = DAG.getNode(X86ISD::CMOV, VTs, 2, &Ops[0], Ops.size());
     } else {
       Ops.push_back(Tmp2);
       Ops.push_back(Tmp3);
       Ops.push_back(CC);
-      Ops.push_back(Cond);
-      if (NewCCModeling)
-        Lo = DAG.getNode(Opc, MVT::i32, &Ops[0], Ops.size());
-      else {
-        Lo = DAG.getNode(Opc, VTs, 2, &Ops[0], Ops.size());
-        Cond = Lo.getValue(1);
-      }
+      Ops.push_back(InFlag);
+      Lo = DAG.getNode(X86ISD::CMOV, VTs, 2, &Ops[0], Ops.size());
+      InFlag = Lo.getValue(1);
 
       Ops.clear();
       Ops.push_back(Tmp3);
       Ops.push_back(Tmp1);
       Ops.push_back(CC);
-      Ops.push_back(Cond);
-      if (NewCCModeling)
-        Hi = DAG.getNode(Opc, MVT::i32, &Ops[0], Ops.size());
-      else
-        Hi = DAG.getNode(Opc, VTs, 2, &Ops[0], Ops.size());
+      Ops.push_back(InFlag);
+      Hi = DAG.getNode(X86ISD::CMOV, VTs, 2, &Ops[0], Ops.size());
     }
 
     VTs = DAG.getNodeValueTypes(MVT::i32, MVT::i32);
@@ -3416,22 +3308,6 @@ SDOperand X86TargetLowering::LowerShift(SDOperand Op, SelectionDAG &DAG) {
     Ops.push_back(Lo);
     Ops.push_back(Hi);
     return DAG.getNode(ISD::MERGE_VALUES, VTs, 2, &Ops[0], Ops.size());
-}
-
-SDOperand X86TargetLowering::LowerIntegerDivOrRem(SDOperand Op, SelectionDAG &DAG) {
-  unsigned Opcode = Op.getOpcode();
-  MVT::ValueType NVT = Op.getValueType();
-  bool isSigned = Opcode == ISD::SDIV || Opcode == ISD::SREM;
-  bool isDiv    = Opcode == ISD::SDIV || Opcode == ISD::UDIV;
-  unsigned Opc = isSigned ? X86ISD::IDIV : X86ISD::DIV;
-
-  SDOperand Ops[] = { Op.getOperand(0), Op.getOperand(1) };
-  SDOperand DR = DAG.getNode(Opc, DAG.getVTList(NVT, NVT), Ops, 2);
-
-  if (isDiv)
-    return DR;
-
-  return SDOperand(DR.Val, 1);
 }
 
 SDOperand X86TargetLowering::LowerSINT_TO_FP(SDOperand Op, SelectionDAG &DAG) {
@@ -3448,20 +3324,9 @@ SDOperand X86TargetLowering::LowerSINT_TO_FP(SDOperand Op, SelectionDAG &DAG) {
   SDOperand Chain = DAG.getStore(DAG.getEntryNode(), Op.getOperand(0),
                                  StackSlot, NULL, 0);
 
-  // These are really Legal; caller falls through into that case.
-  if (SrcVT==MVT::i32 && Op.getValueType() == MVT::f32 && X86ScalarSSEf32)
-    return Result;
-  if (SrcVT==MVT::i32 && Op.getValueType() == MVT::f64 && X86ScalarSSEf64)
-    return Result;
-  if (SrcVT==MVT::i64 && Op.getValueType() != MVT::f80 && 
-      Subtarget->is64Bit())
-    return Result;
-
   // Build the FILD
   SDVTList Tys;
-  bool useSSE = (X86ScalarSSEf32 && Op.getValueType() == MVT::f32) ||
-                (X86ScalarSSEf64 && Op.getValueType() == MVT::f64);
-  if (useSSE)
+  if (X86ScalarSSE)
     Tys = DAG.getVTList(MVT::f64, MVT::Other, MVT::Flag);
   else
     Tys = DAG.getVTList(Op.getValueType(), MVT::Other);
@@ -3469,10 +3334,10 @@ SDOperand X86TargetLowering::LowerSINT_TO_FP(SDOperand Op, SelectionDAG &DAG) {
   Ops.push_back(Chain);
   Ops.push_back(StackSlot);
   Ops.push_back(DAG.getValueType(SrcVT));
-  Result = DAG.getNode(useSSE ? X86ISD::FILD_FLAG :X86ISD::FILD,
+  Result = DAG.getNode(X86ScalarSSE ? X86ISD::FILD_FLAG :X86ISD::FILD,
                        Tys, &Ops[0], Ops.size());
 
-  if (useSSE) {
+  if (X86ScalarSSE) {
     Chain = Result.getValue(1);
     SDOperand InFlag = Result.getValue(2);
 
@@ -3501,23 +3366,10 @@ SDOperand X86TargetLowering::LowerFP_TO_SINT(SDOperand Op, SelectionDAG &DAG) {
          "Unknown FP_TO_SINT to lower!");
   // We lower FP->sint64 into FISTP64, followed by a load, all to a temporary
   // stack slot.
-  SDOperand Result;
   MachineFunction &MF = DAG.getMachineFunction();
   unsigned MemSize = MVT::getSizeInBits(Op.getValueType())/8;
   int SSFI = MF.getFrameInfo()->CreateStackObject(MemSize, MemSize);
   SDOperand StackSlot = DAG.getFrameIndex(SSFI, getPointerTy());
-
-  // These are really Legal.
-  if (Op.getValueType() == MVT::i32 && 
-      X86ScalarSSEf32 && Op.getOperand(0).getValueType() == MVT::f32)
-    return Result;
-  if (Op.getValueType() == MVT::i32 && 
-      X86ScalarSSEf64 && Op.getOperand(0).getValueType() == MVT::f64)
-    return Result;
-  if (Subtarget->is64Bit() &&
-      Op.getValueType() == MVT::i64 &&
-      Op.getOperand(0).getValueType() != MVT::f80)
-    return Result;
 
   unsigned Opc;
   switch (Op.getValueType()) {
@@ -3529,8 +3381,7 @@ SDOperand X86TargetLowering::LowerFP_TO_SINT(SDOperand Op, SelectionDAG &DAG) {
 
   SDOperand Chain = DAG.getEntryNode();
   SDOperand Value = Op.getOperand(0);
-  if ((X86ScalarSSEf32 && Op.getOperand(0).getValueType() == MVT::f32) ||
-      (X86ScalarSSEf64 && Op.getOperand(0).getValueType() == MVT::f64)) {
+  if (X86ScalarSSE) {
     assert(Op.getValueType() == MVT::i64 && "Invalid FP_TO_SINT to lower!");
     Chain = DAG.getStore(Chain, Value, StackSlot, NULL, 0);
     SDVTList Tys = DAG.getVTList(Op.getOperand(0).getValueType(), MVT::Other);
@@ -3721,46 +3572,6 @@ SDOperand X86TargetLowering::LowerSETCC(SDOperand Op, SelectionDAG &DAG,
   }
 }
 
-SDOperand X86TargetLowering::LowerSETCC_New(SDOperand Op, SelectionDAG &DAG) {
-  assert(Op.getValueType() == MVT::i8 && "SetCC type must be 8-bit integer");
-  SDOperand Cond;
-  SDOperand Op0 = Op.getOperand(0);
-  SDOperand Op1 = Op.getOperand(1);
-  SDOperand CC = Op.getOperand(2);
-  ISD::CondCode SetCCOpcode = cast<CondCodeSDNode>(CC)->get();
-  bool isFP = MVT::isFloatingPoint(Op.getOperand(1).getValueType());
-  unsigned X86CC;
-
-  if (translateX86CC(cast<CondCodeSDNode>(CC)->get(), isFP, X86CC,
-                     Op0, Op1, DAG)) {
-    Cond = DAG.getNode(X86ISD::CMP_NEW, MVT::i32, Op0, Op1);
-    return DAG.getNode(X86ISD::SETCC_NEW, MVT::i8,
-                       DAG.getConstant(X86CC, MVT::i8), Cond);
-  }
-
-  assert(isFP && "Illegal integer SetCC!");
-
-  Cond = DAG.getNode(X86ISD::CMP_NEW, MVT::i32, Op0, Op1);
-  switch (SetCCOpcode) {
-  default: assert(false && "Illegal floating point SetCC!");
-  case ISD::SETOEQ: {  // !PF & ZF
-    SDOperand Tmp1 = DAG.getNode(X86ISD::SETCC_NEW, MVT::i8,
-                                 DAG.getConstant(X86::COND_NP, MVT::i8), Cond);
-    SDOperand Tmp2 = DAG.getNode(X86ISD::SETCC_NEW, MVT::i8,
-                                 DAG.getConstant(X86::COND_E, MVT::i8), Cond);
-    return DAG.getNode(ISD::AND, MVT::i8, Tmp1, Tmp2);
-  }
-  case ISD::SETUNE: {  // PF | !ZF
-    SDOperand Tmp1 = DAG.getNode(X86ISD::SETCC_NEW, MVT::i8,
-                                 DAG.getConstant(X86::COND_P, MVT::i8), Cond);
-    SDOperand Tmp2 = DAG.getNode(X86ISD::SETCC_NEW, MVT::i8,
-                                 DAG.getConstant(X86::COND_NE, MVT::i8), Cond);
-    return DAG.getNode(ISD::OR, MVT::i8, Tmp1, Tmp2);
-  }
-  }
-}
-
-
 SDOperand X86TargetLowering::LowerSELECT(SDOperand Op, SelectionDAG &DAG) {
   bool addTest = true;
   SDOperand Chain = DAG.getEntryNode();
@@ -3782,9 +3593,8 @@ SDOperand X86TargetLowering::LowerSELECT(SDOperand Op, SelectionDAG &DAG) {
     // pressure reason)?
     SDOperand Cmp = Cond.getOperand(1);
     unsigned Opc = Cmp.getOpcode();
-    bool IllegalFPCMov = 
-      ! ((X86ScalarSSEf32 && Op.getValueType()==MVT::f32) ||
-         (X86ScalarSSEf64 && Op.getValueType()==MVT::f64)) &&
+    bool IllegalFPCMov = !X86ScalarSSE &&
+      MVT::isFloatingPoint(Op.getValueType()) &&
       !hasFPCMov(cast<ConstantSDNode>(CC)->getSignExtended());
     if ((Opc == X86ISD::CMP || Opc == X86ISD::COMI || Opc == X86ISD::UCOMI) &&
         !IllegalFPCMov) {
@@ -3809,56 +3619,6 @@ SDOperand X86TargetLowering::LowerSELECT(SDOperand Op, SelectionDAG &DAG) {
   Ops.push_back(CC);
   Ops.push_back(Cond.getValue(1));
   return DAG.getNode(X86ISD::CMOV, VTs, 2, &Ops[0], Ops.size());
-}
-
-SDOperand X86TargetLowering::LowerSELECT_New(SDOperand Op, SelectionDAG &DAG) {
-  bool addTest = true;
-  SDOperand Cond  = Op.getOperand(0);
-  SDOperand CC;
-
-  if (Cond.getOpcode() == ISD::SETCC)
-    Cond = LowerSETCC_New(Cond, DAG);
-
-  if (Cond.getOpcode() == X86ISD::SETCC_NEW) {
-    CC = Cond.getOperand(0);
-
-    // If condition flag is set by a X86ISD::CMP, then make a copy of it
-    // (since flag operand cannot be shared). Use it as the condition setting
-    // operand in place of the X86ISD::SETCC.
-    // If the X86ISD::SETCC has more than one use, then perhaps it's better
-    // to use a test instead of duplicating the X86ISD::CMP (for register
-    // pressure reason)?
-    SDOperand Cmp = Cond.getOperand(1);
-    unsigned Opc = Cmp.getOpcode();
-    bool IllegalFPCMov = 
-      ! ((X86ScalarSSEf32 && Op.getValueType()==MVT::f32) ||
-         (X86ScalarSSEf64 && Op.getValueType()==MVT::f64)) &&
-      !hasFPCMov(cast<ConstantSDNode>(CC)->getSignExtended());
-    if ((Opc == X86ISD::CMP_NEW ||
-         Opc == X86ISD::COMI_NEW ||
-         Opc == X86ISD::UCOMI_NEW) &&
-        !IllegalFPCMov) {
-      Cond = DAG.getNode(Opc, MVT::i32, Cmp.getOperand(0), Cmp.getOperand(1));
-      addTest = false;
-    }
-  }
-
-  if (addTest) {
-    CC = DAG.getConstant(X86::COND_NE, MVT::i8);
-    Cond = DAG.getNode(X86ISD::CMP_NEW, MVT::i32, Cond,
-                       DAG.getConstant(0, MVT::i8));
-  }
-
-  const MVT::ValueType *VTs = DAG.getNodeValueTypes(Op.getValueType(),
-                                                    MVT::Flag);
-  SmallVector<SDOperand, 4> Ops;
-  // X86ISD::CMOV means set the result (which is operand 1) to the RHS if
-  // condition is true.
-  Ops.push_back(Op.getOperand(2));
-  Ops.push_back(Op.getOperand(1));
-  Ops.push_back(CC);
-  Ops.push_back(Cond);
-  return DAG.getNode(X86ISD::CMOV_NEW, VTs, 2, &Ops[0], Ops.size());
 }
 
 SDOperand X86TargetLowering::LowerBRCOND(SDOperand Op, SelectionDAG &DAG) {
@@ -3897,43 +3657,6 @@ SDOperand X86TargetLowering::LowerBRCOND(SDOperand Op, SelectionDAG &DAG) {
   }
   return DAG.getNode(X86ISD::BRCOND, Op.getValueType(),
                      Cond, Op.getOperand(2), CC, Cond.getValue(1));
-}
-
-SDOperand X86TargetLowering::LowerBRCOND_New(SDOperand Op, SelectionDAG &DAG) {
-  bool addTest = true;
-  SDOperand Chain = Op.getOperand(0);
-  SDOperand Cond  = Op.getOperand(1);
-  SDOperand Dest  = Op.getOperand(2);
-  SDOperand CC;
-
-  if (Cond.getOpcode() == ISD::SETCC)
-    Cond = LowerSETCC_New(Cond, DAG);
-
-  if (Cond.getOpcode() == X86ISD::SETCC_NEW) {
-    CC = Cond.getOperand(0);
-
-    // If condition flag is set by a X86ISD::CMP, then make a copy of it
-    // (since flag operand cannot be shared). Use it as the condition setting
-    // operand in place of the X86ISD::SETCC.
-    // If the X86ISD::SETCC has more than one use, then perhaps it's better
-    // to use a test instead of duplicating the X86ISD::CMP (for register
-    // pressure reason)?
-    SDOperand Cmp = Cond.getOperand(1);
-    unsigned Opc = Cmp.getOpcode();
-    if (Opc == X86ISD::CMP_NEW ||
-        Opc == X86ISD::COMI_NEW ||
-        Opc == X86ISD::UCOMI_NEW) {
-      Cond = DAG.getNode(Opc, MVT::i32, Cmp.getOperand(0), Cmp.getOperand(1));
-      addTest = false;
-    }
-  }
-
-  if (addTest) {
-    CC = DAG.getConstant(X86::COND_NE, MVT::i8);
-    Cond= DAG.getNode(X86ISD::CMP_NEW, MVT::i32, Cond, DAG.getConstant(0, MVT::i8));
-  }
-  return DAG.getNode(X86ISD::BRCOND_NEW, Op.getValueType(),
-                     Chain, Op.getOperand(2), CC, Cond);
 }
 
 SDOperand X86TargetLowering::LowerCALL(SDOperand Op, SelectionDAG &DAG) {
@@ -4535,21 +4258,13 @@ X86TargetLowering::LowerINTRINSIC_WO_CHAIN(SDOperand Op, SelectionDAG &DAG) {
     SDOperand RHS = Op.getOperand(2);
     translateX86CC(CC, true, X86CC, LHS, RHS, DAG);
 
-    if (NewCCModeling) {
-      Opc = (Opc == X86ISD::UCOMI) ? X86ISD::UCOMI_NEW : X86ISD::COMI_NEW;
-      SDOperand Cond = DAG.getNode(Opc, MVT::i32, LHS, RHS);
-      SDOperand SetCC = DAG.getNode(X86ISD::SETCC_NEW, MVT::i8,
-                                    DAG.getConstant(X86CC, MVT::i8), Cond);
-      return DAG.getNode(ISD::ANY_EXTEND, MVT::i32, SetCC);
-    } else {
-      const MVT::ValueType *VTs = DAG.getNodeValueTypes(MVT::Other, MVT::Flag);
-      SDOperand Ops1[] = { DAG.getEntryNode(), LHS, RHS };
-      SDOperand Cond = DAG.getNode(Opc, VTs, 2, Ops1, 3);
-      VTs = DAG.getNodeValueTypes(MVT::i8, MVT::Flag);
-      SDOperand Ops2[] = { DAG.getConstant(X86CC, MVT::i8), Cond };
-      SDOperand SetCC = DAG.getNode(X86ISD::SETCC, VTs, 2, Ops2, 2);
-      return DAG.getNode(ISD::ANY_EXTEND, MVT::i32, SetCC);
-    }
+    const MVT::ValueType *VTs = DAG.getNodeValueTypes(MVT::Other, MVT::Flag);
+    SDOperand Ops1[] = { DAG.getEntryNode(), LHS, RHS };
+    SDOperand Cond = DAG.getNode(Opc, VTs, 2, Ops1, 3);
+    VTs = DAG.getNodeValueTypes(MVT::i8, MVT::Flag);
+    SDOperand Ops2[] = { DAG.getConstant(X86CC, MVT::i8), Cond };
+    SDOperand SetCC = DAG.getNode(X86ISD::SETCC, VTs, 2, Ops2, 2);
+    return DAG.getNode(ISD::ANY_EXTEND, MVT::i32, SetCC);
   }
   }
 }
@@ -4712,24 +4427,14 @@ SDOperand X86TargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG) {
   case ISD::SHL_PARTS:
   case ISD::SRA_PARTS:
   case ISD::SRL_PARTS:          return LowerShift(Op, DAG);
-  case ISD::SDIV:
-  case ISD::UDIV:
-  case ISD::SREM:
-  case ISD::UREM:               return LowerIntegerDivOrRem(Op, DAG);
   case ISD::SINT_TO_FP:         return LowerSINT_TO_FP(Op, DAG);
   case ISD::FP_TO_SINT:         return LowerFP_TO_SINT(Op, DAG);
   case ISD::FABS:               return LowerFABS(Op, DAG);
   case ISD::FNEG:               return LowerFNEG(Op, DAG);
   case ISD::FCOPYSIGN:          return LowerFCOPYSIGN(Op, DAG);
-  case ISD::SETCC:              return NewCCModeling
-                                  ? LowerSETCC_New(Op, DAG)
-                                  : LowerSETCC(Op, DAG, DAG.getEntryNode());
-  case ISD::SELECT:             return NewCCModeling
-                                  ? LowerSELECT_New(Op, DAG)
-                                  : LowerSELECT(Op, DAG);
-  case ISD::BRCOND:             return NewCCModeling
-                                  ? LowerBRCOND_New(Op, DAG)
-                                  : LowerBRCOND(Op, DAG);
+  case ISD::SETCC:              return LowerSETCC(Op, DAG, DAG.getEntryNode());
+  case ISD::SELECT:             return LowerSELECT(Op, DAG);
+  case ISD::BRCOND:             return LowerBRCOND(Op, DAG);
   case ISD::JumpTable:          return LowerJumpTable(Op, DAG);
   case ISD::CALL:               return LowerCALL(Op, DAG);
   case ISD::RET:                return LowerRET(Op, DAG);
@@ -4773,17 +4478,11 @@ const char *X86TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case X86ISD::TAILCALL:           return "X86ISD::TAILCALL";
   case X86ISD::RDTSC_DAG:          return "X86ISD::RDTSC_DAG";
   case X86ISD::CMP:                return "X86ISD::CMP";
-  case X86ISD::CMP_NEW:            return "X86ISD::CMP_NEW";
   case X86ISD::COMI:               return "X86ISD::COMI";
-  case X86ISD::COMI_NEW:           return "X86ISD::COMI_NEW";
   case X86ISD::UCOMI:              return "X86ISD::UCOMI";
-  case X86ISD::UCOMI_NEW:          return "X86ISD::UCOMI_NEW";
   case X86ISD::SETCC:              return "X86ISD::SETCC";
-  case X86ISD::SETCC_NEW:          return "X86ISD::SETCC_NEW";
   case X86ISD::CMOV:               return "X86ISD::CMOV";
-  case X86ISD::CMOV_NEW:           return "X86ISD::CMOV_NEW";
   case X86ISD::BRCOND:             return "X86ISD::BRCOND";
-  case X86ISD::BRCOND_NEW:         return "X86ISD::BRCOND_NEW";
   case X86ISD::RET_FLAG:           return "X86ISD::RET_FLAG";
   case X86ISD::REP_STOS:           return "X86ISD::REP_STOS";
   case X86ISD::REP_MOVS:           return "X86ISD::REP_MOVS";
@@ -4799,8 +4498,6 @@ const char *X86TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case X86ISD::TLSADDR:            return "X86ISD::TLSADDR";
   case X86ISD::THREAD_POINTER:     return "X86ISD::THREAD_POINTER";
   case X86ISD::EH_RETURN:          return "X86ISD::EH_RETURN";
-  case X86ISD::DIV:                return "X86ISD::DIV";
-  case X86ISD::IDIV:               return "X86ISD::IDIV";
   }
 }
 
@@ -4902,13 +4599,7 @@ X86TargetLowering::InsertAtEndOfBasicBlock(MachineInstr *MI,
   case X86::CMOV_FR64:
   case X86::CMOV_V4F32:
   case X86::CMOV_V2F64:
-  case X86::CMOV_V2I64:
-
-  case X86::NEW_CMOV_FR32:
-  case X86::NEW_CMOV_FR64:
-  case X86::NEW_CMOV_V4F32:
-  case X86::NEW_CMOV_V2F64:
-  case X86::NEW_CMOV_V2I64: {
+  case X86::CMOV_V2I64: {
     // To "insert" a SELECT_CC instruction, we actually have to insert the
     // diamond control-flow pattern.  The incoming instruction knows the
     // destination vreg to set, the condition code register to branch on, the
@@ -5065,7 +4756,6 @@ void X86TargetLowering::computeMaskedBitsForTargetNode(const SDOperand Op,
   switch (Opc) {
   default: break;
   case X86ISD::SETCC:
-  case X86ISD::SETCC_NEW:
     KnownZero |= (MVT::getIntVTBitMask(Op.getValueType()) ^ 1ULL);
     break;
   }
@@ -5497,7 +5187,7 @@ X86TargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
     // GCC calls "st(0)" just plain "st".
     if (StringsEqualNoCase("{st}", Constraint)) {
       Res.first = X86::ST0;
-      Res.second = X86::RFP80RegisterClass;
+      Res.second = X86::RSTRegisterClass;
     }
 
     return Res;

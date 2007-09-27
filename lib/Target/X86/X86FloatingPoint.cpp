@@ -220,7 +220,7 @@ bool FPS::processBasicBlock(MachineFunction &MF, MachineBasicBlock &BB) {
     SmallVector<unsigned, 8> DeadRegs;
     for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
       const MachineOperand &MO = MI->getOperand(i);
-      if (MO.isRegister() && MO.isDead())
+      if (MO.isReg() && MO.isDead())
         DeadRegs.push_back(MO.getReg());
     }
 
@@ -437,39 +437,6 @@ static const TableEntry OpcodeTable[] = {
   { X86::MUL_FpI32m32 , X86::MUL_FI32m },
   { X86::MUL_FpI32m64 , X86::MUL_FI32m },
   { X86::MUL_FpI32m80 , X86::MUL_FI32m },
-
-  // TEMPORARY
-  { X86::NEW_CMOVBE_Fp32  , X86::CMOVBE_F  },
-  { X86::NEW_CMOVBE_Fp64  , X86::CMOVBE_F  },
-  { X86::NEW_CMOVBE_Fp80  , X86::CMOVBE_F  },
-  { X86::NEW_CMOVB_Fp32   , X86::CMOVB_F   },
-  { X86::NEW_CMOVB_Fp64   , X86::CMOVB_F  },
-  { X86::NEW_CMOVB_Fp80   , X86::CMOVB_F  },
-  { X86::NEW_CMOVE_Fp32   , X86::CMOVE_F  },
-  { X86::NEW_CMOVE_Fp64   , X86::CMOVE_F   },
-  { X86::NEW_CMOVE_Fp80   , X86::CMOVE_F   },
-  { X86::NEW_CMOVNBE_Fp32 , X86::CMOVNBE_F },
-  { X86::NEW_CMOVNBE_Fp64 , X86::CMOVNBE_F },
-  { X86::NEW_CMOVNBE_Fp80 , X86::CMOVNBE_F },
-  { X86::NEW_CMOVNB_Fp32  , X86::CMOVNB_F  },
-  { X86::NEW_CMOVNB_Fp64  , X86::CMOVNB_F  },
-  { X86::NEW_CMOVNB_Fp80  , X86::CMOVNB_F  },
-  { X86::NEW_CMOVNE_Fp32  , X86::CMOVNE_F  },
-  { X86::NEW_CMOVNE_Fp64  , X86::CMOVNE_F  },
-  { X86::NEW_CMOVNE_Fp80  , X86::CMOVNE_F  },
-  { X86::NEW_CMOVNP_Fp32  , X86::CMOVNP_F  },
-  { X86::NEW_CMOVNP_Fp64  , X86::CMOVNP_F  },
-  { X86::NEW_CMOVNP_Fp80  , X86::CMOVNP_F  },
-  { X86::NEW_CMOVP_Fp32   , X86::CMOVP_F   },
-  { X86::NEW_CMOVP_Fp64   , X86::CMOVP_F   },
-  { X86::NEW_CMOVP_Fp80   , X86::CMOVP_F   },
-  { X86::NEW_UCOM_FpIr32  , X86::UCOM_FIr  },
-  { X86::NEW_UCOM_FpIr64  , X86::UCOM_FIr  },
-  { X86::NEW_UCOM_FpIr80  , X86::UCOM_FIr  },
-  { X86::NEW_UCOM_Fpr32   , X86::UCOM_Fr   },
-  { X86::NEW_UCOM_Fpr64   , X86::UCOM_Fr   },
-  { X86::NEW_UCOM_Fpr80   , X86::UCOM_Fr   },
-
   { X86::SIN_Fp32     , X86::SIN_F     },
   { X86::SIN_Fp64     , X86::SIN_F     },
   { X86::SIN_Fp80     , X86::SIN_F     },
@@ -641,7 +608,7 @@ void FPS::handleOneArgFP(MachineBasicBlock::iterator &I) {
   // If we have one _and_ we don't want to pop the operand, duplicate the value
   // on the stack instead of moving it.  This ensure that popping the value is
   // always ok.
-  // Ditto FISTTP16m, FISTTP32m, FISTTP64m, ST_FpP80m.
+  // Ditto FISTTP16m, FISTTP32m, FISTTP64m.
   //
   if (!KillsSrc &&
       (MI->getOpcode() == X86::IST_Fp64m32 ||
@@ -652,7 +619,6 @@ void FPS::handleOneArgFP(MachineBasicBlock::iterator &I) {
        MI->getOpcode() == X86::ISTT_Fp16m64 ||
        MI->getOpcode() == X86::ISTT_Fp32m64 ||
        MI->getOpcode() == X86::ISTT_Fp64m64 ||
-       MI->getOpcode() == X86::IST_Fp64m80 ||
        MI->getOpcode() == X86::ISTT_Fp16m80 ||
        MI->getOpcode() == X86::ISTT_Fp32m80 ||
        MI->getOpcode() == X86::ISTT_Fp64m80 ||

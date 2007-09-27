@@ -38,7 +38,6 @@ namespace llvm {
     std::vector<MVT::ValueType> VTs;
     unsigned SpillSize;
     unsigned SpillAlignment;
-    int CopyCost;
     std::vector<Record*> SubRegClasses;
     std::string MethodProtos, MethodBodies;
 
@@ -46,7 +45,7 @@ namespace llvm {
     const std::vector<MVT::ValueType> &getValueTypes() const { return VTs; }
     unsigned getNumValueTypes() const { return VTs.size(); }
     
-    MVT::ValueType getValueTypeNum(unsigned VTNum) const {
+    const MVT::ValueType getValueTypeNum(unsigned VTNum) const {
       if (VTNum < VTs.size())
         return VTs[VTNum];
       assert(0 && "VTNum greater than number of ValueTypes in RegClass!");

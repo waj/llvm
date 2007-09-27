@@ -22,15 +22,15 @@ namespace llvm {
   class PPCTargetMachine;
   
   struct PPCTargetAsmInfo : public TargetAsmInfo {
-    explicit PPCTargetAsmInfo(const PPCTargetMachine &TM);
+    PPCTargetAsmInfo(const PPCTargetMachine &TM);
   };
 
   struct DarwinTargetAsmInfo : public PPCTargetAsmInfo {
-    explicit DarwinTargetAsmInfo(const PPCTargetMachine &TM);
+    DarwinTargetAsmInfo(const PPCTargetMachine &TM);
   };
 
   struct LinuxTargetAsmInfo : public PPCTargetAsmInfo {
-    explicit LinuxTargetAsmInfo(const PPCTargetMachine &TM);
+    LinuxTargetAsmInfo(const PPCTargetMachine &TM);
   };
 
 } // namespace llvm

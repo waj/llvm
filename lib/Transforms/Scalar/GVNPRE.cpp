@@ -70,7 +70,7 @@ struct Expression {
   SmallVector<uint32_t, 4> varargs;
   
   Expression() { }
-  explicit Expression(ExpressionOpcode o) : opcode(o) { }
+  Expression(ExpressionOpcode o) : opcode(o) { }
   
   bool operator==(const Expression &other) const {
     if (opcode != other.opcode)
@@ -155,7 +155,7 @@ namespace {
 }
 
 namespace llvm {
-template <> struct DenseMapInfo<Expression> {
+template <> struct DenseMapKeyInfo<Expression> {
   static inline Expression getEmptyKey() {
     return Expression(Expression::EMPTY);
   }
@@ -180,9 +180,6 @@ template <> struct DenseMapInfo<Expression> {
       hash = *I + hash * 37;
     
     return hash;
-  }
-  static bool isEqual(const Expression &LHS, const Expression &RHS) {
-    return LHS == RHS;
   }
   static bool isPod() { return true; }
 };

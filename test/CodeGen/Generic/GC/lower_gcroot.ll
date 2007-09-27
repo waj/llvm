@@ -3,8 +3,7 @@
 	%Env = type opaque*
 
 define void @.main(%Env) {
-	%Root = alloca %Env
-	call void @llvm.gcroot( %Env* %Root, %Env null )
+	call void @llvm.gcroot( %Env* null, %Env null )
 	unreachable
 }
 

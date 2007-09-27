@@ -80,10 +80,11 @@ public:
     IntegerTyID,     ///<  7: Arbitrary bit width integers
     FunctionTyID,    ///<  8: Functions
     StructTyID,      ///<  9: Structures
-    ArrayTyID,       ///< 10: Arrays
-    PointerTyID,     ///< 11: Pointers
-    OpaqueTyID,      ///< 12: Opaque: type with unknown structure
-    VectorTyID,      ///< 13: SIMD 'packed' format, or other vector type
+    PackedStructTyID,///< 10: Packed Structure. This is for bitcode only
+    ArrayTyID,       ///< 11: Arrays
+    PointerTyID,     ///< 12: Pointers
+    OpaqueTyID,      ///< 13: Opaque: type with unknown structure
+    VectorTyID,      ///< 14: SIMD 'packed' format, or other vector type
 
     NumTypeIDs,                         // Must remain as last defined ID
     LastPrimitiveTyID = LabelTyID,
@@ -229,7 +230,8 @@ public:
       return true;
     // If it is not something that can have a size (e.g. a function or label),
     // it doesn't have a size.
-    if (ID != StructTyID && ID != ArrayTyID && ID != VectorTyID)
+    if (ID != StructTyID && ID != ArrayTyID && ID != VectorTyID &&
+        ID != PackedStructTyID)
       return false;
     // If it is something that can have a size and it's concrete, it definitely
     // has a size, otherwise we have to try harder to decide.
@@ -243,7 +245,7 @@ public:
   ///
   unsigned getPrimitiveSizeInBits() const;
 
-  /// getForwardedType - Return the type that this type has been resolved to if
+  /// getForwaredType - Return the type that this type has been resolved to if
   /// it has been resolved to anything.  This is used to implement the
   /// union-find algorithm for type resolution, and shouldn't be used by general
   /// purpose clients.

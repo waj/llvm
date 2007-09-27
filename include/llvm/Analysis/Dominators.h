@@ -275,21 +275,9 @@ public:
   virtual void dump();
   
 protected:
-  friend void Compress(DominatorTreeBase& DT, BasicBlock *VIn);
-  friend BasicBlock *Eval(DominatorTreeBase& DT, BasicBlock *V);
-  friend void Link(DominatorTreeBase& DT, BasicBlock *V,
-                   BasicBlock *W, InfoRec &WInfo);
-  
   /// updateDFSNumbers - Assign In and Out numbers to the nodes while walking
   /// dominator tree in dfs order.
   void updateDFSNumbers();
-  
-  DomTreeNode *getNodeForBlock(BasicBlock *BB);
-  
-  inline BasicBlock *getIDom(BasicBlock *BB) const {
-    DenseMap<BasicBlock*, BasicBlock*>::const_iterator I = IDoms.find(BB);
-    return I != IDoms.end() ? I->second : 0;
-  }
 };
 
 //===-------------------------------------
@@ -316,11 +304,17 @@ public:
   /// BB is split and now it has one successor. Update dominator tree to
   /// reflect this change.
   void splitBlock(BasicBlock *BB);
-
 private:
-  friend void DTcalculate(DominatorTree& DT, Function& F);
-  
+  void calculate(Function& F);
+  DomTreeNode *getNodeForBlock(BasicBlock *BB);
   unsigned DFSPass(BasicBlock *V, unsigned N);
+  void Compress(BasicBlock *V);
+  BasicBlock *Eval(BasicBlock *v);
+  void Link(BasicBlock *V, BasicBlock *W, InfoRec &WInfo);
+  inline BasicBlock *getIDom(BasicBlock *BB) const {
+    DenseMap<BasicBlock*, BasicBlock*>::const_iterator I = IDoms.find(BB);
+    return I != IDoms.end() ? I->second : 0;
+  }
 };
 
 //===-------------------------------------

@@ -31,7 +31,7 @@ dnl===
 dnl===-----------------------------------------------------------------------===
 dnl Initialize autoconf and define the package name, version number and
 dnl email address for reporting bugs.
-AC_INIT([[llvm]],[[2.2svn]],[llvmbugs@cs.uiuc.edu])
+AC_INIT([[llvm]],[[2.1]],[llvmbugs@cs.uiuc.edu])
 
 dnl Provide a copyright substitution and ensure the copyright notice is included
 dnl in the output of --version option of the generated configure script.
@@ -532,9 +532,6 @@ AC_PATH_PROG(POD2MAN,[pod2man],[echo "Skipped: pod2man not found"])
 AC_PATH_PROG(RUNTEST,[runtest],[echo "Skipped: runtest not found"])
 DJ_AC_PATH_TCLSH
 AC_PATH_PROG(ZIP,[zip],[echo "Skipped: zip not found"])
-AC_PATH_PROG(OCAMLC,[ocamlc],[echo "Skipped: ocamlc not found"])
-AC_PATH_PROG(OCAMLOPT,[ocamlopt],[echo "Skipped: ocamlopt not found"])
-AC_PATH_PROG(OCAMLDEP,[ocamldep],[echo "Skipped: ocamldep not found"])
 
 dnl Determine if the linker supports the -R option.
 AC_LINK_USE_R
@@ -905,8 +902,6 @@ AC_CONFIG_MAKEFILE(test/Makefile.tests)
 AC_CONFIG_MAKEFILE(tools/Makefile)
 AC_CONFIG_MAKEFILE(utils/Makefile)
 AC_CONFIG_MAKEFILE(projects/Makefile)
-AC_CONFIG_MAKEFILE(bindings/Makefile)
-AC_CONFIG_MAKEFILE(bindings/ocaml/Makefile.ocaml)
 
 dnl Finally, crank out the output
 AC_OUTPUT

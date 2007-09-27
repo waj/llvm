@@ -235,7 +235,6 @@ namespace {
   private:
     Instruction *visitCallSite(CallSite CS);
     bool transformConstExprCastCall(CallSite CS);
-    Instruction *transformCallThroughTrampoline(CallSite CS);
 
   public:
     // InsertNewInstBefore - insert an instruction New before instruction Old
@@ -1950,8 +1949,7 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
       if (RHSC->isNullValue())
         return ReplaceInstUsesWith(I, LHS);
     } else if (ConstantFP *CFP = dyn_cast<ConstantFP>(RHSC)) {
-      if (CFP->isExactlyValue(ConstantFP::getNegativeZero
-                              (I.getType())->getValueAPF()))
+      if (CFP->isExactlyValue(-0.0))
         return ReplaceInstUsesWith(I, LHS);
     }
 
@@ -2257,17 +2255,6 @@ Instruction *InstCombiner::visitSub(BinaryOperator &I) {
         Constant *CP1 = Subtract(ConstantInt::get(I.getType(), 1), C2);
         return BinaryOperator::createMul(Op0, CP1);
       }
-
-      // X - ((X / Y) * Y) --> X % Y
-      if (Op1I->getOpcode() == Instruction::Mul)
-        if (Instruction *I = dyn_cast<Instruction>(Op1I->getOperand(0)))
-          if (Op0 == I->getOperand(0) &&
-              Op1I->getOperand(1) == I->getOperand(1)) {
-            if (I->getOpcode() == Instruction::SDiv)
-              return BinaryOperator::createSRem(Op0, Op1I->getOperand(1));
-            if (I->getOpcode() == Instruction::UDiv)
-              return BinaryOperator::createURem(Op0, Op1I->getOperand(1));
-          }
     }
   }
 
@@ -2362,10 +2349,8 @@ Instruction *InstCombiner::visitMul(BinaryOperator &I) {
 
       // "In IEEE floating point, x*1 is not equivalent to x for nans.  However,
       // ANSI says we can drop signals, so we can do this anyway." (from GCC)
-      // We need a better interface for long double here.
-      if (Op1->getType() == Type::FloatTy || Op1->getType() == Type::DoubleTy)
-        if (Op1F->isExactlyValue(1.0))
-          return ReplaceInstUsesWith(I, Op0);  // Eliminate 'mul double %X, 1.0'
+      if (Op1F->isExactlyValue(1.0))
+        return ReplaceInstUsesWith(I, Op0);  // Eliminate 'mul double %X, 1.0'
     }
     
     if (BinaryOperator *Op0I = dyn_cast<BinaryOperator>(Op0))
@@ -2913,7 +2898,7 @@ static unsigned getICmpCode(const ICmpInst *ICI) {
 
 /// getICmpValue - This is the complement of getICmpCode, which turns an
 /// opcode and two operands into either a constant true or false, or a brand 
-/// new ICmp instruction. The sign is passed in to determine which kind
+/// new /// ICmp instruction. The sign is passed in to determine which kind
 /// of predicate to use in new icmp instructions.
 static Value *getICmpValue(bool sign, unsigned code, Value *LHS, Value *RHS) {
   switch (code) {
@@ -7846,11 +7831,6 @@ Instruction *InstCombiner::visitCallSite(CallSite CS) {
     return EraseInstFromFunction(*CS.getInstruction());
   }
 
-  if (BitCastInst *BC = dyn_cast<BitCastInst>(Callee))
-    if (IntrinsicInst *In = dyn_cast<IntrinsicInst>(BC->getOperand(0)))
-      if (In->getIntrinsicID() == Intrinsic::init_trampoline)
-        return transformCallThroughTrampoline(CS);
-
   const PointerType *PTy = cast<PointerType>(Callee->getType());
   const FunctionType *FTy = cast<FunctionType>(PTy->getElementType());
   if (FTy->isVarArg()) {
@@ -7867,6 +7847,143 @@ Instruction *InstCombiner::visitCallSite(CallSite CS) {
           Changed = true;
         }
       }
+  }
+
+  if (BitCastInst *BC = dyn_cast<BitCastInst>(Callee)) {
+    IntrinsicInst *In = dyn_cast<IntrinsicInst>(BC->getOperand(0));
+    if (In && In->getIntrinsicID() == Intrinsic::init_trampoline) {
+      Function *NestF =
+        cast<Function>(IntrinsicInst::StripPointerCasts(In->getOperand(2)));
+      const PointerType *NestFPTy = cast<PointerType>(NestF->getType());
+      const FunctionType *NestFTy =
+        cast<FunctionType>(NestFPTy->getElementType());
+
+      if (const ParamAttrsList *NestAttrs = NestFTy->getParamAttrs()) {
+        unsigned NestIdx = 1;
+        const Type *NestTy = 0;
+        uint16_t NestAttr;
+
+        Instruction *Caller = CS.getInstruction();
+
+        // Look for a parameter marked with the 'nest' attribute.
+        for (FunctionType::param_iterator I = NestFTy->param_begin(),
+             E = NestFTy->param_end(); I != E; ++NestIdx, ++I)
+          if (NestAttrs->paramHasAttr(NestIdx, ParamAttr::Nest)) {
+            // Record the parameter type and any other attributes.
+            NestTy = *I;
+            NestAttr = NestAttrs->getParamAttrs(NestIdx);
+            break;
+          }
+
+        if (NestTy) {
+          std::vector<Value*> NewArgs;
+          NewArgs.reserve(unsigned(CS.arg_end()-CS.arg_begin())+1);
+
+          // Insert the nest argument into the call argument list, which may
+          // mean appending it.
+          {
+            unsigned Idx = 1;
+            CallSite::arg_iterator I = CS.arg_begin(), E = CS.arg_end();
+            do {
+              if (Idx == NestIdx) {
+                // Add the chain argument.
+                Value *NestVal = In->getOperand(3);
+                if (NestVal->getType() != NestTy)
+                  NestVal = new BitCastInst(NestVal, NestTy, "nest", Caller);
+                NewArgs.push_back(NestVal);
+              }
+
+              if (I == E)
+                break;
+
+              // Add the original argument.
+              NewArgs.push_back(*I);
+
+              ++Idx, ++I;
+            } while (1);
+          }
+
+          // The trampoline may have been bitcast to a bogus type (FTy).
+          // Handle this by synthesizing a new function type, equal to FTy
+          // with the chain parameter inserted.  Likewise for attributes.
+
+          const ParamAttrsList *Attrs = FTy->getParamAttrs();
+          std::vector<const Type*> NewTypes;
+          ParamAttrsVector NewAttrs;
+          NewTypes.reserve(FTy->getNumParams()+1);
+
+          // Add any function result attributes.
+          uint16_t Attr = Attrs ? Attrs->getParamAttrs(0) : 0;
+          if (Attr)
+            NewAttrs.push_back (ParamAttrsWithIndex::get(0, Attr));
+
+          // Insert the chain's type into the list of parameter types, which may
+          // mean appending it.  Likewise for the chain's attributes.
+          {
+            unsigned Idx = 1;
+            FunctionType::param_iterator I = FTy->param_begin(),
+              E = FTy->param_end();
+
+            do {
+              if (Idx == NestIdx) {
+                // Add the chain's type and attributes.
+                NewTypes.push_back(NestTy);
+                NewAttrs.push_back(ParamAttrsWithIndex::get(NestIdx, NestAttr));
+              }
+
+              if (I == E)
+                break;
+
+              // Add the original type and attributes.
+              NewTypes.push_back(*I);
+              Attr = Attrs ? Attrs->getParamAttrs(Idx) : 0;
+              if (Attr)
+                NewAttrs.push_back
+                  (ParamAttrsWithIndex::get(Idx + (Idx >= NestIdx), Attr));
+
+              ++Idx, ++I;
+            } while (1);
+          }
+
+          // Replace the trampoline call with a direct call.  Let the generic
+          // code sort out any function type mismatches.
+          FunctionType *NewFTy =
+            FunctionType::get(FTy->getReturnType(), NewTypes, FTy->isVarArg(),
+                              ParamAttrsList::get(NewAttrs));
+          Constant *NewCallee = NestF->getType() == PointerType::get(NewFTy) ?
+            NestF : ConstantExpr::getBitCast(NestF, PointerType::get(NewFTy));
+
+          Instruction *NewCaller;
+          if (InvokeInst *II = dyn_cast<InvokeInst>(Caller)) {
+            NewCaller = new InvokeInst(NewCallee, II->getNormalDest(),
+                                       II->getUnwindDest(), NewArgs.begin(),
+                                       NewArgs.end(), Caller->getName(),
+                                       Caller);
+            cast<InvokeInst>(NewCaller)->setCallingConv(II->getCallingConv());
+          } else {
+            NewCaller = new CallInst(NewCallee, NewArgs.begin(), NewArgs.end(),
+                                     Caller->getName(), Caller);
+            if (cast<CallInst>(Caller)->isTailCall())
+              cast<CallInst>(NewCaller)->setTailCall();
+            cast<CallInst>(NewCaller)->
+              setCallingConv(cast<CallInst>(Caller)->getCallingConv());
+          }
+          if (Caller->getType() != Type::VoidTy && !Caller->use_empty())
+            Caller->replaceAllUsesWith(NewCaller);
+          Caller->eraseFromParent();
+          RemoveFromWorkList(Caller);
+          return 0;
+        }
+      }
+
+      // Replace the trampoline call with a direct call.  Since there is no
+      // 'nest' parameter, there is no need to adjust the argument list.  Let
+      // the generic code sort out any function type mismatches.
+      Constant *NewCallee = NestF->getType() == PTy ?
+        NestF : ConstantExpr::getBitCast(NestF, PTy);
+      CS.setCalledFunction(NewCallee);
+      Changed = true;
+    }
   }
 
   return Changed ? CS.getInstruction() : 0;
@@ -8069,148 +8186,6 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
   Caller->eraseFromParent();
   RemoveFromWorkList(Caller);
   return true;
-}
-
-// transformCallThroughTrampoline - Turn a call to a function created by the
-// init_trampoline intrinsic into a direct call to the underlying function.
-//
-Instruction *InstCombiner::transformCallThroughTrampoline(CallSite CS) {
-  Value *Callee = CS.getCalledValue();
-  const PointerType *PTy = cast<PointerType>(Callee->getType());
-  const FunctionType *FTy = cast<FunctionType>(PTy->getElementType());
-
-  IntrinsicInst *Tramp =
-    cast<IntrinsicInst>(cast<BitCastInst>(Callee)->getOperand(0));
-
-  Function *NestF =
-    cast<Function>(IntrinsicInst::StripPointerCasts(Tramp->getOperand(2)));
-  const PointerType *NestFPTy = cast<PointerType>(NestF->getType());
-  const FunctionType *NestFTy = cast<FunctionType>(NestFPTy->getElementType());
-
-  if (const ParamAttrsList *NestAttrs = NestFTy->getParamAttrs()) {
-    unsigned NestIdx = 1;
-    const Type *NestTy = 0;
-    uint16_t NestAttr = 0;
-
-    // Look for a parameter marked with the 'nest' attribute.
-    for (FunctionType::param_iterator I = NestFTy->param_begin(),
-         E = NestFTy->param_end(); I != E; ++NestIdx, ++I)
-      if (NestAttrs->paramHasAttr(NestIdx, ParamAttr::Nest)) {
-        // Record the parameter type and any other attributes.
-        NestTy = *I;
-        NestAttr = NestAttrs->getParamAttrs(NestIdx);
-        break;
-      }
-
-    if (NestTy) {
-      Instruction *Caller = CS.getInstruction();
-      std::vector<Value*> NewArgs;
-      NewArgs.reserve(unsigned(CS.arg_end()-CS.arg_begin())+1);
-
-      // Insert the nest argument into the call argument list, which may
-      // mean appending it.
-      {
-        unsigned Idx = 1;
-        CallSite::arg_iterator I = CS.arg_begin(), E = CS.arg_end();
-        do {
-          if (Idx == NestIdx) {
-            // Add the chain argument.
-            Value *NestVal = Tramp->getOperand(3);
-            if (NestVal->getType() != NestTy)
-              NestVal = new BitCastInst(NestVal, NestTy, "nest", Caller);
-            NewArgs.push_back(NestVal);
-          }
-
-          if (I == E)
-            break;
-
-          // Add the original argument.
-          NewArgs.push_back(*I);
-
-          ++Idx, ++I;
-        } while (1);
-      }
-
-      // The trampoline may have been bitcast to a bogus type (FTy).
-      // Handle this by synthesizing a new function type, equal to FTy
-      // with the chain parameter inserted.  Likewise for attributes.
-
-      const ParamAttrsList *Attrs = FTy->getParamAttrs();
-      std::vector<const Type*> NewTypes;
-      ParamAttrsVector NewAttrs;
-      NewTypes.reserve(FTy->getNumParams()+1);
-
-      // Add any function result attributes.
-      uint16_t Attr = Attrs ? Attrs->getParamAttrs(0) : 0;
-      if (Attr)
-        NewAttrs.push_back (ParamAttrsWithIndex::get(0, Attr));
-
-      // Insert the chain's type into the list of parameter types, which may
-      // mean appending it.  Likewise for the chain's attributes.
-      {
-        unsigned Idx = 1;
-        FunctionType::param_iterator I = FTy->param_begin(),
-          E = FTy->param_end();
-
-        do {
-          if (Idx == NestIdx) {
-            // Add the chain's type and attributes.
-            NewTypes.push_back(NestTy);
-            NewAttrs.push_back(ParamAttrsWithIndex::get(NestIdx, NestAttr));
-          }
-
-          if (I == E)
-            break;
-
-          // Add the original type and attributes.
-          NewTypes.push_back(*I);
-          Attr = Attrs ? Attrs->getParamAttrs(Idx) : 0;
-          if (Attr)
-            NewAttrs.push_back
-              (ParamAttrsWithIndex::get(Idx + (Idx >= NestIdx), Attr));
-
-          ++Idx, ++I;
-        } while (1);
-      }
-
-      // Replace the trampoline call with a direct call.  Let the generic
-      // code sort out any function type mismatches.
-      FunctionType *NewFTy =
-        FunctionType::get(FTy->getReturnType(), NewTypes, FTy->isVarArg(),
-                          ParamAttrsList::get(NewAttrs));
-      Constant *NewCallee = NestF->getType() == PointerType::get(NewFTy) ?
-        NestF : ConstantExpr::getBitCast(NestF, PointerType::get(NewFTy));
-
-      Instruction *NewCaller;
-      if (InvokeInst *II = dyn_cast<InvokeInst>(Caller)) {
-        NewCaller = new InvokeInst(NewCallee,
-                                   II->getNormalDest(), II->getUnwindDest(),
-                                   NewArgs.begin(), NewArgs.end(),
-                                   Caller->getName(), Caller);
-        cast<InvokeInst>(NewCaller)->setCallingConv(II->getCallingConv());
-      } else {
-        NewCaller = new CallInst(NewCallee, NewArgs.begin(), NewArgs.end(),
-                                 Caller->getName(), Caller);
-        if (cast<CallInst>(Caller)->isTailCall())
-          cast<CallInst>(NewCaller)->setTailCall();
-        cast<CallInst>(NewCaller)->
-          setCallingConv(cast<CallInst>(Caller)->getCallingConv());
-      }
-      if (Caller->getType() != Type::VoidTy && !Caller->use_empty())
-        Caller->replaceAllUsesWith(NewCaller);
-      Caller->eraseFromParent();
-      RemoveFromWorkList(Caller);
-      return 0;
-    }
-  }
-
-  // Replace the trampoline call with a direct call.  Since there is no 'nest'
-  // parameter, there is no need to adjust the argument list.  Let the generic
-  // code sort out any function type mismatches.
-  Constant *NewCallee =
-    NestF->getType() == PTy ? NestF : ConstantExpr::getBitCast(NestF, PTy);
-  CS.setCalledFunction(NewCallee);
-  return CS.getInstruction();
 }
 
 /// FoldPHIArgBinOpIntoPHI - If we have something like phi [add (a,b), add(c,d)]
@@ -8936,13 +8911,8 @@ static Instruction *InstCombineLoadCast(InstCombiner &IC, LoadInst &LI) {
 /// specified pointer, we do a quick local scan of the basic block containing
 /// ScanFrom, to determine if the address is already accessed.
 static bool isSafeToLoadUnconditionally(Value *V, Instruction *ScanFrom) {
-  // If it is an alloca it is always safe to load from.
-  if (isa<AllocaInst>(V)) return true;
-
-  // If it is a global variable it is mostly safe to load from.
-  if (const GlobalValue *GV = dyn_cast<GlobalVariable>(V))
-    // Don't try to evaluate aliases.  External weak GV can be null.
-    return !isa<GlobalAlias>(GV) && !GV->hasExternalWeakLinkage();
+  // If it is an alloca or global variable, it is always safe to load from.
+  if (isa<AllocaInst>(V) || isa<GlobalVariable>(V)) return true;
 
   // Otherwise, be a little bit agressive by scanning the local block where we
   // want to check to see if the pointer is already being loaded or stored

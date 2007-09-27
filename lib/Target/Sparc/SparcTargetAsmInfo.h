@@ -22,7 +22,7 @@ namespace llvm {
   class SparcTargetMachine;
 
   struct SparcTargetAsmInfo : public TargetAsmInfo {
-    explicit SparcTargetAsmInfo(const SparcTargetMachine &TM);
+    SparcTargetAsmInfo(const SparcTargetMachine &TM);
   };
 
 

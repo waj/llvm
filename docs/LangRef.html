@@ -210,10 +210,6 @@
           <li><a href="#int_var_annotation">
             <tt>llvm.var.annotation</tt>' Intrinsic</a></li>
         </ol>
-        <ol>
-          <li><a href="#int_annotation">
-            <tt>llvm.annotation.*</tt>' Intrinsic</a></li>
-        </ol>
       </li>
     </ol>
   </li>
@@ -3122,10 +3118,14 @@ must be an <a href="#t_integer">integer</a> type.</p>
 towards zero) unsigned integer value. If the value cannot fit in <tt>ty2</tt>,
 the results are undefined.</p>
 
+<p>When converting to i1, the conversion is done as a comparison against 
+zero. If the <tt>value</tt> was zero, the i1 result will be <tt>false</tt>. 
+If the <tt>value</tt> was non-zero, the i1 result will be <tt>true</tt>.</p>
+
 <h5>Example:</h5>
 <pre>
   %X = fptoui double 123.0 to i32      <i>; yields i32:123</i>
-  %Y = fptoui float 1.0E+300 to i1     <i>; yields undefined:1</i>
+  %Y = fptoui float 1.0E+300 to i1     <i>; yields i1:true</i>
   %X = fptoui float 1.04E+17 to i8     <i>; yields undefined:1</i>
 </pre>
 </div>
@@ -3158,10 +3158,14 @@ must also be an <a href="#t_integer">integer</a> type.</p>
 towards zero) signed integer value. If the value cannot fit in <tt>ty2</tt>,
 the results are undefined.</p>
 
+<p>When converting to i1, the conversion is done as a comparison against 
+zero. If the <tt>value</tt> was zero, the i1 result will be <tt>false</tt>. 
+If the <tt>value</tt> was non-zero, the i1 result will be <tt>true</tt>.</p>
+
 <h5>Example:</h5>
 <pre>
   %X = fptosi double -123.0 to i32      <i>; yields i32:-123</i>
-  %Y = fptosi float 1.0E-247 to i1      <i>; yields undefined:1</i>
+  %Y = fptosi float 1.0E-247 to i1      <i>; yields i1:true</i>
   %X = fptosi float 1.04E+17 to i8      <i>; yields undefined:1</i>
 </pre>
 </div>
@@ -3919,7 +3923,7 @@ href="GarbageCollection.html">Accurate Garbage Collection with LLVM</a>.
 <h5>Syntax:</h5>
 
 <pre>
-  declare void @llvm.gcroot(i8** %ptrloc, i8* %metadata)
+  declare void @llvm.gcroot(&lt;ty&gt;** %ptrloc, &lt;ty2&gt;* %metadata)
 </pre>
 
 <h5>Overview:</h5>
@@ -3953,7 +3957,7 @@ the runtime to find the pointer at GC safe points.
 <h5>Syntax:</h5>
 
 <pre>
-  declare i8* @llvm.gcread(i8* %ObjPtr, i8** %Ptr)
+  declare i8 * @llvm.gcread(i8 * %ObjPtr, i8 ** %Ptr)
 </pre>
 
 <h5>Overview:</h5>
@@ -3988,7 +3992,7 @@ garbage collector runtime, as needed.</p>
 <h5>Syntax:</h5>
 
 <pre>
-  declare void @llvm.gcwrite(i8* %P1, i8* %Obj, i8** %P2)
+  declare void @llvm.gcwrite(i8 * %P1, i8 * %Obj, i8 ** %P2)
 </pre>
 
 <h5>Overview:</h5>
@@ -4081,7 +4085,7 @@ source-language caller.
 
 <h5>Syntax:</h5>
 <pre>
-  declare i8 *@llvm.frameaddress(i32 &lt;level&gt;)
+  declare i8  *@llvm.frameaddress(i32 &lt;level&gt;)
 </pre>
 
 <h5>Overview:</h5>
@@ -4124,7 +4128,7 @@ source-language caller.
 
 <h5>Syntax:</h5>
 <pre>
-  declare i8 *@llvm.stacksave()
+  declare i8  *@llvm.stacksave()
 </pre>
 
 <h5>Overview:</h5>
@@ -4190,7 +4194,8 @@ See the description for <a href="#int_stacksave"><tt>llvm.stacksave</tt></a>.
 
 <h5>Syntax:</h5>
 <pre>
-  declare void @llvm.prefetch(i8* &lt;address&gt;, i32 &lt;rw&gt;, i32 &lt;locality&gt;)
+  declare void @llvm.prefetch(i8  * &lt;address&gt;,
+                                i32 &lt;rw&gt;, i32 &lt;locality&gt;)
 </pre>
 
 <h5>Overview:</h5>
@@ -4234,7 +4239,7 @@ performance.
 
 <h5>Syntax:</h5>
 <pre>
-  declare void @llvm.pcmarker(i32 &lt;id&gt;)
+  declare void @llvm.pcmarker( i32 &lt;id&gt; )
 </pre>
 
 <h5>Overview:</h5>
@@ -5160,15 +5165,16 @@ declare void @llvm.memory.barrier( i1 &lt;ll&gt;, i1 &lt;ls&gt;, i1 &lt;sl&gt;, 
 <p>
   For example, if the function is
   <tt>i32 f(i8* nest  %c, i32 %x, i32 %y)</tt> then the resulting function
-  pointer has signature <tt>i32 (i32, i32)*</tt>.  It can be created as follows:</p>
+  pointer has signature <tt>i32 (i32, i32)*</tt>.  It can be created as follows:
 <pre>
   %tramp = alloca [10 x i8], align 4 ; size and alignment only correct for X86
   %tramp1 = getelementptr [10 x i8]* %tramp, i32 0, i32 0
   %p = call i8* @llvm.init.trampoline( i8* %tramp1, i8* bitcast (i32 (i8* nest , i32, i32)* @f to i8*), i8* %nval )
   %fp = bitcast i8* %p to i32 (i32, i32)*
 </pre>
-  <p>The call <tt>%val = call i32 %fp( i32 %x, i32 %y )</tt> is then equivalent
-  to <tt>%val = call i32 %f( i8* %nval, i32 %x, i32 %y )</tt>.</p>
+  The call <tt>%val = call i32 %fp( i32 %x, i32 %y )</tt> is then equivalent to
+  <tt>%val = call i32 %f( i8* %nval, i32 %x, i32 %y )</tt>.
+</p>
 </div>
 
 <!-- _______________________________________________________________________ -->
@@ -5258,48 +5264,6 @@ This can be useful for special purpose optimizations that want to look for these
  generation and optimization.
 </div>
 
-<!-- _______________________________________________________________________ -->
-<div class="doc_subsubsection">
-  <a name="int_annotation">'<tt>llvm.annotation.*</tt>' Intrinsic</a>
-</div>
-
-<div class="doc_text">
-
-<h5>Syntax:</h5>
-<p>This is an overloaded intrinsic. You can use '<tt>llvm.annotation</tt>' on 
-any integer bit width. 
-</p>
-<pre>
-  declare i8 @llvm.annotation.i8(i8 &lt;val&gt;, i8* &lt;str&gt;, i8* &lt;str&gt;, i32  &lt;int&gt; )
-  declare i16 @llvm.annotation.i16(i16 &lt;val&gt;, i8* &lt;str&gt;, i8* &lt;str&gt;, i32  &lt;int&gt; )
-  declare i32 @llvm.annotation.i32(i32 &lt;val&gt;, i8* &lt;str&gt;, i8* &lt;str&gt;, i32  &lt;int&gt; )
-  declare i64 @llvm.annotation.i64(i64 &lt;val&gt;, i8* &lt;str&gt;, i8* &lt;str&gt;, i32  &lt;int&gt; )
-  declare i256 @llvm.annotation.i256(i256 &lt;val&gt;, i8* &lt;str&gt;, i8* &lt;str&gt;, i32  &lt;int&gt; )
-</pre>
-
-<h5>Overview:</h5>
-
-<p>
-The '<tt>llvm.annotation</tt>' intrinsic.
-</p>
-
-<h5>Arguments:</h5>
-
-<p>
-The first argument is an integer value (result of some expression), 
-the second is a pointer to a global string, the third is a pointer to a global 
-string which is the source file name, and the last argument is the line number.
-It returns the value of the first argument.
-</p>
-
-<h5>Semantics:</h5>
-
-<p>
-This intrinsic allows annotations to be put on arbitrary expressions
-with arbitrary strings.  This can be useful for special purpose optimizations 
-that want to look for these annotations.  These have no other defined use, they 
-are ignored by code generation and optimization.
-</div>
 
 <!-- *********************************************************************** -->
 <hr>

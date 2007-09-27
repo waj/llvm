@@ -21,7 +21,6 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/LiveVariables.h"
 #include "llvm/CodeGen/SSARegMap.h"
-#include "llvm/Target/TargetOptions.h"
 using namespace llvm;
 
 X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
@@ -183,7 +182,7 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
     break;
   }
   case X86::SHL64ri: {
-    assert(MI->getNumOperands() >= 3 && "Unknown shift instruction!");
+    assert(MI->getNumOperands() == 3 && "Unknown shift instruction!");
     // NOTE: LEA doesn't produce flags like shift does, but LLVM never uses
     // the flags produced by a shift yet, so this is safe.
     unsigned Dest = MI->getOperand(0).getReg();
@@ -196,7 +195,7 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
     break;
   }
   case X86::SHL32ri: {
-    assert(MI->getNumOperands() >= 3 && "Unknown shift instruction!");
+    assert(MI->getNumOperands() == 3 && "Unknown shift instruction!");
     // NOTE: LEA doesn't produce flags like shift does, but LLVM never uses
     // the flags produced by a shift yet, so this is safe.
     unsigned Dest = MI->getOperand(0).getReg();
@@ -211,7 +210,7 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
     break;
   }
   case X86::SHL16ri: {
-    assert(MI->getNumOperands() >= 3 && "Unknown shift instruction!");
+    assert(MI->getNumOperands() == 3 && "Unknown shift instruction!");
     // NOTE: LEA doesn't produce flags like shift does, but LLVM never uses
     // the flags produced by a shift yet, so this is safe.
     unsigned Dest = MI->getOperand(0).getReg();
@@ -260,40 +259,40 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   switch (MI->getOpcode()) {
   case X86::INC32r:
   case X86::INC64_32r:
-    assert(MI->getNumOperands() >= 2 && "Unknown inc instruction!");
+    assert(MI->getNumOperands() == 2 && "Unknown inc instruction!");
     NewMI = addRegOffset(BuildMI(get(X86::LEA32r), Dest), Src, 1);
     break;
   case X86::INC16r:
   case X86::INC64_16r:
     if (DisableLEA16) return 0;
-    assert(MI->getNumOperands() >= 2 && "Unknown inc instruction!");
+    assert(MI->getNumOperands() == 2 && "Unknown inc instruction!");
     NewMI = addRegOffset(BuildMI(get(X86::LEA16r), Dest), Src, 1);
     break;
   case X86::DEC32r:
   case X86::DEC64_32r:
-    assert(MI->getNumOperands() >= 2 && "Unknown dec instruction!");
+    assert(MI->getNumOperands() == 2 && "Unknown dec instruction!");
     NewMI = addRegOffset(BuildMI(get(X86::LEA32r), Dest), Src, -1);
     break;
   case X86::DEC16r:
   case X86::DEC64_16r:
     if (DisableLEA16) return 0;
-    assert(MI->getNumOperands() >= 2 && "Unknown dec instruction!");
+    assert(MI->getNumOperands() == 2 && "Unknown dec instruction!");
     NewMI = addRegOffset(BuildMI(get(X86::LEA16r), Dest), Src, -1);
     break;
   case X86::ADD32rr:
-    assert(MI->getNumOperands() >= 3 && "Unknown add instruction!");
+    assert(MI->getNumOperands() == 3 && "Unknown add instruction!");
     NewMI = addRegReg(BuildMI(get(X86::LEA32r), Dest), Src,
                      MI->getOperand(2).getReg());
     break;
   case X86::ADD16rr:
     if (DisableLEA16) return 0;
-    assert(MI->getNumOperands() >= 3 && "Unknown add instruction!");
+    assert(MI->getNumOperands() == 3 && "Unknown add instruction!");
     NewMI = addRegReg(BuildMI(get(X86::LEA16r), Dest), Src,
                      MI->getOperand(2).getReg());
     break;
   case X86::ADD32ri:
   case X86::ADD32ri8:
-    assert(MI->getNumOperands() >= 3 && "Unknown add instruction!");
+    assert(MI->getNumOperands() == 3 && "Unknown add instruction!");
     if (MI->getOperand(2).isImmediate())
       NewMI = addRegOffset(BuildMI(get(X86::LEA32r), Dest), Src,
                           MI->getOperand(2).getImmedValue());
@@ -301,7 +300,7 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   case X86::ADD16ri:
   case X86::ADD16ri8:
     if (DisableLEA16) return 0;
-    assert(MI->getNumOperands() >= 3 && "Unknown add instruction!");
+    assert(MI->getNumOperands() == 3 && "Unknown add instruction!");
     if (MI->getOperand(2).isImmediate())
       NewMI = addRegOffset(BuildMI(get(X86::LEA16r), Dest), Src,
                           MI->getOperand(2).getImmedValue());
@@ -309,7 +308,7 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   case X86::SHL16ri:
     if (DisableLEA16) return 0;
   case X86::SHL32ri:
-    assert(MI->getNumOperands() >= 3 && MI->getOperand(2).isImmediate() &&
+    assert(MI->getNumOperands() == 3 && MI->getOperand(2).isImmediate() &&
            "Unknown shl instruction!");
     unsigned ShAmt = MI->getOperand(2).getImmedValue();
     if (ShAmt == 1 || ShAmt == 2 || ShAmt == 3) {
@@ -339,9 +338,7 @@ MachineInstr *X86InstrInfo::commuteInstruction(MachineInstr *MI) const {
   case X86::SHRD16rri8: // A = SHRD16rri8 B, C, I -> A = SHLD16rri8 C, B, (16-I)
   case X86::SHLD16rri8: // A = SHLD16rri8 B, C, I -> A = SHRD16rri8 C, B, (16-I)
   case X86::SHRD32rri8: // A = SHRD32rri8 B, C, I -> A = SHLD32rri8 C, B, (32-I)
-  case X86::SHLD32rri8: // A = SHLD32rri8 B, C, I -> A = SHRD32rri8 C, B, (32-I)
-  case X86::SHRD64rri8: // A = SHRD64rri8 B, C, I -> A = SHLD64rri8 C, B, (64-I)
-  case X86::SHLD64rri8:{// A = SHLD64rri8 B, C, I -> A = SHRD64rri8 C, B, (64-I)
+  case X86::SHLD32rri8:{// A = SHLD32rri8 B, C, I -> A = SHRD32rri8 C, B, (32-I)
     unsigned Opc;
     unsigned Size;
     switch (MI->getOpcode()) {
@@ -350,8 +347,6 @@ MachineInstr *X86InstrInfo::commuteInstruction(MachineInstr *MI) const {
     case X86::SHLD16rri8: Size = 16; Opc = X86::SHRD16rri8; break;
     case X86::SHRD32rri8: Size = 32; Opc = X86::SHLD32rri8; break;
     case X86::SHLD32rri8: Size = 32; Opc = X86::SHRD32rri8; break;
-    case X86::SHRD64rri8: Size = 64; Opc = X86::SHLD64rri8; break;
-    case X86::SHLD64rri8: Size = 64; Opc = X86::SHRD64rri8; break;
     }
     unsigned Amt = MI->getOperand(3).getImmedValue();
     unsigned A = MI->getOperand(0).getReg();
@@ -386,68 +381,28 @@ static X86::CondCode GetCondFromBranchOpc(unsigned BrOpc) {
   case X86::JNP: return X86::COND_NP;
   case X86::JO:  return X86::COND_O;
   case X86::JNO: return X86::COND_NO;
-  // TEMPORARY
-  case X86::NEW_JE:  return X86::COND_E;
-  case X86::NEW_JNE: return X86::COND_NE;
-  case X86::NEW_JL:  return X86::COND_L;
-  case X86::NEW_JLE: return X86::COND_LE;
-  case X86::NEW_JG:  return X86::COND_G;
-  case X86::NEW_JGE: return X86::COND_GE;
-  case X86::NEW_JB:  return X86::COND_B;
-  case X86::NEW_JBE: return X86::COND_BE;
-  case X86::NEW_JA:  return X86::COND_A;
-  case X86::NEW_JAE: return X86::COND_AE;
-  case X86::NEW_JS:  return X86::COND_S;
-  case X86::NEW_JNS: return X86::COND_NS;
-  case X86::NEW_JP:  return X86::COND_P;
-  case X86::NEW_JNP: return X86::COND_NP;
-  case X86::NEW_JO:  return X86::COND_O;
-  case X86::NEW_JNO: return X86::COND_NO;
-
   }
 }
 
 unsigned X86::GetCondBranchFromCond(X86::CondCode CC) {
-  if (!NewCCModeling) {
-    switch (CC) {
-    default: assert(0 && "Illegal condition code!");
-    case X86::COND_E:  return X86::JE;
-    case X86::COND_NE: return X86::JNE;
-    case X86::COND_L:  return X86::JL;
-    case X86::COND_LE: return X86::JLE;
-    case X86::COND_G:  return X86::JG;
-    case X86::COND_GE: return X86::JGE;
-    case X86::COND_B:  return X86::JB;
-    case X86::COND_BE: return X86::JBE;
-    case X86::COND_A:  return X86::JA;
-    case X86::COND_AE: return X86::JAE;
-    case X86::COND_S:  return X86::JS;
-    case X86::COND_NS: return X86::JNS;
-    case X86::COND_P:  return X86::JP;
-    case X86::COND_NP: return X86::JNP;
-    case X86::COND_O:  return X86::JO;
-    case X86::COND_NO: return X86::JNO;
-    }
-  }
-
   switch (CC) {
   default: assert(0 && "Illegal condition code!");
-  case X86::COND_E:  return X86::NEW_JE;
-  case X86::COND_NE: return X86::NEW_JNE;
-  case X86::COND_L:  return X86::NEW_JL;
-  case X86::COND_LE: return X86::NEW_JLE;
-  case X86::COND_G:  return X86::NEW_JG;
-  case X86::COND_GE: return X86::NEW_JGE;
-  case X86::COND_B:  return X86::NEW_JB;
-  case X86::COND_BE: return X86::NEW_JBE;
-  case X86::COND_A:  return X86::NEW_JA;
-  case X86::COND_AE: return X86::NEW_JAE;
-  case X86::COND_S:  return X86::NEW_JS;
-  case X86::COND_NS: return X86::NEW_JNS;
-  case X86::COND_P:  return X86::NEW_JP;
-  case X86::COND_NP: return X86::NEW_JNP;
-  case X86::COND_O:  return X86::NEW_JO;
-  case X86::COND_NO: return X86::NEW_JNO;
+  case X86::COND_E:  return X86::JE;
+  case X86::COND_NE: return X86::JNE;
+  case X86::COND_L:  return X86::JL;
+  case X86::COND_LE: return X86::JLE;
+  case X86::COND_G:  return X86::JG;
+  case X86::COND_GE: return X86::JGE;
+  case X86::COND_B:  return X86::JB;
+  case X86::COND_BE: return X86::JBE;
+  case X86::COND_A:  return X86::JA;
+  case X86::COND_AE: return X86::JAE;
+  case X86::COND_S:  return X86::JS;
+  case X86::COND_NS: return X86::JNS;
+  case X86::COND_P:  return X86::JP;
+  case X86::COND_NP: return X86::JNP;
+  case X86::COND_O:  return X86::JO;
+  case X86::COND_NO: return X86::JNO;
   }
 }
 
@@ -623,9 +578,7 @@ bool X86InstrInfo::BlockHasNoFallThrough(MachineBasicBlock &MBB) const {
   case X86::TAILJMPm:
   case X86::JMP:     // Uncond branch.
   case X86::JMP32r:  // Indirect branch.
-  case X86::JMP64r:  // Indirect branch (64-bit).
   case X86::JMP32m:  // Indirect branch through mem.
-  case X86::JMP64m:  // Indirect branch through mem (64-bit).
     return true;
   default: return false;
   }

@@ -178,25 +178,30 @@ Constant *llvm::ConstantFoldCastInstruction(unsigned opc, const Constant *V,
   case Instruction::FPTrunc:
   case Instruction::FPExt:
     if (const ConstantFP *FPC = dyn_cast<ConstantFP>(V)) {
-      APFloat Val = FPC->getValueAPF();
-      Val.convert(DestTy == Type::FloatTy ? APFloat::IEEEsingle :
-                  DestTy == Type::DoubleTy ? APFloat::IEEEdouble :
-                  DestTy == Type::X86_FP80Ty ? APFloat::x87DoubleExtended :
-                  DestTy == Type::FP128Ty ? APFloat::IEEEquad :
-                  APFloat::Bogus,
+       APFloat Val = FPC->getValueAPF();
+      Val.convert(DestTy==Type::FloatTy ? APFloat::IEEEsingle : 
+                                          APFloat::IEEEdouble, 
                   APFloat::rmNearestTiesToEven);
       return ConstantFP::get(DestTy, Val);
     }
     return 0; // Can't fold.
   case Instruction::FPToUI: 
+    if (const ConstantFP *FPC = dyn_cast<ConstantFP>(V)) {
+      APFloat V = FPC->getValueAPF();
+      bool isDouble = &V.getSemantics()==&APFloat::IEEEdouble;
+      uint32_t DestBitWidth = cast<IntegerType>(DestTy)->getBitWidth();
+      APInt Val(APIntOps::RoundDoubleToAPInt(isDouble ? V.convertToDouble() : 
+                                   (double)V.convertToFloat(), DestBitWidth));
+      return ConstantInt::get(Val);
+    }
+    return 0; // Can't fold.
   case Instruction::FPToSI:
     if (const ConstantFP *FPC = dyn_cast<ConstantFP>(V)) {
       APFloat V = FPC->getValueAPF();
-      uint64_t x[2]; 
+      bool isDouble = &V.getSemantics()==&APFloat::IEEEdouble;
       uint32_t DestBitWidth = cast<IntegerType>(DestTy)->getBitWidth();
-      (void) V.convertToInteger(x, DestBitWidth, opc==Instruction::FPToSI,
-                                APFloat::rmTowardZero);
-      APInt Val(DestBitWidth, 2, x);
+      APInt Val(APIntOps::RoundDoubleToAPInt(isDouble ? V.convertToDouble() :
+                                    (double)V.convertToFloat(), DestBitWidth));
       return ConstantInt::get(Val);
     }
     return 0; // Can't fold.
@@ -210,13 +215,11 @@ Constant *llvm::ConstantFoldCastInstruction(unsigned opc, const Constant *V,
     return 0;                   // Other pointer types cannot be casted
   case Instruction::UIToFP:
     if (const ConstantInt *CI = dyn_cast<ConstantInt>(V)) {
-      double d = CI->getValue().roundToDouble();
       if (DestTy==Type::FloatTy) 
-        return ConstantFP::get(DestTy, APFloat((float)d));
-      else if (DestTy==Type::DoubleTy)
-        return ConstantFP::get(DestTy, APFloat(d));
+        return ConstantFP::get(DestTy, 
+                            APFloat((float)CI->getValue().roundToDouble()));
       else
-        return 0;     // FIXME do this for long double
+        return ConstantFP::get(DestTy, APFloat(CI->getValue().roundToDouble()));
     }
     return 0;
   case Instruction::SIToFP:
@@ -224,10 +227,8 @@ Constant *llvm::ConstantFoldCastInstruction(unsigned opc, const Constant *V,
       double d = CI->getValue().signedRoundToDouble();
       if (DestTy==Type::FloatTy)
         return ConstantFP::get(DestTy, APFloat((float)d));
-      else if (DestTy==Type::DoubleTy)
-        return ConstantFP::get(DestTy, APFloat(d));
       else
-        return 0;     // FIXME do this for long double
+        return ConstantFP::get(DestTy, APFloat(d));
     }
     return 0;
   case Instruction::ZExt:
@@ -696,6 +697,23 @@ Constant *llvm::ConstantFoldBinaryInstruction(unsigned Opcode,
         (void)C3V.multiply(C2V, APFloat::rmNearestTiesToEven);
         return ConstantFP::get(CFP1->getType(), C3V);
       case Instruction::FDiv:
+        // FIXME better to look at the return code
+        if (C2V.isZero())
+          if (C1V.isZero())
+            // IEEE 754, Section 7.1, #4
+            return ConstantFP::get(CFP1->getType(), isDouble ?
+                            APFloat(std::numeric_limits<double>::quiet_NaN()) :
+                            APFloat(std::numeric_limits<float>::quiet_NaN()));
+          else if (C2V.isNegZero() || C1V.isNegative())
+            // IEEE 754, Section 7.2, negative infinity case
+            return ConstantFP::get(CFP1->getType(), isDouble ?
+                            APFloat(-std::numeric_limits<double>::infinity()) :
+                            APFloat(-std::numeric_limits<float>::infinity()));
+          else
+            // IEEE 754, Section 7.2, positive infinity case
+            return ConstantFP::get(CFP1->getType(), isDouble ?
+                            APFloat(std::numeric_limits<double>::infinity()) :
+                            APFloat(std::numeric_limits<float>::infinity()));
         (void)C3V.divide(C2V, APFloat::rmNearestTiesToEven);
         return ConstantFP::get(CFP1->getType(), C3V);
       case Instruction::FRem:
@@ -1106,8 +1124,7 @@ Constant *llvm::ConstantFoldCompareInstruction(unsigned short pred,
   // icmp eq/ne(null,GV) -> false/true
   if (C1->isNullValue()) {
     if (const GlobalValue *GV = dyn_cast<GlobalValue>(C2))
-      // Don't try to evaluate aliases.  External weak GV can be null.
-      if (!isa<GlobalAlias>(GV) && !GV->hasExternalWeakLinkage())
+      if (!GV->hasExternalWeakLinkage()) // External weak GV can be null
         if (pred == ICmpInst::ICMP_EQ)
           return ConstantInt::getFalse();
         else if (pred == ICmpInst::ICMP_NE)
@@ -1115,8 +1132,7 @@ Constant *llvm::ConstantFoldCompareInstruction(unsigned short pred,
   // icmp eq/ne(GV,null) -> false/true
   } else if (C2->isNullValue()) {
     if (const GlobalValue *GV = dyn_cast<GlobalValue>(C1))
-      // Don't try to evaluate aliases.  External weak GV can be null.
-      if (!isa<GlobalAlias>(GV) && !GV->hasExternalWeakLinkage())
+      if (!GV->hasExternalWeakLinkage()) // External weak GV can be null
         if (pred == ICmpInst::ICMP_EQ)
           return ConstantInt::getFalse();
         else if (pred == ICmpInst::ICMP_NE)

@@ -22,39 +22,48 @@
 namespace llvm {
   
 template<typename T>
-struct DenseMapInfo {
+struct DenseMapKeyInfo {
   //static inline T getEmptyKey();
   //static inline T getTombstoneKey();
   //static unsigned getHashValue(const T &Val);
-  //static bool isEqual(const T &LHS, const T &RHS);
   //static bool isPod()
 };
 
-// Provide DenseMapInfo for all pointers.
+// Provide DenseMapKeyInfo for all pointers.
 template<typename T>
-struct DenseMapInfo<T*> {
+struct DenseMapKeyInfo<T*> {
   static inline T* getEmptyKey() { return reinterpret_cast<T*>(-1); }
   static inline T* getTombstoneKey() { return reinterpret_cast<T*>(-2); }
   static unsigned getHashValue(const T *PtrVal) {
     return (unsigned(uintptr_t(PtrVal)) >> 4) ^ 
            (unsigned(uintptr_t(PtrVal)) >> 9);
   }
-  static bool isEqual(const T *LHS, const T *RHS) { return LHS == RHS; }
+  static bool isPod() { return true; }
+};
+
+template<typename T>
+struct DenseMapValueInfo {
+  //static bool isPod()
+};
+
+// Provide DenseMapValueInfo for all pointers.
+template<typename T>
+struct DenseMapValueInfo<T*> {
   static bool isPod() { return true; }
 };
 
 template<typename KeyT, typename ValueT, 
-         typename KeyInfoT = DenseMapInfo<KeyT>,
-         typename ValueInfoT = DenseMapInfo<ValueT> >
+         typename KeyInfoT = DenseMapKeyInfo<KeyT>,
+         typename ValueInfoT = DenseMapValueInfo<ValueT> >
 class DenseMapIterator;
 template<typename KeyT, typename ValueT,
-         typename KeyInfoT = DenseMapInfo<KeyT>,
-         typename ValueInfoT = DenseMapInfo<ValueT> >
+         typename KeyInfoT = DenseMapKeyInfo<KeyT>,
+         typename ValueInfoT = DenseMapValueInfo<ValueT> >
 class DenseMapConstIterator;
 
 template<typename KeyT, typename ValueT,
-         typename KeyInfoT = DenseMapInfo<KeyT>,
-         typename ValueInfoT = DenseMapInfo<ValueT> >
+         typename KeyInfoT = DenseMapKeyInfo<KeyT>,
+         typename ValueInfoT = DenseMapValueInfo<ValueT> >
 class DenseMap {
   typedef std::pair<KeyT, ValueT> BucketT;
   unsigned NumBuckets;
@@ -99,9 +108,6 @@ public:
   
   bool empty() const { return NumEntries == 0; }
   unsigned size() const { return NumEntries; }
-
-  /// Grow the densemap so that it has at least Size buckets. Does not shrink
-  void resize(size_t Size) { grow(Size); }
   
   void clear() {
     // If the capacity of the array is huge, and the # elements used is small,
@@ -213,7 +219,7 @@ private:
         new (Buckets[i].first) KeyT(other.Buckets[i].first);
         if (Buckets[i].first != getEmptyKey() &&
             Buckets[i].first != getTombstoneKey())
-          new (&Buckets[i].second) ValueT(other.Buckets[i].second);
+          new (Buckets[i].second) ValueT(other.Buckets[i].second);
       }
     NumBuckets = other.NumBuckets;
   }
@@ -231,7 +237,7 @@ private:
     // causing infinite loops in lookup.
     if (NumEntries*4 >= NumBuckets*3 ||
         NumBuckets-(NumEntries+NumTombstones) < NumBuckets/8) {        
-      this->grow(NumBuckets * 2);
+      this->grow();
       LookupBucketFor(Key, TheBucket);
     }
     ++NumEntries;
@@ -274,14 +280,14 @@ private:
     while (1) {
       BucketT *ThisBucket = BucketsPtr + (BucketNo & (NumBuckets-1));
       // Found Val's bucket?  If so, return it.
-      if (KeyInfoT::isEqual(ThisBucket->first, Val)) {
+      if (ThisBucket->first == Val) {
         FoundBucket = ThisBucket;
         return true;
       }
       
       // If we found an empty bucket, the key doesn't exist in the set.
       // Insert it and return the default value.
-      if (KeyInfoT::isEqual(ThisBucket->first, EmptyKey)) {
+      if (ThisBucket->first == EmptyKey) {
         // If we've already seen a tombstone while probing, fill it in instead
         // of the empty bucket we eventually probed to.
         if (FoundTombstone) ThisBucket = FoundTombstone;
@@ -291,7 +297,7 @@ private:
       
       // If this is a tombstone, remember it.  If Val ends up not in the map, we
       // prefer to return it than something that would require more probing.
-      if (KeyInfoT::isEqual(ThisBucket->first, TombstoneKey) && !FoundTombstone)
+      if (ThisBucket->first == TombstoneKey && !FoundTombstone)
         FoundTombstone = ThisBucket;  // Remember the first tombstone found.
       
       // Otherwise, it's a hash collision or a tombstone, continue quadratic
@@ -313,13 +319,12 @@ private:
       new (&Buckets[i].first) KeyT(EmptyKey);
   }
   
-  void grow(unsigned AtLeast) {
+  void grow() {
     unsigned OldNumBuckets = NumBuckets;
     BucketT *OldBuckets = Buckets;
     
     // Double the number of buckets.
-    while (NumBuckets <= AtLeast)
-      NumBuckets <<= 1;
+    NumBuckets <<= 1;
     NumTombstones = 0;
     Buckets = reinterpret_cast<BucketT*>(new char[sizeof(BucketT)*NumBuckets]);
 
@@ -420,9 +425,7 @@ private:
     const KeyT Empty = KeyInfoT::getEmptyKey();
     const KeyT Tombstone = KeyInfoT::getTombstoneKey();
 
-    while (Ptr != End && 
-           (KeyInfoT::isEqual(Ptr->first, Empty) ||
-            KeyInfoT::isEqual(Ptr->first, Tombstone)))
+    while (Ptr != End && (Ptr->first == Empty || Ptr->first == Tombstone))
       ++Ptr;
   }
 };

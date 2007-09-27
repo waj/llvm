@@ -70,7 +70,6 @@ private:
   const sc_iterator SubRegClasses;
   const sc_iterator SuperRegClasses;
   const unsigned RegSize, Alignment;    // Size & Alignment of register in bytes
-  const int CopyCost;
   const iterator RegsBegin, RegsEnd;
 public:
   TargetRegisterClass(unsigned id,
@@ -79,11 +78,10 @@ public:
                       const TargetRegisterClass * const *supcs,
                       const TargetRegisterClass * const *subregcs,
                       const TargetRegisterClass * const *superregcs,
-                      unsigned RS, unsigned Al, int CC,
-                      iterator RB, iterator RE)
+                      unsigned RS, unsigned Al, iterator RB, iterator RE)
     : ID(id), VTs(vts), SubClasses(subcs), SuperClasses(supcs),
     SubRegClasses(subregcs), SuperRegClasses(superregcs),
-    RegSize(RS), Alignment(Al), CopyCost(CC), RegsBegin(RB), RegsEnd(RE) {}
+    RegSize(RS), Alignment(Al), RegsBegin(RB), RegsEnd(RE) {}
   virtual ~TargetRegisterClass() {}     // Allow subclasses
   
   /// getID() - Return the register class ID number.
@@ -260,10 +258,6 @@ public:
   /// getAlignment - Return the minimum required alignment for a register of
   /// this class.
   unsigned getAlignment() const { return Alignment; }
-
-  /// getCopyCost - Return the cost of copying a value between two registers in
-  /// this class.
-  int getCopyCost() const { return CopyCost; }
 };
 
 
@@ -314,11 +308,6 @@ public:
     assert(Reg && "this is not a register!");
     return Reg >= FirstVirtualRegister;
   }
-
-  /// getPhysicalRegisterRegClass - Returns the Register Class of a physical
-  /// register of the given type.
-  const TargetRegisterClass *getPhysicalRegisterRegClass(MVT::ValueType VT,
-                                                         unsigned Reg) const;
 
   /// getAllocatableSet - Returns a bitset indexed by register number
   /// indicating if a register is allocatable or not. If a register class is
@@ -511,16 +500,7 @@ public:
   virtual void copyRegToReg(MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator MI,
                             unsigned DestReg, unsigned SrcReg,
-                            const TargetRegisterClass *DestRC,
-                            const TargetRegisterClass *SrcRC) const = 0;
-
-  /// getCrossCopyRegClass - Returns a legal register class to copy a register
-  /// in the specified class to or from. Returns NULL if it is possible to copy
-  /// between a two registers of the specified class.
-  virtual const TargetRegisterClass *
-  getCrossCopyRegClass(const TargetRegisterClass *RC) const {
-    return NULL;
-  }
+                            const TargetRegisterClass *RC) const = 0;
 
   /// reMaterialize - Re-issue the specified 'original' instruction at the
   /// specific location targeting a new destination register.

@@ -145,7 +145,7 @@ namespace {
 }
 
 namespace llvm {
-template <> struct DenseMapInfo<Expression> {
+template <> struct DenseMapKeyInfo<Expression> {
   static inline Expression getEmptyKey() {
     return Expression(Expression::EMPTY);
   }
@@ -170,9 +170,6 @@ template <> struct DenseMapInfo<Expression> {
       hash = *I + hash * 37;
     
     return hash;
-  }
-  static bool isEqual(const Expression &LHS, const Expression &RHS) {
-    return LHS == RHS;
   }
   static bool isPod() { return true; }
 };
@@ -834,7 +831,7 @@ bool GVN::processNonLocalLoad(LoadInst* L,
       return false;
     } else if (I->second == MemoryDependenceAnalysis::NonLocal) {
       continue;
-    } else if (StoreInst* S = dyn_cast<StoreInst>(I->second)) {
+    }else if (StoreInst* S = dyn_cast<StoreInst>(I->second)) {
       if (S->getPointerOperand() == L->getPointerOperand())
         repl[I->first] = S->getOperand(0);
       else

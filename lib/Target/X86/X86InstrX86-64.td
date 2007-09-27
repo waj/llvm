@@ -123,11 +123,6 @@ def PUSH64r  : I<0x50, AddRegFrm,
                  (outs), (ins GR64:$reg), "push{q}\t$reg", []>;
 }
 
-let Defs = [RSP, EFLAGS], Uses = [RSP] in
-def POPFQ    : I<0x9D, RawFrm, (outs), (ins), "popf", []>, REX_W;
-let Defs = [RSP], Uses = [RSP, EFLAGS] in
-def PUSHFQ   : I<0x9C, RawFrm, (outs), (ins), "pushf", []>;
-
 def LEA64_32r : I<0x8D, MRMSrcMem,
                   (outs GR32:$dst), (ins lea64_32mem:$src),
                   "lea{l}\t{$src|$dst}, {$dst|$src}",
@@ -231,7 +226,6 @@ def CQO  : RI<0x99, RawFrm, (outs), (ins),
 //  Arithmetic Instructions...
 //
 
-let Defs = [EFLAGS] in {
 let isTwoAddress = 1 in {
 let isConvertibleToThreeAddress = 1 in {
 let isCommutable = 1 in
@@ -343,10 +337,9 @@ def SBB64mi32 : RIi32<0x81, MRM3m, (outs), (ins i64mem:$dst, i64i32imm:$src2),
 def SBB64mi8 : RIi8<0x83, MRM3m, (outs), (ins i64mem:$dst, i64i8imm :$src2), 
                     "sbb{q}\t{$src2, $dst|$dst, $src2}",
                [(store (sube (load addr:$dst), i64immSExt8:$src2), addr:$dst)]>;
-} // Defs = [EFLAGS]
 
 // Unsigned multiplication
-let Defs = [RAX,RDX,EFLAGS], Uses = [RAX] in {
+let Defs = [RAX,RDX], Uses = [RAX] in {
 def MUL64r : RI<0xF7, MRM4r, (outs), (ins GR64:$src),
                 "mul{q}\t$src", []>;         // RAX,RDX = RAX*GR64
 def MUL64m : RI<0xF7, MRM4m, (outs), (ins i64mem:$src),
@@ -359,7 +352,6 @@ def IMUL64m : RI<0xF7, MRM5m, (outs), (ins i64mem:$src),
                  "imul{q}\t$src", []>;         // RAX,RDX = RAX*[mem64]
 }
 
-let Defs = [EFLAGS] in {
 let isTwoAddress = 1 in {
 let isCommutable = 1 in
 def IMUL64rr : RI<0xAF, MRMSrcReg, (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
@@ -388,10 +380,9 @@ def IMUL64rmi8 : RIi8<0x6B, MRMSrcMem,                      // GR64 = [mem64]*I8
                       (outs GR64:$dst), (ins i64mem:$src1, i64i8imm: $src2),
                       "imul{q}\t{$src2, $src1, $dst|$dst, $src1, $src2}",
                  [(set GR64:$dst, (mul (load addr:$src1), i64immSExt8:$src2))]>;
-} // Defs = [EFLAGS]
 
 // Unsigned division / remainder
-let Defs = [RAX,RDX,EFLAGS], Uses = [RAX,RDX] in {
+let Defs = [RAX,RDX], Uses = [RAX,RDX] in {
 def DIV64r : RI<0xF7, MRM6r, (outs), (ins GR64:$src),        // RDX:RAX/r64 = RAX,RDX
                 "div{q}\t$src", []>;
 def DIV64m : RI<0xF7, MRM6m, (outs), (ins i64mem:$src),      // RDX:RAX/[mem64] = RAX,RDX
@@ -405,7 +396,7 @@ def IDIV64m: RI<0xF7, MRM7m, (outs), (ins i64mem:$src),      // RDX:RAX/[mem64] 
 }
 
 // Unary instructions
-let Defs = [EFLAGS], CodeSize = 2 in {
+let CodeSize = 2 in {
 let isTwoAddress = 1 in
 def NEG64r : RI<0xF7, MRM3r, (outs GR64:$dst), (ins GR64:$src), "neg{q}\t$dst",
                 [(set GR64:$dst, (ineg GR64:$src))]>;
@@ -440,10 +431,9 @@ def DEC64_32r : I<0xFF, MRM1r, (outs GR32:$dst), (ins GR32:$src), "dec{l}\t$dst"
                   [(set GR32:$dst, (add GR32:$src, -1))]>,
                 Requires<[In64BitMode]>;
 } // isConvertibleToThreeAddress
-} // Defs = [EFLAGS], CodeSize
+} // CodeSize
 
 
-let Defs = [EFLAGS] in {
 // Shift instructions
 let isTwoAddress = 1 in {
 let Uses = [CL] in
@@ -569,52 +559,39 @@ def ROR64m1  : RI<0xD1, MRM1m, (outs), (ins i64mem:$dst),
 let isTwoAddress = 1 in {
 let Uses = [CL] in {
 def SHLD64rrCL : RI<0xA5, MRMDestReg, (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                    "shld{q}\t{%cl, $src2, $dst|$dst, $src2, %CL}",
-                    [(set GR64:$dst, (X86shld GR64:$src1, GR64:$src2, CL))]>, TB;
+                    "shld{q}\t{%cl, $src2, $dst|$dst, $src2, %CL}", []>, TB;
 def SHRD64rrCL : RI<0xAD, MRMDestReg, (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                    "shrd{q}\t{%cl, $src2, $dst|$dst, $src2, %CL}",
-                    [(set GR64:$dst, (X86shrd GR64:$src1, GR64:$src2, CL))]>, TB;
+                    "shrd{q}\t{%cl, $src2, $dst|$dst, $src2, %CL}", []>, TB;
 }
 
 let isCommutable = 1 in {  // FIXME: Update X86InstrInfo::commuteInstruction
 def SHLD64rri8 : RIi8<0xA4, MRMDestReg,
                       (outs GR64:$dst), (ins GR64:$src1, GR64:$src2, i8imm:$src3),
-                      "shld{q}\t{$src3, $src2, $dst|$dst, $src2, $src3}",
-                      [(set GR64:$dst, (X86shld GR64:$src1, GR64:$src2,
-                                       (i8 imm:$src3)))]>,
-                 TB;
+                      "shld{q}\t{$src3, $src2, $dst|$dst, $src2, $src3}", []>,
+                      TB;
 def SHRD64rri8 : RIi8<0xAC, MRMDestReg,
                       (outs GR64:$dst), (ins GR64:$src1, GR64:$src2, i8imm:$src3),
-                      "shrd{q}\t{$src3, $src2, $dst|$dst, $src2, $src3}",
-                      [(set GR64:$dst, (X86shrd GR64:$src1, GR64:$src2,
-                                       (i8 imm:$src3)))]>,
+                      "shrd{q}\t{$src3, $src2, $dst|$dst, $src2, $src3}", []>,
                  TB;
 } // isCommutable
 } // isTwoAddress
 
+// Temporary hack: there is no patterns associated with these instructions
+// so we have to tell tblgen that these do not produce results.
 let Uses = [CL] in {
 def SHLD64mrCL : RI<0xA5, MRMDestMem, (outs), (ins i64mem:$dst, GR64:$src2),
-                    "shld{q}\t{%cl, $src2, $dst|$dst, $src2, %CL}",
-                    [(store (X86shld (loadi64 addr:$dst), GR64:$src2, CL),
-                      addr:$dst)]>, TB;
+                    "shld{q}\t{%cl, $src2, $dst|$dst, $src2, %CL}", []>, TB;
 def SHRD64mrCL : RI<0xAD, MRMDestMem, (outs), (ins i64mem:$dst, GR64:$src2),
-                    "shrd{q}\t{%cl, $src2, $dst|$dst, $src2, %CL}",
-                    [(store (X86shrd (loadi64 addr:$dst), GR64:$src2, CL),
-                      addr:$dst)]>, TB;
+                    "shrd{q}\t{%cl, $src2, $dst|$dst, $src2, %CL}", []>, TB;
 }
 def SHLD64mri8 : RIi8<0xA4, MRMDestMem,
                       (outs), (ins i64mem:$dst, GR64:$src2, i8imm:$src3),
-                      "shld{q}\t{$src3, $src2, $dst|$dst, $src2, $src3}",
-                      [(store (X86shld (loadi64 addr:$dst), GR64:$src2,
-                                       (i8 imm:$src3)), addr:$dst)]>,
+                      "shld{q}\t{$src3, $src2, $dst|$dst, $src2, $src3}", []>,
                  TB;
 def SHRD64mri8 : RIi8<0xAC, MRMDestMem, 
                       (outs), (ins i64mem:$dst, GR64:$src2, i8imm:$src3),
-                      "shrd{q}\t{$src3, $src2, $dst|$dst, $src2, $src3}",
-                      [(store (X86shrd (loadi64 addr:$dst), GR64:$src2,
-                                       (i8 imm:$src3)), addr:$dst)]>,
+                      "shrd{q}\t{$src3, $src2, $dst|$dst, $src2, $src3}", []>,
                  TB;
-} // Defs = [EFLAGS]
 
 //===----------------------------------------------------------------------===//
 //  Logical Instructions...
@@ -626,7 +603,6 @@ def NOT64r : RI<0xF7, MRM2r, (outs GR64:$dst), (ins GR64:$src), "not{q}\t$dst",
 def NOT64m : RI<0xF7, MRM2m, (outs), (ins i64mem:$dst), "not{q}\t$dst",
                 [(store (not (loadi64 addr:$dst)), addr:$dst)]>;
 
-let Defs = [EFLAGS] in {
 let isTwoAddress = 1 in {
 let isCommutable = 1 in
 def AND64rr  : RI<0x21, MRMDestReg, 
@@ -712,14 +688,12 @@ def XOR64mi32 : RIi32<0x81, MRM6m, (outs), (ins i64mem:$dst, i64i32imm:$src),
 def XOR64mi8 : RIi8<0x83, MRM6m, (outs), (ins i64mem:$dst, i64i8imm :$src),
                     "xor{q}\t{$src, $dst|$dst, $src}",
                  [(store (xor (load addr:$dst), i64immSExt8:$src), addr:$dst)]>;
-} // Defs = [EFLAGS]
 
 //===----------------------------------------------------------------------===//
 //  Comparison Instructions...
 //
 
 // Integer comparison
-let Defs = [EFLAGS] in {
 let isCommutable = 1 in
 def TEST64rr : RI<0x85, MRMDestReg, (outs), (ins GR64:$src1, GR64:$src2),
                   "test{q}\t{$src2, $src1|$src1, $src2}",
@@ -755,62 +729,9 @@ def CMP64mi8 : RIi8<0x83, MRM7m, (outs), (ins i64mem:$src1, i64i8imm:$src2),
 def CMP64ri8 : RIi8<0x83, MRM7r, (outs), (ins GR64:$src1, i64i8imm:$src2),
                     "cmp{q}\t{$src2, $src1|$src1, $src2}",
                     [(X86cmp GR64:$src1, i64immSExt8:$src2)]>;
-} // Defs = [EFLAGS]
-
-let Defs = [EFLAGS] in {
-let isCommutable = 1 in
-def NEW_TEST64rr : RI<0x85, MRMDestReg, (outs), (ins GR64:$src1, GR64:$src2),
-                  "test{q}\t{$src2, $src1|$src1, $src2}",
-                  [(X86cmp_new (and GR64:$src1, GR64:$src2), 0),
-                   (implicit EFLAGS)]>;
-def NEW_TEST64rm : RI<0x85, MRMSrcMem, (outs), (ins GR64:$src1, i64mem:$src2),
-                  "test{q}\t{$src2, $src1|$src1, $src2}",
-                  [(X86cmp_new (and GR64:$src1, (loadi64 addr:$src2)), 0),
-                   (implicit EFLAGS)]>;
-def NEW_TEST64ri32 : RIi32<0xF7, MRM0r, (outs),
-                                        (ins GR64:$src1, i64i32imm:$src2),
-                       "test{q}\t{$src2, $src1|$src1, $src2}",
-                     [(X86cmp_new (and GR64:$src1, i64immSExt32:$src2), 0),
-                      (implicit EFLAGS)]>;
-def NEW_TEST64mi32 : RIi32<0xF7, MRM0m, (outs),
-                                        (ins i64mem:$src1, i64i32imm:$src2),
-                       "test{q}\t{$src2, $src1|$src1, $src2}",
-                [(X86cmp_new (and (loadi64 addr:$src1), i64immSExt32:$src2), 0),
-                 (implicit EFLAGS)]>;
-
-def NEW_CMP64rr : RI<0x39, MRMDestReg, (outs), (ins GR64:$src1, GR64:$src2),
-                 "cmp{q}\t{$src2, $src1|$src1, $src2}",
-                 [(X86cmp_new GR64:$src1, GR64:$src2),
-                  (implicit EFLAGS)]>;
-def NEW_CMP64mr : RI<0x39, MRMDestMem, (outs), (ins i64mem:$src1, GR64:$src2),
-                 "cmp{q}\t{$src2, $src1|$src1, $src2}",
-                 [(X86cmp_new (loadi64 addr:$src1), GR64:$src2),
-                   (implicit EFLAGS)]>;
-def NEW_CMP64rm : RI<0x3B, MRMSrcMem, (outs), (ins GR64:$src1, i64mem:$src2),
-                 "cmp{q}\t{$src2, $src1|$src1, $src2}",
-                 [(X86cmp_new GR64:$src1, (loadi64 addr:$src2)),
-                  (implicit EFLAGS)]>;
-def NEW_CMP64ri32 : RIi32<0x81, MRM7r, (outs), (ins GR64:$src1, i64i32imm:$src2),
-                      "cmp{q}\t{$src2, $src1|$src1, $src2}",
-                      [(X86cmp_new GR64:$src1, i64immSExt32:$src2),
-                       (implicit EFLAGS)]>;
-def NEW_CMP64mi32 : RIi32<0x81, MRM7m, (outs),
-                                       (ins i64mem:$src1, i64i32imm:$src2),
-                      "cmp{q}\t{$src2, $src1|$src1, $src2}",
-                      [(X86cmp_new (loadi64 addr:$src1), i64immSExt32:$src2),
-                       (implicit EFLAGS)]>;
-def NEW_CMP64mi8 : RIi8<0x83, MRM7m, (outs), (ins i64mem:$src1, i64i8imm:$src2),
-                    "cmp{q}\t{$src2, $src1|$src1, $src2}",
-                    [(X86cmp_new (loadi64 addr:$src1), i64immSExt8:$src2),
-                     (implicit EFLAGS)]>;
-def NEW_CMP64ri8 : RIi8<0x83, MRM7r, (outs), (ins GR64:$src1, i64i8imm:$src2),
-                    "cmp{q}\t{$src2, $src1|$src1, $src2}",
-                    [(X86cmp_new GR64:$src1, i64immSExt8:$src2),
-                     (implicit EFLAGS)]>;
-} // Defs = [EFLAGS]
 
 // Conditional moves
-let Uses = [EFLAGS], isTwoAddress = 1 in {
+let isTwoAddress = 1 in {
 def CMOVB64rr : RI<0x42, MRMSrcReg,       // if <u, GR64 = GR64
                    (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
                    "cmovb\t{$src2, $dst|$dst, $src2}",
@@ -950,148 +871,7 @@ def CMOVNP64rm : RI<0x4B, MRMSrcMem,       // if !parity, GR64 = [mem64]
                    (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
                    "cmovnp\t{$src2, $dst|$dst, $src2}",
                     [(set GR64:$dst, (X86cmov GR64:$src1, (loadi64 addr:$src2),
-                                      X86_COND_NP))]>, TB;
-
-def NEW_CMOVB64rr : RI<0x42, MRMSrcReg,       // if <u, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovb\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                     X86_COND_B, EFLAGS))]>, TB;
-def NEW_CMOVB64rm : RI<0x42, MRMSrcMem,       // if <u, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovb\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                     X86_COND_B, EFLAGS))]>, TB;
-def NEW_CMOVAE64rr: RI<0x43, MRMSrcReg,       // if >=u, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovae\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                     X86_COND_AE, EFLAGS))]>, TB;
-def NEW_CMOVAE64rm: RI<0x43, MRMSrcMem,       // if >=u, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovae\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                     X86_COND_AE, EFLAGS))]>, TB;
-def NEW_CMOVE64rr : RI<0x44, MRMSrcReg,       // if ==, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmove\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                     X86_COND_E, EFLAGS))]>, TB;
-def NEW_CMOVE64rm : RI<0x44, MRMSrcMem,       // if ==, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmove\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                     X86_COND_E, EFLAGS))]>, TB;
-def NEW_CMOVNE64rr: RI<0x45, MRMSrcReg,       // if !=, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovne\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_NE, EFLAGS))]>, TB;
-def NEW_CMOVNE64rm: RI<0x45, MRMSrcMem,       // if !=, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovne\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_NE, EFLAGS))]>, TB;
-def NEW_CMOVBE64rr: RI<0x46, MRMSrcReg,       // if <=u, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovbe\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_BE, EFLAGS))]>, TB;
-def NEW_CMOVBE64rm: RI<0x46, MRMSrcMem,       // if <=u, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovbe\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_BE, EFLAGS))]>, TB;
-def NEW_CMOVA64rr : RI<0x47, MRMSrcReg,       // if >u, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmova\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_A, EFLAGS))]>, TB;
-def NEW_CMOVA64rm : RI<0x47, MRMSrcMem,       // if >u, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmova\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_A, EFLAGS))]>, TB;
-def NEW_CMOVL64rr : RI<0x4C, MRMSrcReg,       // if <s, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovl\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_L, EFLAGS))]>, TB;
-def NEW_CMOVL64rm : RI<0x4C, MRMSrcMem,       // if <s, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovl\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_L, EFLAGS))]>, TB;
-def NEW_CMOVGE64rr: RI<0x4D, MRMSrcReg,       // if >=s, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovge\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_GE, EFLAGS))]>, TB;
-def NEW_CMOVGE64rm: RI<0x4D, MRMSrcMem,       // if >=s, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovge\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_GE, EFLAGS))]>, TB;
-def NEW_CMOVLE64rr: RI<0x4E, MRMSrcReg,       // if <=s, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovle\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_LE, EFLAGS))]>, TB;
-def NEW_CMOVLE64rm: RI<0x4E, MRMSrcMem,       // if <=s, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovle\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_LE, EFLAGS))]>, TB;
-def NEW_CMOVG64rr : RI<0x4F, MRMSrcReg,       // if >s, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovg\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_G, EFLAGS))]>, TB;
-def NEW_CMOVG64rm : RI<0x4F, MRMSrcMem,       // if >s, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovg\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_G, EFLAGS))]>, TB;
-def NEW_CMOVS64rr : RI<0x48, MRMSrcReg,       // if signed, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovs\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_S, EFLAGS))]>, TB;
-def NEW_CMOVS64rm : RI<0x48, MRMSrcMem,       // if signed, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovs\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_S, EFLAGS))]>, TB;
-def NEW_CMOVNS64rr: RI<0x49, MRMSrcReg,       // if !signed, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovns\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_NS, EFLAGS))]>, TB;
-def NEW_CMOVNS64rm: RI<0x49, MRMSrcMem,       // if !signed, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovns\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_NS, EFLAGS))]>, TB;
-def NEW_CMOVP64rr : RI<0x4A, MRMSrcReg,       // if parity, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovp\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                    X86_COND_P, EFLAGS))]>, TB;
-def NEW_CMOVP64rm : RI<0x4A, MRMSrcMem,       // if parity, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovp\t{$src2, $dst|$dst, $src2}",
-                   [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                    X86_COND_P, EFLAGS))]>, TB;
-def NEW_CMOVNP64rr : RI<0x4B, MRMSrcReg,       // if !parity, GR64 = GR64
-                   (outs GR64:$dst), (ins GR64:$src1, GR64:$src2),
-                   "cmovnp\t{$src2, $dst|$dst, $src2}",
-                    [(set GR64:$dst, (X86cmov_new GR64:$src1, GR64:$src2,
-                                     X86_COND_NP, EFLAGS))]>, TB;
-def NEW_CMOVNP64rm : RI<0x4B, MRMSrcMem,       // if !parity, GR64 = [mem64]
-                   (outs GR64:$dst), (ins GR64:$src1, i64mem:$src2),
-                   "cmovnp\t{$src2, $dst|$dst, $src2}",
-                    [(set GR64:$dst, (X86cmov_new GR64:$src1, (loadi64 addr:$src2),
-                                     X86_COND_NP, EFLAGS))]>, TB;
+                                     X86_COND_NP))]>, TB;
 } // isTwoAddress
 
 //===----------------------------------------------------------------------===//
@@ -1216,15 +996,13 @@ def PsMOVZX64rm32: I<0x8B, MRMSrcMem, (outs GR64:$dst), (ins i32mem:$src),
                      [(set GR64:$dst, (zextloadi64i32 addr:$src))]>;
 
 
-// Alias instructions that map movr0 to xor. Use xorl instead of xorq; it's
-// equivalent due to implicit zero-extending, and it sometimes has a smaller
-// encoding.
+// Alias instructions that map movr0 to xor.
 // FIXME: remove when we can teach regalloc that xor reg, reg is ok.
 // FIXME: AddedComplexity gives MOV64r0 a higher priority than MOV64ri32. Remove
 // when we have a better way to specify isel priority.
-let Defs = [EFLAGS], AddedComplexity = 1, isReMaterializable = 1 in
+let AddedComplexity = 1, isReMaterializable = 1 in
 def MOV64r0  : RI<0x31, MRMInitReg,  (outs GR64:$dst), (ins),
-                 "xor{l}\t${dst:subreg32}, ${dst:subreg32}",
+                 "xor{q}\t$dst, $dst",
                  [(set GR64:$dst, 0)]>;
 
 // Materialize i64 constant where top 32-bits are zero.
@@ -1275,15 +1053,6 @@ def : Pat<(X86tailcall (i64 texternalsym:$dst)),
 
 def : Pat<(X86tailcall GR64:$dst),
           (CALL64r GR64:$dst)>;
-
-// Comparisons.
-
-// TEST R,R is smaller than CMP R,0
-def : Pat<(X86cmp GR64:$src1, 0),
-          (TEST64rr GR64:$src1, GR64:$src1)>;
-
-def : Pat<(parallel (X86cmp_new GR64:$src1, 0), (implicit EFLAGS)),
-          (NEW_TEST64rr GR64:$src1, GR64:$src1)>;
 
 // {s|z}extload bool -> {s|z}extload byte
 def : Pat<(sextloadi64i1 addr:$src), (MOVSX64rm8 addr:$src)>;

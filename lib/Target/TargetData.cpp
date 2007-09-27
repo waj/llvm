@@ -182,6 +182,7 @@ void TargetData::init(const std::string &TargetDescription) {
   setAlignment(VECTOR_ALIGN,    8,  8, 64);  // v2i32
   setAlignment(VECTOR_ALIGN,   16, 16, 128); // v16i8, v8i16, v4i32, ...
   setAlignment(AGGREGATE_ALIGN, 0,  8,  0);  // struct, union, class, ...
+  setAlignment(STACK_ALIGN,     0,  8,  0);  // objects on the stack
 
   while (!temp.empty()) {
     std::string token = getToken(temp, "-");
@@ -315,13 +316,9 @@ struct DenseMapLayoutKeyInfo {
     return LayoutKey((TargetData*)(intptr_t)-1, 0);
   }
   static unsigned getHashValue(const LayoutKey &Val) {
-    return DenseMapInfo<void*>::getHashValue(Val.first) ^
-           DenseMapInfo<void*>::getHashValue(Val.second);
+    return DenseMapKeyInfo<void*>::getHashValue(Val.first) ^
+           DenseMapKeyInfo<void*>::getHashValue(Val.second);
   }
-  static bool isEqual(const LayoutKey &LHS, const LayoutKey &RHS) {
-    return LHS == RHS;
-  }
-
   static bool isPod() { return true; }
 };
 

@@ -39,22 +39,18 @@ STATISTIC(NumSingleStore,   "Number of alloca's promoted with a single store");
 STATISTIC(NumDeadAlloca,    "Number of dead alloca's removed");
 STATISTIC(NumPHIInsert,     "Number of PHI nodes inserted");
 
-// Provide DenseMapInfo for all pointers.
+// Provide DenseMapKeyInfo for all pointers.
 namespace llvm {
 template<>
-struct DenseMapInfo<std::pair<BasicBlock*, unsigned> > {
-  typedef std::pair<BasicBlock*, unsigned> EltTy;
-  static inline EltTy getEmptyKey() {
-    return EltTy(reinterpret_cast<BasicBlock*>(-1), ~0U);
+struct DenseMapKeyInfo<std::pair<BasicBlock*, unsigned> > {
+  static inline std::pair<BasicBlock*, unsigned> getEmptyKey() {
+    return std::make_pair((BasicBlock*)-1, ~0U);
   }
-  static inline EltTy getTombstoneKey() {
-    return EltTy(reinterpret_cast<BasicBlock*>(-2), 0U);
+  static inline std::pair<BasicBlock*, unsigned> getTombstoneKey() {
+    return std::make_pair((BasicBlock*)-2, 0U);
   }
   static unsigned getHashValue(const std::pair<BasicBlock*, unsigned> &Val) {
-    return DenseMapInfo<void*>::getHashValue(Val.first) + Val.second*2;
-  }
-  static bool isEqual(const EltTy &LHS, const EltTy &RHS) {
-    return LHS == RHS;
+    return DenseMapKeyInfo<void*>::getHashValue(Val.first) + Val.second*2;
   }
   static bool isPod() { return true; }
 };

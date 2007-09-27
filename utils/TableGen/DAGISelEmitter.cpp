@@ -691,7 +691,7 @@ bool TreePatternNode::ApplyTypeConstraints(TreePattern &TP, bool NotRegisters) {
       MadeChange |= UpdateNodeType(MVT::isVoid, TP);
     }
     return MadeChange;
-  } else if (getOperator()->getName() == "implicit" ||
+  } else if (getOperator()->getName() == "modify" ||
              getOperator()->getName() == "parallel") {
     bool MadeChange = false;
     for (unsigned i = 0; i < getNumChildren(); ++i)
@@ -976,7 +976,7 @@ TreePatternNode *TreePattern::ParseTreePattern(DagInit *Dag) {
       !Operator->isSubClassOf("SDNodeXForm") &&
       !Operator->isSubClassOf("Intrinsic") &&
       Operator->getName() != "set" &&
-      Operator->getName() != "implicit" &&
+      Operator->getName() != "modify" &&
       Operator->getName() != "parallel")
     error("Unrecognized node '" + Operator->getName() + "'!");
   
@@ -1385,15 +1385,15 @@ FindPatternInputsAndOutputs(TreePattern *I, TreePatternNode *Pat,
     if (!isUse && Pat->getTransformFn())
       I->error("Cannot specify a transform function for a non-input value!");
     return;
-  } else if (Pat->getOperator()->getName() == "implicit") {
+  } else if (Pat->getOperator()->getName() == "modify") {
     for (unsigned i = 0, e = Pat->getNumChildren(); i != e; ++i) {
       TreePatternNode *Dest = Pat->getChild(i);
       if (!Dest->isLeaf())
-        I->error("implicitly defined value should be a register!");
+        I->error("modify value should be a register!");
     
       DefInit *Val = dynamic_cast<DefInit*>(Dest->getLeafValue());
       if (!Val || !Val->getDef()->isSubClassOf("Register"))
-        I->error("implicitly defined value should be a register!");
+        I->error("modify value should be a register!");
       InstImpResults.push_back(Val->getDef());
     }
     return;
@@ -2649,6 +2649,7 @@ public:
   /// we actually have to build a DAG!
   std::vector<std::string>
   EmitResultCode(TreePatternNode *N, std::vector<Record*> DstRegs,
+                 bool RetSelected,
                  bool InFlagDecled, bool ResNodeDecled,
                  bool LikeLeaf = false, bool isRoot = false) {
     // List of arguments of getTargetNode() or SelectNodeTo().
@@ -2789,7 +2790,7 @@ public:
       CodeGenInstruction &II = CGT.getInstruction(Op->getName());
       const DAGInstruction &Inst = ISE.getInstruction(Op);
       TreePattern *InstPat = Inst.getPattern();
-      // FIXME: Assume actual pattern comes before "implicit".
+      // FIXME: Assume actual pattern comes before "modify".
       TreePatternNode *InstPatNode =
         isRoot ? (InstPat ? InstPat->getTree(0) : Pattern)
                : (InstPat ? InstPat->getTree(0) : NULL);
@@ -2866,7 +2867,7 @@ public:
         if ((!OperandNode->isSubClassOf("PredicateOperand") &&
              !OperandNode->isSubClassOf("OptionalDefOperand")) ||
             ISE.getDefaultOperand(OperandNode).DefaultOps.empty()) {
-          Ops = EmitResultCode(N->getChild(ChildNo), DstRegs,
+          Ops = EmitResultCode(N->getChild(ChildNo), DstRegs, RetSelected, 
                                InFlagDecled, ResNodeDecled);
           AllOps.insert(AllOps.end(), Ops.begin(), Ops.end());
           ++ChildNo;
@@ -2876,7 +2877,7 @@ public:
           const DAGDefaultOperand &DefaultOp =
             ISE.getDefaultOperand(II.OperandList[InstOpNo].Rec);
           for (unsigned i = 0, e = DefaultOp.DefaultOps.size(); i != e; ++i) {
-            Ops = EmitResultCode(DefaultOp.DefaultOps[i], DstRegs,
+            Ops = EmitResultCode(DefaultOp.DefaultOps[i], DstRegs, RetSelected, 
                                  InFlagDecled, ResNodeDecled);
             AllOps.insert(AllOps.end(), Ops.begin(), Ops.end());
             NumEAInputs += Ops.size();
@@ -3038,11 +3039,11 @@ public:
         if (NodeHasOutFlag) {
           if (!InFlagDecled) {
             emitCode("SDOperand InFlag(ResNode, " + 
-                   utostr(NumResults+NumDstRegs+(unsigned)NodeHasChain) + ");");
+                     utostr(NumResults+NumDstRegs+(unsigned)NodeHasChain) + ");");
             InFlagDecled = true;
           } else
             emitCode("InFlag = SDOperand(ResNode, " + 
-                   utostr(NumResults+NumDstRegs+(unsigned)NodeHasChain) + ");");
+                     utostr(NumResults+NumDstRegs+(unsigned)NodeHasChain) + ");");
         }
 
         if (FoldedChains.size() > 0) {
@@ -3057,15 +3058,20 @@ public:
 
         if (NodeHasOutFlag) {
           emitCode("ReplaceUses(SDOperand(N.Val, " +
-                   utostr(NumPatResults + (unsigned)InputHasChain)
-                   +"), InFlag);");
+                   utostr(NumPatResults + (unsigned)InputHasChain) +"), InFlag);");
           NeedReplace = true;
         }
 
-        if (NeedReplace && InputHasChain)
-          emitCode("ReplaceUses(SDOperand(N.Val, " + 
-                   utostr(NumPatResults) + "), SDOperand(" + ChainName
-                   + ".Val, " + ChainName + ".ResNo" + "));");
+        if (NeedReplace) {
+          for (unsigned i = 0; i < NumPatResults; i++)
+            emitCode("ReplaceUses(SDOperand(N.Val, " +
+                     utostr(i) + "), SDOperand(ResNode, " + utostr(i) + "));");
+          if (InputHasChain)
+            emitCode("ReplaceUses(SDOperand(N.Val, " + 
+                     utostr(NumPatResults) + "), SDOperand(" + ChainName + ".Val, "
+                     + ChainName + ".ResNo" + "));");
+        } else
+          RetSelected = true;
 
         // User does not expect the instruction would produce a chain!
         if ((!InputHasChain && NodeHasChain) && NodeHasOutFlag) {
@@ -3075,11 +3081,18 @@ public:
           if (NodeHasOutFlag)
 	    emitCode("ReplaceUses(SDOperand(N.Val, " + utostr(NumPatResults+1) +
 		     "), SDOperand(ResNode, N.ResNo-1));");
+	  for (unsigned i = 0; i < NumPatResults; ++i)
+	    emitCode("ReplaceUses(SDOperand(N.Val, " + utostr(i) +
+		     "), SDOperand(ResNode, " + utostr(i) + "));");
 	  emitCode("ReplaceUses(SDOperand(N.Val, " + utostr(NumPatResults) +
 		   "), " + ChainName + ");");
+	  RetSelected = false;
         }
 
-        emitCode("return ResNode;");
+	if (RetSelected)
+	  emitCode("return ResNode;");
+	else
+	  emitCode("return NULL;");
       } else {
         std::string Code = "return CurDAG->SelectNodeTo(N.Val, Opc" +
           utostr(OpcNo);
@@ -3120,7 +3133,7 @@ public:
       // PatLeaf node - the operand may or may not be a leaf node. But it should
       // behave like one.
       std::vector<std::string> Ops =
-        EmitResultCode(N->getChild(0), DstRegs, InFlagDecled,
+        EmitResultCode(N->getChild(0), DstRegs, RetSelected, InFlagDecled,
                        ResNodeDecled, true);
       unsigned ResNo = TmpNo++;
       emitCode("SDOperand Tmp" + utostr(ResNo) + " = Transform_" + Op->getName()
@@ -3287,7 +3300,7 @@ void DAGISelEmitter::GenerateCodeForPattern(PatternToMatch &Pattern,
   } while (Emitter.InsertOneTypeCheck(Pat, Pattern.getSrcPattern(), "N", true));
 
   Emitter.EmitResultCode(Pattern.getDstPattern(), Pattern.getDstRegs(),
-                         false, false, false, true);
+                         false, false, false, false, true);
   delete Pat;
 }
 
@@ -3944,11 +3957,9 @@ OS << "  unsigned NumKilled = ISelKilled.size();\n";
   OS << "  RemoveKilled();\n";
   OS << "}\n";
   OS << "void ReplaceUses(SDNode *F, SDNode *T) DISABLE_INLINE {\n";
-  OS << "  unsigned FNumVals = F->getNumValues();\n";
-  OS << "  unsigned TNumVals = T->getNumValues();\n";
-  OS << "  if (FNumVals != TNumVals) {\n";
-  OS << "    for (unsigned i = 0, e = std::min(FNumVals, TNumVals); "
-     << "i < e; ++i)\n";
+  OS << "  unsigned NumVals = F->getNumValues();\n";
+  OS << "  if (NumVals < T->getNumValues()) {\n";
+  OS << "    for (unsigned i = 0; i < NumVals; ++i)\n";
   OS << "      CurDAG->ReplaceAllUsesOfValueWith(SDOperand(F, i), "
      << "SDOperand(T, i), ISelKilled);\n";
   OS << "  } else {\n";

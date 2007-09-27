@@ -153,6 +153,11 @@ class APInt {
                      const APInt &RHS, uint32_t rhsWords,
                      APInt *Quotient, APInt *Remainder);
 
+#ifndef NDEBUG
+  /// @brief debug method
+  void dump() const;
+#endif
+
 public:
   /// @name Constructors
   /// @{
@@ -172,7 +177,7 @@ public:
   /// @param numWords the number of words in bigVal
   /// @param bigVal a sequence of words to form the initial value of the APInt
   /// @brief Construct an APInt of numBits width, initialized as bigVal[].
-  APInt(uint32_t numBits, uint32_t numWords, const uint64_t bigVal[]);
+  APInt(uint32_t numBits, uint32_t numWords, uint64_t bigVal[]);
 
   /// This constructor interprets Val as a string in the given radix. The 
   /// interpretation stops when the first charater that is not suitable for the
@@ -1159,9 +1164,6 @@ public:
   /// Set the least significant BITS and clear the rest.
   static void tcSetLeastSignificantBits(integerPart *, unsigned int,
 					unsigned int bits);
-
-  /// @brief debug method
-  void dump() const;
 
   /// @}
 };

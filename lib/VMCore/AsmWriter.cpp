@@ -521,9 +521,7 @@ static void WriteConstantInt(std::ostream &Out, const Constant *CV,
         Out << 'L';
       else
         assert(0 && "Unsupported floating point type");
-      // api needed to prevent premature destruction
-      APInt api = CFP->getValueAPF().convertToAPInt();
-      const uint64_t* p = api.getRawData();
+      const uint64_t* p = CFP->getValueAPF().convertToAPInt().getRawData();
       uint64_t word = *p;
       int shiftcount=60;
       int width = CFP->getValueAPF().convertToAPInt().getBitWidth();

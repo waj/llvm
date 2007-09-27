@@ -22,7 +22,6 @@
 
 namespace llvm {
   struct InstrStage;
-  struct SUnit;
   class MachineConstantPool;
   class MachineModuleInfo;
   class MachineInstr;
@@ -33,7 +32,6 @@ namespace llvm {
   class TargetInstrInfo;
   class TargetInstrDescriptor;
   class TargetMachine;
-  class TargetRegisterClass;
 
   /// HazardRecognizer - This determines whether or not an instruction can be
   /// issued this cycle, and whether or not a noop needs to be inserted to handle
@@ -76,39 +74,25 @@ namespace llvm {
     virtual void EmitNoop() {
     }
   };
-
-  /// SDep - Scheduling dependency. It keeps track of dependent nodes,
-  /// cost of the depdenency, etc.
-  struct SDep {
-    SUnit    *Dep;           // Dependent - either a predecessor or a successor.
-    unsigned  Reg;           // If non-zero, this dep is a phy register dependency.
-    int       Cost;          // Cost of the dependency.
-    bool      isCtrl    : 1; // True iff it's a control dependency.
-    bool      isSpecial : 1; // True iff it's a special ctrl dep added during sched.
-    SDep(SUnit *d, unsigned r, int t, bool c, bool s)
-      : Dep(d), Reg(r), Cost(t), isCtrl(c), isSpecial(s) {}
-  };
-
+  
   /// SUnit - Scheduling unit. It's an wrapper around either a single SDNode or
   /// a group of nodes flagged together.
   struct SUnit {
     SDNode *Node;                       // Representative node.
     SmallVector<SDNode*,4> FlaggedNodes;// All nodes flagged to Node.
-    unsigned InstanceNo;                // Instance#. One SDNode can be multiple
-                                        // SUnit due to cloning.
     
     // Preds/Succs - The SUnits before/after us in the graph.  The boolean value
     // is true if the edge is a token chain edge, false if it is a value edge. 
-    SmallVector<SDep, 4> Preds;  // All sunit predecessors.
-    SmallVector<SDep, 4> Succs;  // All sunit successors.
+    SmallVector<std::pair<SUnit*,bool>, 4> Preds;  // All sunit predecessors.
+    SmallVector<std::pair<SUnit*,bool>, 4> Succs;  // All sunit successors.
 
-    typedef SmallVector<SDep, 4>::iterator pred_iterator;
-    typedef SmallVector<SDep, 4>::iterator succ_iterator;
-    typedef SmallVector<SDep, 4>::const_iterator const_pred_iterator;
-    typedef SmallVector<SDep, 4>::const_iterator const_succ_iterator;
+    typedef SmallVector<std::pair<SUnit*,bool>, 4>::iterator pred_iterator;
+    typedef SmallVector<std::pair<SUnit*,bool>, 4>::iterator succ_iterator;
+    typedef SmallVector<std::pair<SUnit*,bool>, 4>::const_iterator 
+      const_pred_iterator;
+    typedef SmallVector<std::pair<SUnit*,bool>, 4>::const_iterator 
+      const_succ_iterator;
     
-    unsigned NodeNum;                   // Entry # of node in the node vector.
-    unsigned short Latency;             // Node latency.
     short NumPreds;                     // # of preds.
     short NumSuccs;                     // # of sucss.
     short NumPredsLeft;                 // # of preds not scheduled.
@@ -117,97 +101,42 @@ namespace llvm {
     short NumChainSuccsLeft;            // # of chain succs not scheduled.
     bool isTwoAddress     : 1;          // Is a two-address instruction.
     bool isCommutable     : 1;          // Is a commutable instruction.
-    bool hasImplicitDefs  : 1;          // Has implicit physical reg defs.
     bool isPending        : 1;          // True once pending.
     bool isAvailable      : 1;          // True once available.
     bool isScheduled      : 1;          // True once scheduled.
+    unsigned short Latency;             // Node latency.
     unsigned CycleBound;                // Upper/lower cycle to be scheduled at.
     unsigned Cycle;                     // Once scheduled, the cycle of the op.
     unsigned Depth;                     // Node depth;
     unsigned Height;                    // Node height;
-    const TargetRegisterClass *CopyDstRC; // Is a special copy node if not null.
-    const TargetRegisterClass *CopySrcRC;
+    unsigned NodeNum;                   // Entry # of node in the node vector.
     
     SUnit(SDNode *node, unsigned nodenum)
-      : Node(node), InstanceNo(0), NodeNum(nodenum), Latency(0),
-        NumPreds(0), NumSuccs(0), NumPredsLeft(0), NumSuccsLeft(0),
+      : Node(node), NumPreds(0), NumSuccs(0), NumPredsLeft(0), NumSuccsLeft(0),
         NumChainPredsLeft(0), NumChainSuccsLeft(0),
-        isTwoAddress(false), isCommutable(false), hasImplicitDefs(false),
+        isTwoAddress(false), isCommutable(false),
         isPending(false), isAvailable(false), isScheduled(false),
-        CycleBound(0), Cycle(0), Depth(0), Height(0),
-        CopyDstRC(NULL), CopySrcRC(NULL) {}
-
+        Latency(0), CycleBound(0), Cycle(0), Depth(0), Height(0),
+        NodeNum(nodenum) {}
+    
     /// addPred - This adds the specified node as a pred of the current node if
     /// not already.  This returns true if this is a new pred.
-    bool addPred(SUnit *N, bool isCtrl, bool isSpecial,
-                 unsigned PhyReg = 0, int Cost = 1) {
+    bool addPred(SUnit *N, bool isChain) {
       for (unsigned i = 0, e = Preds.size(); i != e; ++i)
-        if (Preds[i].Dep == N &&
-            Preds[i].isCtrl == isCtrl && Preds[i].isSpecial == isSpecial)
+        if (Preds[i].first == N && Preds[i].second == isChain)
           return false;
-      Preds.push_back(SDep(N, PhyReg, Cost, isCtrl, isSpecial));
-      N->Succs.push_back(SDep(this, PhyReg, Cost, isCtrl, isSpecial));
-      if (isCtrl) {
-        if (!N->isScheduled)
-          ++NumChainPredsLeft;
-        if (!isScheduled)
-          ++N->NumChainSuccsLeft;
-      } else {
-        ++NumPreds;
-        ++N->NumSuccs;
-        if (!N->isScheduled)
-          ++NumPredsLeft;
-        if (!isScheduled)
-          ++N->NumSuccsLeft;
-      }
+      Preds.push_back(std::make_pair(N, isChain));
       return true;
     }
 
-    bool removePred(SUnit *N, bool isCtrl, bool isSpecial) {
-      for (SmallVector<SDep, 4>::iterator I = Preds.begin(), E = Preds.end();
-           I != E; ++I)
-        if (I->Dep == N && I->isCtrl == isCtrl && I->isSpecial == isSpecial) {
-          bool FoundSucc = false;
-          for (SmallVector<SDep, 4>::iterator II = N->Succs.begin(),
-                 EE = N->Succs.end(); II != EE; ++II)
-            if (II->Dep == this &&
-                II->isCtrl == isCtrl && II->isSpecial == isSpecial) {
-              FoundSucc = true;
-              N->Succs.erase(II);
-              break;
-            }
-          assert(FoundSucc && "Mismatching preds / succs lists!");
-          Preds.erase(I);
-          if (isCtrl) {
-            if (!N->isScheduled)
-              --NumChainPredsLeft;
-            if (!isScheduled)
-              --NumChainSuccsLeft;
-          } else {
-            --NumPreds;
-            --N->NumSuccs;
-            if (!N->isScheduled)
-              --NumPredsLeft;
-            if (!isScheduled)
-              --N->NumSuccsLeft;
-          }
-          return true;
-        }
-      return false;
-    }
-
-    bool isPred(SUnit *N) {
-      for (unsigned i = 0, e = Preds.size(); i != e; ++i)
-        if (Preds[i].Dep == N)
-          return true;
-      return false;
-    }
-    
-    bool isSucc(SUnit *N) {
+    /// addSucc - This adds the specified node as a succ of the current node if
+    /// not already.  This returns true if this is a new succ.
+    bool addSucc(SUnit *N, bool isChain) {
       for (unsigned i = 0, e = Succs.size(); i != e; ++i)
-        if (Succs[i].Dep == N)
-          return true;
-      return false;
+        if (Succs[i].first == N && Succs[i].second == isChain)
+          return false;
+      Succs.push_back(std::make_pair(N, isChain));
+      return true;
     }
     
     void dump(const SelectionDAG *G) const;
@@ -226,27 +155,20 @@ namespace llvm {
   public:
     virtual ~SchedulingPriorityQueue() {}
   
-    virtual void initNodes(DenseMap<SDNode*, std::vector<SUnit*> > &SUMap,
+    virtual void initNodes(DenseMap<SDNode*, SUnit*> &SUMap,
                            std::vector<SUnit> &SUnits) = 0;
-    virtual void addNode(const SUnit *SU) = 0;
-    virtual void updateNode(const SUnit *SU) = 0;
     virtual void releaseState() = 0;
-
-    virtual unsigned size() const = 0;
+  
     virtual bool empty() const = 0;
     virtual void push(SUnit *U) = 0;
   
     virtual void push_all(const std::vector<SUnit *> &Nodes) = 0;
     virtual SUnit *pop() = 0;
 
-    virtual void remove(SUnit *SU) = 0;
-
     /// ScheduledNode - As each node is scheduled, this method is invoked.  This
     /// allows the priority function to adjust the priority of node that have
     /// already been emitted.
     virtual void ScheduledNode(SUnit *Node) {}
-
-    virtual void UnscheduledNode(SUnit *Node) {}
   };
 
   class ScheduleDAG {
@@ -260,8 +182,7 @@ namespace llvm {
     MachineConstantPool *ConstPool;       // Target constant pool
     std::vector<SUnit*> Sequence;         // The schedule. Null SUnit*'s
                                           // represent noop instructions.
-    DenseMap<SDNode*, std::vector<SUnit*> > SUnitMap;
-                                          // SDNode to SUnit mapping (n -> n).
+    DenseMap<SDNode*, SUnit*> SUnitMap;   // SDNode to SUnit mapping (n -> 1).
     std::vector<SUnit> SUnits;            // The scheduling units.
     SmallSet<SDNode*, 16> CommuteSet;     // Nodes the should be commuted.
 
@@ -301,10 +222,6 @@ namespace llvm {
       return &SUnits.back();
     }
 
-    /// Clone - Creates a clone of the specified SUnit. It does not copy the
-    /// predecessors / successors info nor the temporary scheduling states.
-    SUnit *Clone(SUnit *N);
-    
     /// BuildSchedUnits - Build SUnits from the selection dag that we are input.
     /// This SUnit graph is similar to the SelectionDAG, but represents flagged
     /// together nodes with a single SUnit.
@@ -329,19 +246,15 @@ namespace llvm {
     /// VRBaseMap contains, for each already emitted node, the first virtual
     /// register number for the results of the node.
     ///
-    void EmitNode(SDNode *Node, unsigned InstNo,
-                  DenseMap<SDOperand, unsigned> &VRBaseMap);
+    void EmitNode(SDNode *Node, DenseMap<SDOperand, unsigned> &VRBaseMap);
     
     /// EmitNoop - Emit a noop instruction.
     ///
     void EmitNoop();
 
-    void EmitCrossRCCopy(SUnit *SU, DenseMap<SUnit*, unsigned> &VRBaseMap);
-
     /// EmitCopyFromReg - Generate machine code for an CopyFromReg node or an
     /// implicit physical register output.
-    void EmitCopyFromReg(SDNode *Node, unsigned ResNo, unsigned InstNo,
-                         unsigned SrcReg,
+    void EmitCopyFromReg(SDNode *Node, unsigned ResNo, unsigned SrcReg,
                          DenseMap<SDOperand, unsigned> &VRBaseMap);
     
     void CreateVirtualRegisters(SDNode *Node, MachineInstr *MI,
@@ -427,7 +340,7 @@ namespace llvm {
     }
 
     pointer operator*() const {
-      return Node->Preds[Operand].Dep;
+      return Node->Preds[Operand].first;
     }
     pointer operator->() const { return operator*(); }
 
@@ -446,7 +359,7 @@ namespace llvm {
 
     unsigned getOperand() const { return Operand; }
     const SUnit *getNode() const { return Node; }
-    bool isCtrlDep() const { return Node->Preds[Operand].isCtrl; }
+    bool isChain() const { return Node->Preds[Operand].second; }
   };
 
   template <> struct GraphTraits<SUnit*> {

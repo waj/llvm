@@ -49,7 +49,8 @@
 #include "llvm/ParameterAttributes.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/InlineAsm.h"
-#include "llvm/IntrinsicInst.h"
+#include "llvm/Instructions.h"
+#include "llvm/Intrinsics.h"
 #include "llvm/PassManager.h"
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/CodeGen/ValueTypes.h"
@@ -310,15 +311,10 @@ void Verifier::visitGlobalValue(GlobalValue &GV) {
 }
 
 void Verifier::visitGlobalVariable(GlobalVariable &GV) {
-  if (GV.hasInitializer()) {
+  if (GV.hasInitializer())
     Assert1(GV.getInitializer()->getType() == GV.getType()->getElementType(),
             "Global variable initializer type does not match global "
             "variable type!", &GV);
-  } else {
-    Assert1(GV.hasExternalLinkage() || GV.hasDLLImportLinkage() ||
-            GV.hasExternalWeakLinkage(),
-            "invalid linkage type for global declaration", &GV);
-  }
 
   visitGlobalValue(GV);
 }
@@ -472,11 +468,7 @@ void Verifier::visitFunction(Function &F) {
             "Functions cannot take aggregates as arguments by value!", I);
    }
 
-  if (F.isDeclaration()) {
-    Assert1(F.hasExternalLinkage() || F.hasDLLImportLinkage() ||
-            F.hasExternalWeakLinkage(),
-            "invalid linkage type for function declaration", &F);
-  } else {
+  if (!F.isDeclaration()) {
     // Verify that this function (which has a body) is not named "llvm.*".  It
     // is not legal to define intrinsics.
     if (F.getName().size() >= 5)
@@ -1080,12 +1072,6 @@ void Verifier::visitInstruction(Instruction &I) {
   InstsInThisBlock.insert(&I);
 }
 
-static bool HasPtrPtrType(Value *Val) {
-  if (const PointerType *PtrTy = dyn_cast<PointerType>(Val->getType()))
-    return isa<PointerType>(PtrTy->getElementType());
-  return false;
-}
-
 /// visitIntrinsicFunction - Allow intrinsics to be verified in different ways.
 ///
 void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
@@ -1096,31 +1082,6 @@ void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
 #define GET_INTRINSIC_VERIFIER
 #include "llvm/Intrinsics.gen"
 #undef GET_INTRINSIC_VERIFIER
-  
-  switch (ID) {
-  default:
-    break;
-  case Intrinsic::gcroot:
-    Assert1(HasPtrPtrType(CI.getOperand(1)),
-            "llvm.gcroot parameter #1 must be a pointer to a pointer.", &CI);
-    Assert1(isa<AllocaInst>(IntrinsicInst::StripPointerCasts(CI.getOperand(1))),
-            "llvm.gcroot parameter #1 must be an alloca (or a bitcast of one).",
-            &CI);
-    Assert1(isa<Constant>(CI.getOperand(2)),
-            "llvm.gcroot parameter #2 must be a constant.", &CI);
-    break;
-  case Intrinsic::gcwrite:
-    Assert1(CI.getOperand(3)->getType()
-              == PointerType::get(CI.getOperand(1)->getType()),
-          "Call to llvm.gcwrite must be with type 'void (%ty*, %ty2*, %ty**)'.",
-            &CI);
-    break;
-  case Intrinsic::gcread:
-    Assert1(CI.getOperand(2)->getType() == PointerType::get(CI.getType()),
-            "Call to llvm.gcread must be with type '%ty* (%ty2*, %ty**).'",
-            &CI);
-    break;
-  }
 }
 
 /// VerifyIntrinsicPrototype - TableGen emits calls to this function into

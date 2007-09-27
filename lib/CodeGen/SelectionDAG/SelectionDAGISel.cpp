@@ -2004,7 +2004,8 @@ void SelectionDAGLowering::visitSub(User &I) {
       const Type *ElTy = DestTy->getElementType();
       if (ElTy->isFloatingPoint()) {
         unsigned VL = DestTy->getNumElements();
-        std::vector<Constant*> NZ(VL, ConstantFP::getNegativeZero(ElTy));
+        std::vector<Constant*> NZ(VL, ConstantFP::get(ElTy, 
+          ElTy==Type::FloatTy ? APFloat(-0.0f) : APFloat(-0.0)));
         Constant *CNZ = ConstantVector::get(&NZ[0], NZ.size());
         if (CV == CNZ) {
           SDOperand Op2 = getValue(I.getOperand(1));
@@ -2016,7 +2017,7 @@ void SelectionDAGLowering::visitSub(User &I) {
   }
   if (Ty->isFloatingPoint()) {
     if (ConstantFP *CFP = dyn_cast<ConstantFP>(I.getOperand(0)))
-      if (CFP->isExactlyValue(ConstantFP::getNegativeZero(Ty)->getValueAPF())) {
+      if (CFP->isExactlyValue(-0.0)) {
         SDOperand Op2 = getValue(I.getOperand(1));
         setValue(&I, DAG.getNode(ISD::FNEG, Op2.getValueType(), Op2));
         return;
@@ -2996,8 +2997,7 @@ void SelectionDAGLowering::visitCall(CallInst &I) {
         }
       } else if (NameStr[0] == 'f' &&
                  ((NameLen == 4 && !strcmp(NameStr, "fabs")) ||
-                  (NameLen == 5 && !strcmp(NameStr, "fabsf")) ||
-                  (NameLen == 5 && !strcmp(NameStr, "fabsl")))) {
+                  (NameLen == 5 && !strcmp(NameStr, "fabsf")))) {
         if (I.getNumOperands() == 2 &&   // Basic sanity checks.
             I.getOperand(1)->getType()->isFloatingPoint() &&
             I.getType() == I.getOperand(1)->getType()) {
@@ -3007,8 +3007,7 @@ void SelectionDAGLowering::visitCall(CallInst &I) {
         }
       } else if (NameStr[0] == 's' && 
                  ((NameLen == 3 && !strcmp(NameStr, "sin")) ||
-                  (NameLen == 4 && !strcmp(NameStr, "sinf")) ||
-                  (NameLen == 4 && !strcmp(NameStr, "sinl")))) {
+                  (NameLen == 4 && !strcmp(NameStr, "sinf")))) {
         if (I.getNumOperands() == 2 &&   // Basic sanity checks.
             I.getOperand(1)->getType()->isFloatingPoint() &&
             I.getType() == I.getOperand(1)->getType()) {
@@ -3018,8 +3017,7 @@ void SelectionDAGLowering::visitCall(CallInst &I) {
         }
       } else if (NameStr[0] == 'c' &&
                  ((NameLen == 3 && !strcmp(NameStr, "cos")) ||
-                  (NameLen == 4 && !strcmp(NameStr, "cosf")) ||
-                  (NameLen == 4 && !strcmp(NameStr, "cosl")))) {
+                  (NameLen == 4 && !strcmp(NameStr, "cosf")))) {
         if (I.getNumOperands() == 2 &&   // Basic sanity checks.
             I.getOperand(1)->getType()->isFloatingPoint() &&
             I.getType() == I.getOperand(1)->getType()) {

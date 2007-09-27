@@ -21,7 +21,9 @@
 #include <limits>
 #include <cstring>
 #include <cstdlib>
+#ifndef NDEBUG
 #include <iomanip>
+#endif
 
 using namespace llvm;
 
@@ -58,7 +60,7 @@ APInt::APInt(uint32_t numBits, uint64_t val, bool isSigned)
   clearUnusedBits();
 }
 
-APInt::APInt(uint32_t numBits, uint32_t numWords, const uint64_t bigVal[])
+APInt::APInt(uint32_t numBits, uint32_t numWords, uint64_t bigVal[])
   : BitWidth(numBits), VAL(0)  {
   assert(BitWidth >= IntegerType::MIN_INT_BITS && "bitwidth too small");
   assert(BitWidth <= IntegerType::MAX_INT_BITS && "bitwidth too large");
@@ -1997,6 +1999,7 @@ std::string APInt::toString(uint8_t radix, bool wantSigned) const {
   return result;
 }
 
+#ifndef NDEBUG
 void APInt::dump() const
 {
   cerr << "APInt(" << BitWidth << ")=" << std::setbase(16);
@@ -2006,8 +2009,9 @@ void APInt::dump() const
     cerr << pVal[i-1] << " ";
   }
   cerr << " U(" << this->toStringUnsigned(10) << ") S("
-       << this->toStringSigned(10) << ")" << std::setbase(10);
+       << this->toStringSigned(10) << ")\n" << std::setbase(10);
 }
+#endif
 
 // This implements a variety of operations on a representation of
 // arbitrary precision, two's-complement, bignum integer values.

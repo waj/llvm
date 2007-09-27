@@ -35,7 +35,7 @@ class GlobalValue;
 class MachineBasicBlock;
 class MachineConstantPoolValue;
 class SDNode;
-template <typename T> struct DenseMapInfo;
+template <typename T> struct DenseMapKeyInfo;
 template <typename T> struct simplify_type;
 template <typename T> struct ilist_traits;
 template<typename NodeTy, typename Traits> class iplist;
@@ -766,22 +766,15 @@ public:
   /// hasOneUse - Return true if there is exactly one operation using this
   /// result value of the defining operator.
   inline bool hasOneUse() const;
-
-  /// use_empty - Return true if there are no operations using this
-  /// result value of the defining operator.
-  inline bool use_empty() const;
 };
 
 
-template<> struct DenseMapInfo<SDOperand> {
+template<> struct DenseMapKeyInfo<SDOperand> {
   static inline SDOperand getEmptyKey() { return SDOperand((SDNode*)-1, -1U); }
   static inline SDOperand getTombstoneKey() { return SDOperand((SDNode*)-1, 0);}
   static unsigned getHashValue(const SDOperand &Val) {
     return (unsigned)((uintptr_t)Val.Val >> 4) ^
            (unsigned)((uintptr_t)Val.Val >> 9) + Val.ResNo;
-  }
-  static bool isEqual(const SDOperand &LHS, const SDOperand &RHS) {
-    return LHS == RHS;
   }
   static bool isPod() { return true; }
 };
@@ -1041,9 +1034,6 @@ inline unsigned SDOperand::getTargetOpcode() const {
 }
 inline bool SDOperand::hasOneUse() const {
   return Val->hasNUsesOfValue(1, ResNo);
-}
-inline bool SDOperand::use_empty() const {
-  return !Val->hasAnyUseOfValue(ResNo);
 }
 
 /// UnarySDNode - This class is used for single-operand SDNodes.  This is solely

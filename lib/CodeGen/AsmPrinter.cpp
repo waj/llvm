@@ -160,12 +160,6 @@ bool AsmPrinter::doFinalization(Module &M) {
   return false;
 }
 
-std::string AsmPrinter::getCurrentFunctionEHName(const MachineFunction *MF) {
-  assert(MF && "No machine function?");
-  return Mang->makeNameProper(MF->getFunction()->getName() + ".eh",
-                              TAI->getGlobalPrefix());
-}
-
 void AsmPrinter::SetupMachineFunction(MachineFunction &MF) {
   // What's my mangled name?
   CurrentFnName = Mang->getValueName(MF.getFunction());
@@ -618,17 +612,6 @@ void AsmPrinter::EmitString(const std::string &String) const {
 }
 
 
-/// EmitFile - Emit a .file directive.
-void AsmPrinter::EmitFile(unsigned Number, const std::string &Name) const {
-  O << "\t.file\t" << Number << " \"";
-  for (unsigned i = 0, N = Name.size(); i < N; ++i) {
-    unsigned char C = Name[i];
-    printStringChar(O, C);
-  }
-  O << "\"";
-}
-
-
 //===----------------------------------------------------------------------===//
 
 // EmitAlignment - Emit an alignment directive to the specified power of
@@ -876,9 +859,7 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
       return;
     } else if (CFP->getType() == Type::X86_FP80Ty) {
       // all long double variants are printed as hex
-      // api needed to prevent premature destruction
-      APInt api = CFP->getValueAPF().convertToAPInt();
-      const uint64_t *p = api.getRawData();
+      const uint64_t *p = CFP->getValueAPF().convertToAPInt().getRawData();
       if (TD->isBigEndian()) {
         O << TAI->getData16bitsDirective() << uint16_t(p[0] >> 48)
           << "\t" << TAI->getCommentString()
@@ -1001,7 +982,7 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
   
   // Count the number of register definitions.
   unsigned NumDefs = 0;
-  for (; MI->getOperand(NumDefs).isRegister() && MI->getOperand(NumDefs).isDef();
+  for (; MI->getOperand(NumDefs).isReg() && MI->getOperand(NumDefs).isDef();
        ++NumDefs)
     assert(NumDefs != NumOperands-1 && "No asm string?");
   

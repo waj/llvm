@@ -27,47 +27,6 @@
 #include "llvm/Support/MathExtras.h"
 using namespace llvm;
 
-
-/// CheckForPhysRegDependency - Check if the dependency between def and use of
-/// a specified operand is a physical register dependency. If so, returns the
-/// register and the cost of copying the register.
-static void CheckForPhysRegDependency(SDNode *Def, SDNode *Use, unsigned Op,
-                                      const MRegisterInfo *MRI, 
-                                      const TargetInstrInfo *TII,
-                                      unsigned &PhysReg, int &Cost) {
-  if (Op != 2 || Use->getOpcode() != ISD::CopyToReg)
-    return;
-
-  unsigned Reg = cast<RegisterSDNode>(Use->getOperand(1))->getReg();
-  if (MRegisterInfo::isVirtualRegister(Reg))
-    return;
-
-  unsigned ResNo = Use->getOperand(2).ResNo;
-  if (Def->isTargetOpcode()) {
-    const TargetInstrDescriptor &II = TII->get(Def->getTargetOpcode());
-    if (ResNo >= II.numDefs &&
-        II.ImplicitDefs[ResNo - II.numDefs] == Reg) {
-      PhysReg = Reg;
-      const TargetRegisterClass *RC =
-        MRI->getPhysicalRegisterRegClass(Def->getValueType(ResNo), Reg);
-      Cost = RC->getCopyCost();
-    }
-  }
-}
-
-SUnit *ScheduleDAG::Clone(SUnit *Old) {
-  SUnit *SU = NewSUnit(Old->Node);
-  for (unsigned i = 0, e = SU->FlaggedNodes.size(); i != e; ++i)
-    SU->FlaggedNodes.push_back(SU->FlaggedNodes[i]);
-  SU->InstanceNo = SUnitMap[Old->Node].size();
-  SU->Latency = Old->Latency;
-  SU->isTwoAddress = Old->isTwoAddress;
-  SU->isCommutable = Old->isCommutable;
-  SU->hasImplicitDefs = Old->hasImplicitDefs;
-  SUnitMap[Old->Node].push_back(SU);
-  return SU;
-}
-
 /// BuildSchedUnits - Build SUnits from the selection dag that we are input.
 /// This SUnit graph is similar to the SelectionDAG, but represents flagged
 /// together nodes with a single SUnit.
@@ -85,7 +44,7 @@ void ScheduleDAG::BuildSchedUnits() {
       continue;
     
     // If this node has already been processed, stop now.
-    if (SUnitMap[NI].size()) continue;
+    if (SUnitMap[NI]) continue;
     
     SUnit *NodeSUnit = NewSUnit(NI);
     
@@ -100,7 +59,7 @@ void ScheduleDAG::BuildSchedUnits() {
       do {
         N = N->getOperand(N->getNumOperands()-1).Val;
         NodeSUnit->FlaggedNodes.push_back(N);
-        SUnitMap[N].push_back(NodeSUnit);
+        SUnitMap[N] = NodeSUnit;
       } while (N->getNumOperands() &&
                N->getOperand(N->getNumOperands()-1).getValueType()== MVT::Flag);
       std::reverse(NodeSUnit->FlaggedNodes.begin(),
@@ -120,7 +79,7 @@ void ScheduleDAG::BuildSchedUnits() {
         if (FlagVal.isOperand(*UI)) {
           HasFlagUse = true;
           NodeSUnit->FlaggedNodes.push_back(N);
-          SUnitMap[N].push_back(NodeSUnit);
+          SUnitMap[N] = NodeSUnit;
           N = *UI;
           break;
         }
@@ -130,7 +89,7 @@ void ScheduleDAG::BuildSchedUnits() {
     // Now all flagged nodes are in FlaggedNodes and N is the bottom-most node.
     // Update the SUnit
     NodeSUnit->Node = N;
-    SUnitMap[N].push_back(NodeSUnit);
+    SUnitMap[N] = NodeSUnit;
     
     // Compute the latency for the node.  We use the sum of the latencies for
     // all nodes flagged together into this SUnit.
@@ -166,16 +125,13 @@ void ScheduleDAG::BuildSchedUnits() {
     
     if (MainNode->isTargetOpcode()) {
       unsigned Opc = MainNode->getTargetOpcode();
-      const TargetInstrDescriptor &TID = TII->get(Opc);
-      if (TID.ImplicitDefs)
-        SU->hasImplicitDefs = true;
-      for (unsigned i = 0; i != TID.numOperands; ++i) {
-        if (TID.getOperandConstraint(i, TOI::TIED_TO) != -1) {
+      for (unsigned i = 0, ee = TII->getNumOperands(Opc); i != ee; ++i) {
+        if (TII->getOperandConstraint(Opc, i, TOI::TIED_TO) != -1) {
           SU->isTwoAddress = true;
           break;
         }
       }
-      if (TID.Flags & M_COMMUTABLE)
+      if (TII->isCommutableInstr(Opc))
         SU->isCommutable = true;
     }
     
@@ -185,25 +141,34 @@ void ScheduleDAG::BuildSchedUnits() {
     
     for (unsigned n = 0, e = SU->FlaggedNodes.size(); n != e; ++n) {
       SDNode *N = SU->FlaggedNodes[n];
-      if (N->isTargetOpcode() && TII->getImplicitDefs(N->getTargetOpcode()))
-        SU->hasImplicitDefs = true;
       
       for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i) {
         SDNode *OpN = N->getOperand(i).Val;
         if (isPassiveNode(OpN)) continue;   // Not scheduled.
-        SUnit *OpSU = SUnitMap[OpN].front();
+        SUnit *OpSU = SUnitMap[OpN];
         assert(OpSU && "Node has no SUnit!");
         if (OpSU == SU) continue;           // In the same group.
 
         MVT::ValueType OpVT = N->getOperand(i).getValueType();
         assert(OpVT != MVT::Flag && "Flagged nodes should be in same sunit!");
         bool isChain = OpVT == MVT::Other;
-
-        unsigned PhysReg = 0;
-        int Cost = 1;
-        // Determine if this is a physical register dependency.
-        CheckForPhysRegDependency(OpN, N, i, MRI, TII, PhysReg, Cost);
-        SU->addPred(OpSU, isChain, false, PhysReg, Cost);
+        
+        if (SU->addPred(OpSU, isChain)) {
+          if (!isChain) {
+            SU->NumPreds++;
+            SU->NumPredsLeft++;
+          } else {
+            SU->NumChainPredsLeft++;
+          }
+        }
+        if (OpSU->addSucc(SU, isChain)) {
+          if (!isChain) {
+            OpSU->NumSuccs++;
+            OpSU->NumSuccsLeft++;
+          } else {
+            OpSU->NumChainSuccsLeft++;
+          }
+        }
       }
     }
     
@@ -228,14 +193,14 @@ void ScheduleDAG::CalculateDepths() {
       SU->Depth = Depth;
       for (SUnit::succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
            I != E; ++I)
-        WorkList.push_back(std::make_pair(I->Dep, Depth+1));
+        WorkList.push_back(std::make_pair(I->first, Depth+1));
     }
   }
 }
 
 void ScheduleDAG::CalculateHeights() {
   std::vector<std::pair<SUnit*, unsigned> > WorkList;
-  SUnit *Root = SUnitMap[DAG.getRoot().Val].front();
+  SUnit *Root = SUnitMap[DAG.getRoot().Val];
   WorkList.push_back(std::make_pair(Root, 0U));
 
   while (!WorkList.empty()) {
@@ -246,7 +211,7 @@ void ScheduleDAG::CalculateHeights() {
       SU->Height = Height;
       for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
            I != E; ++I)
-        WorkList.push_back(std::make_pair(I->Dep, Height+1));
+        WorkList.push_back(std::make_pair(I->first, Height+1));
     }
   }
 }
@@ -289,14 +254,27 @@ static const TargetRegisterClass *getInstrOperandRegClass(
          ? TII->getPointerRegClass() : MRI->getRegClass(toi.RegClass);
 }
 
-void ScheduleDAG::EmitCopyFromReg(SDNode *Node, unsigned ResNo,
-                                  unsigned InstanceNo, unsigned SrcReg,
+// Returns the Register Class of a physical register
+static const TargetRegisterClass *getPhysicalRegisterRegClass(
+        const MRegisterInfo *MRI,
+        MVT::ValueType VT,
+        unsigned reg) {
+  assert(MRegisterInfo::isPhysicalRegister(reg) &&
+         "reg must be a physical register");
+  // Pick the register class of the right type that contains this physreg.
+  for (MRegisterInfo::regclass_iterator I = MRI->regclass_begin(),
+         E = MRI->regclass_end(); I != E; ++I)
+    if ((*I)->hasType(VT) && (*I)->contains(reg))
+      return *I;
+  assert(false && "Couldn't find the register class");
+  return 0;
+}
+
+void ScheduleDAG::EmitCopyFromReg(SDNode *Node, unsigned ResNo, unsigned SrcReg,
                                   DenseMap<SDOperand, unsigned> &VRBaseMap) {
   unsigned VRBase = 0;
   if (MRegisterInfo::isVirtualRegister(SrcReg)) {
     // Just use the input register directly!
-    if (InstanceNo > 0)
-      VRBaseMap.erase(SDOperand(Node, ResNo));
     bool isNew = VRBaseMap.insert(std::make_pair(SDOperand(Node,ResNo),SrcReg));
     assert(isNew && "Node emitted out of order - early");
     return;
@@ -304,54 +282,32 @@ void ScheduleDAG::EmitCopyFromReg(SDNode *Node, unsigned ResNo,
 
   // If the node is only used by a CopyToReg and the dest reg is a vreg, use
   // the CopyToReg'd destination register instead of creating a new vreg.
-  bool MatchReg = true;
   for (SDNode::use_iterator UI = Node->use_begin(), E = Node->use_end();
        UI != E; ++UI) {
     SDNode *Use = *UI;
-    bool Match = true;
     if (Use->getOpcode() == ISD::CopyToReg && 
         Use->getOperand(2).Val == Node &&
         Use->getOperand(2).ResNo == ResNo) {
       unsigned DestReg = cast<RegisterSDNode>(Use->getOperand(1))->getReg();
       if (MRegisterInfo::isVirtualRegister(DestReg)) {
         VRBase = DestReg;
-        Match = false;
-      } else if (DestReg != SrcReg)
-        Match = false;
-    } else {
-      for (unsigned i = 0, e = Use->getNumOperands(); i != e; ++i) {
-        SDOperand Op = Use->getOperand(i);
-        if (Op.Val != Node)
-          continue;
-        MVT::ValueType VT = Node->getValueType(Op.ResNo);
-        if (VT != MVT::Other && VT != MVT::Flag)
-          Match = false;
+        break;
       }
     }
-    MatchReg &= Match;
-    if (VRBase)
-      break;
   }
 
-  const TargetRegisterClass *TRC = 0;
   // Figure out the register class to create for the destreg.
-  if (VRBase)
+  const TargetRegisterClass *TRC = 0;
+  if (VRBase) {
     TRC = RegMap->getRegClass(VRBase);
-  else
-    TRC = MRI->getPhysicalRegisterRegClass(Node->getValueType(ResNo), SrcReg);
-    
-  // If all uses are reading from the src physical register and copying the
-  // register is either impossible or very expensive, then don't create a copy.
-  if (MatchReg && TRC->getCopyCost() < 0) {
-    VRBase = SrcReg;
   } else {
+    TRC = getPhysicalRegisterRegClass(MRI, Node->getValueType(ResNo), SrcReg);
+
     // Create the reg, emit the copy.
     VRBase = RegMap->createVirtualRegister(TRC);
-    MRI->copyRegToReg(*BB, BB->end(), VRBase, SrcReg, TRC, TRC);
   }
+  MRI->copyRegToReg(*BB, BB->end(), VRBase, SrcReg, TRC);
 
-  if (InstanceNo > 0)
-    VRBaseMap.erase(SDOperand(Node, ResNo));
   bool isNew = VRBaseMap.insert(std::make_pair(SDOperand(Node,ResNo), VRBase));
   assert(isNew && "Node emitted out of order - early");
 }
@@ -655,7 +611,7 @@ void ScheduleDAG::EmitSubregNode(SDNode *Node,
 
 /// EmitNode - Generate machine code for an node and needed dependencies.
 ///
-void ScheduleDAG::EmitNode(SDNode *Node, unsigned InstanceNo,
+void ScheduleDAG::EmitNode(SDNode *Node, 
                            DenseMap<SDOperand, unsigned> &VRBaseMap) {
   // If machine instruction
   if (Node->isTargetOpcode()) {
@@ -721,7 +677,7 @@ void ScheduleDAG::EmitNode(SDNode *Node, unsigned InstanceNo,
       for (unsigned i = II.numDefs; i < NumResults; ++i) {
         unsigned Reg = II.ImplicitDefs[i - II.numDefs];
         if (Node->hasAnyUseOfValue(i))
-          EmitCopyFromReg(Node, i, InstanceNo, Reg, VRBaseMap);
+          EmitCopyFromReg(Node, i, Reg, VRBaseMap);
       }
     }
   } else {
@@ -748,16 +704,16 @@ void ScheduleDAG::EmitNode(SDNode *Node, unsigned InstanceNo,
         if (MRegisterInfo::isVirtualRegister(InReg))
           TRC = RegMap->getRegClass(InReg);
         else
-          TRC =
-            MRI->getPhysicalRegisterRegClass(Node->getOperand(2).getValueType(),
+          TRC = getPhysicalRegisterRegClass(MRI,
+                                            Node->getOperand(2).getValueType(),
                                             InReg);
-        MRI->copyRegToReg(*BB, BB->end(), DestReg, InReg, TRC, TRC);
+        MRI->copyRegToReg(*BB, BB->end(), DestReg, InReg, TRC);
       }
       break;
     }
     case ISD::CopyFromReg: {
       unsigned SrcReg = cast<RegisterSDNode>(Node->getOperand(1))->getReg();
-      EmitCopyFromReg(Node, 0, InstanceNo, SrcReg, VRBaseMap);
+      EmitCopyFromReg(Node, 0, SrcReg, VRBaseMap);
       break;
     }
     case ISD::INLINEASM: {
@@ -827,39 +783,6 @@ void ScheduleDAG::EmitNoop() {
   TII->insertNoop(*BB, BB->end());
 }
 
-void ScheduleDAG::EmitCrossRCCopy(SUnit *SU, DenseMap<SUnit*, unsigned> &VRBaseMap) {
-  for (SUnit::const_pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
-       I != E; ++I) {
-    if (I->isCtrl) continue;  // ignore chain preds
-    if (!I->Dep->Node) {
-      // Copy to physical register.
-      DenseMap<SUnit*, unsigned>::iterator VRI = VRBaseMap.find(I->Dep);
-      assert(VRI != VRBaseMap.end() && "Node emitted out of order - late");
-      // Find the destination physical register.
-      unsigned Reg = 0;
-      for (SUnit::const_succ_iterator II = SU->Succs.begin(),
-             EE = SU->Succs.end(); II != EE; ++II) {
-        if (I->Reg) {
-          Reg = I->Reg;
-          break;
-        }
-      }
-      assert(I->Reg && "Unknown physical register!");
-      MRI->copyRegToReg(*BB, BB->end(), Reg, VRI->second,
-                        SU->CopyDstRC, SU->CopySrcRC);
-    } else {
-      // Copy from physical register.
-      assert(I->Reg && "Unknown physical register!");
-      unsigned VRBase = RegMap->createVirtualRegister(SU->CopyDstRC);
-      bool isNew = VRBaseMap.insert(std::make_pair(SU, VRBase));
-      assert(isNew && "Node emitted out of order - early");
-      MRI->copyRegToReg(*BB, BB->end(), VRBase, I->Reg,
-                        SU->CopyDstRC, SU->CopySrcRC);
-    }
-    break;
-  }
-}
-
 /// EmitSchedule - Emit the machine code in scheduled order.
 void ScheduleDAG::EmitSchedule() {
   // If this is the first basic block in the function, and if it has live ins
@@ -869,25 +792,19 @@ void ScheduleDAG::EmitSchedule() {
   if (&MF.front() == BB && MF.livein_begin() != MF.livein_end()) {
     for (MachineFunction::livein_iterator LI = MF.livein_begin(),
          E = MF.livein_end(); LI != E; ++LI)
-      if (LI->second) {
-        const TargetRegisterClass *RC = RegMap->getRegClass(LI->second);
+      if (LI->second)
         MRI->copyRegToReg(*MF.begin(), MF.begin()->end(), LI->second,
-                          LI->first, RC, RC);
-      }
+                          LI->first, RegMap->getRegClass(LI->second));
   }
   
   
   // Finally, emit the code for all of the scheduled instructions.
   DenseMap<SDOperand, unsigned> VRBaseMap;
-  DenseMap<SUnit*, unsigned> CopyVRBaseMap;
   for (unsigned i = 0, e = Sequence.size(); i != e; i++) {
     if (SUnit *SU = Sequence[i]) {
-      for (unsigned j = 0, ee = SU->FlaggedNodes.size(); j != ee; ++j)
-        EmitNode(SU->FlaggedNodes[j], SU->InstanceNo, VRBaseMap);
-      if (SU->Node)
-        EmitNode(SU->Node, SU->InstanceNo, VRBaseMap);
-      else
-        EmitCrossRCCopy(SU, CopyVRBaseMap);
+      for (unsigned j = 0, ee = SU->FlaggedNodes.size(); j != ee; j++)
+        EmitNode(SU->FlaggedNodes[j], VRBaseMap);
+      EmitNode(SU->Node, VRBaseMap);
     } else {
       // Null SUnit* is a noop.
       EmitNoop();
@@ -922,10 +839,7 @@ MachineBasicBlock *ScheduleDAG::Run() {
 /// a group of nodes flagged together.
 void SUnit::dump(const SelectionDAG *G) const {
   cerr << "SU(" << NodeNum << "): ";
-  if (Node)
-    Node->dump(G);
-  else
-    cerr << "CROSS RC COPY ";
+  Node->dump(G);
   cerr << "\n";
   if (FlaggedNodes.size() != 0) {
     for (unsigned i = 0, e = FlaggedNodes.size(); i != e; i++) {
@@ -951,28 +865,22 @@ void SUnit::dumpAll(const SelectionDAG *G) const {
     cerr << "  Predecessors:\n";
     for (SUnit::const_succ_iterator I = Preds.begin(), E = Preds.end();
          I != E; ++I) {
-      if (I->isCtrl)
+      if (I->second)
         cerr << "   ch  #";
       else
         cerr << "   val #";
-      cerr << I->Dep << " - SU(" << I->Dep->NodeNum << ")";
-      if (I->isSpecial)
-        cerr << " *";
-      cerr << "\n";
+      cerr << I->first << " - SU(" << I->first->NodeNum << ")\n";
     }
   }
   if (Succs.size() != 0) {
     cerr << "  Successors:\n";
     for (SUnit::const_succ_iterator I = Succs.begin(), E = Succs.end();
          I != E; ++I) {
-      if (I->isCtrl)
+      if (I->second)
         cerr << "   ch  #";
       else
         cerr << "   val #";
-      cerr << I->Dep << " - SU(" << I->Dep->NodeNum << ")";
-      if (I->isSpecial)
-        cerr << " *";
-      cerr << "\n";
+      cerr << I->first << " - SU(" << I->first->NodeNum << ")\n";
     }
   }
   cerr << "\n";
