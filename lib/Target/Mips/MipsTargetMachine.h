@@ -44,7 +44,7 @@ namespace llvm {
     virtual const TargetData      *getTargetData()    const 
     { return &DataLayout;}
 
-    virtual const TargetRegisterInfo   *getRegisterInfo()  const {
+    virtual const MRegisterInfo   *getRegisterInfo()  const {
       return &InstrInfo.getRegisterInfo();
     }
 

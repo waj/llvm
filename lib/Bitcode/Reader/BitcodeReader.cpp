@@ -1327,7 +1327,7 @@ bool BitcodeReader::ParseFunctionBody(Function *F) {
     }
     
     case bitc::FUNC_CODE_INST_RET: // RET: [opty,opval<optional>]
-      if (Record.empty()) {
+      if (Record.size() == 0) {
         I = new ReturnInst();
         break;
       } else {

@@ -233,16 +233,6 @@ bool ARMAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   // Emit pre-function debug information.
   DW.BeginFunction(&MF);
 
-  if (Subtarget->isTargetDarwin()) {
-    // If the function is empty, then we need to emit *something*. Otherwise,
-    // the function's label might be associated with something that it wasn't
-    // meant to be associated with. We emit a noop in this situation.
-    MachineFunction::iterator I = MF.begin();
-
-    if (++I == MF.end() && MF.front().empty())
-      O << "\tnop\n";
-  }
-
   // Print out code for the function.
   for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
        I != E; ++I) {
@@ -272,7 +262,7 @@ void ARMAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
   const MachineOperand &MO = MI->getOperand(opNum);
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
-    if (TargetRegisterInfo::isPhysicalRegister(MO.getReg()))
+    if (MRegisterInfo::isPhysicalRegister(MO.getReg()))
       O << TM.getRegisterInfo()->get(MO.getReg()).Name;
     else
       assert(0 && "not implemented");
@@ -392,7 +382,7 @@ void ARMAsmPrinter::printSORegOperand(const MachineInstr *MI, int Op) {
   const MachineOperand &MO2 = MI->getOperand(Op+1);
   const MachineOperand &MO3 = MI->getOperand(Op+2);
 
-  assert(TargetRegisterInfo::isPhysicalRegister(MO1.getReg()));
+  assert(MRegisterInfo::isPhysicalRegister(MO1.getReg()));
   O << TM.getRegisterInfo()->get(MO1.getReg()).Name;
 
   // Print the shift opc.
@@ -401,7 +391,7 @@ void ARMAsmPrinter::printSORegOperand(const MachineInstr *MI, int Op) {
     << " ";
 
   if (MO2.getReg()) {
-    assert(TargetRegisterInfo::isPhysicalRegister(MO2.getReg()));
+    assert(MRegisterInfo::isPhysicalRegister(MO2.getReg()));
     O << TM.getRegisterInfo()->get(MO2.getReg()).Name;
     assert(ARM_AM::getSORegOffset(MO3.getImm()) == 0);
   } else {
@@ -468,7 +458,7 @@ void ARMAsmPrinter::printAddrMode3Operand(const MachineInstr *MI, int Op) {
   const MachineOperand &MO2 = MI->getOperand(Op+1);
   const MachineOperand &MO3 = MI->getOperand(Op+2);
   
-  assert(TargetRegisterInfo::isPhysicalRegister(MO1.getReg()));
+  assert(MRegisterInfo::isPhysicalRegister(MO1.getReg()));
   O << "[" << TM.getRegisterInfo()->get(MO1.getReg()).Name;
 
   if (MO2.getReg()) {
@@ -532,7 +522,7 @@ void ARMAsmPrinter::printAddrMode5Operand(const MachineInstr *MI, int Op,
     return;
   }
   
-  assert(TargetRegisterInfo::isPhysicalRegister(MO1.getReg()));
+  assert(MRegisterInfo::isPhysicalRegister(MO1.getReg()));
 
   if (Modifier && strcmp(Modifier, "submode") == 0) {
     ARM_AM::AMSubMode Mode = ARM_AM::getAM5SubMode(MO2.getImm());
@@ -569,7 +559,7 @@ void ARMAsmPrinter::printAddrModePCOperand(const MachineInstr *MI, int Op,
   }
 
   const MachineOperand &MO1 = MI->getOperand(Op);
-  assert(TargetRegisterInfo::isPhysicalRegister(MO1.getReg()));
+  assert(MRegisterInfo::isPhysicalRegister(MO1.getReg()));
   O << "[pc, +" << TM.getRegisterInfo()->get(MO1.getReg()).Name << "]";
 }
 
@@ -786,6 +776,7 @@ void ARMAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
     case ARM::tPICADD:
       break;
     default:
+      O << "\t";
       break;
     }
   }}
@@ -916,10 +907,6 @@ bool ARMAsmPrinter::doFinalization(Module &M) {
         assert(!Subtarget->isTargetDarwin());
         std::string SectionName = ".section " + I->getSection();
         SectionName += ",\"aw\",%progbits";
-        SwitchToDataSection(SectionName.c_str());
-      } else if (I->hasSection() && Subtarget->isTargetDarwin()) {
-        // Honor all section names on Darwin; ObjC uses this
-        std::string SectionName = ".section " + I->getSection();
         SwitchToDataSection(SectionName.c_str());
       } else {
         if (C->isNullValue() && !NoZerosInBSS && TAI->getBSSSection())

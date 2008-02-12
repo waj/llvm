@@ -550,12 +550,7 @@ void StrongPHIElimination::processPHIUnion(MachineInstr* Inst,
     for (DomForestNode::iterator CI = DFNode->begin(), CE = DFNode->end();
          CI != CE; ++CI) {
       DomForestNode* child = *CI;   
-      
-      // If the current node is live-out of the defining block of one of its
-      // children, insert a copy for it.  NOTE: The paper actually calls for
-      // a more elaborate heuristic for determining whether to insert copies
-      // for the child or the parent.  In the interest of simplicity, we're
-      // just always choosing the parent.
+        
       if (isLiveOut(DFNode->getReg(),
           MRI.getVRegDef(child->getReg())->getParent(), MRI, LV)) {
         // Insert copies for parent
@@ -570,9 +565,6 @@ void StrongPHIElimination::processPHIUnion(MachineInstr* Inst,
             PHIUnion.erase(SrcReg);
           }
         }
-      
-      // If a node is live-in to the defining block of one of its children, but
-      // not live-out, then we need to scan that block for local interferences.
       } else if (isLiveIn(DFNode->getReg(),
                           MRI.getVRegDef(child->getReg())->getParent(),
                           MRI, LV) ||
@@ -751,17 +743,11 @@ bool StrongPHIElimination::runOnMachineFunction(MachineFunction &Fn) {
   // FIXME: Insert last-minute copies
   
   // Remove PHIs
-  std::vector<MachineInstr*> phis;
-  for (MachineFunction::iterator I = Fn.begin(), E = Fn.end(); I != E; ++I) {
+  for (MachineFunction::iterator I = Fn.begin(), E = Fn.end(); I != E; ++I)
     for (MachineBasicBlock::iterator BI = I->begin(), BE = I->end();
          BI != BE; ++BI)
       if (BI->getOpcode() == TargetInstrInfo::PHI)
-        phis.push_back(BI);
-  }
-  
-  for (std::vector<MachineInstr*>::iterator I = phis.begin(), E = phis.end();
-       I != E; ++I)
-    (*I)->eraseFromParent();
+        BI->eraseFromParent();
   
   return false;
 }

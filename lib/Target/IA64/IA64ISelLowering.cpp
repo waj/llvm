@@ -37,9 +37,9 @@ IA64TargetLowering::IA64TargetLowering(TargetMachine &TM)
 
       setLoadXAction(ISD::EXTLOAD          , MVT::i1   , Promote);
 
-      setLoadXAction(ISD::ZEXTLOAD         , MVT::i1   , Promote);
+      setLoadXAction(ISD::ZEXTLOAD         , MVT::i1   , Expand);
 
-      setLoadXAction(ISD::SEXTLOAD         , MVT::i1   , Promote);
+      setLoadXAction(ISD::SEXTLOAD         , MVT::i1   , Expand);
       setLoadXAction(ISD::SEXTLOAD         , MVT::i8   , Expand);
       setLoadXAction(ISD::SEXTLOAD         , MVT::i16  , Expand);
       setLoadXAction(ISD::SEXTLOAD         , MVT::i32  , Expand);
@@ -193,8 +193,7 @@ IA64TargetLowering::LowerArguments(Function &F, SelectionDAG &DAG) {
             argt = newroot = DAG.getCopyFromReg(DAG.getRoot(), argVreg[count],
                                                 MVT::f64);
             if (I->getType() == Type::FloatTy)
-              argt = DAG.getNode(ISD::FP_ROUND, MVT::f32, argt,
-                                 DAG.getIntPtrConstant(0));
+              argt = DAG.getNode(ISD::FP_ROUND, MVT::f32, argt);
             break;
           case MVT::i1: // NOTE: as far as C abi stuff goes,
                         // bools are just boring old ints
@@ -581,16 +580,16 @@ LowerOperation(SDOperand Op, SelectionDAG &DAG) {
   }
   case ISD::VAARG: {
     MVT::ValueType VT = getPointerTy();
-    const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+    SrcValueSDNode *SV = cast<SrcValueSDNode>(Op.getOperand(2));
     SDOperand VAList = DAG.getLoad(VT, Op.getOperand(0), Op.getOperand(1), 
-                                   SV, 0);
+                                   SV->getValue(), SV->getOffset());
     // Increment the pointer, VAList, to the next vaarg
     SDOperand VAIncr = DAG.getNode(ISD::ADD, VT, VAList, 
                                    DAG.getConstant(MVT::getSizeInBits(VT)/8, 
                                                    VT));
     // Store the incremented VAList to the legalized pointer
     VAIncr = DAG.getStore(VAList.getValue(1), VAIncr,
-                          Op.getOperand(1), SV, 0);
+                          Op.getOperand(1), SV->getValue(), SV->getOffset());
     // Load the actual argument out of the pointer VAList
     return DAG.getLoad(Op.getValueType(), VAIncr, VAList, NULL, 0);
   }
@@ -598,8 +597,9 @@ LowerOperation(SDOperand Op, SelectionDAG &DAG) {
     // vastart just stores the address of the VarArgsFrameIndex slot into the
     // memory location argument.
     SDOperand FR = DAG.getFrameIndex(VarArgsFrameIndex, MVT::i64);
-    const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
-    return DAG.getStore(Op.getOperand(0), FR, Op.getOperand(1), SV, 0);
+    SrcValueSDNode *SV = cast<SrcValueSDNode>(Op.getOperand(2));
+    return DAG.getStore(Op.getOperand(0), FR, 
+                        Op.getOperand(1), SV->getValue(), SV->getOffset());
   }
   // Frame & Return address.  Currently unimplemented
   case ISD::RETURNADDR:         break;

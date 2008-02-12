@@ -1735,17 +1735,16 @@ int main() {
     MainLoop();
     
     TheFPM = 0;
-
-    // Print out all of the generated code.
-    TheModule-&gt;dump();
-  }  // Free module provider (and thus the module) and pass manager.
+  }  // Free module provider and pass manager.
                                    
+                                   
+  // Print out all of the generated code.
+  TheModule-&gt;dump();
   return 0;
 }
 </pre>
 </div>
 
-<a href="LangImpl6.html">Next: Extending the language: user-defined operators</a>
 </div>
 
 <!-- *********************************************************************** -->

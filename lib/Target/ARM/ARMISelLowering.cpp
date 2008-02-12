@@ -125,16 +125,11 @@ ARMTargetLowering::ARMTargetLowering(TargetMachine &TM)
   if (!UseSoftFloat && Subtarget->hasVFP2() && !Subtarget->isThumb()) {
     addRegisterClass(MVT::f32, ARM::SPRRegisterClass);
     addRegisterClass(MVT::f64, ARM::DPRRegisterClass);
-    
-    setTruncStoreAction(MVT::f64, MVT::f32, Expand);
   }
   computeRegisterProperties();
 
   // ARM does not have f32 extending load.
   setLoadXAction(ISD::EXTLOAD, MVT::f32, Expand);
-
-  // ARM does not have i1 sign extending load.
-  setLoadXAction(ISD::SEXTLOAD, MVT::i1, Promote);
 
   // ARM supports all 4 flavors of integer indexed load / store.
   for (unsigned im = (unsigned)ISD::PRE_INC;
@@ -203,7 +198,7 @@ ARMTargetLowering::ARMTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::MEMMOVE         , MVT::Other, Expand);
 
   // Use the default implementation.
-  setOperationAction(ISD::VASTART           , MVT::Other, Custom);
+  setOperationAction(ISD::VASTART           , MVT::Other, Expand);
   setOperationAction(ISD::VAARG             , MVT::Other, Expand);
   setOperationAction(ISD::VACOPY            , MVT::Other, Expand);
   setOperationAction(ISD::VAEND             , MVT::Other, Expand);
@@ -239,6 +234,12 @@ ARMTargetLowering::ARMTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::BR_CC    , MVT::f32,   Custom);
   setOperationAction(ISD::BR_CC    , MVT::f64,   Custom);
   setOperationAction(ISD::BR_JT    , MVT::Other, Custom);
+
+  setOperationAction(ISD::VASTART,       MVT::Other, Custom);
+  setOperationAction(ISD::VACOPY,        MVT::Other, Expand); 
+  setOperationAction(ISD::VAEND,         MVT::Other, Expand);
+  setOperationAction(ISD::STACKSAVE,     MVT::Other, Expand); 
+  setOperationAction(ISD::STACKRESTORE,  MVT::Other, Expand);
 
   // FP Constants can't be immediates.
   setOperationAction(ISD::ConstantFP, MVT::f64, Expand);
@@ -905,8 +906,9 @@ static SDOperand LowerVASTART(SDOperand Op, SelectionDAG &DAG,
   // memory location argument.
   MVT::ValueType PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
   SDOperand FR = DAG.getFrameIndex(VarArgsFrameIndex, PtrVT);
-  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
-  return DAG.getStore(Op.getOperand(0), FR, Op.getOperand(1), SV, 0);
+  SrcValueSDNode *SV = cast<SrcValueSDNode>(Op.getOperand(2));
+  return DAG.getStore(Op.getOperand(0), FR, Op.getOperand(1), SV->getValue(),
+                      SV->getOffset());
 }
 
 static SDOperand LowerFORMAL_ARGUMENT(SDOperand Op, SelectionDAG &DAG,
@@ -1446,7 +1448,7 @@ SDNode *ARMTargetLowering::ExpandOperationResult(SDNode *N, SelectionDAG &DAG) {
 //===----------------------------------------------------------------------===//
 
 MachineBasicBlock *
-ARMTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
+ARMTargetLowering::InsertAtEndOfBasicBlock(MachineInstr *MI,
                                            MachineBasicBlock *BB) {
   const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
   switch (MI->getOpcode()) {
@@ -1722,11 +1724,11 @@ ARMTargetLowering::getPreIndexedAddressParts(SDNode *N, SDOperand &Base,
   bool isSEXTLoad = false;
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N)) {
     Ptr = LD->getBasePtr();
-    VT  = LD->getMemoryVT();
+    VT  = LD->getLoadedVT();
     isSEXTLoad = LD->getExtensionType() == ISD::SEXTLOAD;
   } else if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
     Ptr = ST->getBasePtr();
-    VT  = ST->getMemoryVT();
+    VT  = ST->getStoredVT();
   } else
     return false;
 
@@ -1755,10 +1757,10 @@ bool ARMTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   SDOperand Ptr;
   bool isSEXTLoad = false;
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N)) {
-    VT  = LD->getMemoryVT();
+    VT  = LD->getLoadedVT();
     isSEXTLoad = LD->getExtensionType() == ISD::SEXTLOAD;
   } else if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
-    VT  = ST->getMemoryVT();
+    VT  = ST->getStoredVT();
   } else
     return false;
 

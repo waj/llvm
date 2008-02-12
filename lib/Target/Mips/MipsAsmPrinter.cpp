@@ -162,7 +162,7 @@ emitFMaskDirective(MachineFunction &MF)
 void MipsAsmPrinter::
 emitFrameDirective(MachineFunction &MF)
 {
-  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+  const MRegisterInfo &RI = *TM.getRegisterInfo();
 
   unsigned stackReg  = RI.getFrameRegister(MF);
   unsigned returnReg = RI.getRARegister();
@@ -195,7 +195,7 @@ emitSetDirective(SetDirectiveFlags Flag)
 unsigned int MipsAsmPrinter::
 getSavedRegsBitmask(bool isFloat, MachineFunction &MF)
 {
-  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+  const MRegisterInfo &RI = *TM.getRegisterInfo();
              
   // Float Point Registers, TODO
   if (isFloat)
@@ -304,6 +304,7 @@ runOnMachineFunction(MachineFunction &MF)
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
       // Print the assembly for the instruction.
+      O << "\t";
       printInstruction(II);
       ++EmittedInsts;
     }
@@ -323,7 +324,7 @@ void MipsAsmPrinter::
 printOperand(const MachineInstr *MI, int opNum) 
 {
   const MachineOperand &MO = MI->getOperand(opNum);
-  const TargetRegisterInfo  &RI = *TM.getRegisterInfo();
+  const MRegisterInfo  &RI = *TM.getRegisterInfo();
   bool closeP = false;
   bool isPIC = (TM.getRelocationModel() == Reloc::PIC_);
   bool isCodeLarge = (TM.getCodeModel() == CodeModel::Large);
@@ -364,7 +365,7 @@ printOperand(const MachineInstr *MI, int opNum)
   switch (MO.getType()) 
   {
     case MachineOperand::MO_Register:
-      if (TargetRegisterInfo::isPhysicalRegister(MO.getReg()))
+      if (MRegisterInfo::isPhysicalRegister(MO.getReg()))
         O << "$" << LowercaseString (RI.get(MO.getReg()).Name);
       else
         O << "$" << MO.getReg();

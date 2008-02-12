@@ -27,7 +27,6 @@ namespace llvm {
   class GlobalAlias;
   class MachineConstantPoolEntry;
   class MachineConstantPoolValue;
-  class MachineModuleInfo;
   class Mangler;
   class TargetAsmInfo;
   class Type;
@@ -43,11 +42,6 @@ namespace llvm {
     /// IncrementFunctionNumber().
     ///
     unsigned FunctionNumber;
-
-    /// MachineModuleInfo - This is needed because printDeclare() has to insert
-    /// DebugVariable entries into the dwarf table. This is a short term hack
-    /// that ought be fixed soon.
-    MachineModuleInfo *MMI;
 
   protected:
     // Necessary for external weak linkage support
@@ -282,15 +276,6 @@ namespace llvm {
                        unsigned ForcedAlignBits = 0, bool UseFillExpr = false,
                        unsigned FillValue = 0) const;
 
-    /// printLabel - This method prints a local label used by debug and
-    /// exception handling tables.
-    void printLabel(const MachineInstr *MI) const;
-    void printLabel(unsigned Id) const;
-
-    /// printDeclare - This method prints a local variable declaration used by
-    /// debug tables.
-    void printDeclare(const MachineInstr *MI) const;
-
   protected:
     /// EmitZeros - Emit a block of zeros.
     ///
@@ -314,6 +299,10 @@ namespace llvm {
     /// instruction that is an inline asm.
     void printInlineAsm(const MachineInstr *MI) const;
     
+    /// printLabel - This method prints a local label used by debug and
+    /// exception handling tables.
+    void printLabel(const MachineInstr *MI) const;
+
     /// printBasicBlockLabel - This method prints the label for the specified
     /// MachineBasicBlock
     virtual void printBasicBlockLabel(const MachineBasicBlock *MBB,

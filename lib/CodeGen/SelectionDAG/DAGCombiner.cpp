@@ -14,11 +14,8 @@
 
 #define DEBUG_TYPE "dagcombine"
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Target/TargetData.h"
-#include "llvm/Target/TargetFrameInfo.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
@@ -81,6 +78,13 @@ namespace {
         AddToWorkList(*UI);
     }
 
+    /// removeFromWorkList - remove all instances of N from the worklist.
+    ///
+    void removeFromWorkList(SDNode *N) {
+      WorkList.erase(std::remove(WorkList.begin(), WorkList.end(), N),
+                     WorkList.end());
+    }
+    
     /// visit - call the node-specific routine that knows how to fold each
     /// particular type of node.
     SDOperand visit(SDNode *N);
@@ -93,15 +97,34 @@ namespace {
       WorkList.push_back(N);
     }
 
-    /// removeFromWorkList - remove all instances of N from the worklist.
-    ///
-    void removeFromWorkList(SDNode *N) {
-      WorkList.erase(std::remove(WorkList.begin(), WorkList.end(), N),
-                     WorkList.end());
-    }
-    
     SDOperand CombineTo(SDNode *N, const SDOperand *To, unsigned NumTo,
-                        bool AddTo = true);
+                        bool AddTo = true) {
+      assert(N->getNumValues() == NumTo && "Broken CombineTo call!");
+      ++NodesCombined;
+      DOUT << "\nReplacing.1 "; DEBUG(N->dump(&DAG));
+      DOUT << "\nWith: "; DEBUG(To[0].Val->dump(&DAG));
+      DOUT << " and " << NumTo-1 << " other values\n";
+      std::vector<SDNode*> NowDead;
+      DAG.ReplaceAllUsesWith(N, To, &NowDead);
+      
+      if (AddTo) {
+        // Push the new nodes and any users onto the worklist
+        for (unsigned i = 0, e = NumTo; i != e; ++i) {
+          AddToWorkList(To[i].Val);
+          AddUsersToWorkList(To[i].Val);
+        }
+      }
+      
+      // Nodes can be reintroduced into the worklist.  Make sure we do not
+      // process a node that has been replaced.
+      removeFromWorkList(N);
+      for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+        removeFromWorkList(NowDead[i]);
+      
+      // Finally, since the node is now dead, remove it from the graph.
+      DAG.DeleteNode(N);
+      return SDOperand(N, 0);
+    }
     
     SDOperand CombineTo(SDNode *N, SDOperand Res, bool AddTo = true) {
       return CombineTo(N, &Res, 1, AddTo);
@@ -112,13 +135,55 @@ namespace {
       SDOperand To[] = { Res0, Res1 };
       return CombineTo(N, To, 2, AddTo);
     }
-    
   private:    
     
     /// SimplifyDemandedBits - Check the specified integer node value to see if
     /// it can be simplified or if things it uses can be simplified by bit
     /// propagation.  If so, return true.
-    bool SimplifyDemandedBits(SDOperand Op, uint64_t Demanded = ~0ULL);
+    bool SimplifyDemandedBits(SDOperand Op, uint64_t Demanded = ~0ULL) {
+      TargetLowering::TargetLoweringOpt TLO(DAG, AfterLegalize);
+      uint64_t KnownZero, KnownOne;
+      Demanded &= MVT::getIntVTBitMask(Op.getValueType());
+      if (!TLI.SimplifyDemandedBits(Op, Demanded, KnownZero, KnownOne, TLO))
+        return false;
+
+      // Revisit the node.
+      AddToWorkList(Op.Val);
+      
+      // Replace the old value with the new one.
+      ++NodesCombined;
+      DOUT << "\nReplacing.2 "; DEBUG(TLO.Old.Val->dump(&DAG));
+      DOUT << "\nWith: "; DEBUG(TLO.New.Val->dump(&DAG));
+      DOUT << '\n';
+
+      std::vector<SDNode*> NowDead;
+      DAG.ReplaceAllUsesOfValueWith(TLO.Old, TLO.New, &NowDead);
+      
+      // Push the new node and any (possibly new) users onto the worklist.
+      AddToWorkList(TLO.New.Val);
+      AddUsersToWorkList(TLO.New.Val);
+      
+      // Nodes can end up on the worklist more than once.  Make sure we do
+      // not process a node that has been replaced.
+      for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+        removeFromWorkList(NowDead[i]);
+      
+      // Finally, if the node is now dead, remove it from the graph.  The node
+      // may not be dead if the replacement process recursively simplified to
+      // something else needing this node.
+      if (TLO.Old.Val->use_empty()) {
+        removeFromWorkList(TLO.Old.Val);
+        
+        // If the operands of this node are only used by the node, they will now
+        // be dead.  Make sure to visit them first to delete dead nodes early.
+        for (unsigned i = 0, e = TLO.Old.Val->getNumOperands(); i != e; ++i)
+          if (TLO.Old.Val->getOperand(i).Val->hasOneUse())
+            AddToWorkList(TLO.Old.Val->getOperand(i).Val);
+        
+        DAG.DeleteNode(TLO.Old.Val);
+      }
+      return true;
+    }
 
     bool CombineToPreIndexedLoadStore(SDNode *N);
     bool CombineToPostIndexedLoadStore(SDNode *N);
@@ -209,8 +274,7 @@ namespace {
                                bool NotExtCompare = false);
     SDOperand SimplifySetCC(MVT::ValueType VT, SDOperand N0, SDOperand N1,
                             ISD::CondCode Cond, bool foldBooleans = true);
-    SDOperand SimplifyNodeWithTwoResults(SDNode *N, unsigned LoOp, 
-                                         unsigned HiOp);
+    bool SimplifyNodeWithTwoResults(SDNode *N, unsigned LoOp, unsigned HiOp);
     SDOperand ConstantFoldBIT_CONVERTofBUILD_VECTOR(SDNode *, MVT::ValueType);
     SDOperand BuildSDIV(SDNode *N);
     SDOperand BuildUDIV(SDNode *N);
@@ -251,26 +315,6 @@ public:
     /// Run - runs the dag combiner on all nodes in the work list
     void Run(bool RunningAfterLegalize); 
   };
-}
-
-
-namespace {
-/// WorkListRemover - This class is a DAGUpdateListener that removes any deleted
-/// nodes from the worklist.
-class VISIBILITY_HIDDEN WorkListRemover : 
-  public SelectionDAG::DAGUpdateListener {
-  DAGCombiner &DC;
-public:
-  WorkListRemover(DAGCombiner &dc) : DC(dc) {}
-  
-  virtual void NodeDeleted(SDNode *N) {
-    DC.removeFromWorkList(N);
-  }
-  
-  virtual void NodeUpdated(SDNode *N) {
-    // Ignore updates.
-  }
-};
 }
 
 //===----------------------------------------------------------------------===//
@@ -416,13 +460,10 @@ static SDOperand GetNegatedExpression(SDOperand Op, SelectionDAG &DAG,
                        GetNegatedExpression(Op.getOperand(1), DAG, Depth+1));
     
   case ISD::FP_EXTEND:
+  case ISD::FP_ROUND:
   case ISD::FSIN:
     return DAG.getNode(Op.getOpcode(), Op.getValueType(),
                        GetNegatedExpression(Op.getOperand(0), DAG, Depth+1));
-  case ISD::FP_ROUND:
-      return DAG.getNode(ISD::FP_ROUND, Op.getValueType(),
-                         GetNegatedExpression(Op.getOperand(0), DAG, Depth+1),
-                         Op.getOperand(1));
   }
 }
 
@@ -494,78 +535,6 @@ SDOperand DAGCombiner::ReassociateOps(unsigned Opc, SDOperand N0, SDOperand N1){
   return SDOperand();
 }
 
-SDOperand DAGCombiner::CombineTo(SDNode *N, const SDOperand *To, unsigned NumTo,
-                                 bool AddTo) {
-  assert(N->getNumValues() == NumTo && "Broken CombineTo call!");
-  ++NodesCombined;
-  DOUT << "\nReplacing.1 "; DEBUG(N->dump(&DAG));
-  DOUT << "\nWith: "; DEBUG(To[0].Val->dump(&DAG));
-  DOUT << " and " << NumTo-1 << " other values\n";
-  WorkListRemover DeadNodes(*this);
-  DAG.ReplaceAllUsesWith(N, To, &DeadNodes);
-  
-  if (AddTo) {
-    // Push the new nodes and any users onto the worklist
-    for (unsigned i = 0, e = NumTo; i != e; ++i) {
-      AddToWorkList(To[i].Val);
-      AddUsersToWorkList(To[i].Val);
-    }
-  }
-  
-  // Nodes can be reintroduced into the worklist.  Make sure we do not
-  // process a node that has been replaced.
-  removeFromWorkList(N);
-  
-  // Finally, since the node is now dead, remove it from the graph.
-  DAG.DeleteNode(N);
-  return SDOperand(N, 0);
-}
-
-/// SimplifyDemandedBits - Check the specified integer node value to see if
-/// it can be simplified or if things it uses can be simplified by bit
-/// propagation.  If so, return true.
-bool DAGCombiner::SimplifyDemandedBits(SDOperand Op, uint64_t Demanded) {
-  TargetLowering::TargetLoweringOpt TLO(DAG, AfterLegalize);
-  uint64_t KnownZero, KnownOne;
-  Demanded &= MVT::getIntVTBitMask(Op.getValueType());
-  if (!TLI.SimplifyDemandedBits(Op, Demanded, KnownZero, KnownOne, TLO))
-    return false;
-  
-  // Revisit the node.
-  AddToWorkList(Op.Val);
-  
-  // Replace the old value with the new one.
-  ++NodesCombined;
-  DOUT << "\nReplacing.2 "; DEBUG(TLO.Old.Val->dump(&DAG));
-  DOUT << "\nWith: "; DEBUG(TLO.New.Val->dump(&DAG));
-  DOUT << '\n';
-  
-  // Replace all uses.  If any nodes become isomorphic to other nodes and 
-  // are deleted, make sure to remove them from our worklist.
-  WorkListRemover DeadNodes(*this);
-  DAG.ReplaceAllUsesOfValueWith(TLO.Old, TLO.New, &DeadNodes);
-  
-  // Push the new node and any (possibly new) users onto the worklist.
-  AddToWorkList(TLO.New.Val);
-  AddUsersToWorkList(TLO.New.Val);
-  
-  // Finally, if the node is now dead, remove it from the graph.  The node
-  // may not be dead if the replacement process recursively simplified to
-  // something else needing this node.
-  if (TLO.Old.Val->use_empty()) {
-    removeFromWorkList(TLO.Old.Val);
-    
-    // If the operands of this node are only used by the node, they will now
-    // be dead.  Make sure to visit them first to delete dead nodes early.
-    for (unsigned i = 0, e = TLO.Old.Val->getNumOperands(); i != e; ++i)
-      if (TLO.Old.Val->getOperand(i).Val->hasOneUse())
-        AddToWorkList(TLO.Old.Val->getOperand(i).Val);
-    
-    DAG.DeleteNode(TLO.Old.Val);
-  }
-  return true;
-}
-
 //===----------------------------------------------------------------------===//
 //  Main DAG Combiner implementation
 //===----------------------------------------------------------------------===//
@@ -607,51 +576,43 @@ void DAGCombiner::Run(bool RunningAfterLegalize) {
     
     SDOperand RV = combine(N);
     
-    if (RV.Val == 0)
-      continue;
-    
-    ++NodesCombined;
-    
-    // If we get back the same node we passed in, rather than a new node or
-    // zero, we know that the node must have defined multiple values and
-    // CombineTo was used.  Since CombineTo takes care of the worklist 
-    // mechanics for us, we have no work to do in this case.
-    if (RV.Val == N)
-      continue;
-    
-    assert(N->getOpcode() != ISD::DELETED_NODE &&
-           RV.Val->getOpcode() != ISD::DELETED_NODE &&
-           "Node was deleted but visit returned new node!");
+    if (RV.Val) {
+      ++NodesCombined;
+      // If we get back the same node we passed in, rather than a new node or
+      // zero, we know that the node must have defined multiple values and
+      // CombineTo was used.  Since CombineTo takes care of the worklist 
+      // mechanics for us, we have no work to do in this case.
+      if (RV.Val != N) {
+        assert(N->getOpcode() != ISD::DELETED_NODE &&
+               RV.Val->getOpcode() != ISD::DELETED_NODE &&
+               "Node was deleted but visit returned new node!");
 
-    DOUT << "\nReplacing.3 "; DEBUG(N->dump(&DAG));
-    DOUT << "\nWith: "; DEBUG(RV.Val->dump(&DAG));
-    DOUT << '\n';
-    WorkListRemover DeadNodes(*this);
-    if (N->getNumValues() == RV.Val->getNumValues())
-      DAG.ReplaceAllUsesWith(N, RV.Val, &DeadNodes);
-    else {
-      assert(N->getValueType(0) == RV.getValueType() &&
-             N->getNumValues() == 1 && "Type mismatch");
-      SDOperand OpV = RV;
-      DAG.ReplaceAllUsesWith(N, &OpV, &DeadNodes);
+        DOUT << "\nReplacing.3 "; DEBUG(N->dump(&DAG));
+        DOUT << "\nWith: "; DEBUG(RV.Val->dump(&DAG));
+        DOUT << '\n';
+        std::vector<SDNode*> NowDead;
+        if (N->getNumValues() == RV.Val->getNumValues())
+          DAG.ReplaceAllUsesWith(N, RV.Val, &NowDead);
+        else {
+          assert(N->getValueType(0) == RV.getValueType() && "Type mismatch");
+          SDOperand OpV = RV;
+          DAG.ReplaceAllUsesWith(N, &OpV, &NowDead);
+        }
+          
+        // Push the new node and any users onto the worklist
+        AddToWorkList(RV.Val);
+        AddUsersToWorkList(RV.Val);
+          
+        // Nodes can be reintroduced into the worklist.  Make sure we do not
+        // process a node that has been replaced.
+        removeFromWorkList(N);
+        for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+          removeFromWorkList(NowDead[i]);
+        
+        // Finally, since the node is now dead, remove it from the graph.
+        DAG.DeleteNode(N);
+      }
     }
-      
-    // Push the new node and any users onto the worklist
-    AddToWorkList(RV.Val);
-    AddUsersToWorkList(RV.Val);
-    
-    // Add any uses of the old node to the worklist in case this node is the
-    // last one that uses them.  They may become dead after this node is
-    // deleted.
-    for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i)
-      AddToWorkList(N->getOperand(i).Val);
-      
-    // Nodes can be reintroduced into the worklist.  Make sure we do not
-    // process a node that has been replaced.
-    removeFromWorkList(N);
-    
-    // Finally, since the node is now dead, remove it from the graph.
-    DAG.DeleteNode(N);
   }
   
   // If the root changed (e.g. it was a dead load, update the root).
@@ -822,7 +783,7 @@ SDOperand DAGCombiner::visitTokenFactor(SDNode *N) {
 
   // If we've change things around then replace token factor.
   if (Changed) {
-    if (Ops.empty()) {
+    if (Ops.size() == 0) {
       // The entry token is the only possible outcome.
       Result = DAG.getEntryNode();
     } else {
@@ -881,9 +842,8 @@ SDOperand combineSelectAndUse(SDNode *N, SDOperand Slct, SDOperand OtherOp,
            RHS.getOpcode() == ISD::Constant &&
            cast<ConstantSDNode>(RHS)->isNullValue()) {
     std::swap(LHS, RHS);
-    SDOperand Op0 = Slct.getOperand(0);
-    bool isInt = MVT::isInteger(isSlctCC ? Op0.getValueType()
-                                : Op0.getOperand(0).getValueType());
+    bool isInt = MVT::isInteger(isSlctCC ? Slct.getOperand(0).getValueType()
+                                : Slct.getOperand(0).getOperand(0).getValueType());
     CC = ISD::getSetCCInverse(CC, isInt);
     DoXform = true;
     InvCC = true;
@@ -923,7 +883,7 @@ SDOperand DAGCombiner::visitADD(SDNode *N) {
     return N1;
   // fold (add c1, c2) -> c1+c2
   if (N0C && N1C)
-    return DAG.getConstant(N0C->getValue() + N1C->getValue(), VT);
+    return DAG.getNode(ISD::ADD, VT, N0, N1);
   // canonicalize constant to RHS
   if (N0C && !N1C)
     return DAG.getNode(ISD::ADD, VT, N1, N0);
@@ -1211,12 +1171,10 @@ SDOperand DAGCombiner::visitSDIV(SDNode *N) {
     return DAG.getNode(ISD::SUB, VT, DAG.getConstant(0, VT), N0);
   // If we know the sign bits of both operands are zero, strength reduce to a
   // udiv instead.  Handles (X&15) /s 4 -> X&15 >> 2
-  if (!MVT::isVector(VT)) {
-    uint64_t SignBit = MVT::getIntVTSignBit(VT);
-    if (DAG.MaskedValueIsZero(N1, SignBit) &&
-        DAG.MaskedValueIsZero(N0, SignBit))
-      return DAG.getNode(ISD::UDIV, N1.getValueType(), N0, N1);
-  }
+  uint64_t SignBit = 1ULL << (MVT::getSizeInBits(VT)-1);
+  if (DAG.MaskedValueIsZero(N1, SignBit) &&
+      DAG.MaskedValueIsZero(N0, SignBit))
+    return DAG.getNode(ISD::UDIV, N1.getValueType(), N0, N1);
   // fold (sdiv X, pow2) -> simple ops after legalize
   if (N1C && N1C->getValue() && !TLI.isIntDivCheap() &&
       (isPowerOf2_64(N1C->getSignExtended()) || 
@@ -1329,18 +1287,15 @@ SDOperand DAGCombiner::visitSREM(SDNode *N) {
     return DAG.getNode(ISD::SREM, VT, N0, N1);
   // If we know the sign bits of both operands are zero, strength reduce to a
   // urem instead.  Handles (X & 0x0FFFFFFF) %s 16 -> X&15
-  if (!MVT::isVector(VT)) {
-    uint64_t SignBit = MVT::getIntVTSignBit(VT);
-    if (DAG.MaskedValueIsZero(N1, SignBit) &&
-        DAG.MaskedValueIsZero(N0, SignBit))
-      return DAG.getNode(ISD::UREM, VT, N0, N1);
-  }
+  uint64_t SignBit = 1ULL << (MVT::getSizeInBits(VT)-1);
+  if (DAG.MaskedValueIsZero(N1, SignBit) &&
+      DAG.MaskedValueIsZero(N0, SignBit))
+    return DAG.getNode(ISD::UREM, VT, N0, N1);
   
   // If X/C can be simplified by the division-by-constant logic, lower
   // X%C to the equivalent of X-X/C*C.
   if (N1C && !N1C->isNullValue()) {
     SDOperand Div = DAG.getNode(ISD::SDIV, VT, N0, N1);
-    AddToWorkList(Div.Val);
     SDOperand OptimizedDiv = combine(Div.Val);
     if (OptimizedDiv.Val && OptimizedDiv.Val != Div.Val) {
       SDOperand Mul = DAG.getNode(ISD::MUL, VT, OptimizedDiv, N1);
@@ -1451,16 +1406,18 @@ SDOperand DAGCombiner::visitMULHU(SDNode *N) {
 /// compute two values. LoOp and HiOp give the opcodes for the two computations
 /// that are being performed. Return true if a simplification was made.
 ///
-SDOperand DAGCombiner::SimplifyNodeWithTwoResults(SDNode *N, unsigned LoOp, 
-                                                  unsigned HiOp) {
+bool DAGCombiner::SimplifyNodeWithTwoResults(SDNode *N,
+                                             unsigned LoOp, unsigned HiOp) {
   // If the high half is not needed, just compute the low half.
   bool HiExists = N->hasAnyUseOfValue(1);
   if (!HiExists &&
       (!AfterLegalize ||
        TLI.isOperationLegal(LoOp, N->getValueType(0)))) {
-    SDOperand Res = DAG.getNode(LoOp, N->getValueType(0), N->op_begin(),
-                                N->getNumOperands());
-    return CombineTo(N, Res, Res);
+    DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0),
+                                  DAG.getNode(LoOp, N->getValueType(0),
+                                              N->op_begin(),
+                                              N->getNumOperands()));
+    return true;
   }
 
   // If the low half is not needed, just compute the high half.
@@ -1468,62 +1425,74 @@ SDOperand DAGCombiner::SimplifyNodeWithTwoResults(SDNode *N, unsigned LoOp,
   if (!LoExists &&
       (!AfterLegalize ||
        TLI.isOperationLegal(HiOp, N->getValueType(1)))) {
-    SDOperand Res = DAG.getNode(HiOp, N->getValueType(1), N->op_begin(),
-                                N->getNumOperands());
-    return CombineTo(N, Res, Res);
+    DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1),
+                                  DAG.getNode(HiOp, N->getValueType(1),
+                                              N->op_begin(),
+                                              N->getNumOperands()));
+    return true;
   }
 
   // If both halves are used, return as it is.
   if (LoExists && HiExists)
-    return SDOperand();
+    return false;
 
   // If the two computed results can be simplified separately, separate them.
+  bool RetVal = false;
   if (LoExists) {
     SDOperand Lo = DAG.getNode(LoOp, N->getValueType(0),
                                N->op_begin(), N->getNumOperands());
-    AddToWorkList(Lo.Val);
     SDOperand LoOpt = combine(Lo.Val);
-    if (LoOpt.Val && LoOpt.Val != Lo.Val &&
-        TLI.isOperationLegal(LoOpt.getOpcode(), LoOpt.getValueType()))
-      return CombineTo(N, LoOpt, LoOpt);
+    if (LoOpt.Val && LoOpt != Lo &&
+        TLI.isOperationLegal(LoOpt.getOpcode(), LoOpt.getValueType())) {
+      RetVal = true;
+      DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), LoOpt);
+    } else
+      DAG.DeleteNode(Lo.Val);
   }
 
   if (HiExists) {
     SDOperand Hi = DAG.getNode(HiOp, N->getValueType(1),
                                N->op_begin(), N->getNumOperands());
-    AddToWorkList(Hi.Val);
     SDOperand HiOpt = combine(Hi.Val);
     if (HiOpt.Val && HiOpt != Hi &&
-        TLI.isOperationLegal(HiOpt.getOpcode(), HiOpt.getValueType()))
-      return CombineTo(N, HiOpt, HiOpt);
+        TLI.isOperationLegal(HiOpt.getOpcode(), HiOpt.getValueType())) {
+      RetVal = true;
+      DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1), HiOpt);
+    } else
+      DAG.DeleteNode(Hi.Val);
   }
-  return SDOperand();
+
+  return RetVal;
 }
 
 SDOperand DAGCombiner::visitSMUL_LOHI(SDNode *N) {
-  SDOperand Res = SimplifyNodeWithTwoResults(N, ISD::MUL, ISD::MULHS);
-  if (Res.Val) return Res;
+  
+  if (SimplifyNodeWithTwoResults(N, ISD::MUL, ISD::MULHS))
+    return SDOperand();
 
   return SDOperand();
 }
 
 SDOperand DAGCombiner::visitUMUL_LOHI(SDNode *N) {
-  SDOperand Res = SimplifyNodeWithTwoResults(N, ISD::MUL, ISD::MULHU);
-  if (Res.Val) return Res;
+  
+  if (SimplifyNodeWithTwoResults(N, ISD::MUL, ISD::MULHU))
+    return SDOperand();
 
   return SDOperand();
 }
 
 SDOperand DAGCombiner::visitSDIVREM(SDNode *N) {
-  SDOperand Res = SimplifyNodeWithTwoResults(N, ISD::SDIV, ISD::SREM);
-  if (Res.Val) return Res;
+  
+  if (SimplifyNodeWithTwoResults(N, ISD::SDIV, ISD::SREM))
+    return SDOperand();
   
   return SDOperand();
 }
 
 SDOperand DAGCombiner::visitUDIVREM(SDNode *N) {
-  SDOperand Res = SimplifyNodeWithTwoResults(N, ISD::UDIV, ISD::UREM);
-  if (Res.Val) return Res;
+  
+  if (SimplifyNodeWithTwoResults(N, ISD::UDIV, ISD::UREM))
+    return SDOperand();
   
   return SDOperand();
 }
@@ -1676,7 +1645,7 @@ SDOperand DAGCombiner::visitAND(SDNode *N) {
   // fold (zext_inreg (extload x)) -> (zextload x)
   if (ISD::isEXTLoad(N0.Val) && ISD::isUNINDEXEDLoad(N0.Val)) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
-    MVT::ValueType EVT = LN0->getMemoryVT();
+    MVT::ValueType EVT = LN0->getLoadedVT();
     // If we zero all the possible extended bits, then we can turn this into
     // a zextload if we are running before legalize or the operation is legal.
     if (DAG.MaskedValueIsZero(N1, ~0ULL << MVT::getSizeInBits(EVT)) &&
@@ -1695,7 +1664,7 @@ SDOperand DAGCombiner::visitAND(SDNode *N) {
   if (ISD::isSEXTLoad(N0.Val) && ISD::isUNINDEXEDLoad(N0.Val) &&
       N0.hasOneUse()) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
-    MVT::ValueType EVT = LN0->getMemoryVT();
+    MVT::ValueType EVT = LN0->getLoadedVT();
     // If we zero all the possible extended bits, then we can turn this into
     // a zextload if we are running before legalize or the operation is legal.
     if (DAG.MaskedValueIsZero(N1, ~0ULL << MVT::getSizeInBits(EVT)) &&
@@ -1716,7 +1685,8 @@ SDOperand DAGCombiner::visitAND(SDNode *N) {
   if (N1C && N0.getOpcode() == ISD::LOAD) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
     if (LN0->getExtensionType() != ISD::SEXTLOAD &&
-        LN0->isUnindexed() && N0.hasOneUse()) {
+        LN0->getAddressingMode() == ISD::UNINDEXED &&
+        N0.hasOneUse()) {
       MVT::ValueType EVT, LoadedVT;
       if (N1C->getValue() == 255)
         EVT = MVT::i8;
@@ -1727,7 +1697,7 @@ SDOperand DAGCombiner::visitAND(SDNode *N) {
       else
         EVT = MVT::Other;
     
-      LoadedVT = LN0->getMemoryVT();
+      LoadedVT = LN0->getLoadedVT();
       if (EVT != MVT::Other && LoadedVT > EVT &&
           (!AfterLegalize || TLI.isLoadXLegal(ISD::ZEXTLOAD, EVT))) {
         MVT::ValueType PtrType = N0.getOperand(1).getValueType();
@@ -1739,7 +1709,7 @@ SDOperand DAGCombiner::visitAND(SDNode *N) {
         unsigned PtrOff = LVTStoreBytes - EVTStoreBytes;
         unsigned Alignment = LN0->getAlignment();
         SDOperand NewPtr = LN0->getBasePtr();
-        if (TLI.isBigEndian()) {
+        if (!TLI.isLittleEndian()) {
           NewPtr = DAG.getNode(ISD::ADD, PtrType, NewPtr,
                                DAG.getConstant(PtrOff, PtrType));
           Alignment = MinAlign(Alignment, PtrOff);
@@ -2765,7 +2735,7 @@ SDOperand DAGCombiner::visitSIGN_EXTEND(SDNode *N) {
   if ((ISD::isSEXTLoad(N0.Val) || ISD::isEXTLoad(N0.Val)) &&
       ISD::isUNINDEXEDLoad(N0.Val) && N0.hasOneUse()) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
-    MVT::ValueType EVT = LN0->getMemoryVT();
+    MVT::ValueType EVT = LN0->getLoadedVT();
     if (!AfterLegalize || TLI.isLoadXLegal(ISD::SEXTLOAD, EVT)) {
       SDOperand ExtLoad = DAG.getExtLoad(ISD::SEXTLOAD, VT, LN0->getChain(),
                                          LN0->getBasePtr(), LN0->getSrcValue(),
@@ -2882,7 +2852,7 @@ SDOperand DAGCombiner::visitZERO_EXTEND(SDNode *N) {
   if ((ISD::isZEXTLoad(N0.Val) || ISD::isEXTLoad(N0.Val)) &&
       ISD::isUNINDEXEDLoad(N0.Val) && N0.hasOneUse()) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
-    MVT::ValueType EVT = LN0->getMemoryVT();
+    MVT::ValueType EVT = LN0->getLoadedVT();
     SDOperand ExtLoad = DAG.getExtLoad(ISD::ZEXTLOAD, VT, LN0->getChain(),
                                        LN0->getBasePtr(), LN0->getSrcValue(),
                                        LN0->getSrcValueOffset(), EVT,
@@ -2979,7 +2949,7 @@ SDOperand DAGCombiner::visitANY_EXTEND(SDNode *N) {
       !ISD::isNON_EXTLoad(N0.Val) && ISD::isUNINDEXEDLoad(N0.Val) &&
       N0.hasOneUse()) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
-    MVT::ValueType EVT = LN0->getMemoryVT();
+    MVT::ValueType EVT = LN0->getLoadedVT();
     SDOperand ExtLoad = DAG.getExtLoad(LN0->getExtensionType(), VT,
                                        LN0->getChain(), LN0->getBasePtr(),
                                        LN0->getSrcValue(),
@@ -3086,7 +3056,7 @@ SDOperand DAGCombiner::ReduceLoadWidth(SDNode *N) {
     MVT::ValueType PtrType = N0.getOperand(1).getValueType();
     // For big endian targets, we need to adjust the offset to the pointer to
     // load the correct bytes.
-    if (TLI.isBigEndian()) {
+    if (!TLI.isLittleEndian()) {
       unsigned LVTStoreBits = MVT::getStoreSizeInBits(N0.getValueType());
       unsigned EVTStoreBits = MVT::getStoreSizeInBits(EVT);
       ShAmt = LVTStoreBits - EVTStoreBits - ShAmt;
@@ -3105,9 +3075,7 @@ SDOperand DAGCombiner::ReduceLoadWidth(SDNode *N) {
                        LN0->isVolatile(), NewAlign);
     AddToWorkList(N);
     if (CombineSRL) {
-      WorkListRemover DeadNodes(*this);
-      DAG.ReplaceAllUsesOfValueWith(N0.getValue(1), Load.getValue(1),
-                                    &DeadNodes);
+      DAG.ReplaceAllUsesOfValueWith(N0.getValue(1), Load.getValue(1));
       CombineTo(N->getOperand(0).Val, Load);
     } else
       CombineTo(N0.Val, Load, Load.getValue(1));
@@ -3177,7 +3145,7 @@ SDOperand DAGCombiner::visitSIGN_EXTEND_INREG(SDNode *N) {
   // fold (sext_inreg (extload x)) -> (sextload x)
   if (ISD::isEXTLoad(N0.Val) && 
       ISD::isUNINDEXEDLoad(N0.Val) &&
-      EVT == cast<LoadSDNode>(N0)->getMemoryVT() &&
+      EVT == cast<LoadSDNode>(N0)->getLoadedVT() &&
       (!AfterLegalize || TLI.isLoadXLegal(ISD::SEXTLOAD, EVT))) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
     SDOperand ExtLoad = DAG.getExtLoad(ISD::SEXTLOAD, VT, LN0->getChain(),
@@ -3192,7 +3160,7 @@ SDOperand DAGCombiner::visitSIGN_EXTEND_INREG(SDNode *N) {
   // fold (sext_inreg (zextload x)) -> (sextload x) iff load has one use
   if (ISD::isZEXTLoad(N0.Val) && ISD::isUNINDEXEDLoad(N0.Val) &&
       N0.hasOneUse() &&
-      EVT == cast<LoadSDNode>(N0)->getMemoryVT() &&
+      EVT == cast<LoadSDNode>(N0)->getLoadedVT() &&
       (!AfterLegalize || TLI.isLoadXLegal(ISD::SEXTLOAD, EVT))) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
     SDOperand ExtLoad = DAG.getExtLoad(ISD::SEXTLOAD, VT, LN0->getChain(),
@@ -3303,58 +3271,6 @@ SDOperand DAGCombiner::visitBIT_CONVERT(SDNode *N) {
     }
   }
   
-  // Fold bitconvert(fneg(x)) -> xor(bitconvert(x), signbit)
-  // Fold bitconvert(fabs(x)) -> and(bitconvert(x), ~signbit)
-  // This often reduces constant pool loads.
-  if ((N0.getOpcode() == ISD::FNEG || N0.getOpcode() == ISD::FABS) &&
-      N0.Val->hasOneUse() && MVT::isInteger(VT) && !MVT::isVector(VT)) {
-    SDOperand NewConv = DAG.getNode(ISD::BIT_CONVERT, VT, N0.getOperand(0));
-    AddToWorkList(NewConv.Val);
-    
-    uint64_t SignBit = MVT::getIntVTSignBit(VT);
-    if (N0.getOpcode() == ISD::FNEG)
-      return DAG.getNode(ISD::XOR, VT, NewConv, DAG.getConstant(SignBit, VT));
-    assert(N0.getOpcode() == ISD::FABS);
-    return DAG.getNode(ISD::AND, VT, NewConv, DAG.getConstant(~SignBit, VT));
-  }
-  
-  // Fold bitconvert(fcopysign(cst, x)) -> bitconvert(x)&sign | cst&~sign'
-  // Note that we don't handle copysign(x,cst) because this can always be folded
-  // to an fneg or fabs.
-  if (N0.getOpcode() == ISD::FCOPYSIGN && N0.Val->hasOneUse() &&
-      isa<ConstantFPSDNode>(N0.getOperand(0)) &&
-      MVT::isInteger(VT) && !MVT::isVector(VT)) {
-    unsigned OrigXWidth = MVT::getSizeInBits(N0.getOperand(1).getValueType());
-    SDOperand X = DAG.getNode(ISD::BIT_CONVERT, MVT::getIntegerType(OrigXWidth),
-                              N0.getOperand(1));
-    AddToWorkList(X.Val);
-
-    // If X has a different width than the result/lhs, sext it or truncate it.
-    unsigned VTWidth = MVT::getSizeInBits(VT);
-    if (OrigXWidth < VTWidth) {
-      X = DAG.getNode(ISD::SIGN_EXTEND, VT, X);
-      AddToWorkList(X.Val);
-    } else if (OrigXWidth > VTWidth) {
-      // To get the sign bit in the right place, we have to shift it right
-      // before truncating.
-      X = DAG.getNode(ISD::SRL, X.getValueType(), X, 
-                      DAG.getConstant(OrigXWidth-VTWidth, X.getValueType()));
-      AddToWorkList(X.Val);
-      X = DAG.getNode(ISD::TRUNCATE, VT, X);
-      AddToWorkList(X.Val);
-    }
-    
-    uint64_t SignBit = MVT::getIntVTSignBit(VT);
-    X = DAG.getNode(ISD::AND, VT, X, DAG.getConstant(SignBit, VT));
-    AddToWorkList(X.Val);
-
-    SDOperand Cst = DAG.getNode(ISD::BIT_CONVERT, VT, N0.getOperand(0));
-    Cst = DAG.getNode(ISD::AND, VT, Cst, DAG.getConstant(~SignBit, VT));
-    AddToWorkList(Cst.Val);
-
-    return DAG.getNode(ISD::OR, VT, X, Cst);
-  }
-  
   return SDOperand();
 }
 
@@ -3460,7 +3376,7 @@ ConstantFoldBIT_CONVERTofBUILD_VECTOR(SDNode *BV, MVT::ValueType DstEltVT) {
     }
 
     // For big endian targets, swap the order of the pieces of each element.
-    if (TLI.isBigEndian())
+    if (!TLI.isLittleEndian())
       std::reverse(Ops.end()-NumOutputsPerInput, Ops.end());
   }
   MVT::ValueType VT = MVT::getVectorType(DstEltVT, Ops.size());
@@ -3716,30 +3632,20 @@ SDOperand DAGCombiner::visitFP_TO_UINT(SDNode *N) {
 
 SDOperand DAGCombiner::visitFP_ROUND(SDNode *N) {
   SDOperand N0 = N->getOperand(0);
-  SDOperand N1 = N->getOperand(1);
   ConstantFPSDNode *N0CFP = dyn_cast<ConstantFPSDNode>(N0);
   MVT::ValueType VT = N->getValueType(0);
   
   // fold (fp_round c1fp) -> c1fp
   if (N0CFP && N0.getValueType() != MVT::ppcf128)
-    return DAG.getNode(ISD::FP_ROUND, VT, N0, N1);
+    return DAG.getNode(ISD::FP_ROUND, VT, N0);
   
   // fold (fp_round (fp_extend x)) -> x
   if (N0.getOpcode() == ISD::FP_EXTEND && VT == N0.getOperand(0).getValueType())
     return N0.getOperand(0);
   
-  // fold (fp_round (fp_round x)) -> (fp_round x)
-  if (N0.getOpcode() == ISD::FP_ROUND) {
-    // This is a value preserving truncation if both round's are.
-    bool IsTrunc = N->getConstantOperandVal(1) == 1 &&
-                   N0.Val->getConstantOperandVal(1) == 1;
-    return DAG.getNode(ISD::FP_ROUND, VT, N0.getOperand(0),
-                       DAG.getIntPtrConstant(IsTrunc));
-  }
-  
   // fold (fp_round (copysign X, Y)) -> (copysign (fp_round X), Y)
   if (N0.getOpcode() == ISD::FCOPYSIGN && N0.Val->hasOneUse()) {
-    SDOperand Tmp = DAG.getNode(ISD::FP_ROUND, VT, N0.getOperand(0), N1);
+    SDOperand Tmp = DAG.getNode(ISD::FP_ROUND, VT, N0.getOperand(0));
     AddToWorkList(Tmp.Val);
     return DAG.getNode(ISD::FCOPYSIGN, VT, Tmp, N0.getOperand(1));
   }
@@ -3769,22 +3675,12 @@ SDOperand DAGCombiner::visitFP_EXTEND(SDNode *N) {
   // If this is fp_round(fpextend), don't fold it, allow ourselves to be folded.
   if (N->hasOneUse() && (*N->use_begin())->getOpcode() == ISD::FP_ROUND)
     return SDOperand();
-
+  
   // fold (fp_extend c1fp) -> c1fp
   if (N0CFP && VT != MVT::ppcf128)
     return DAG.getNode(ISD::FP_EXTEND, VT, N0);
-
-  // Turn fp_extend(fp_round(X, 1)) -> x since the fp_round doesn't affect the
-  // value of X.
-  if (N0.getOpcode() == ISD::FP_ROUND && N0.Val->getConstantOperandVal(1) == 1){
-    SDOperand In = N0.getOperand(0);
-    if (In.getValueType() == VT) return In;
-    if (VT < In.getValueType())
-      return DAG.getNode(ISD::FP_ROUND, VT, In, N0.getOperand(1));
-    return DAG.getNode(ISD::FP_EXTEND, VT, In);
-  }
-      
-  // fold (fpext (load x)) -> (fpext (fptrunc (extload x)))
+  
+  // fold (fpext (load x)) -> (fpext (fpround (extload x)))
   if (ISD::isNON_EXTLoad(N0.Val) && N0.hasOneUse() &&
       (!AfterLegalize||TLI.isLoadXLegal(ISD::EXTLOAD, N0.getValueType()))) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
@@ -3795,8 +3691,7 @@ SDOperand DAGCombiner::visitFP_EXTEND(SDNode *N) {
                                        LN0->isVolatile(), 
                                        LN0->getAlignment());
     CombineTo(N, ExtLoad);
-    CombineTo(N0.Val, DAG.getNode(ISD::FP_ROUND, N0.getValueType(), ExtLoad,
-                                  DAG.getIntPtrConstant(1)),
+    CombineTo(N0.Val, DAG.getNode(ISD::FP_ROUND, N0.getValueType(), ExtLoad),
               ExtLoad.getValue(1));
     return SDOperand(N, 0);   // Return N so it doesn't get rechecked!
   }
@@ -3811,21 +3706,6 @@ SDOperand DAGCombiner::visitFNEG(SDNode *N) {
   if (isNegatibleForFree(N0))
     return GetNegatedExpression(N0, DAG);
 
-  // Transform fneg(bitconvert(x)) -> bitconvert(x^sign) to avoid loading
-  // constant pool values.
-  if (N0.getOpcode() == ISD::BIT_CONVERT && N0.Val->hasOneUse() &&
-      MVT::isInteger(N0.getOperand(0).getValueType()) &&
-      !MVT::isVector(N0.getOperand(0).getValueType())) {
-    SDOperand Int = N0.getOperand(0);
-    MVT::ValueType IntVT = Int.getValueType();
-    if (MVT::isInteger(IntVT) && !MVT::isVector(IntVT)) {
-      Int = DAG.getNode(ISD::XOR, IntVT, Int, 
-                        DAG.getConstant(MVT::getIntVTSignBit(IntVT), IntVT));
-      AddToWorkList(Int.Val);
-      return DAG.getNode(ISD::BIT_CONVERT, N->getValueType(0), Int);
-    }
-  }
-  
   return SDOperand();
 }
 
@@ -3844,21 +3724,6 @@ SDOperand DAGCombiner::visitFABS(SDNode *N) {
   // fold (fabs (fcopysign x, y)) -> (fabs x)
   if (N0.getOpcode() == ISD::FNEG || N0.getOpcode() == ISD::FCOPYSIGN)
     return DAG.getNode(ISD::FABS, VT, N0.getOperand(0));
-  
-  // Transform fabs(bitconvert(x)) -> bitconvert(x&~sign) to avoid loading
-  // constant pool values.
-  if (N0.getOpcode() == ISD::BIT_CONVERT && N0.Val->hasOneUse() &&
-      MVT::isInteger(N0.getOperand(0).getValueType()) &&
-      !MVT::isVector(N0.getOperand(0).getValueType())) {
-    SDOperand Int = N0.getOperand(0);
-    MVT::ValueType IntVT = Int.getValueType();
-    if (MVT::isInteger(IntVT) && !MVT::isVector(IntVT)) {
-      Int = DAG.getNode(ISD::AND, IntVT, Int, 
-                        DAG.getConstant(~MVT::getIntVTSignBit(IntVT), IntVT));
-      AddToWorkList(Int.Val);
-      return DAG.getNode(ISD::BIT_CONVERT, N->getValueType(0), Int);
-    }
-  }
   
   return SDOperand();
 }
@@ -3928,17 +3793,17 @@ bool DAGCombiner::CombineToPreIndexedLoadStore(SDNode *N) {
   SDOperand Ptr;
   MVT::ValueType VT;
   if (LoadSDNode *LD  = dyn_cast<LoadSDNode>(N)) {
-    if (LD->isIndexed())
+    if (LD->getAddressingMode() != ISD::UNINDEXED)
       return false;
-    VT = LD->getMemoryVT();
+    VT = LD->getLoadedVT();
     if (!TLI.isIndexedLoadLegal(ISD::PRE_INC, VT) &&
         !TLI.isIndexedLoadLegal(ISD::PRE_DEC, VT))
       return false;
     Ptr = LD->getBasePtr();
   } else if (StoreSDNode *ST  = dyn_cast<StoreSDNode>(N)) {
-    if (ST->isIndexed())
+    if (ST->getAddressingMode() != ISD::UNINDEXED)
       return false;
-    VT = ST->getMemoryVT();
+    VT = ST->getStoredVT();
     if (!TLI.isIndexedStoreLegal(ISD::PRE_INC, VT) &&
         !TLI.isIndexedStoreLegal(ISD::PRE_DEC, VT))
       return false;
@@ -4013,24 +3878,30 @@ bool DAGCombiner::CombineToPreIndexedLoadStore(SDNode *N) {
   DOUT << "\nReplacing.4 "; DEBUG(N->dump(&DAG));
   DOUT << "\nWith: "; DEBUG(Result.Val->dump(&DAG));
   DOUT << '\n';
-  WorkListRemover DeadNodes(*this);
+  std::vector<SDNode*> NowDead;
   if (isLoad) {
     DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(0),
-                                  &DeadNodes);
+                                  &NowDead);
     DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1), Result.getValue(2),
-                                  &DeadNodes);
+                                  &NowDead);
   } else {
     DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(1),
-                                  &DeadNodes);
+                                  &NowDead);
   }
 
+  // Nodes can end up on the worklist more than once.  Make sure we do
+  // not process a node that has been replaced.
+  for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+    removeFromWorkList(NowDead[i]);
   // Finally, since the node is now dead, remove it from the graph.
   DAG.DeleteNode(N);
 
   // Replace the uses of Ptr with uses of the updated base value.
   DAG.ReplaceAllUsesOfValueWith(Ptr, Result.getValue(isLoad ? 1 : 0),
-                                &DeadNodes);
+                                &NowDead);
   removeFromWorkList(Ptr.Val);
+  for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+    removeFromWorkList(NowDead[i]);
   DAG.DeleteNode(Ptr.Val);
 
   return true;
@@ -4049,17 +3920,17 @@ bool DAGCombiner::CombineToPostIndexedLoadStore(SDNode *N) {
   SDOperand Ptr;
   MVT::ValueType VT;
   if (LoadSDNode *LD  = dyn_cast<LoadSDNode>(N)) {
-    if (LD->isIndexed())
+    if (LD->getAddressingMode() != ISD::UNINDEXED)
       return false;
-    VT = LD->getMemoryVT();
+    VT = LD->getLoadedVT();
     if (!TLI.isIndexedLoadLegal(ISD::POST_INC, VT) &&
         !TLI.isIndexedLoadLegal(ISD::POST_DEC, VT))
       return false;
     Ptr = LD->getBasePtr();
   } else if (StoreSDNode *ST  = dyn_cast<StoreSDNode>(N)) {
-    if (ST->isIndexed())
+    if (ST->getAddressingMode() != ISD::UNINDEXED)
       return false;
-    VT = ST->getMemoryVT();
+    VT = ST->getStoredVT();
     if (!TLI.isIndexedStoreLegal(ISD::POST_INC, VT) &&
         !TLI.isIndexedStoreLegal(ISD::POST_DEC, VT))
       return false;
@@ -4138,26 +4009,33 @@ bool DAGCombiner::CombineToPostIndexedLoadStore(SDNode *N) {
         DOUT << "\nReplacing.5 "; DEBUG(N->dump(&DAG));
         DOUT << "\nWith: "; DEBUG(Result.Val->dump(&DAG));
         DOUT << '\n';
-        WorkListRemover DeadNodes(*this);
+        std::vector<SDNode*> NowDead;
         if (isLoad) {
           DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(0),
-                                        &DeadNodes);
+                                        &NowDead);
           DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1), Result.getValue(2),
-                                        &DeadNodes);
+                                        &NowDead);
         } else {
           DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result.getValue(1),
-                                        &DeadNodes);
+                                        &NowDead);
         }
 
+        // Nodes can end up on the worklist more than once.  Make sure we do
+        // not process a node that has been replaced.
+        for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+          removeFromWorkList(NowDead[i]);
         // Finally, since the node is now dead, remove it from the graph.
         DAG.DeleteNode(N);
 
         // Replace the uses of Use with uses of the updated base value.
         DAG.ReplaceAllUsesOfValueWith(SDOperand(Op, 0),
                                       Result.getValue(isLoad ? 1 : 0),
-                                      &DeadNodes);
+                                      &NowDead);
         removeFromWorkList(Op);
+        for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+          removeFromWorkList(NowDead[i]);
         DAG.DeleteNode(Op);
+
         return true;
       }
     }
@@ -4165,65 +4043,11 @@ bool DAGCombiner::CombineToPostIndexedLoadStore(SDNode *N) {
   return false;
 }
 
-/// InferAlignment - If we can infer some alignment information from this
-/// pointer, return it.
-static unsigned InferAlignment(SDOperand Ptr, SelectionDAG &DAG) {
-  // If this is a direct reference to a stack slot, use information about the
-  // stack slot's alignment.
-  int FrameIdx = 1 << 31;
-  int64_t FrameOffset = 0;
-  if (FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Ptr)) {
-    FrameIdx = FI->getIndex();
-  } else if (Ptr.getOpcode() == ISD::ADD && 
-             isa<ConstantSDNode>(Ptr.getOperand(1)) &&
-             isa<FrameIndexSDNode>(Ptr.getOperand(0))) {
-    FrameIdx = cast<FrameIndexSDNode>(Ptr.getOperand(0))->getIndex();
-    FrameOffset = Ptr.getConstantOperandVal(1);
-  }
-             
-  if (FrameIdx != (1 << 31)) {
-    // FIXME: Handle FI+CST.
-    const MachineFrameInfo &MFI = *DAG.getMachineFunction().getFrameInfo();
-    if (MFI.isFixedObjectIndex(FrameIdx)) {
-      int64_t ObjectOffset = MFI.getObjectOffset(FrameIdx);
-
-      // The alignment of the frame index can be determined from its offset from
-      // the incoming frame position.  If the frame object is at offset 32 and
-      // the stack is guaranteed to be 16-byte aligned, then we know that the
-      // object is 16-byte aligned.
-      unsigned StackAlign = DAG.getTarget().getFrameInfo()->getStackAlignment();
-      unsigned Align = MinAlign(ObjectOffset, StackAlign);
-      
-      // Finally, the frame object itself may have a known alignment.  Factor
-      // the alignment + offset into a new alignment.  For example, if we know
-      // the  FI is 8 byte aligned, but the pointer is 4 off, we really have a
-      // 4-byte alignment of the resultant pointer.  Likewise align 4 + 4-byte
-      // offset = 4-byte alignment, align 4 + 1-byte offset = align 1, etc.
-      unsigned FIInfoAlign = MinAlign(MFI.getObjectAlignment(FrameIdx), 
-                                      FrameOffset);
-      return std::max(Align, FIInfoAlign);
-    }
-  }
-  
-  return 0;
-}
 
 SDOperand DAGCombiner::visitLOAD(SDNode *N) {
   LoadSDNode *LD  = cast<LoadSDNode>(N);
   SDOperand Chain = LD->getChain();
   SDOperand Ptr   = LD->getBasePtr();
-  
-  // Try to infer better alignment information than the load already has.
-  if (LD->isUnindexed()) {
-    if (unsigned Align = InferAlignment(Ptr, DAG)) {
-      if (Align > LD->getAlignment())
-        return DAG.getExtLoad(LD->getExtensionType(), LD->getValueType(0),
-                              Chain, Ptr, LD->getSrcValue(),
-                              LD->getSrcValueOffset(), LD->getMemoryVT(),
-                              LD->isVolatile(), Align);
-    }
-  }
-  
 
   // If load is not volatile and there are no uses of the loaded value (and
   // the updated indexed value in case of indexed loads), change uses of the
@@ -4236,34 +4060,47 @@ SDOperand DAGCombiner::visitLOAD(SDNode *N) {
         // v1, chain2 = load chain1, loc
         // v2, chain3 = load chain2, loc
         // v3         = add v2, c
-        // Now we replace use of chain2 with chain1.  This makes the second load
-        // isomorphic to the one we are deleting, and thus makes this load live.
+        // Now we replace use of v1 with undef, use of chain2 with chain1.
+        // ReplaceAllUsesWith() will iterate through uses of the first load and
+        // update operands:
+        // v1, chain2 = load chain1, loc
+        // v2, chain3 = load chain1, loc
+        // v3         = add v2, c
+        // Now the second load is the same as the first load, SelectionDAG cse
+        // will ensure the use of second load is replaced with the first load.
+        // v1, chain2 = load chain1, loc
+        // v3         = add v1, c
+        // Then v1 is replaced with undef and bad things happen.
+        std::vector<SDNode*> NowDead;
+        SDOperand Undef = DAG.getNode(ISD::UNDEF, N->getValueType(0));
         DOUT << "\nReplacing.6 "; DEBUG(N->dump(&DAG));
-        DOUT << "\nWith chain: "; DEBUG(Chain.Val->dump(&DAG));
-        DOUT << "\n";
-        WorkListRemover DeadNodes(*this);
-        DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1), Chain, &DeadNodes);
-        if (N->use_empty()) {
-          removeFromWorkList(N);
-          DAG.DeleteNode(N);
-        }
+        DOUT << "\nWith: "; DEBUG(Undef.Val->dump(&DAG));
+        DOUT << " and 1 other value\n";
+        DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Undef, &NowDead);
+        DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1), Chain, &NowDead);
+        removeFromWorkList(N);
+        for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+          removeFromWorkList(NowDead[i]);
+        DAG.DeleteNode(N);
         return SDOperand(N, 0);   // Return N so it doesn't get rechecked!
       }
     } else {
       // Indexed loads.
       assert(N->getValueType(2) == MVT::Other && "Malformed indexed loads?");
       if (N->hasNUsesOfValue(0, 0) && N->hasNUsesOfValue(0, 1)) {
+        std::vector<SDNode*> NowDead;
         SDOperand Undef = DAG.getNode(ISD::UNDEF, N->getValueType(0));
         DOUT << "\nReplacing.6 "; DEBUG(N->dump(&DAG));
         DOUT << "\nWith: "; DEBUG(Undef.Val->dump(&DAG));
         DOUT << " and 2 other values\n";
-        WorkListRemover DeadNodes(*this);
-        DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Undef, &DeadNodes);
+        DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Undef, &NowDead);
         DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 1),
-                                    DAG.getNode(ISD::UNDEF, N->getValueType(1)),
-                                      &DeadNodes);
-        DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 2), Chain, &DeadNodes);
+                                      DAG.getNode(ISD::UNDEF, N->getValueType(1)),
+                                      &NowDead);
+        DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 2), Chain, &NowDead);
         removeFromWorkList(N);
+        for (unsigned i = 0, e = NowDead.size(); i != e; ++i)
+          removeFromWorkList(NowDead[i]);
         DAG.DeleteNode(N);
         return SDOperand(N, 0);   // Return N so it doesn't get rechecked!
       }
@@ -4301,7 +4138,7 @@ SDOperand DAGCombiner::visitLOAD(SDNode *N) {
                                   LD->getValueType(0),
                                   BetterChain, Ptr, LD->getSrcValue(),
                                   LD->getSrcValueOffset(),
-                                  LD->getMemoryVT(),
+                                  LD->getLoadedVT(),
                                   LD->isVolatile(), 
                                   LD->getAlignment());
       }
@@ -4330,20 +4167,10 @@ SDOperand DAGCombiner::visitSTORE(SDNode *N) {
   SDOperand Value = ST->getValue();
   SDOperand Ptr   = ST->getBasePtr();
   
-  // Try to infer better alignment information than the store already has.
-  if (ST->isUnindexed()) {
-    if (unsigned Align = InferAlignment(Ptr, DAG)) {
-      if (Align > ST->getAlignment())
-        return DAG.getTruncStore(Chain, Value, Ptr, ST->getSrcValue(),
-                                 ST->getSrcValueOffset(), ST->getMemoryVT(),
-                                 ST->isVolatile(), Align);
-    }
-  }
-  
   // If this is a store of a bit convert, store the input value if the
   // resultant store does not need a higher alignment than the original.
   if (Value.getOpcode() == ISD::BIT_CONVERT && !ST->isTruncatingStore() &&
-      ST->isUnindexed()) {
+      ST->getAddressingMode() == ISD::UNINDEXED) {
     unsigned Align = ST->getAlignment();
     MVT::ValueType SVT = Value.getOperand(0).getValueType();
     unsigned OrigAlign = TLI.getTargetMachine().getTargetData()->
@@ -4386,7 +4213,7 @@ SDOperand DAGCombiner::visitSTORE(SDNode *N) {
           uint64_t Val = CFP->getValueAPF().convertToAPInt().getZExtValue();
           SDOperand Lo = DAG.getConstant(Val & 0xFFFFFFFF, MVT::i32);
           SDOperand Hi = DAG.getConstant(Val >> 32, MVT::i32);
-          if (TLI.isBigEndian()) std::swap(Lo, Hi);
+          if (!TLI.isLittleEndian()) std::swap(Lo, Hi);
 
           int SVOffset = ST->getSrcValueOffset();
           unsigned Alignment = ST->getAlignment();
@@ -4418,13 +4245,12 @@ SDOperand DAGCombiner::visitSTORE(SDNode *N) {
       SDOperand ReplStore;
       if (ST->isTruncatingStore()) {
         ReplStore = DAG.getTruncStore(BetterChain, Value, Ptr,
-                                      ST->getSrcValue(),ST->getSrcValueOffset(),
-                                      ST->getMemoryVT(),
-                                      ST->isVolatile(), ST->getAlignment());
+          ST->getSrcValue(), ST->getSrcValueOffset(), ST->getStoredVT(),
+          ST->isVolatile(), ST->getAlignment());
       } else {
         ReplStore = DAG.getStore(BetterChain, Value, Ptr,
-                                 ST->getSrcValue(), ST->getSrcValueOffset(),
-                                 ST->isVolatile(), ST->getAlignment());
+          ST->getSrcValue(), ST->getSrcValueOffset(),
+          ST->isVolatile(), ST->getAlignment());
       }
       
       // Create token to keep both nodes around.
@@ -4441,48 +4267,37 @@ SDOperand DAGCombiner::visitSTORE(SDNode *N) {
     return SDOperand(N, 0);
 
   // FIXME: is there such a thing as a truncating indexed store?
-  if (ST->isTruncatingStore() && ST->isUnindexed() &&
+  if (ST->isTruncatingStore() && ST->getAddressingMode() == ISD::UNINDEXED &&
       MVT::isInteger(Value.getValueType())) {
     // See if we can simplify the input to this truncstore with knowledge that
     // only the low bits are being used.  For example:
     // "truncstore (or (shl x, 8), y), i8"  -> "truncstore y, i8"
     SDOperand Shorter = 
-      GetDemandedBits(Value, MVT::getIntVTBitMask(ST->getMemoryVT()));
+      GetDemandedBits(Value, MVT::getIntVTBitMask(ST->getStoredVT()));
     AddToWorkList(Value.Val);
     if (Shorter.Val)
       return DAG.getTruncStore(Chain, Shorter, Ptr, ST->getSrcValue(),
-                               ST->getSrcValueOffset(), ST->getMemoryVT(),
+                               ST->getSrcValueOffset(), ST->getStoredVT(),
                                ST->isVolatile(), ST->getAlignment());
     
     // Otherwise, see if we can simplify the operation with
     // SimplifyDemandedBits, which only works if the value has a single use.
-    if (SimplifyDemandedBits(Value, MVT::getIntVTBitMask(ST->getMemoryVT())))
+    if (SimplifyDemandedBits(Value, MVT::getIntVTBitMask(ST->getStoredVT())))
       return SDOperand(N, 0);
   }
   
   // If this is a load followed by a store to the same location, then the store
   // is dead/noop.
   if (LoadSDNode *Ld = dyn_cast<LoadSDNode>(Value)) {
-    if (Ld->getBasePtr() == Ptr && ST->getMemoryVT() == Ld->getMemoryVT() &&
-        ST->isUnindexed() && !ST->isVolatile() &&
+    if (Ld->getBasePtr() == Ptr && ST->getStoredVT() == Ld->getLoadedVT() &&
+        ST->getAddressingMode() == ISD::UNINDEXED &&
+        !ST->isVolatile() &&
         // There can't be any side effects between the load and store, such as
         // a call or store.
         Chain.reachesChainWithoutSideEffects(SDOperand(Ld, 1))) {
       // The store is dead, remove it.
       return Chain;
     }
-  }
-  
-  // If this is an FP_ROUND or TRUNC followed by a store, fold this into a
-  // truncating store.  We can do this even if this is already a truncstore.
-  if ((Value.getOpcode() == ISD::FP_ROUND || Value.getOpcode() == ISD::TRUNCATE)
-      && TLI.isTypeLegal(Value.getOperand(0).getValueType()) &&
-      Value.Val->hasOneUse() && ST->isUnindexed() &&
-      TLI.isTruncStoreLegal(Value.getOperand(0).getValueType(),
-                            ST->getMemoryVT())) {
-    return DAG.getTruncStore(Chain, Value.getOperand(0), Ptr, ST->getSrcValue(),
-                             ST->getSrcValueOffset(), ST->getMemoryVT(),
-                             ST->isVolatile(), ST->getAlignment());
   }
   
   return SDOperand();
@@ -4620,11 +4435,13 @@ SDOperand DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
 
       // Otherwise, use InIdx + VecSize
       unsigned Idx = cast<ConstantSDNode>(Extract.getOperand(1))->getValue();
-      BuildVecIndices.push_back(DAG.getIntPtrConstant(Idx+NumInScalars));
+      BuildVecIndices.push_back(DAG.getConstant(Idx+NumInScalars,
+                                                TLI.getPointerTy()));
     }
     
     // Add count and size info.
-    MVT::ValueType BuildVecVT = MVT::getVectorType(TLI.getPointerTy(), NumElts);
+    MVT::ValueType BuildVecVT =
+      MVT::getVectorType(TLI.getPointerTy(), NumElts);
     
     // Return the new VECTOR_SHUFFLE node.
     SDOperand Ops[5];
@@ -4945,7 +4762,7 @@ bool DAGCombiner::SimplifySelectOps(SDNode *TheSelect, SDOperand LHS,
       LoadSDNode *RLD = cast<LoadSDNode>(RHS);
 
       // If this is an EXTLOAD, the VT's must match.
-      if (LLD->getMemoryVT() == RLD->getMemoryVT()) {
+      if (LLD->getLoadedVT() == RLD->getLoadedVT()) {
         // FIXME: this conflates two src values, discarding one.  This is not
         // the right thing to do, but nothing uses srcvalues now.  When they do,
         // turn SrcValue into a list of locations.
@@ -4987,7 +4804,7 @@ bool DAGCombiner::SimplifySelectOps(SDNode *TheSelect, SDOperand LHS,
                                   TheSelect->getValueType(0),
                                   LLD->getChain(), Addr, LLD->getSrcValue(),
                                   LLD->getSrcValueOffset(),
-                                  LLD->getMemoryVT(),
+                                  LLD->getLoadedVT(),
                                   LLD->isVolatile(), 
                                   LLD->getAlignment());
           }
@@ -5296,13 +5113,13 @@ bool DAGCombiner::FindAliasInfo(SDNode *N,
                         const Value *&SrcValue, int &SrcValueOffset) {
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N)) {
     Ptr = LD->getBasePtr();
-    Size = MVT::getSizeInBits(LD->getMemoryVT()) >> 3;
+    Size = MVT::getSizeInBits(LD->getLoadedVT()) >> 3;
     SrcValue = LD->getSrcValue();
     SrcValueOffset = LD->getSrcValueOffset();
     return true;
   } else if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
     Ptr = ST->getBasePtr();
-    Size = MVT::getSizeInBits(ST->getMemoryVT()) >> 3;
+    Size = MVT::getSizeInBits(ST->getStoredVT()) >> 3;
     SrcValue = ST->getSrcValue();
     SrcValueOffset = ST->getSrcValueOffset();
   } else {

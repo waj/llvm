@@ -27,7 +27,6 @@ void CodeEmitterGen::reverseBits(std::vector<Record*> &Insts) {
     if (R->getName() == "PHI" ||
         R->getName() == "INLINEASM" ||
         R->getName() == "LABEL" ||
-        R->getName() == "DECLARE" ||
         R->getName() == "EXTRACT_SUBREG" ||
         R->getName() == "INSERT_SUBREG") continue;
     
@@ -101,7 +100,6 @@ void CodeEmitterGen::run(std::ostream &o) {
     if (R->getName() == "PHI" ||
         R->getName() == "INLINEASM" ||
         R->getName() == "LABEL" ||
-        R->getName() == "DECLARE" ||
         R->getName() == "EXTRACT_SUBREG" ||
         R->getName() == "INSERT_SUBREG") {
       o << "    0U";
@@ -134,7 +132,6 @@ void CodeEmitterGen::run(std::ostream &o) {
     if (InstName == "PHI" ||
         InstName == "INLINEASM" ||
         InstName == "LABEL"||
-        InstName == "DECLARE"||
         InstName == "EXTRACT_SUBREG" ||
         InstName == "INSERT_SUBREG") continue;
     

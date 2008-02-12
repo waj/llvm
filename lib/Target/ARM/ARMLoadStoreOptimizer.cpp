@@ -26,7 +26,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/Support/Compiler.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 using namespace llvm;
@@ -42,7 +42,7 @@ namespace {
     ARMLoadStoreOpt() : MachineFunctionPass((intptr_t)&ID) {}
 
     const TargetInstrInfo *TII;
-    const TargetRegisterInfo *TRI;
+    const MRegisterInfo *MRI;
     ARMFunctionInfo *AFI;
     RegScavenger *RS;
 
@@ -755,7 +755,7 @@ bool ARMLoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {
   const TargetMachine &TM = Fn.getTarget();
   AFI = Fn.getInfo<ARMFunctionInfo>();
   TII = TM.getInstrInfo();
-  TRI = TM.getRegisterInfo();
+  MRI = TM.getRegisterInfo();
   RS = new RegScavenger();
 
   bool Modified = false;

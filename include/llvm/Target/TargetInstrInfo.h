@@ -47,9 +47,8 @@ public:
     PHI = 0,
     INLINEASM = 1,
     LABEL = 2,
-    DECLARE = 3,
-    EXTRACT_SUBREG = 4,
-    INSERT_SUBREG = 5
+    EXTRACT_SUBREG = 3,
+    INSERT_SUBREG = 4
   };
 
   unsigned getNumOpcodes() const { return NumOpcodes; }
@@ -262,8 +261,7 @@ public:
   /// operand folded, otherwise NULL is returned. The client is responsible for
   /// removing the old instruction and adding the new one in the instruction
   /// stream.
-  virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                          MachineInstr* MI,
+  virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                           SmallVectorImpl<unsigned> &Ops,
                                           int FrameIndex) const {
     return 0;
@@ -272,8 +270,7 @@ public:
   /// foldMemoryOperand - Same as the previous version except it allows folding
   /// of any load and store from / to any address, not just from a specific
   /// stack slot.
-  virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                          MachineInstr* MI,
+  virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                           SmallVectorImpl<unsigned> &Ops,
                                           MachineInstr* LoadMI) const {
     return 0;

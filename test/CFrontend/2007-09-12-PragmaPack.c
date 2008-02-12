@@ -1,4 +1,4 @@
-// RUN: %llvmgcc -O3 -S -o - %s | grep {18}
+// RUN: %llvmgcc -O3 -S -o - %s | grep {26}
 
 #include <stdint.h>
 
@@ -6,6 +6,7 @@
 typedef struct
 {
         uint32_t        a;
+        uint8_t *       b;
 } foo;
 
 typedef struct {
@@ -18,6 +19,7 @@ typedef struct {
         uint8_t       a[5];
         VERSION       version;
         uint8_t       b;
+        char *        c;
         foo           d;
         uint32_t      guard;
 } bar;

@@ -76,7 +76,7 @@ FunctionPass *llvm::createSparcCodePrinterPass(std::ostream &o,
   return new SparcAsmPrinter(o, tm, tm.getTargetAsmInfo());
 }
 
-/// runOnMachineFunction - This uses the printInstruction()
+/// runOnMachineFunction - This uses the printMachineInstruction()
 /// method to print assembly for each instruction.
 ///
 bool SparcAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
@@ -121,6 +121,7 @@ bool SparcAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
       // Print the assembly for the instruction.
+      O << "\t";
       printInstruction(II);
       ++EmittedInsts;
     }
@@ -132,7 +133,7 @@ bool SparcAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 
 void SparcAsmPrinter::printOperand(const MachineInstr *MI, int opNum) {
   const MachineOperand &MO = MI->getOperand (opNum);
-  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+  const MRegisterInfo &RI = *TM.getRegisterInfo();
   bool CloseParen = false;
   if (MI->getOpcode() == SP::SETHIi && !MO.isRegister() && !MO.isImmediate()) {
     O << "%hi(";
@@ -144,7 +145,7 @@ void SparcAsmPrinter::printOperand(const MachineInstr *MI, int opNum) {
   }
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
-    if (TargetRegisterInfo::isPhysicalRegister(MO.getReg()))
+    if (MRegisterInfo::isPhysicalRegister(MO.getReg()))
       O << "%" << LowercaseString (RI.get(MO.getReg()).Name);
     else
       O << "%reg" << MO.getReg();
@@ -228,7 +229,7 @@ bool SparcAsmPrinter::doFinalization(Module &M) {
       std::string name = Mang->getValueName(I);
       Constant *C = I->getInitializer();
       unsigned Size = TD->getABITypeSize(C->getType());
-      unsigned Align = TD->getPreferredAlignment(I);
+      unsigned Align = TD->getPrefTypeAlignment(C->getType());
 
       if (C->isNullValue() &&
           (I->hasLinkOnceLinkage() || I->hasInternalLinkage() ||

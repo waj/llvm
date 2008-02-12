@@ -30,7 +30,7 @@ namespace llvm {
     /// such, whenever a client has an instance of instruction info, it should
     /// always be able to get register info as well (through this method).
     ///
-    virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
+    virtual const MRegisterInfo &getRegisterInfo() const { return RI; }
 
     /// getPointerRegClass - Return the register class to use to hold pointers.
     /// This is used for addressing modes.
@@ -40,8 +40,8 @@ namespace llvm {
     // leave the source and dest operands in the passed parameters.
     //
     virtual bool isMoveInstr(const MachineInstr& MI,
-                             unsigned& sourceReg,
-                             unsigned& destReg) const;
+			     unsigned& sourceReg,
+			     unsigned& destReg) const;
 
     unsigned isLoadFromStackSlot(MachineInstr *MI, int &FrameIndex) const;
     unsigned isStoreToStackSlot(MachineInstr *MI, int &FrameIndex) const;
@@ -60,9 +60,9 @@ namespace llvm {
 
     //! Store a register to an address, based on its register class
     virtual void storeRegToAddr(MachineFunction &MF, unsigned SrcReg, bool isKill,
-                                                  SmallVectorImpl<MachineOperand> &Addr,
-                                                  const TargetRegisterClass *RC,
-                                                  SmallVectorImpl<MachineInstr*> &NewMIs) const;
+			                          SmallVectorImpl<MachineOperand> &Addr,
+			                          const TargetRegisterClass *RC,
+			                          SmallVectorImpl<MachineInstr*> &NewMIs) const;
 
     //! Load a register from a stack slot, based on its register class.
     virtual void loadRegFromStackSlot(MachineBasicBlock &MBB,
@@ -72,19 +72,17 @@ namespace llvm {
 
     //! Loqad a register from an address, based on its register class
     virtual void loadRegFromAddr(MachineFunction &MF, unsigned DestReg,
-                                                         SmallVectorImpl<MachineOperand> &Addr,
-                                                         const TargetRegisterClass *RC,
+				                         SmallVectorImpl<MachineOperand> &Addr,
+				                         const TargetRegisterClass *RC,
                                  SmallVectorImpl<MachineInstr*> &NewMIs) const;
     
     //! Fold spills into load/store instructions
-    virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                            MachineInstr* MI,
+    virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                             SmallVectorImpl<unsigned> &Ops,
                                             int FrameIndex) const;
 
     //! Fold any load/store to an operand
-    virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                            MachineInstr* MI,
+    virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                             SmallVectorImpl<unsigned> &Ops,
                                             MachineInstr* LoadMI) const {
       return 0;

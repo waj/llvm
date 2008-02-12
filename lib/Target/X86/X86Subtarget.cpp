@@ -41,7 +41,7 @@ bool X86Subtarget::GVRequiresExtraLoad(const GlobalValue* GV,
       return (!isDirectCall &&
               (GV->hasWeakLinkage() || GV->hasLinkOnceLinkage() ||
                (GV->isDeclaration() && !GV->hasNotBeenReadFromBitcode())));
-    } else if (isTargetELF()) {
+    } else if (TM.getRelocationModel() == Reloc::PIC_ && isPICStyleGOT()) {
       // Extra load is needed for all non-statics.
       return (!isDirectCall &&
               (GV->isDeclaration() || !GV->hasInternalLinkage()));
@@ -114,8 +114,6 @@ void X86Subtarget::AutoDetectSubtargetFeatures() {
   if ((EDX >> 26) & 0x1) X86SSELevel = SSE2;
   if (ECX & 0x1)         X86SSELevel = SSE3;
   if ((ECX >> 9)  & 0x1) X86SSELevel = SSSE3;
-  if ((ECX >> 19) & 0x1) X86SSELevel = SSE41;
-  if ((ECX >> 20) & 0x1) X86SSELevel = SSE42;
 
   if (memcmp(text.c, "GenuineIntel", 12) == 0 ||
       memcmp(text.c, "AuthenticAMD", 12) == 0) {
@@ -228,6 +226,7 @@ X86Subtarget::X86Subtarget(const Module &M, const std::string &FS, bool is64Bit)
   // FIXME: this is a known good value for Yonah. How about others?
   , MaxInlineSizeThreshold(128)
   , Is64Bit(is64Bit)
+  , HasLow4GUserAddress(true)
   , TargetType(isELF) { // Default to ELF unless otherwise specified.
 
   // Determine default and user specified characteristics
@@ -298,6 +297,9 @@ X86Subtarget::X86Subtarget(const Module &M, const std::string &FS, bool is64Bit)
     AsmFlavor = (TargetType == isWindows)
       ? X86Subtarget::Intel : X86Subtarget::ATT;
   }
+
+  if (TargetType == isDarwin && Is64Bit)
+    HasLow4GUserAddress = false;
 
   if (TargetType == isDarwin ||
       TargetType == isCygwin ||

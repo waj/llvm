@@ -187,7 +187,6 @@ public:
     ConstantVectorVal,        // This is an instance of ConstantVector
     ConstantPointerNullVal,   // This is an instance of ConstantPointerNull
     InlineAsmVal,             // This is an instance of InlineAsm
-    PseudoSourceValueVal,     // This is an instance of PseudoSourceValue
     InstructionVal,           // This is an instance of Instruction
     
     // Markers:

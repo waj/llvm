@@ -24,7 +24,6 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/Constants.h"
 #include "llvm/Function.h"
@@ -53,11 +52,12 @@ PPCTargetLowering::PPCTargetLowering(PPCTargetMachine &TM)
   addRegisterClass(MVT::f64, PPC::F8RCRegisterClass);
   
   // PowerPC has an i16 but no i8 (or i1) SEXTLOAD
-  setLoadXAction(ISD::SEXTLOAD, MVT::i1, Promote);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i1, Expand);
   setLoadXAction(ISD::SEXTLOAD, MVT::i8, Expand);
+  
+  // PowerPC does not have truncstore for i1.
+  setStoreXAction(MVT::i1, Promote);
 
-  setTruncStoreAction(MVT::f64, MVT::f32, Expand);
-    
   // PowerPC has pre-inc load and store's.
   setIndexedLoadAction(ISD::PRE_INC, MVT::i1, Legal);
   setIndexedLoadAction(ISD::PRE_INC, MVT::i8, Legal);
@@ -110,8 +110,6 @@ PPCTargetLowering::PPCTargetLowering(PPCTargetMachine &TM)
   setOperationAction(ISD::FCOS , MVT::f32, Expand);
   setOperationAction(ISD::FREM , MVT::f32, Expand);
   setOperationAction(ISD::FPOW , MVT::f32, Expand);
-
-  setOperationAction(ISD::FLT_ROUNDS_, MVT::i32, Custom);
   
   // If we're enabling GP optimizations, use hardware square root
   if (!TM.getSubtarget<PPCSubtarget>().hasFSQRT()) {
@@ -385,11 +383,6 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::LBRX:          return "PPCISD::LBRX";
   case PPCISD::STBRX:         return "PPCISD::STBRX";
   case PPCISD::COND_BRANCH:   return "PPCISD::COND_BRANCH";
-  case PPCISD::MFFS:          return "PPCISD::MFFS";
-  case PPCISD::MTFSB0:        return "PPCISD::MTFSB0";
-  case PPCISD::MTFSB1:        return "PPCISD::MTFSB1";
-  case PPCISD::FADDRTZ:       return "PPCISD::FADDRTZ";
-  case PPCISD::MTFSF:         return "PPCISD::MTFSF";
   }
 }
 
@@ -964,12 +957,12 @@ bool PPCTargetLowering::getPreIndexedAddressParts(SDNode *N, SDOperand &Base,
   MVT::ValueType VT;
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N)) {
     Ptr = LD->getBasePtr();
-    VT = LD->getMemoryVT();
+    VT = LD->getLoadedVT();
     
   } else if (StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
     ST = ST;
     Ptr = ST->getBasePtr();
-    VT  = ST->getMemoryVT();
+    VT  = ST->getStoredVT();
   } else
     return false;
 
@@ -993,7 +986,7 @@ bool PPCTargetLowering::getPreIndexedAddressParts(SDNode *N, SDOperand &Base,
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N)) {
     // PPC64 doesn't have lwau, but it does have lwaux.  Reject preinc load of
     // sext i32 to i64 when addr mode is r+i.
-    if (LD->getValueType(0) == MVT::i64 && LD->getMemoryVT() == MVT::i32 &&
+    if (LD->getValueType(0) == MVT::i64 && LD->getLoadedVT() == MVT::i32 &&
         LD->getExtensionType() == ISD::SEXTLOAD &&
         isa<ConstantSDNode>(Offset))
       return false;
@@ -1077,9 +1070,6 @@ static SDOperand LowerGlobalAddress(SDOperand Op, SelectionDAG &DAG) {
   GlobalAddressSDNode *GSDN = cast<GlobalAddressSDNode>(Op);
   GlobalValue *GV = GSDN->getGlobal();
   SDOperand GA = DAG.getTargetGlobalAddress(GV, PtrVT, GSDN->getOffset());
-  // If it's a debug information descriptor, don't mess with it.
-  if (DAG.isVerifiedDebugInfoDesc(Op))
-    return GA;
   SDOperand Zero = DAG.getConstant(0, PtrVT);
   
   const TargetMachine &TM = DAG.getTarget();
@@ -1176,8 +1166,9 @@ static SDOperand LowerVASTART(SDOperand Op, SelectionDAG &DAG,
     // memory location argument.
     MVT::ValueType PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
     SDOperand FR = DAG.getFrameIndex(VarArgsFrameIndex, PtrVT);
-    const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
-    return DAG.getStore(Op.getOperand(0), FR, Op.getOperand(1), SV, 0);
+    SrcValueSDNode *SV = cast<SrcValueSDNode>(Op.getOperand(2));
+    return DAG.getStore(Op.getOperand(0), FR, Op.getOperand(1), SV->getValue(),
+                        SV->getOffset());
   }
 
   // For ELF 32 ABI we follow the layout of the va_list struct.
@@ -1211,41 +1202,37 @@ static SDOperand LowerVASTART(SDOperand Op, SelectionDAG &DAG,
 
   MVT::ValueType PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
   
-  SDOperand StackOffsetFI = DAG.getFrameIndex(VarArgsStackOffset, PtrVT);
+  SDOperand StackOffset = DAG.getFrameIndex(VarArgsStackOffset, PtrVT);
   SDOperand FR = DAG.getFrameIndex(VarArgsFrameIndex, PtrVT);
   
-  uint64_t FrameOffset = MVT::getSizeInBits(PtrVT)/8;
-  SDOperand ConstFrameOffset = DAG.getConstant(FrameOffset, PtrVT);
-
-  uint64_t StackOffset = MVT::getSizeInBits(PtrVT)/8 - 1;
-  SDOperand ConstStackOffset = DAG.getConstant(StackOffset, PtrVT);
-
-  uint64_t FPROffset = 1;
-  SDOperand ConstFPROffset = DAG.getConstant(FPROffset, PtrVT);
+  SDOperand ConstFrameOffset = DAG.getConstant(MVT::getSizeInBits(PtrVT)/8,
+                                               PtrVT);
+  SDOperand ConstStackOffset = DAG.getConstant(MVT::getSizeInBits(PtrVT)/8 - 1,
+                                               PtrVT);
+  SDOperand ConstFPROffset   = DAG.getConstant(1, PtrVT);
   
-  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+  SrcValueSDNode *SV = cast<SrcValueSDNode>(Op.getOperand(2));
   
   // Store first byte : number of int regs
   SDOperand firstStore = DAG.getStore(Op.getOperand(0), ArgGPR,
-                                      Op.getOperand(1), SV, 0);
-  uint64_t nextOffset = FPROffset;
+                                      Op.getOperand(1), SV->getValue(),
+                                      SV->getOffset());
   SDOperand nextPtr = DAG.getNode(ISD::ADD, PtrVT, Op.getOperand(1),
                                   ConstFPROffset);
   
   // Store second byte : number of float regs
-  SDOperand secondStore =
-    DAG.getStore(firstStore, ArgFPR, nextPtr, SV, nextOffset);
-  nextOffset += StackOffset;
+  SDOperand secondStore = DAG.getStore(firstStore, ArgFPR, nextPtr,
+                                       SV->getValue(), SV->getOffset());
   nextPtr = DAG.getNode(ISD::ADD, PtrVT, nextPtr, ConstStackOffset);
   
   // Store second word : arguments given on stack
-  SDOperand thirdStore =
-    DAG.getStore(secondStore, StackOffsetFI, nextPtr, SV, nextOffset);
-  nextOffset += FrameOffset;
+  SDOperand thirdStore = DAG.getStore(secondStore, StackOffset, nextPtr,
+                                      SV->getValue(), SV->getOffset());
   nextPtr = DAG.getNode(ISD::ADD, PtrVT, nextPtr, ConstFrameOffset);
 
   // Store third word : arguments given in registers
-  return DAG.getStore(thirdStore, FR, nextPtr, SV, nextOffset);
+  return DAG.getStore(thirdStore, FR, nextPtr, SV->getValue(),
+                      SV->getOffset());
 
 }
 
@@ -2184,7 +2171,7 @@ static SDOperand LowerSINT_TO_FP(SDOperand Op, SelectionDAG &DAG) {
     SDOperand Bits = DAG.getNode(ISD::BIT_CONVERT, MVT::f64, Op.getOperand(0));
     SDOperand FP = DAG.getNode(PPCISD::FCFID, MVT::f64, Bits);
     if (Op.getValueType() == MVT::f32)
-      FP = DAG.getNode(ISD::FP_ROUND, MVT::f32, FP, DAG.getIntPtrConstant(0));
+      FP = DAG.getNode(ISD::FP_ROUND, MVT::f32, FP);
     return FP;
   }
   
@@ -2203,80 +2190,17 @@ static SDOperand LowerSINT_TO_FP(SDOperand Op, SelectionDAG &DAG) {
                                 Op.getOperand(0));
   
   // STD the extended value into the stack slot.
-  MemOperand MO(PseudoSourceValue::getFixedStack(),
-                MemOperand::MOStore, FrameIdx, 8, 8);
   SDOperand Store = DAG.getNode(PPCISD::STD_32, MVT::Other,
                                 DAG.getEntryNode(), Ext64, FIdx,
-                                DAG.getMemOperand(MO));
+                                DAG.getSrcValue(NULL));
   // Load the value as a double.
   SDOperand Ld = DAG.getLoad(MVT::f64, Store, FIdx, NULL, 0);
   
   // FCFID it and return it.
   SDOperand FP = DAG.getNode(PPCISD::FCFID, MVT::f64, Ld);
   if (Op.getValueType() == MVT::f32)
-    FP = DAG.getNode(ISD::FP_ROUND, MVT::f32, FP, DAG.getIntPtrConstant(0));
+    FP = DAG.getNode(ISD::FP_ROUND, MVT::f32, FP);
   return FP;
-}
-
-static SDOperand LowerFLT_ROUNDS_(SDOperand Op, SelectionDAG &DAG) {
-  /*
-   The rounding mode is in bits 30:31 of FPSR, and has the following
-   settings:
-     00 Round to nearest
-     01 Round to 0
-     10 Round to +inf
-     11 Round to -inf
-
-  FLT_ROUNDS, on the other hand, expects the following:
-    -1 Undefined
-     0 Round to 0
-     1 Round to nearest
-     2 Round to +inf
-     3 Round to -inf
-
-  To perform the conversion, we do:
-    ((FPSCR & 0x3) ^ ((~FPSCR & 0x3) >> 1))
-  */
-
-  MachineFunction &MF = DAG.getMachineFunction();
-  MVT::ValueType VT = Op.getValueType();
-  MVT::ValueType PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
-  std::vector<MVT::ValueType> NodeTys;
-  SDOperand MFFSreg, InFlag;
-
-  // Save FP Control Word to register
-  NodeTys.push_back(MVT::f64);    // return register
-  NodeTys.push_back(MVT::Flag);   // unused in this context
-  SDOperand Chain = DAG.getNode(PPCISD::MFFS, NodeTys, &InFlag, 0);
-
-  // Save FP register to stack slot
-  int SSFI = MF.getFrameInfo()->CreateStackObject(8, 8);
-  SDOperand StackSlot = DAG.getFrameIndex(SSFI, PtrVT);
-  SDOperand Store = DAG.getStore(DAG.getEntryNode(), Chain,
-                                 StackSlot, NULL, 0);
-
-  // Load FP Control Word from low 32 bits of stack slot.
-  SDOperand Four = DAG.getConstant(4, PtrVT);
-  SDOperand Addr = DAG.getNode(ISD::ADD, PtrVT, StackSlot, Four);
-  SDOperand CWD = DAG.getLoad(MVT::i32, Store, Addr, NULL, 0);
-
-  // Transform as necessary
-  SDOperand CWD1 =
-    DAG.getNode(ISD::AND, MVT::i32,
-                CWD, DAG.getConstant(3, MVT::i32));
-  SDOperand CWD2 =
-    DAG.getNode(ISD::SRL, MVT::i32,
-                DAG.getNode(ISD::AND, MVT::i32,
-                            DAG.getNode(ISD::XOR, MVT::i32,
-                                        CWD, DAG.getConstant(3, MVT::i32)),
-                            DAG.getConstant(3, MVT::i32)),
-                DAG.getConstant(1, MVT::i8));
-
-  SDOperand RetVal =
-    DAG.getNode(ISD::XOR, MVT::i32, CWD1, CWD2);
-
-  return DAG.getNode((MVT::getSizeInBits(VT) < 16 ?
-                      ISD::TRUNCATE : ISD::ZERO_EXTEND), VT, RetVal);
 }
 
 static SDOperand LowerSHL_PARTS(SDOperand Op, SelectionDAG &DAG) {
@@ -3099,7 +3023,6 @@ SDOperand PPCTargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG) {
   case ISD::FP_TO_SINT:         return LowerFP_TO_SINT(Op, DAG);
   case ISD::SINT_TO_FP:         return LowerSINT_TO_FP(Op, DAG);
   case ISD::FP_ROUND_INREG:     return LowerFP_ROUND_INREG(Op, DAG);
-  case ISD::FLT_ROUNDS_:        return LowerFLT_ROUNDS_(Op, DAG);
 
   // Lower 64-bit shifts.
   case ISD::SHL_PARTS:          return LowerSHL_PARTS(Op, DAG);
@@ -3133,8 +3056,8 @@ SDNode *PPCTargetLowering::ExpandOperationResult(SDNode *N, SelectionDAG &DAG) {
 //===----------------------------------------------------------------------===//
 
 MachineBasicBlock *
-PPCTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                               MachineBasicBlock *BB) {
+PPCTargetLowering::InsertAtEndOfBasicBlock(MachineInstr *MI,
+                                           MachineBasicBlock *BB) {
   const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
   assert((MI->getOpcode() == PPC::SELECT_CC_I4 ||
           MI->getOpcode() == PPC::SELECT_CC_I8 ||
@@ -3247,8 +3170,7 @@ SDOperand PPCTargetLowering::PerformDAGCombine(SDNode *N,
           Val = DAG.getNode(PPCISD::FCFID, MVT::f64, Val);
           DCI.AddToWorklist(Val.Val);
           if (N->getValueType(0) == MVT::f32) {
-            Val = DAG.getNode(ISD::FP_ROUND, MVT::f32, Val, 
-                              DAG.getIntPtrConstant(0));
+            Val = DAG.getNode(ISD::FP_ROUND, MVT::f32, Val);
             DCI.AddToWorklist(Val.Val);
           }
           return Val;
@@ -3262,7 +3184,6 @@ SDOperand PPCTargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::STORE:
     // Turn STORE (FP_TO_SINT F) -> STFIWX(FCTIWZ(F)).
     if (TM.getSubtarget<PPCSubtarget>().hasSTFIWX() &&
-        !cast<StoreSDNode>(N)->isTruncatingStore() &&
         N->getOperand(1).getOpcode() == ISD::FP_TO_SINT &&
         N->getOperand(1).getValueType() == MVT::i32 &&
         N->getOperand(1).getOperand(0).getValueType() != MVT::ppcf128) {
@@ -3306,11 +3227,11 @@ SDOperand PPCTargetLowering::PerformDAGCombine(SDNode *N,
       std::vector<MVT::ValueType> VTs;
       VTs.push_back(MVT::i32);
       VTs.push_back(MVT::Other);
-      SDOperand MO = DAG.getMemOperand(LD->getMemOperand());
+      SDOperand SV = DAG.getSrcValue(LD->getSrcValue(), LD->getSrcValueOffset());
       SDOperand Ops[] = {
         LD->getChain(),    // Chain
         LD->getBasePtr(),  // Ptr
-        MO,                // MemOperand
+        SV,                // SrcValue
         DAG.getValueType(N->getValueType(0)) // VT
       };
       SDOperand BSLoad = DAG.getNode(PPCISD::LBRX, VTs, Ops, 4);

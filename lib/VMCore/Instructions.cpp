@@ -406,13 +406,7 @@ bool CallInst::isStructReturn() const {
 
 /// @brief Determine if any call argument is an aggregate passed by value.
 bool CallInst::hasByValArgument() const {
-  if (ParamAttrs && ParamAttrs->hasAttrSomewhere(ParamAttr::ByVal))
-    return true;
-  // Be consistent with other methods and check the callee too.
-  if (const Function *F = getCalledFunction())
-    if (const ParamAttrsList *PAL = F->getParamAttrs())
-      return PAL->hasAttrSomewhere(ParamAttr::ByVal);
-  return false;
+  return ParamAttrs && ParamAttrs->hasAttrSomewhere(ParamAttr::ByVal);
 }
 
 void CallInst::setDoesNotThrow(bool doesNotThrow) {
@@ -2426,19 +2420,6 @@ ICmpInst::Predicate ICmpInst::getSignedPredicate(Predicate pred) {
     case ICMP_ULT: return ICMP_SLT;
     case ICMP_UGE: return ICMP_SGE;
     case ICMP_ULE: return ICMP_SLE;
-  }
-}
-
-ICmpInst::Predicate ICmpInst::getUnsignedPredicate(Predicate pred) {
-  switch (pred) {
-    default: assert(! "Unknown icmp predicate!");
-    case ICMP_EQ: case ICMP_NE: 
-    case ICMP_UGT: case ICMP_ULT: case ICMP_UGE: case ICMP_ULE: 
-       return pred;
-    case ICMP_SGT: return ICMP_UGT;
-    case ICMP_SLT: return ICMP_ULT;
-    case ICMP_SGE: return ICMP_UGE;
-    case ICMP_SLE: return ICMP_ULE;
   }
 }
 

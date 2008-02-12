@@ -31,7 +31,7 @@ dnl===
 dnl===-----------------------------------------------------------------------===
 dnl Initialize autoconf and define the package name, version number and
 dnl email address for reporting bugs.
-AC_INIT([[llvm]],[[2.3svn]],[llvmbugs@cs.uiuc.edu])
+AC_INIT([[llvm]],[[2.2]],[llvmbugs@cs.uiuc.edu])
 
 dnl Provide a copyright substitution and ensure the copyright notice is included
 dnl in the output of --version option of the generated configure script.
@@ -119,7 +119,7 @@ AC_CACHE_CHECK([type of operating system we're going to host on],
     llvm_cv_platform_type="Unix" ;;
   *-*-darwin*)
     llvm_cv_link_all_option="-Wl,-all_load"
-    llvm_cv_no_link_all_option="-Wl,-noall_load"
+    llvm_cv_link_all_option="-Wl,-noall_load"
     llvm_cv_os_type="Darwin"
     llvm_cv_platform_type="Unix" ;;
   *-*-freebsd*)
@@ -656,10 +656,11 @@ fi
 dnl Verify that GCC is version 3.0 or higher
 if test "$GCC" = "yes"
 then
-  AC_COMPILE_IFELSE([[#if !defined(__GNUC__) || __GNUC__ < 3
-#error Unsupported GCC version
-#endif
-]], [], [AC_MSG_ERROR([gcc 3.x required, but you have a lower version])])
+  gccmajor=`$CC --version | head -n 1 | sed 's/[[^0-9]]*\([[0-9.]]\).*/\1/'`
+  if test "$gccmajor" -lt "3"
+  then
+    AC_MSG_ERROR([gcc 3.x required, but you have a lower version])
+  fi
 fi
 
 dnl Check for GNU Make.  We use its extensions, so don't build without it

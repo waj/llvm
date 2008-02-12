@@ -20,22 +20,12 @@
 #include "llvm/Function.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/ADT/Statistic.h"
 
 #define DEBUG_TYPE "memdep"
 
 using namespace llvm;
-
-namespace {
-  // Control the calculation of non-local dependencies by only examining the
-  // predecessors if the basic block has less than X amount (50 by default).
-  cl::opt<int> 
-  PredLimit("nonlocaldep-threshold", cl::Hidden, cl::init(50),
-            cl::desc("Control the calculation of non-local"
-                     "dependencies (default = 50)"));           
-}
 
 STATISTIC(NumCacheNonlocal, "Number of cached non-local responses");
 STATISTIC(NumUncacheNonlocal, "Number of uncached non-local responses");
@@ -221,18 +211,15 @@ void MemoryDependenceAnalysis::nonLocalHelper(Instruction* query,
     }
     
     // If we didn't find anything, recurse on the precessors of this block
-    // Only do this for blocks with a small number of predecessors.
     bool predOnStack = false;
     bool inserted = false;
-    if (std::distance(pred_begin(BB), pred_end(BB)) <= PredLimit) { 
-      for (pred_iterator PI = pred_begin(BB), PE = pred_end(BB);
-           PI != PE; ++PI)
-        if (!visited.count(*PI)) {
-          stack.push_back(*PI);
-          inserted = true;
-        } else
-          predOnStack = true;
-    }
+    for (pred_iterator PI = pred_begin(BB), PE = pred_end(BB);
+         PI != PE; ++PI)
+      if (!visited.count(*PI)) {
+        stack.push_back(*PI);
+        inserted = true;
+      } else
+        predOnStack = true;
     
     // If we inserted a new predecessor, then we'll come back to this block
     if (inserted)
@@ -464,6 +451,8 @@ void MemoryDependenceAnalysis::removeInstruction(Instruction* rem) {
   // Figure out the new dep for things that currently depend on rem
   Instruction* newDep = NonLocal;
 
+  reverseDep[depGraphLocal[rem].first].erase(rem);
+
   for (DenseMap<BasicBlock*, Value*>::iterator DI =
        depGraphNonLocal[rem].begin(), DE = depGraphNonLocal[rem].end();
        DI != DE; ++DI)
@@ -473,20 +462,16 @@ void MemoryDependenceAnalysis::removeInstruction(Instruction* rem) {
   depMapType::iterator depGraphEntry = depGraphLocal.find(rem);
 
   if (depGraphEntry != depGraphLocal.end()) {
-    reverseDep[depGraphLocal[rem].first].erase(rem);
-    
     if (depGraphEntry->second.first != NonLocal &&
-        depGraphEntry->second.first != None &&
         depGraphEntry->second.second) {
       // If we have dep info for rem, set them to it
       BasicBlock::iterator RI = depGraphEntry->second.first;
       RI++;
       newDep = RI;
-    } else if ( (depGraphEntry->second.first == NonLocal ||
-                 depGraphEntry->second.first == None ) &&
+    } else if (depGraphEntry->second.first == NonLocal &&
                depGraphEntry->second.second ) {
       // If we have a confirmed non-local flag, use it
-      newDep = depGraphEntry->second.first;
+      newDep = NonLocal;
     } else {
       // Otherwise, use the immediate successor of rem
       // NOTE: This is because, when getDependence is called, it will first
@@ -495,22 +480,14 @@ void MemoryDependenceAnalysis::removeInstruction(Instruction* rem) {
       RI++;
       newDep = RI;
     }
-  } else {
-    // Otherwise, use the immediate successor of rem
-    // NOTE: This is because, when getDependence is called, it will first
-    // check the immediate predecessor of what is in the cache.
-    BasicBlock::iterator RI = rem;
-    RI++;
-    newDep = RI;
-  }
-  
-  SmallPtrSet<Instruction*, 4>& set = reverseDep[rem];
-  for (SmallPtrSet<Instruction*, 4>::iterator I = set.begin(), E = set.end();
-       I != E; ++I) {
-    // Insert the new dependencies
-    // Mark it as unconfirmed as long as it is not the non-local flag
-    depGraphLocal[*I] = std::make_pair(newDep, (newDep == NonLocal ||
-                                                newDep == None));
+    
+    SmallPtrSet<Instruction*, 4>& set = reverseDep[rem];
+    for (SmallPtrSet<Instruction*, 4>::iterator I = set.begin(), E = set.end();
+         I != E; ++I) {
+      // Insert the new dependencies
+      // Mark it as unconfirmed as long as it is not the non-local flag
+      depGraphLocal[*I] = std::make_pair(newDep, !newDep);
+    }
   }
   
   depGraphLocal.erase(rem);

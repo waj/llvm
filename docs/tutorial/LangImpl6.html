@@ -1774,17 +1774,16 @@ int main() {
     MainLoop();
     
     TheFPM = 0;
-    
-    // Print out all of the generated code.
-    TheModule-&gt;dump();
-  }  // Free module provider (and thus the module) and pass manager.
-  
+  }  // Free module provider and pass manager.
+                                   
+                                   
+  // Print out all of the generated code.
+  TheModule->dump();
   return 0;
 }
 </pre>
 </div>
 
-<a href="LangImpl7.html">Next: Extending the language: mutable variables / SSA construction</a>
 </div>
 
 <!-- *********************************************************************** -->

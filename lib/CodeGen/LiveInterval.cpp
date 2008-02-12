@@ -22,7 +22,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Streams.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include <algorithm>
 #include <ostream>
 using namespace llvm;
@@ -402,9 +402,9 @@ void LiveInterval::MergeValueInAsValue(const LiveInterval &RHS,
     IP = std::upper_bound(IP, end(), Start);
     // If the start of this range overlaps with an existing liverange, trim it.
     if (IP != begin() && IP[-1].end > Start) {
-      if (IP[-1].valno != LHSValNo) {
-        ReplacedValNos.push_back(IP[-1].valno);
-        IP[-1].valno = LHSValNo; // Update val#.
+      if (IP->valno != LHSValNo) {
+        ReplacedValNos.push_back(IP->valno);
+        IP->valno = LHSValNo; // Update val#.
       }
       Start = IP[-1].end;
       // Trimmed away the whole range?
@@ -589,10 +589,9 @@ void LiveRange::dump() const {
   cerr << *this << "\n";
 }
 
-void LiveInterval::print(std::ostream &OS,
-                         const TargetRegisterInfo *TRI) const {
-  if (TRI && TargetRegisterInfo::isPhysicalRegister(reg))
-    OS << TRI->getName(reg);
+void LiveInterval::print(std::ostream &OS, const MRegisterInfo *MRI) const {
+  if (MRI && MRegisterInfo::isPhysicalRegister(reg))
+    OS << MRI->getName(reg);
   else
     OS << "%reg" << reg;
 

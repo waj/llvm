@@ -334,20 +334,13 @@ def INLINEASM : Instruction {
 }
 def LABEL : Instruction {
   let OutOperandList = (ops);
-  let InOperandList = (ops i32imm:$id, i32imm:$flavor);
-  let AsmString = "";
-  let Namespace = "TargetInstrInfo";
-  let hasCtrlDep = 1;
-}
-def DECLARE : Instruction {
-  let OutOperandList = (ops);
-  let InOperandList = (ops variable_ops);
+  let InOperandList = (ops i32imm:$id);
   let AsmString = "";
   let Namespace = "TargetInstrInfo";
   let hasCtrlDep = 1;
 }
 def EXTRACT_SUBREG : Instruction {
-  let OutOperandList = (ops variable_ops);
+        let OutOperandList = (ops variable_ops);
   let InOperandList = (ops variable_ops);
   let AsmString = "";
   let Namespace = "TargetInstrInfo";

@@ -211,18 +211,12 @@ let test_constants () =
   ignore (define_global "Const05" c m);
   insist ((array_type i8_type 9) = type_of c);
 
-  (* RUN: grep {ConstSingle.*2.75} < %t.ll
-   * RUN: grep {ConstDouble.*3.1459} < %t.ll
+  (* RUN: grep {Const06.*3.1459} < %t.ll
    *)
-  begin group "real";
-    let cs = const_float float_type 2.75 in
-    ignore (define_global "ConstSingle" cs m);
-    insist (float_type = type_of cs);
-    
-    let cd = const_float double_type 3.1459 in
-    ignore (define_global "ConstDouble" cd m);
-    insist (double_type = type_of cd)
-  end;
+  group "real";
+  let c = const_float double_type 3.1459 in
+  ignore (define_global "Const06" c m);
+  insist (double_type = type_of c);
   
   let one = const_int i16_type 1 in
   let two = const_int i16_type 2 in

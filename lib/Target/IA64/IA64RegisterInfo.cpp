@@ -7,9 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the IA64 implementation of the TargetRegisterInfo class.
-// This file is responsible for the frame pointer elimination optimization
-// on IA64.
+// This file contains the IA64 implementation of the MRegisterInfo class.  This
+// file is responsible for the frame pointer elimination optimization on IA64.
 //
 //===----------------------------------------------------------------------===//
 

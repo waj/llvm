@@ -118,8 +118,9 @@ bool AsmPrinter::doInitialization(Module &M) {
 
   SwitchToDataSection("");   // Reset back to no section.
   
-  MMI = getAnalysisToUpdate<MachineModuleInfo>();
-  if (MMI) MMI->AnalyzeModule(M);
+  if (MachineModuleInfo *MMI = getAnalysisToUpdate<MachineModuleInfo>()) {
+    MMI->AnalyzeModule(M);
+  }
   
   return false;
 }
@@ -157,7 +158,7 @@ bool AsmPrinter::doFinalization(Module &M) {
       else if (!I->hasInternalLinkage())
         assert(0 && "Invalid alias linkage");
       
-      O << TAI->getSetDirective() << ' ' << Name << ", " << Target << "\n";
+      O << TAI->getSetDirective() << Name << ", " << Target << "\n";
 
       // If the aliasee has external weak linkage it can be referenced only by
       // alias itself. In this case it can be not in ExtWeakSymbols list. Emit
@@ -938,13 +939,10 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV, bool Packed) {
       // api needed to prevent premature destruction
       APInt api = CFP->getValueAPF().convertToAPInt();
       const uint64_t *p = api.getRawData();
-      APFloat DoubleVal = CFP->getValueAPF();
-      DoubleVal.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven);
       if (TD->isBigEndian()) {
         O << TAI->getData16bitsDirective() << uint16_t(p[0] >> 48)
           << "\t" << TAI->getCommentString()
-          << " long double most significant halfword of ~"
-          << DoubleVal.convertToDouble() << "\n";
+          << " long double most significant halfword\n";
         O << TAI->getData16bitsDirective() << uint16_t(p[0] >> 32)
           << "\t" << TAI->getCommentString()
           << " long double next halfword\n";
@@ -960,8 +958,7 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV, bool Packed) {
        } else {
         O << TAI->getData16bitsDirective() << uint16_t(p[1])
           << "\t" << TAI->getCommentString()
-          << " long double least significant halfword of ~"
-          << DoubleVal.convertToDouble() << "\n";
+          << " long double least significant halfword\n";
         O << TAI->getData16bitsDirective() << uint16_t(p[0])
           << "\t" << TAI->getCommentString()
           << " long double next halfword\n";
@@ -1107,10 +1104,9 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
   // Disassemble the AsmStr, printing out the literal pieces, the operands, etc.
   const char *AsmStr = MI->getOperand(NumDefs).getSymbolName();
 
-  // If this asmstr is empty, just print the #APP/#NOAPP markers.
-  // These are useful to see where empty asm's wound up.
+  // If this asmstr is empty, don't bother printing the #APP/#NOAPP markers.
   if (AsmStr[0] == 0) {
-    O << TAI->getInlineAsmStart() << "\n\t" << TAI->getInlineAsmEnd() << "\n";
+    O << "\n";  // Tab already printed, avoid double indenting next instr.
     return;
   }
   
@@ -1280,22 +1276,8 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
 /// printLabel - This method prints a local label used by debug and
 /// exception handling tables.
 void AsmPrinter::printLabel(const MachineInstr *MI) const {
-  O << TAI->getPrivateGlobalPrefix()
+  O << "\n" << TAI->getPrivateGlobalPrefix()
     << "label" << MI->getOperand(0).getImm() << ":\n";
-}
-
-void AsmPrinter::printLabel(unsigned Id) const {
-  O << TAI->getPrivateGlobalPrefix() << "label" << Id << ":\n";
-}
-
-/// printDeclare - This method prints a local variable declaration used by
-/// debug tables.
-/// FIXME: It doesn't really print anything rather it inserts a DebugVariable
-/// entry into dwarf table.
-void AsmPrinter::printDeclare(const MachineInstr *MI) const {
-  int FI = MI->getOperand(0).getIndex();
-  GlobalValue *GV = MI->getOperand(1).getGlobal();
-  MMI->RecordVariable(GV, FI);
 }
 
 /// PrintAsmOperand - Print the specified operand of MI, an INLINEASM

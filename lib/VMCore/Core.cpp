@@ -284,30 +284,8 @@ LLVMValueRef LLVMConstInt(LLVMTypeRef IntTy, unsigned long long N,
   return wrap(ConstantInt::get(unwrap<IntegerType>(IntTy), N, SignExtend != 0));
 }
 
-static const fltSemantics &SemanticsForType(Type *Ty) {
-  assert(Ty->isFloatingPoint() && "Type is not floating point!");
-  if (Ty == Type::FloatTy)
-    return APFloat::IEEEsingle;
-  if (Ty == Type::DoubleTy)
-    return APFloat::IEEEdouble;
-  if (Ty == Type::X86_FP80Ty)
-    return APFloat::x87DoubleExtended;
-  if (Ty == Type::FP128Ty)
-    return APFloat::IEEEquad;
-  if (Ty == Type::PPC_FP128Ty)
-    return APFloat::PPCDoubleDouble;
-  return APFloat::Bogus;
-}
-
 LLVMValueRef LLVMConstReal(LLVMTypeRef RealTy, double N) {
-  APFloat APN(N);
-  APN.convert(SemanticsForType(unwrap(RealTy)), APFloat::rmNearestTiesToEven);
-  return wrap(ConstantFP::get(unwrap(RealTy), APN));
-}
-
-LLVMValueRef LLVMConstRealOfString(LLVMTypeRef RealTy, const char *Text) {
-  return wrap(ConstantFP::get(unwrap(RealTy),
-                              APFloat(SemanticsForType(unwrap(RealTy)), Text)));
+  return wrap(ConstantFP::get(unwrap(RealTy), APFloat(N)));
 }
 
 /*--.. Operations on composite constants ...................................--*/

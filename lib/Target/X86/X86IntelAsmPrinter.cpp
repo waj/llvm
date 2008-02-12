@@ -84,6 +84,7 @@ bool X86IntelAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
       // Print the assembly for the instruction.
+      O << "\t";
       printMachineInstruction(II);
     }
   }
@@ -114,10 +115,10 @@ void X86IntelAsmPrinter::printSSECC(const MachineInstr *MI, unsigned Op) {
 
 void X86IntelAsmPrinter::printOp(const MachineOperand &MO, 
                                  const char *Modifier) {
-  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+  const MRegisterInfo &RI = *TM.getRegisterInfo();
   switch (MO.getType()) {
   case MachineOperand::MO_Register: {      
-    if (TargetRegisterInfo::isPhysicalRegister(MO.getReg())) {
+    if (MRegisterInfo::isPhysicalRegister(MO.getReg())) {
       unsigned Reg = MO.getReg();
       if (Modifier && strncmp(Modifier, "subreg", strlen("subreg")) == 0) {
         MVT::ValueType VT = (strcmp(Modifier,"subreg64") == 0) ?
@@ -252,7 +253,7 @@ void X86IntelAsmPrinter::printPICLabel(const MachineInstr *MI, unsigned Op) {
 
 bool X86IntelAsmPrinter::printAsmMRegister(const MachineOperand &MO,
                                            const char Mode) {
-  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+  const MRegisterInfo &RI = *TM.getRegisterInfo();
   unsigned Reg = MO.getReg();
   switch (Mode) {
   default: return true;  // Unknown mode.

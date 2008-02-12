@@ -78,11 +78,11 @@ namespace llvm {
     virtual SDOperand LowerOperation(SDOperand Op, SelectionDAG &DAG);
     virtual SDNode *ExpandOperationResult(SDNode *N, SelectionDAG &DAG);
         
-    virtual SDOperand PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
+    SDOperand PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
     
     virtual const char *getTargetNodeName(unsigned Opcode) const;
 
-    virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
+    virtual MachineBasicBlock *InsertAtEndOfBasicBlock(MachineInstr *MI,
                                                        MachineBasicBlock *MBB);
 
     /// isLegalAddressingMode - Return true if the addressing mode represented

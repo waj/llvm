@@ -7,9 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the X86 implementation of the TargetRegisterInfo class.
-// This file is responsible for the frame pointer elimination optimization
-// on X86.
+// This file contains the X86 implementation of the MRegisterInfo class.  This
+// file is responsible for the frame pointer elimination optimization on X86.
 //
 //===----------------------------------------------------------------------===//
 
@@ -83,7 +82,7 @@ int X86RegisterInfo::getDwarfRegNum(unsigned RegNo, bool isEH) const {
 // getX86RegNum - This function maps LLVM register identifiers to their X86
 // specific numbering, which is used in various places encoding instructions.
 //
-unsigned X86RegisterInfo::getX86RegNum(unsigned RegNo) const {
+unsigned X86RegisterInfo::getX86RegNum(unsigned RegNo) {
   switch(RegNo) {
   case X86::RAX: case X86::EAX: case X86::AX: case X86::AL: return N86::EAX;
   case X86::RCX: case X86::ECX: case X86::CX: case X86::CL: return N86::ECX;
@@ -548,7 +547,7 @@ void X86RegisterInfo::emitPrologue(MachineFunction &MF) const {
     if (MMI && MMI->needsFrameInfo()) {
       // Mark effective beginning of when frame pointer becomes valid.
       FrameLabelId = MMI->NextLabelID();
-      BuildMI(MBB, MBBI, TII.get(X86::LABEL)).addImm(FrameLabelId).addImm(0);
+      BuildMI(MBB, MBBI, TII.get(X86::LABEL)).addImm(FrameLabelId);
     }
 
     // Update EBP with the new base value...
@@ -560,7 +559,7 @@ void X86RegisterInfo::emitPrologue(MachineFunction &MF) const {
   if (MMI && MMI->needsFrameInfo()) {
     // Mark effective beginning of when frame pointer is ready.
     ReadyLabelId = MMI->NextLabelID();
-    BuildMI(MBB, MBBI, TII.get(X86::LABEL)).addImm(ReadyLabelId).addImm(0);
+    BuildMI(MBB, MBBI, TII.get(X86::LABEL)).addImm(ReadyLabelId);
   }
 
   // Skip the callee-saved push instructions.
@@ -824,20 +823,6 @@ unsigned X86RegisterInfo::getRARegister() const {
 
 unsigned X86RegisterInfo::getFrameRegister(MachineFunction &MF) const {
   return hasFP(MF) ? FramePtr : StackPtr;
-}
-
-int
-X86RegisterInfo::getFrameIndexOffset(MachineFunction &MF, int FI) const {
-  int Offset = MF.getFrameInfo()->getObjectOffset(FI) + SlotSize;
-  if (!hasFP(MF))
-    return Offset + MF.getFrameInfo()->getStackSize();
-
-  Offset += SlotSize;  // Skip the saved EBP
-  // Skip the RETADDR move area
-  X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
-  int TailCallReturnAddrDelta = X86FI->getTCReturnAddrDelta();
-  if (TailCallReturnAddrDelta < 0) Offset -= TailCallReturnAddrDelta;
-  return Offset;
 }
 
 void X86RegisterInfo::getInitialFrameState(std::vector<MachineMove> &Moves)

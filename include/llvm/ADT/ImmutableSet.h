@@ -16,7 +16,6 @@
 
 #include "llvm/Support/Allocator.h"
 #include "llvm/ADT/FoldingSet.h"
-#include "llvm/Support/DataTypes.h"
 #include <cassert>
 
 namespace llvm {
@@ -26,8 +25,8 @@ namespace llvm {
 //===----------------------------------------------------------------------===//
 
 template <typename ImutInfo> class ImutAVLFactory;
+
 template <typename ImutInfo> class ImutAVLTreeInOrderIterator;
-template <typename ImutInfo> class ImutAVLTreeGenericIterator;
   
 template <typename ImutInfo >
 class ImutAVLTree : public FoldingSetNode {
@@ -38,9 +37,6 @@ public:
 
   typedef ImutAVLFactory<ImutInfo>          Factory;
   friend class ImutAVLFactory<ImutInfo>;
-  
-  friend class ImutAVLTreeGenericIterator<ImutInfo>;
-  friend class FoldingSet<ImutAVLTree>;
   
   typedef ImutAVLTreeInOrderIterator<ImutInfo>  iterator;
   
@@ -106,24 +102,6 @@ public:
   /// end - Returns an iterator for the tree that denotes the end of an
   ///  inorder traversal.
   iterator end() const { return iterator(); }
-    
-  bool ElementEqual(value_type_ref V) const {
-    // Compare the keys.
-    if (!ImutInfo::isEqual(ImutInfo::KeyOfValue(getValue()),
-                           ImutInfo::KeyOfValue(V)))
-      return false;
-    
-    // Also compare the data values.
-    if (!ImutInfo::isDataEqual(ImutInfo::DataOfValue(getValue()),
-                               ImutInfo::DataOfValue(V)))
-      return false;
-    
-    return true;
-  }
-  
-  bool ElementEqual(const ImutAVLTree* RHS) const {
-    return ElementEqual(RHS->getValue());
-  }
   
   /// isEqual - Compares two trees for structural equality and returns true
   ///   if they are equal.  This worst case performance of this operation is
@@ -142,7 +120,10 @@ public:
         continue;
       }
       
-      if (!LItr->ElementEqual(*RItr))
+      // FIXME: need to compare data values, not key values, but our
+      // traits don't support this yet.
+      if (!ImutInfo::isEqual(ImutInfo::KeyOfValue(LItr->getValue()),
+                             ImutInfo::KeyOfValue(RItr->getValue())))
         return false;
       
       ++LItr;
@@ -202,12 +183,7 @@ public:
             && "Current value is not less that value of right child.");
     
     return getHeight();
-  }
-  
-  /// Profile - Profiling for ImutAVLTree.
-  void Profile(llvm::FoldingSetNodeID& ID) {
-    ID.AddInteger(ComputeDigest());
-  }
+  }  
   
   //===----------------------------------------------------===//  
   // Internal Values.
@@ -218,21 +194,44 @@ private:
   ImutAVLTree*     Right;
   unsigned         Height;
   value_type       Value;
-  unsigned         Digest;
+  
+  //===----------------------------------------------------===//  
+  // Profiling or FoldingSet.
+  //===----------------------------------------------------===//
+
+private:
+
+  /// Profile - Generates a FoldingSet profile for a tree node before it is
+  ///   created.  This is used by the ImutAVLFactory when creating
+  ///   trees.
+  static inline
+  void Profile(FoldingSetNodeID& ID, ImutAVLTree* L, ImutAVLTree* R,
+               value_type_ref V) {    
+    ID.AddPointer(L);
+    ID.AddPointer(R);
+    ImutInfo::Profile(ID,V);
+  }
+  
+public:
+
+  /// Profile - Generates a FoldingSet profile for an existing tree node.
+  void Profile(FoldingSetNodeID& ID) {
+    Profile(ID,getSafeLeft(),getRight(),getValue());    
+  }
   
   //===----------------------------------------------------===//    
   // Internal methods (node manipulation; used by Factory).
   //===----------------------------------------------------===//
-
+  
 private:
   
   enum { Mutable = 0x1 };
-
+  
   /// ImutAVLTree - Internal constructor that is only called by
   ///   ImutAVLFactory.
   ImutAVLTree(ImutAVLTree* l, ImutAVLTree* r, value_type_ref v, unsigned height)
   : Left(reinterpret_cast<uintptr_t>(l) | Mutable),
-    Right(r), Height(height), Value(v), Digest(0) {}
+  Right(r), Height(height), Value(v) {}
   
   
   /// isMutable - Returns true if the left and right subtree references
@@ -294,33 +293,6 @@ private:
     assert (isMutable() && "Only a mutable tree can have its height changed.");
     Height = h;
   }
-  
-  
-  static inline
-  unsigned ComputeDigest(ImutAVLTree* L, ImutAVLTree* R, value_type_ref V) {
-    unsigned digest = 0;
-    
-    if (L) digest += L->ComputeDigest();
-    
-    { // Compute digest of stored data.
-      FoldingSetNodeID ID;
-      ImutInfo::Profile(ID,V);
-      digest += ID.ComputeHash();
-    }
-    
-    if (R) digest += R->ComputeDigest();
-    
-    return digest;
-  }
-  
-  inline unsigned ComputeDigest() {
-    if (Digest) return Digest;
-    
-    unsigned X = ComputeDigest(getSafeLeft(), getRight(), getValue());
-    if (!isMutable()) Digest = X;
-    
-    return X;
-  }
 };
 
 //===----------------------------------------------------------------------===//    
@@ -335,31 +307,15 @@ class ImutAVLFactory {
   
   typedef FoldingSet<TreeTy> CacheTy;
   
-  CacheTy Cache;
-  uintptr_t Allocator;
-  
-  bool ownsAllocator() const {
-    return Allocator & 0x1 ? false : true;
-  }
-
-  BumpPtrAllocator& getAllocator() const { 
-    return *reinterpret_cast<BumpPtrAllocator*>(Allocator & ~0x1);
-  }
+  CacheTy Cache;  
+  BumpPtrAllocator Allocator;    
   
   //===--------------------------------------------------===//    
   // Public interface.
   //===--------------------------------------------------===//
   
 public:
-  ImutAVLFactory()
-    : Allocator(reinterpret_cast<uintptr_t>(new BumpPtrAllocator())) {}
-  
-  ImutAVLFactory(BumpPtrAllocator& Alloc)
-    : Allocator(reinterpret_cast<uintptr_t>(&Alloc) | 0x1) {}
-  
-  ~ImutAVLFactory() {
-    if (ownsAllocator()) delete &getAllocator();
-  }
+  ImutAVLFactory() {}
   
   TreeTy* Add(TreeTy* T, value_type_ref V) {
     T = Add_internal(V,T);
@@ -374,6 +330,8 @@ public:
   }
   
   TreeTy* GetEmptyTree() const { return NULL; }
+  
+  BumpPtrAllocator& getAllocator() { return Allocator; }
   
   //===--------------------------------------------------===//    
   // A bunch of quick helper functions used for reasoning
@@ -395,20 +353,6 @@ private:
     return ( hl > hr ? hl : hr ) + 1;
   }
   
-  
-  static bool CompareTreeWithSection(TreeTy* T,
-                                     typename TreeTy::iterator& TI,
-                                     typename TreeTy::iterator& TE) {
-    
-    typename TreeTy::iterator I = T->begin(), E = T->end();
-    
-    for ( ; I!=E ; ++I, ++TI)
-      if (TI == TE || !I->ElementEqual(*TI))
-        return false;
-
-    return true;
-  }                     
-  
   //===--------------------------------------------------===//    
   // "CreateNode" is used to generate new tree roots that link
   // to other trees.  The functon may also simply move links
@@ -420,62 +364,21 @@ private:
   //===--------------------------------------------------===//
   
   TreeTy* CreateNode(TreeTy* L, value_type_ref V, TreeTy* R) {
-    // Search the FoldingSet bucket for a Tree with the same digest.
-    FoldingSetNodeID ID;
-    unsigned digest = TreeTy::ComputeDigest(L, R, V);
-    ID.AddInteger(digest);
-    unsigned hash = ID.ComputeHash();
+    FoldingSetNodeID ID;      
+    TreeTy::Profile(ID,L,R,V);      
+    void* InsertPos;
     
-    typename CacheTy::bucket_iterator I = Cache.bucket_begin(hash);
-    typename CacheTy::bucket_iterator E = Cache.bucket_end(hash);
-    
-    for (; I != E; ++I) {
-      TreeTy* T = &*I;
-
-      if (T->ComputeDigest() != digest)
-        continue;
-      
-      // We found a collision.  Perform a comparison of Contents('T')
-      // with Contents('L')+'V'+Contents('R').
-      
-      typename TreeTy::iterator TI = T->begin(), TE = T->end();
-      
-      // First compare Contents('L') with the (initial) contents of T.
-      if (!CompareTreeWithSection(L, TI, TE))
-        continue;
-      
-      // Now compare the new data element.
-      if (TI == TE || !TI->ElementEqual(V))
-        continue;
-      
-      ++TI;
-
-      // Now compare the remainder of 'T' with 'R'.
-      if (!CompareTreeWithSection(R, TI, TE))
-        continue;
-      
-      if (TI != TE) // Contents('R') did not match suffix of 'T'.
-        continue;
-      
-      // Trees did match!  Return 'T'.
+    if (TreeTy* T = Cache.FindNodeOrInsertPos(ID,InsertPos))
       return T;
-    }
     
-    // No tree with the contents: Contents('L')+'V'+Contents('R').
-    // Create it.
-
+    assert (InsertPos != NULL);
+    
     // Allocate the new tree node and insert it into the cache.
-    BumpPtrAllocator& A = getAllocator();
-    TreeTy* T = (TreeTy*) A.Allocate<TreeTy>();
+    TreeTy* T = (TreeTy*) Allocator.Allocate<TreeTy>();    
     new (T) TreeTy(L,R,V,IncrementHeight(L,R));
+    Cache.InsertNode(T,InsertPos);
 
-    // We do not insert 'T' into the FoldingSet here.  This is because
-    // this tree is still mutable and things may get rebalanced.
-    // Because our digest is associative and based on the contents of
-    // the set, this should hopefully not cause any strange bugs.
-    // 'T' is inserted by 'MarkImmutable'.
-
-    return T;
+    return T;      
   }
   
   TreeTy* CreateNode(TreeTy* L, TreeTy* OldTree, TreeTy* R) {      
@@ -606,12 +509,6 @@ private:
     T->MarkImmutable();
     MarkImmutable(Left(T));
     MarkImmutable(Right(T));
-        
-    // Now that the node is immutable it can safely be inserted
-    // into the node cache.
-    llvm::FoldingSetNodeID ID;
-    ID.AddInteger(T->ComputeDigest());
-    Cache.InsertNode(T, (void*) &*Cache.bucket_end(ID.ComputeHash()));
   }
 };
   
@@ -692,7 +589,7 @@ public:
     
     switch (getVisitState()) {
       case VisitedNone:
-        if (TreeTy* L = Current->getSafeLeft())
+        if (TreeTy* L = Current->getLeft())
           stack.push_back(reinterpret_cast<uintptr_t>(L));
         else
           stack.back() |= VisitedLeft;
@@ -816,8 +713,8 @@ struct ImutProfileInfo {
   typedef const T& value_type_ref;
   
   static inline void Profile(FoldingSetNodeID& ID, value_type_ref X) {
-    FoldingSetTrait<T>::Profile(X,ID);
-  }
+    X.Profile(ID);
+  }  
 };
 
 /// Profile traits for integers.
@@ -876,11 +773,8 @@ struct ImutContainerInfo : public ImutProfileInfo<T> {
   typedef typename ImutProfileInfo<T>::value_type_ref  value_type_ref;
   typedef value_type      key_type;
   typedef value_type_ref  key_type_ref;
-  typedef bool            data_type;
-  typedef bool            data_type_ref;
   
   static inline key_type_ref KeyOfValue(value_type_ref D) { return D; }
-  static inline data_type_ref DataOfValue(value_type_ref) { return true; }
   
   static inline bool isEqual(key_type_ref LHS, key_type_ref RHS) { 
     return std::equal_to<key_type>()(LHS,RHS);
@@ -889,8 +783,6 @@ struct ImutContainerInfo : public ImutProfileInfo<T> {
   static inline bool isLess(key_type_ref LHS, key_type_ref RHS) {
     return std::less<key_type>()(LHS,RHS);
   }
-  
-  static inline bool isDataEqual(data_type_ref,data_type_ref) { return true; }
 };
 
 /// ImutContainerInfo - Specialization for pointer values to treat pointers
@@ -902,11 +794,8 @@ struct ImutContainerInfo<T*> : public ImutProfileInfo<T*> {
   typedef typename ImutProfileInfo<T*>::value_type_ref  value_type_ref;
   typedef value_type      key_type;
   typedef value_type_ref  key_type_ref;
-  typedef bool            data_type;
-  typedef bool            data_type_ref;
   
   static inline key_type_ref KeyOfValue(value_type_ref D) { return D; }
-  static inline data_type_ref DataOfValue(value_type_ref) { return true; }
   
   static inline bool isEqual(key_type_ref LHS, key_type_ref RHS) {
     return LHS == RHS;
@@ -915,8 +804,6 @@ struct ImutContainerInfo<T*> : public ImutProfileInfo<T*> {
   static inline bool isLess(key_type_ref LHS, key_type_ref RHS) {
     return LHS < RHS;
   }
-  
-  static inline bool isDataEqual(data_type_ref,data_type_ref) { return true; }
 };
 
 //===----------------------------------------------------------------------===//    
@@ -928,26 +815,20 @@ class ImmutableSet {
 public:
   typedef typename ValInfo::value_type      value_type;
   typedef typename ValInfo::value_type_ref  value_type_ref;
-  typedef ImutAVLTree<ValInfo> TreeTy;
-
+  
 private:  
+  typedef ImutAVLTree<ValInfo> TreeTy;
   TreeTy* Root;
-
+  
+  ImmutableSet(TreeTy* R) : Root(R) {}
+  
 public:
-  /// Constructs a set from a pointer to a tree root.  In general one
-  /// should use a Factory object to create sets instead of directly
-  /// invoking the constructor, but there are cases where make this
-  /// constructor public is useful.
-  explicit ImmutableSet(TreeTy* R) : Root(R) {}
   
   class Factory {
     typename TreeTy::Factory F;
     
   public:
     Factory() {}
-    
-    Factory(BumpPtrAllocator& Alloc)
-      : F(Alloc) {}
     
     /// GetEmptySet - Returns an immutable set that contains no elements.
     ImmutableSet GetEmptySet() { return ImmutableSet(F.GetEmptyTree()); }
@@ -996,8 +877,6 @@ public:
     return Root && RHS.Root ? Root->isNotEqual(*RHS.Root) : Root != RHS.Root;
   }
   
-  TreeTy* getRoot() const { return Root; }
-  
   /// isEmpty - Return true if the set contains no elements.
   bool isEmpty() const { return !Root; }
   
@@ -1031,24 +910,11 @@ public:
   iterator end() const { return iterator(); }  
   
   //===--------------------------------------------------===//    
-  // Utility methods.
-  //===--------------------------------------------------===//  
-  
-  inline unsigned getHeight() const { return Root ? Root->getHeight() : 0; }
-  
-  static inline void Profile(FoldingSetNodeID& ID, const ImmutableSet& S) {
-    ID.AddPointer(S.Root);
-  }
-  
-  inline void Profile(FoldingSetNodeID& ID) const {
-    return Profile(ID,*this);
-  }
-  
-  //===--------------------------------------------------===//    
   // For testing.
   //===--------------------------------------------------===//  
   
   void verify() const { if (Root) Root->verify(); }
+  unsigned getHeight() const { return Root ? Root->getHeight() : 0; }
 };
 
 } // end namespace llvm

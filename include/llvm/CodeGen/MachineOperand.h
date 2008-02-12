@@ -97,7 +97,7 @@ private:
     } OffsetedInfo;
   } Contents;
   
-  explicit MachineOperand(MachineOperandType K) : OpKind(K), ParentMI(0) {}
+  MachineOperand(MachineOperandType K) : OpKind(K), ParentMI(0) {}
 public:
   MachineOperand(const MachineOperand &M) {
     *this = M;

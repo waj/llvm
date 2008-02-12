@@ -475,8 +475,7 @@ Pass *PMTopLevelManager::findAnalysisPass(AnalysisID AID) {
 
     // If Pass not found then check the interfaces implemented by Immutable Pass
     if (!P) {
-      const std::vector<const PassInfo*> &ImmPI =
-        PI->getInterfacesImplemented();
+      const std::vector<const PassInfo*> &ImmPI = PI->getInterfacesImplemented();
       if (std::find(ImmPI.begin(), ImmPI.end(), AID) != ImmPI.end())
         P = *I;
     }
@@ -589,9 +588,8 @@ bool PMDataManager::preserveHigherLevelAnalysis(Pass *P) {
   for (std::vector<Pass *>::iterator I = HigherLevelAnalysis.begin(),
          E = HigherLevelAnalysis.end(); I  != E; ++I) {
     Pass *P1 = *I;
-    if (!dynamic_cast<ImmutablePass*>(P1) &&
-        std::find(PreservedSet.begin(), PreservedSet.end(),
-                  P1->getPassInfo()) == 
+    if (!dynamic_cast<ImmutablePass*>(P1) 
+        && std::find(PreservedSet.begin(), PreservedSet.end(), P1->getPassInfo()) == 
            PreservedSet.end())
       return false;
   }
@@ -644,8 +642,8 @@ void PMDataManager::removeNotPreservedAnalysis(Pass *P) {
            I = InheritedAnalysis[Index]->begin(),
            E = InheritedAnalysis[Index]->end(); I != E; ) {
       std::map<AnalysisID, Pass *>::iterator Info = I++;
-      if (!dynamic_cast<ImmutablePass*>(Info->second) &&
-          std::find(PreservedSet.begin(), PreservedSet.end(), Info->first) == 
+      if (!dynamic_cast<ImmutablePass*>(Info->second)
+          && std::find(PreservedSet.begin(), PreservedSet.end(), Info->first) == 
              PreservedSet.end())
         // Remove this analysis
         InheritedAnalysis[Index]->erase(Info);
@@ -921,16 +919,6 @@ void PMDataManager::addLowerLevelRequiredPass(Pass *P, Pass *RequiredPass) {
     TPM->dumpArguments();
     TPM->dumpPasses();
   }
-
-  // Module Level pass may required Function Level analysis info 
-  // (e.g. dominator info). Pass manager uses on the fly function pass manager 
-  // to provide this on demand. In that case, in Pass manager terminology, 
-  // module level pass is requiring lower level analysis info managed by
-  // lower level pass manager.
-
-  // When Pass manager is not able to order required analysis info, Pass manager
-  // checks whether any lower level manager will be able to provide this 
-  // analysis info on demand or not.
   assert (0 && "Unable to handle Pass that requires lower level Analysis pass");
 }
 
@@ -986,8 +974,7 @@ BBPassManager::runOnFunction(Function &F) {
       if (TheTimeInfo) TheTimeInfo->passEnded(BP);
 
       if (Changed) 
-        dumpPassInfo(BP, MODIFICATION_MSG, ON_BASICBLOCK_MSG,
-                     I->getNameStart());
+        dumpPassInfo(BP, MODIFICATION_MSG, ON_BASICBLOCK_MSG, I->getNameStart());
       dumpAnalysisSetInfo("Preserved", BP, AnUsage.getPreservedSet());
 
       verifyPreservedAnalysis(BP);
@@ -1244,8 +1231,7 @@ MPPassManager::runOnModule(Module &M) {
     AnalysisUsage AnUsage;
     MP->getAnalysisUsage(AnUsage);
 
-    dumpPassInfo(MP, EXECUTION_MSG, ON_MODULE_MSG,
-                 M.getModuleIdentifier().c_str());
+    dumpPassInfo(MP, EXECUTION_MSG, ON_MODULE_MSG, M.getModuleIdentifier().c_str());
     dumpAnalysisSetInfo("Required", MP, AnUsage.getRequiredSet());
 
     initializeAnalysisImpl(MP);
@@ -1255,8 +1241,7 @@ MPPassManager::runOnModule(Module &M) {
     if (TheTimeInfo) TheTimeInfo->passEnded(MP);
 
     if (Changed) 
-      dumpPassInfo(MP, MODIFICATION_MSG, ON_MODULE_MSG,
-                   M.getModuleIdentifier().c_str());
+      dumpPassInfo(MP, MODIFICATION_MSG, ON_MODULE_MSG, M.getModuleIdentifier().c_str());
     dumpAnalysisSetInfo("Preserved", MP, AnUsage.getPreservedSet());
       
     verifyPreservedAnalysis(MP);

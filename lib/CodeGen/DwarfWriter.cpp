@@ -30,7 +30,7 @@
 #include "llvm/Support/Mangler.h"
 #include "llvm/System/Path.h"
 #include "llvm/Target/TargetAsmInfo.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetFrameInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -782,7 +782,7 @@ protected:
   const TargetData *TD;
   
   /// RI - Register Information.
-  const TargetRegisterInfo *RI;
+  const MRegisterInfo *RI;
   
   /// M - Current module.
   ///
@@ -1875,8 +1875,7 @@ private:
     
     // Add variable address.
     MachineLocation Location;
-    Location.set(RI->getFrameRegister(*MF),
-                 RI->getFrameIndexOffset(*MF, DV->getFrameIndex()));
+    RI->getLocation(*MF, DV->getFrameIndex(), Location);
     AddAddress(VariableDie, DW_AT_location, Location);
 
     return VariableDie;
@@ -2721,11 +2720,6 @@ public:
     
     // Assumes in correct section after the entry point.
     EmitLabel("func_begin", ++SubprogramCount);
-
-    // Emit label for the implicitly defined dbg.stoppoint at the start of
-    // the function.
-    const SourceLineInfo &LineInfo = MMI->getSourceLines()[0];
-    Asm->printLabel(LineInfo.getLabelID());
   }
   
   /// EndFunction - Gather and emit post-function debug information.

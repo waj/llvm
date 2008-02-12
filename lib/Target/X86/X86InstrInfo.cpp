@@ -495,14 +495,6 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::DIVPSrr,         X86::DIVPSrm },
     { X86::DIVSDrr,         X86::DIVSDrm },
     { X86::DIVSSrr,         X86::DIVSSrm },
-    { X86::FsANDNPDrr,      X86::FsANDNPDrm },
-    { X86::FsANDNPSrr,      X86::FsANDNPSrm },
-    { X86::FsANDPDrr,       X86::FsANDPDrm },
-    { X86::FsANDPSrr,       X86::FsANDPSrm },
-    { X86::FsORPDrr,        X86::FsORPDrm },
-    { X86::FsORPSrr,        X86::FsORPSrm },
-    { X86::FsXORPDrr,       X86::FsXORPDrm },
-    { X86::FsXORPSrr,       X86::FsXORPSrm },
     { X86::HADDPDrr,        X86::HADDPDrm },
     { X86::HADDPSrr,        X86::HADDPSrm },
     { X86::HSUBPDrr,        X86::HSUBPDrm },
@@ -1018,8 +1010,6 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
     }
   }
   }
-
-  if (!NewMI) return 0;
 
   NewMI->copyKillDeadInfo(MI);
   LV.instructionChanged(MI, NewMI);  // Update live variables
@@ -1670,7 +1660,7 @@ static MachineInstr *MakeM0Inst(const TargetInstrInfo &TII, unsigned Opcode,
 
 MachineInstr*
 X86InstrInfo::foldMemoryOperand(MachineInstr *MI, unsigned i,
-                                SmallVector<MachineOperand,4> &MOs) const {
+                                   SmallVector<MachineOperand,4> &MOs) const {
   const DenseMap<unsigned*, unsigned> *OpcodeTablePtr = NULL;
   bool isTwoAddrFold = false;
   unsigned NumOps = MI->getDesc().getNumOperands();
@@ -1730,32 +1720,11 @@ X86InstrInfo::foldMemoryOperand(MachineInstr *MI, unsigned i,
 }
 
 
-MachineInstr* X86InstrInfo::foldMemoryOperand(MachineFunction &MF,
-                                              MachineInstr *MI,
+MachineInstr* X86InstrInfo::foldMemoryOperand(MachineInstr *MI,
                                               SmallVectorImpl<unsigned> &Ops,
                                               int FrameIndex) const {
   // Check switch flag 
   if (NoFusing) return NULL;
-
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
-  unsigned Alignment = MFI->getObjectAlignment(FrameIndex);
-  // FIXME: Move alignment requirement into tables?
-  if (Alignment < 16) {
-    switch (MI->getOpcode()) {
-    default: break;
-    // Not always safe to fold movsd into these instructions since their load
-    // folding variants expects the address to be 16 byte aligned.
-    case X86::FsANDNPDrr:
-    case X86::FsANDNPSrr:
-    case X86::FsANDPDrr:
-    case X86::FsANDPSrr:
-    case X86::FsORPDrr:
-    case X86::FsORPSrr:
-    case X86::FsXORPDrr:
-    case X86::FsXORPSrr:
-      return NULL;
-    }
-  }
 
   if (Ops.size() == 2 && Ops[0] == 0 && Ops[1] == 1) {
     unsigned NewOpc = 0;
@@ -1777,38 +1746,11 @@ MachineInstr* X86InstrInfo::foldMemoryOperand(MachineFunction &MF,
   return foldMemoryOperand(MI, Ops[0], MOs);
 }
 
-MachineInstr* X86InstrInfo::foldMemoryOperand(MachineFunction &MF,
-                                              MachineInstr *MI,
+MachineInstr* X86InstrInfo::foldMemoryOperand(MachineInstr *MI,
                                               SmallVectorImpl<unsigned> &Ops,
                                               MachineInstr *LoadMI) const {
   // Check switch flag 
   if (NoFusing) return NULL;
-
-  unsigned Alignment = 0;
-  for (unsigned i = 0, e = LoadMI->getNumMemOperands(); i != e; ++i) {
-    const MemOperand &MRO = LoadMI->getMemOperand(i);
-    unsigned Align = MRO.getAlignment();
-    if (Align > Alignment)
-      Alignment = Align;
-  }
-
-  // FIXME: Move alignment requirement into tables?
-  if (Alignment < 16) {
-    switch (MI->getOpcode()) {
-    default: break;
-    // Not always safe to fold movsd into these instructions since their load
-    // folding variants expects the address to be 16 byte aligned.
-    case X86::FsANDNPDrr:
-    case X86::FsANDNPSrr:
-    case X86::FsANDPDrr:
-    case X86::FsANDPSrr:
-    case X86::FsORPDrr:
-    case X86::FsORPSrr:
-    case X86::FsXORPDrr:
-    case X86::FsXORPSrr:
-      return NULL;
-    }
-  }
 
   if (Ops.size() == 2 && Ops[0] == 0 && Ops[1] == 1) {
     unsigned NewOpc = 0;

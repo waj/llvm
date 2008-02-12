@@ -85,7 +85,6 @@ public:
   TargetMachine &getTargetMachine() const { return TM; }
   const TargetData *getTargetData() const { return TD; }
 
-  bool isBigEndian() const { return !IsLittleEndian; }
   bool isLittleEndian() const { return IsLittleEndian; }
   MVT::ValueType getPointerTy() const { return PointerTy; }
   MVT::ValueType getShiftAmountTy() const { return ShiftAmountTy; }
@@ -124,7 +123,7 @@ public:
   /// getRegClassFor - Return the register class that should be used for the
   /// specified value type.  This may only be called on legal types.
   TargetRegisterClass *getRegClassFor(MVT::ValueType VT) const {
-    assert(VT < array_lengthof(RegClassForVT));
+    assert(!MVT::isExtendedVT(VT));
     TargetRegisterClass *RC = RegClassForVT[VT];
     assert(RC && "This value type is not natively supported!");
     return RC;
@@ -134,7 +133,6 @@ public:
   /// specified value type.  This means that it has a register that directly
   /// holds it without promotions or expansions.
   bool isTypeLegal(MVT::ValueType VT) const {
-    assert(MVT::isExtendedVT(VT) || VT < array_lengthof(RegClassForVT));
     return !MVT::isExtendedVT(VT) && RegClassForVT[VT] != 0;
   }
 
@@ -160,11 +158,11 @@ public:
           return VT == MVT::RoundIntegerType(VT) ? Expand : Promote;
         assert(0 && "Unsupported extended type!");
       }
-      assert(VT<4*array_lengthof(ValueTypeActions)*sizeof(ValueTypeActions[0]));
       return (LegalizeAction)((ValueTypeActions[VT>>4] >> ((2*VT) & 31)) & 3);
     }
     void setTypeAction(MVT::ValueType VT, LegalizeAction Action) {
-      assert(VT<4*array_lengthof(ValueTypeActions)*sizeof(ValueTypeActions[0]));
+      assert(!MVT::isExtendedVT(VT));
+      assert(unsigned(VT >> 4) < array_lengthof(ValueTypeActions));
       ValueTypeActions[VT>>4] |= Action << ((VT*2) & 31);
     }
   };
@@ -189,7 +187,6 @@ public:
   /// returns the integer type to transform to.
   MVT::ValueType getTypeToTransformTo(MVT::ValueType VT) const {
     if (!MVT::isExtendedVT(VT)) {
-      assert(VT < array_lengthof(TransformToType));
       MVT::ValueType NVT = TransformToType[VT];
       assert(getTypeAction(NVT) != Promote &&
              "Promote may not follow Expand or Promote");
@@ -278,8 +275,6 @@ public:
   /// for it.
   LegalizeAction getOperationAction(unsigned Op, MVT::ValueType VT) const {
     if (MVT::isExtendedVT(VT)) return Expand;
-    assert(Op < array_lengthof(OpActions) &&
-           VT < sizeof(OpActions[0])*4 && "Table isn't big enough!");
     return (LegalizeAction)((OpActions[Op] >> (2*VT)) & 3);
   }
   
@@ -295,36 +290,30 @@ public:
   /// expanded to some other code sequence, or the target has a custom expander
   /// for it.
   LegalizeAction getLoadXAction(unsigned LType, MVT::ValueType VT) const {
-    assert(LType < array_lengthof(LoadXActions) &&
-           VT < sizeof(LoadXActions[0])*4 && "Table isn't big enough!");
+    if (MVT::isExtendedVT(VT)) return getTypeAction(VT);
     return (LegalizeAction)((LoadXActions[LType] >> (2*VT)) & 3);
   }
   
   /// isLoadXLegal - Return true if the specified load with extension is legal
   /// on this target.
   bool isLoadXLegal(unsigned LType, MVT::ValueType VT) const {
-    return !MVT::isExtendedVT(VT) &&
-      (getLoadXAction(LType, VT) == Legal ||
-       getLoadXAction(LType, VT) == Custom);
+    return getLoadXAction(LType, VT) == Legal ||
+           getLoadXAction(LType, VT) == Custom;
   }
   
-  /// getTruncStoreAction - Return how this store with truncation should be
-  /// treated: either it is legal, needs to be promoted to a larger size, needs
-  /// to be expanded to some other code sequence, or the target has a custom
-  /// expander for it.
-  LegalizeAction getTruncStoreAction(MVT::ValueType ValVT, 
-                                     MVT::ValueType MemVT) const {
-    assert(ValVT < array_lengthof(TruncStoreActions) && 
-           MemVT < sizeof(TruncStoreActions[0])*4 && "Table isn't big enough!");
-    return (LegalizeAction)((TruncStoreActions[ValVT] >> (2*MemVT)) & 3);
+  /// getStoreXAction - Return how this store with truncation should be treated:
+  /// either it is legal, needs to be promoted to a larger size, needs to be
+  /// expanded to some other code sequence, or the target has a custom expander
+  /// for it.
+  LegalizeAction getStoreXAction(MVT::ValueType VT) const {
+    if (MVT::isExtendedVT(VT)) return getTypeAction(VT);
+    return (LegalizeAction)((StoreXActions >> (2*VT)) & 3);
   }
   
-  /// isTruncStoreLegal - Return true if the specified store with truncation is
+  /// isStoreXLegal - Return true if the specified store with truncation is
   /// legal on this target.
-  bool isTruncStoreLegal(MVT::ValueType ValVT, MVT::ValueType MemVT) const {
-    return !MVT::isExtendedVT(MemVT) &&
-      (getTruncStoreAction(ValVT, MemVT) == Legal ||
-       getTruncStoreAction(ValVT, MemVT) == Custom);
+  bool isStoreXLegal(MVT::ValueType VT) const {
+    return getStoreXAction(VT) == Legal || getStoreXAction(VT) == Custom;
   }
 
   /// getIndexedLoadAction - Return how the indexed load should be treated:
@@ -333,9 +322,7 @@ public:
   /// for it.
   LegalizeAction
   getIndexedLoadAction(unsigned IdxMode, MVT::ValueType VT) const {
-    assert(IdxMode < array_lengthof(IndexedModeActions[0]) &&
-           VT < sizeof(IndexedModeActions[0][0])*4 &&
-           "Table isn't big enough!");
+    if (MVT::isExtendedVT(VT)) return getTypeAction(VT);
     return (LegalizeAction)((IndexedModeActions[0][IdxMode] >> (2*VT)) & 3);
   }
 
@@ -352,9 +339,7 @@ public:
   /// for it.
   LegalizeAction
   getIndexedStoreAction(unsigned IdxMode, MVT::ValueType VT) const {
-    assert(IdxMode < array_lengthof(IndexedModeActions[1]) &&
-           VT < sizeof(IndexedModeActions[1][0])*4 &&
-           "Table isn't big enough!");
+    if (MVT::isExtendedVT(VT)) return getTypeAction(VT);
     return (LegalizeAction)((IndexedModeActions[1][IdxMode] >> (2*VT)) & 3);
   }  
   
@@ -371,8 +356,8 @@ public:
   /// for it.
   LegalizeAction
   getConvertAction(MVT::ValueType FromVT, MVT::ValueType ToVT) const {
-    assert(FromVT < array_lengthof(ConvertActions) && 
-           ToVT < sizeof(ConvertActions[0])*4 && "Table isn't big enough!");
+    assert(FromVT < MVT::LAST_VALUETYPE && ToVT < 32 && 
+           "Table isn't big enough!");
     return (LegalizeAction)((ConvertActions[FromVT] >> (2*ToVT)) & 3);
   }
 
@@ -417,25 +402,16 @@ public:
     return VT == MVT::iPTR ? PointerTy : VT;
   }
 
-  /// getByValTypeAlignment - Return the desired alignment for ByVal aggregate
-  /// function arguments in the caller parameter area.
-  virtual unsigned getByValTypeAlignment(const Type *Ty) const;
-  
   /// getRegisterType - Return the type of registers that this ValueType will
   /// eventually require.
   MVT::ValueType getRegisterType(MVT::ValueType VT) const {
-    if (!MVT::isExtendedVT(VT)) {
-      assert(VT < array_lengthof(RegisterTypeForVT));
+    if (!MVT::isExtendedVT(VT))
       return RegisterTypeForVT[VT];
-    }
     if (MVT::isVector(VT)) {
       MVT::ValueType VT1, RegisterVT;
       unsigned NumIntermediates;
       (void)getVectorTypeBreakdown(VT, VT1, NumIntermediates, RegisterVT);
       return RegisterVT;
-    }
-    if (MVT::isInteger(VT)) {
-      return getRegisterType(getTypeToTransformTo(VT));
     }
     assert(0 && "Unsupported extended type!");
   }
@@ -443,31 +419,21 @@ public:
   /// getNumRegisters - Return the number of registers that this ValueType will
   /// eventually require.  This is one for any types promoted to live in larger
   /// registers, but may be more than one for types (like i64) that are split
-  /// into pieces.  For types like i140, which are first promoted then expanded,
-  /// it is the number of registers needed to hold all the bits of the original
-  /// type.  For an i140 on a 32 bit machine this means 5 registers.
+  /// into pieces.
   unsigned getNumRegisters(MVT::ValueType VT) const {
-    if (!MVT::isExtendedVT(VT)) {
-      assert(VT < array_lengthof(NumRegistersForVT));
+    if (!MVT::isExtendedVT(VT))
       return NumRegistersForVT[VT];
-    }
     if (MVT::isVector(VT)) {
       MVT::ValueType VT1, VT2;
       unsigned NumIntermediates;
       return getVectorTypeBreakdown(VT, VT1, NumIntermediates, VT2);
     }
-    if (MVT::isInteger(VT)) {
-      unsigned BitWidth = MVT::getSizeInBits(VT);
-      unsigned RegWidth = MVT::getSizeInBits(getRegisterType(VT));
-      return (BitWidth + RegWidth - 1) / RegWidth;
-    }
     assert(0 && "Unsupported extended type!");
   }
-
+  
   /// hasTargetDAGCombine - If true, the target has custom DAG combine
   /// transformations that it can perform for the specified node.
   bool hasTargetDAGCombine(ISD::NodeType NT) const {
-    assert(unsigned(NT >> 3) < array_lengthof(TargetDAGCombineArray));
     return TargetDAGCombineArray[NT >> 3] & (1 << (NT&7));
   }
 
@@ -765,7 +731,7 @@ protected:
   /// regclass for the specified value type.  This indicates the selector can
   /// handle values of that class natively.
   void addRegisterClass(MVT::ValueType VT, TargetRegisterClass *RC) {
-    assert(VT < array_lengthof(RegClassForVT));
+    assert(!MVT::isExtendedVT(VT));
     AvailableRegClasses.push_back(std::make_pair(VT, RC));
     RegClassForVT[VT] = RC;
   }
@@ -778,7 +744,7 @@ protected:
   /// with the specified type and indicate what to do about it.
   void setOperationAction(unsigned Op, MVT::ValueType VT,
                           LegalizeAction Action) {
-    assert(VT < sizeof(OpActions[0])*4 && Op < array_lengthof(OpActions) &&
+    assert(VT < 32 && Op < array_lengthof(OpActions) &&
            "Table isn't big enough!");
     OpActions[Op] &= ~(uint64_t(3UL) << VT*2);
     OpActions[Op] |= (uint64_t)Action << VT*2;
@@ -788,21 +754,18 @@ protected:
   /// work with the with specified type and indicate what to do about it.
   void setLoadXAction(unsigned ExtType, MVT::ValueType VT,
                       LegalizeAction Action) {
-    assert(VT < sizeof(LoadXActions[0])*4 && 
-           ExtType < array_lengthof(LoadXActions) &&
+    assert(VT < 32 && ExtType < array_lengthof(LoadXActions) &&
            "Table isn't big enough!");
     LoadXActions[ExtType] &= ~(uint64_t(3UL) << VT*2);
     LoadXActions[ExtType] |= (uint64_t)Action << VT*2;
   }
   
-  /// setTruncStoreAction - Indicate that the specified truncating store does
+  /// setStoreXAction - Indicate that the specified store with truncation does
   /// not work with the with specified type and indicate what to do about it.
-  void setTruncStoreAction(MVT::ValueType ValVT, MVT::ValueType MemVT,
-                           LegalizeAction Action) {
-    assert(ValVT < array_lengthof(TruncStoreActions) && 
-           MemVT < sizeof(TruncStoreActions[0])*4 && "Table isn't big enough!");
-    TruncStoreActions[ValVT] &= ~(uint64_t(3UL) << MemVT*2);
-    TruncStoreActions[ValVT] |= (uint64_t)Action << MemVT*2;
+  void setStoreXAction(MVT::ValueType VT, LegalizeAction Action) {
+    assert(VT < 32 && "Table isn't big enough!");
+    StoreXActions &= ~(uint64_t(3UL) << VT*2);
+    StoreXActions |= (uint64_t)Action << VT*2;
   }
 
   /// setIndexedLoadAction - Indicate that the specified indexed load does or
@@ -811,7 +774,7 @@ protected:
   /// TargetLowering.cpp
   void setIndexedLoadAction(unsigned IdxMode, MVT::ValueType VT,
                             LegalizeAction Action) {
-    assert(VT < sizeof(IndexedModeActions[0])*4 && IdxMode <
+    assert(VT < 32 && IdxMode <
            array_lengthof(IndexedModeActions[0]) &&
            "Table isn't big enough!");
     IndexedModeActions[0][IdxMode] &= ~(uint64_t(3UL) << VT*2);
@@ -824,8 +787,8 @@ protected:
   /// TargetLowering.cpp
   void setIndexedStoreAction(unsigned IdxMode, MVT::ValueType VT,
                              LegalizeAction Action) {
-    assert(VT < sizeof(IndexedModeActions[1][0])*4 &&
-           IdxMode < array_lengthof(IndexedModeActions[1]) &&
+    assert(VT < 32 && IdxMode <
+           array_lengthof(IndexedModeActions[1]) &&
            "Table isn't big enough!");
     IndexedModeActions[1][IdxMode] &= ~(uint64_t(3UL) << VT*2);
     IndexedModeActions[1][IdxMode] |= (uint64_t)Action << VT*2;
@@ -835,8 +798,8 @@ protected:
   /// not work with the with specified type and indicate what to do about it.
   void setConvertAction(MVT::ValueType FromVT, MVT::ValueType ToVT, 
                         LegalizeAction Action) {
-    assert(FromVT < array_lengthof(ConvertActions) &&
-           ToVT < sizeof(ConvertActions[0])*4 && "Table isn't big enough!");
+    assert(FromVT < MVT::LAST_VALUETYPE && ToVT < 32 && 
+           "Table isn't big enough!");
     ConvertActions[FromVT] &= ~(uint64_t(3UL) << ToVT*2);
     ConvertActions[FromVT] |= (uint64_t)Action << ToVT*2;
   }
@@ -860,7 +823,6 @@ protected:
   /// independent node that they want to provide a custom DAG combiner for by
   /// implementing the PerformDAGCombine virtual method.
   void setTargetDAGCombine(ISD::NodeType NT) {
-    assert(unsigned(NT >> 3) < array_lengthof(TargetDAGCombineArray));
     TargetDAGCombineArray[NT >> 3] |= 1 << (NT&7);
   }
   
@@ -1017,11 +979,6 @@ public:
     getRegForInlineAsmConstraint(const std::string &Constraint,
                                  MVT::ValueType VT) const;
   
-  /// LowerXConstraint - try to replace an X constraint, which matches anything,
-  /// with another that has more specific requirements based on the type of the
-  /// corresponding operand.
-  virtual void lowerXConstraint(MVT::ValueType ConstraintVT, 
-                                std::string&) const;
   
   /// LowerAsmOperandForConstraint - Lower the specified operand into the Ops
   /// vector.  If it is invalid, don't add anything to Ops.
@@ -1033,13 +990,13 @@ public:
   // Scheduler hooks
   //
   
-  // EmitInstrWithCustomInserter - This method should be implemented by targets
-  // that mark instructions with the 'usesCustomDAGSchedInserter' flag.  These
+  // InsertAtEndOfBasicBlock - This method should be implemented by targets that
+  // mark instructions with the 'usesCustomDAGSchedInserter' flag.  These
   // instructions are special in various ways, which require special support to
   // insert.  The specified MachineInstr is created but not inserted into any
   // basic blocks, and the scheduler passes ownership of it to this method.
-  virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                         MachineBasicBlock *MBB);
+  virtual MachineBasicBlock *InsertAtEndOfBasicBlock(MachineInstr *MI,
+                                                     MachineBasicBlock *MBB);
 
   //===--------------------------------------------------------------------===//
   // Addressing mode description hooks (used by LSR etc).
@@ -1226,9 +1183,10 @@ private:
   /// with the load.
   uint64_t LoadXActions[ISD::LAST_LOADX_TYPE];
   
-  /// TruncStoreActions - For each truncating store, keep a LegalizeAction that
-  /// indicates how instruction selection should deal with the store.
-  uint64_t TruncStoreActions[MVT::LAST_VALUETYPE];
+  /// StoreXActions - For each store with truncation of each value type, keep a
+  /// LegalizeAction that indicates how instruction selection should deal with
+  /// the store.
+  uint64_t StoreXActions;
 
   /// IndexedModeActions - For each indexed mode and each value type, keep a
   /// pair of LegalizeAction that indicates how instruction selection should

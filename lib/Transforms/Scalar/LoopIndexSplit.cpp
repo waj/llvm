@@ -301,23 +301,23 @@ void LoopIndexSplit::findIndVar(Value *V, Loop *L) {
   Value *Op0 = I->getOperand(0);
   Value *Op1 = I->getOperand(1);
   
-  if (PHINode *PN = dyn_cast<PHINode>(Op0)) 
-    if (PN->getParent() == L->getHeader()) 
-      if (ConstantInt *CI = dyn_cast<ConstantInt>(Op1)) 
-        if (CI->isOne()) {
-          IndVar = PN;
-          IndVarIncrement = I;
-          return;
-        }
-
-  if (PHINode *PN = dyn_cast<PHINode>(Op1)) 
-    if (PN->getParent() == L->getHeader()) 
-      if (ConstantInt *CI = dyn_cast<ConstantInt>(Op0)) 
-        if (CI->isOne()) {
-          IndVar = PN;
-          IndVarIncrement = I;
-          return;
-        }
+  if (PHINode *PN = dyn_cast<PHINode>(Op0)) {
+    if (PN->getParent() == L->getHeader()
+        && isa<ConstantInt>(Op1)) {
+      IndVar = PN;
+      IndVarIncrement = I;
+      return;
+    }
+  }
+  
+  if (PHINode *PN = dyn_cast<PHINode>(Op1)) {
+    if (PN->getParent() == L->getHeader()
+        && isa<ConstantInt>(Op0)) {
+      IndVar = PN;
+      IndVarIncrement = I;
+      return;
+    }
+  }
   
   return;
 }
@@ -1392,11 +1392,6 @@ bool LoopIndexSplit::splitLoop(SplitInfo &SD) {
   if (!Succ0->getSinglePredecessor() || !Succ1->getSinglePredecessor())
     return false;
 
-  // If Exiting block includes loop variant instructions then this
-  // loop may not be split safely.
-  if (!safeExitingBlock(SD, ExitCondition->getParent())) 
-    return false;
-
   // After loop is cloned there are two loops.
   //
   // First loop, referred as ALoop, executes first part of loop's iteration
@@ -1621,8 +1616,8 @@ void LoopIndexSplit::moveExitCondition(BasicBlock *CondBB, BasicBlock *ActiveBB,
 ///   - ExitBB's single predecessor was Latch
 ///   - Latch's second successor was Header
 /// Now
-///   - ExitBB's single predecessor is Header
-///   - Latch's one and only successor is Header
+///   - ExitBB's single predecessor was Header
+///   - Latch's one and only successor was Header
 ///
 /// Update ExitBB PHINodes' to reflect this change.
 void LoopIndexSplit::updatePHINodes(BasicBlock *ExitBB, BasicBlock *Latch, 
@@ -1637,18 +1632,27 @@ void LoopIndexSplit::updatePHINodes(BasicBlock *ExitBB, BasicBlock *Latch,
 
     Value *V = PN->getIncomingValueForBlock(Latch);
     if (PHINode *PHV = dyn_cast<PHINode>(V)) {
-      // PHV is in Latch. PHV has one use is in ExitBB PHINode. And one use
-      // in Header which is new incoming value for PN.
+      // PHV is in Latch. PHV has two uses, one use is in ExitBB PHINode 
+      // (i.e. PN :)). 
+      // The second use is in Header and it is new incoming value for PN.
+      PHINode *U1 = NULL;
+      PHINode *U2 = NULL;
       Value *NewV = NULL;
       for (Value::use_iterator UI = PHV->use_begin(), E = PHV->use_end(); 
-           UI != E; ++UI) 
-        if (PHINode *U = dyn_cast<PHINode>(*UI)) 
-          if (U->getParent() == Header) {
-            NewV = U;
-            break;
-          }
-
-      assert (NewV && "Unable to find new incoming value for exit block PHI");
+           UI != E; ++UI) {
+        if (!U1)
+          U1 = cast<PHINode>(*UI);
+        else if (!U2)
+          U2 = cast<PHINode>(*UI);
+        else
+          assert ( 0 && "Unexpected third use of this PHINode");
+      }
+      assert (U1 && U2 && "Unable to find two uses");
+      
+      if (U1->getParent() == Header) 
+        NewV = U1;
+      else
+        NewV = U2;
       PN->addIncoming(NewV, Header);
 
     } else if (Instruction *PHI = dyn_cast<Instruction>(V)) {

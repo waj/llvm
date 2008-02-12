@@ -27,7 +27,6 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 using namespace llvm;
 
@@ -660,7 +659,7 @@ SDNode *ARMDAGToDAGISel::Select(SDOperand Op) {
   case ISD::LOAD: {
     LoadSDNode *LD = cast<LoadSDNode>(Op);
     ISD::MemIndexedMode AM = LD->getAddressingMode();
-    MVT::ValueType LoadedVT = LD->getMemoryVT();
+    MVT::ValueType LoadedVT = LD->getLoadedVT();
     if (AM != ISD::UNINDEXED) {
       SDOperand Offset, AMOpc;
       bool isPre = (AM == ISD::PRE_INC) || (AM == ISD::PRE_DEC);
@@ -732,10 +731,8 @@ SDNode *ARMDAGToDAGISel::Select(SDOperand Op) {
     SDOperand Ops[] = { N1, Tmp2, N3, Chain, InFlag };
     SDNode *ResNode = CurDAG->getTargetNode(Opc, MVT::Other, MVT::Flag, Ops, 5);
     Chain = SDOperand(ResNode, 0);
-    if (Op.Val->getNumValues() == 2) {
-      InFlag = SDOperand(ResNode, 1);
-      ReplaceUses(SDOperand(Op.Val, 1), InFlag);
-    }
+    InFlag = SDOperand(ResNode, 1);
+    ReplaceUses(SDOperand(Op.Val, 1), InFlag);
     ReplaceUses(SDOperand(Op.Val, 0), SDOperand(Chain.Val, Chain.ResNo));
     return NULL;
   }

@@ -305,19 +305,11 @@ private:
   std::map<std::string, std::string> VariableMap;
   // Node to operator mapping
   std::map<std::string, Record*> OperatorMap;
-  // Name of the folded node which produces a flag.
-  std::pair<std::string, unsigned> FoldedFlag;
   // Names of all the folded nodes which produce chains.
   std::vector<std::pair<std::string, unsigned> > FoldedChains;
   // Original input chain(s).
   std::vector<std::pair<std::string, std::string> > OrigChains;
   std::set<std::string> Duplicates;
-
-  /// LSI - Load/Store information.
-  /// Save loads/stores matched by a pattern, and generate a MemOperandSDNode
-  /// for each memory access. This facilitates the use of AliasAnalysis in
-  /// the backend.
-  std::vector<std::string> LSI;
 
   /// GeneratedCode - This is the buffer that we emit code to.  The first int
   /// indicates whether this is an exit predicate (something that should be
@@ -379,16 +371,6 @@ public:
   void EmitMatchCode(TreePatternNode *N, TreePatternNode *P,
                      const std::string &RootName, const std::string &ChainSuffix,
                      bool &FoundChain) {
-
-    // Save loads/stores matched by a pattern.
-    if (!N->isLeaf() && N->getName().empty()) {
-      std::string EnumName = N->getOperator()->getValueAsString("Opcode");
-      if (EnumName == "ISD::LOAD" ||
-          EnumName == "ISD::STORE") {
-        LSI.push_back(RootName);
-      }
-    }
-
     bool isRoot = (P == NULL);
     // Emit instruction predicates. Each predicate is just a string for now.
     if (isRoot) {
@@ -553,7 +535,7 @@ public:
           emitCheck(MaskPredicate + RootName + "0, cast<ConstantSDNode>(" +
                     RootName + "1), " + itostr(II->getValue()) + ")");
           
-          EmitChildMatchCode(N->getChild(0), N, RootName + utostr(0), RootName,
+          EmitChildMatchCode(N->getChild(0), N, RootName + utostr(0),
                              ChainSuffix + utostr(0), FoundChain);
           return;
         }
@@ -564,7 +546,7 @@ public:
       emitInit("SDOperand " + RootName + utostr(OpNo) + " = " +
                RootName + ".getOperand(" +utostr(OpNo) + ");");
 
-      EmitChildMatchCode(N->getChild(i), N, RootName + utostr(OpNo), RootName,
+      EmitChildMatchCode(N->getChild(i), N, RootName + utostr(OpNo),
                          ChainSuffix + utostr(OpNo), FoundChain);
     }
 
@@ -596,8 +578,7 @@ public:
   }
 
   void EmitChildMatchCode(TreePatternNode *Child, TreePatternNode *Parent,
-                          const std::string &RootName, 
-                          const std::string &ParentRootName,
+                          const std::string &RootName,
                           const std::string &ChainSuffix, bool &FoundChain) {
     if (!Child->isLeaf()) {
       // If it's not a leaf, recursively match.
@@ -605,17 +586,8 @@ public:
       emitCheck(RootName + ".getOpcode() == " +
                 CInfo.getEnumName());
       EmitMatchCode(Child, Parent, RootName, ChainSuffix, FoundChain);
-      bool HasChain = false;
-      if (NodeHasProperty(Child, SDNPHasChain, CGP)) {
-        HasChain = true;
+      if (NodeHasProperty(Child, SDNPHasChain, CGP))
         FoldedChains.push_back(std::make_pair(RootName, CInfo.getNumResults()));
-      }
-      if (NodeHasProperty(Child, SDNPOutFlag, CGP)) {
-        assert(FoldedFlag.first == "" && FoldedFlag.second == 0 &&
-               "Pattern folded multiple nodes which produce flags?");
-        FoldedFlag = std::make_pair(RootName,
-                                    CInfo.getNumResults() + (unsigned)HasChain);
-      }
     } else {
       // If this child has a name associated with it, capture it in VarMap. If
       // we already saw this in the pattern, emit code to verify dagness.
@@ -662,12 +634,7 @@ public:
             emitCode("SDOperand " + ChainName + ";");
           }
           
-          std::string Code = Fn + "(";
-          if (CP->hasAttribute(CPAttrParentAsRoot)) {
-            Code += ParentRootName + ", ";
-          } else {
-            Code += "N, ";
-          }
+          std::string Code = Fn + "(N, ";
           if (CP->hasProperty(SDNPHasChain)) {
             std::string ParentName(RootName.begin(), RootName.end()-1);
             Code += ParentName + ", ";
@@ -727,9 +694,7 @@ public:
     std::vector<std::string> NodeOps;
     // This is something selected from the pattern we matched.
     if (!N->getName().empty()) {
-      const std::string &VarName = N->getName();
-      std::string Val = VariableMap[VarName];
-      bool ModifiedVal = false;
+      std::string &Val = VariableMap[N->getName()];
       assert(!Val.empty() &&
              "Variable referenced but not defined and not caught earlier!");
       if (Val[0] == 'T' && Val[1] == 'm' && Val[2] == 'p') {
@@ -743,7 +708,6 @@ public:
       if (!N->isLeaf() && N->getOperator()->getName() == "imm") {
         assert(N->getExtTypes().size() == 1 && "Multiple types not handled!");
         std::string CastType;
-        std::string TmpVar =  "Tmp" + utostr(ResNo);
         switch (N->getTypeNum(0)) {
         default:
           cerr << "Cannot handle " << getEnumName(N->getTypeNum(0))
@@ -755,53 +719,56 @@ public:
         case MVT::i32: CastType = "unsigned"; break;
         case MVT::i64: CastType = "uint64_t"; break;
         }
-        emitCode("SDOperand " + TmpVar + 
+        emitCode("SDOperand Tmp" + utostr(ResNo) + 
                  " = CurDAG->getTargetConstant(((" + CastType +
                  ") cast<ConstantSDNode>(" + Val + ")->getValue()), " +
                  getEnumName(N->getTypeNum(0)) + ");");
+        NodeOps.push_back("Tmp" + utostr(ResNo));
         // Add Tmp<ResNo> to VariableMap, so that we don't multiply select this
         // value if used multiple times by this pattern result.
-        Val = TmpVar;
-        ModifiedVal = true;
-        NodeOps.push_back(Val);
+        Val = "Tmp"+utostr(ResNo);
       } else if (!N->isLeaf() && N->getOperator()->getName() == "texternalsym"){
         Record *Op = OperatorMap[N->getName()];
         // Transform ExternalSymbol to TargetExternalSymbol
         if (Op && Op->getName() == "externalsym") {
-          std::string TmpVar = "Tmp"+utostr(ResNo);
-          emitCode("SDOperand " + TmpVar + " = CurDAG->getTarget"
+          emitCode("SDOperand Tmp" + utostr(ResNo) + " = CurDAG->getTarget"
                    "ExternalSymbol(cast<ExternalSymbolSDNode>(" +
                    Val + ")->getSymbol(), " +
                    getEnumName(N->getTypeNum(0)) + ");");
+          NodeOps.push_back("Tmp" + utostr(ResNo));
           // Add Tmp<ResNo> to VariableMap, so that we don't multiply select
           // this value if used multiple times by this pattern result.
-          Val = TmpVar;
-          ModifiedVal = true;
+          Val = "Tmp"+utostr(ResNo);
+        } else {
+          NodeOps.push_back(Val);
         }
-        NodeOps.push_back(Val);
       } else if (!N->isLeaf() && (N->getOperator()->getName() == "tglobaladdr"
                  || N->getOperator()->getName() == "tglobaltlsaddr")) {
         Record *Op = OperatorMap[N->getName()];
         // Transform GlobalAddress to TargetGlobalAddress
         if (Op && (Op->getName() == "globaladdr" ||
                    Op->getName() == "globaltlsaddr")) {
-          std::string TmpVar = "Tmp" + utostr(ResNo);
-          emitCode("SDOperand " + TmpVar + " = CurDAG->getTarget"
+          emitCode("SDOperand Tmp" + utostr(ResNo) + " = CurDAG->getTarget"
                    "GlobalAddress(cast<GlobalAddressSDNode>(" + Val +
                    ")->getGlobal(), " + getEnumName(N->getTypeNum(0)) +
                    ");");
+          NodeOps.push_back("Tmp" + utostr(ResNo));
           // Add Tmp<ResNo> to VariableMap, so that we don't multiply select
           // this value if used multiple times by this pattern result.
-          Val = TmpVar;
-          ModifiedVal = true;
+          Val = "Tmp"+utostr(ResNo);
+        } else {
+          NodeOps.push_back(Val);
         }
+      } else if (!N->isLeaf() && N->getOperator()->getName() == "texternalsym"){
         NodeOps.push_back(Val);
-      } else if (!N->isLeaf()
-                 && (N->getOperator()->getName() == "texternalsym"
-                      || N->getOperator()->getName() == "tconstpool")) {
-        // Do not rewrite the variable name, since we don't generate a new
-        // temporary.
+        // Add Tmp<ResNo> to VariableMap, so that we don't multiply select this
+        // value if used multiple times by this pattern result.
+        Val = "Tmp"+utostr(ResNo);
+      } else if (!N->isLeaf() && N->getOperator()->getName() == "tconstpool") {
         NodeOps.push_back(Val);
+        // Add Tmp<ResNo> to VariableMap, so that we don't multiply select this
+        // value if used multiple times by this pattern result.
+        Val = "Tmp"+utostr(ResNo);
       } else if (N->isLeaf() && (CP = NodeGetComplexPattern(N, CGP))) {
         for (unsigned i = 0; i < CP->getNumOperands(); ++i) {
           emitCode("AddToISelQueue(CPTmp" + utostr(i) + ");");
@@ -818,10 +785,6 @@ public:
           }
         }
         NodeOps.push_back(Val);
-      }
-
-      if (ModifiedVal) {
-        VariableMap[VarName] = Val;
       }
       return NodeOps;
     }
@@ -957,18 +920,6 @@ public:
             AllOps.insert(AllOps.end(), Ops.begin(), Ops.end());
             NumEAInputs += Ops.size();
           }
-        }
-      }
-
-      // Generate MemOperandSDNodes nodes for each memory accesses covered by this
-      // pattern.
-      if (isRoot) {
-        std::vector<std::string>::const_iterator mi, mie;
-        for (mi = LSI.begin(), mie = LSI.end(); mi != mie; ++mi) {
-          emitCode("SDOperand LSI_" + *mi + " = "
-                   "CurDAG->getMemOperand(cast<LSBaseSDNode>(" +
-                   *mi + ")->getMemOperand());");
-          AllOps.push_back("LSI_" + *mi);
         }
       }
 
@@ -1144,15 +1095,9 @@ public:
         }
 
         if (NodeHasOutFlag) {
-          if (FoldedFlag.first != "") {
-            emitCode("ReplaceUses(SDOperand(" + FoldedFlag.first + ".Val, " +
-                     utostr(FoldedFlag.second) + "), InFlag);");
-          } else {
-            assert(NodeHasProperty(Pattern, SDNPOutFlag, CGP));
-            emitCode("ReplaceUses(SDOperand(N.Val, " +
-                     utostr(NumPatResults + (unsigned)InputHasChain)
-                     +"), InFlag);");
-          }
+          emitCode("ReplaceUses(SDOperand(N.Val, " +
+                   utostr(NumPatResults + (unsigned)InputHasChain)
+                   +"), InFlag);");
           NeedReplace = true;
         }
 
@@ -1813,36 +1758,12 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
   OS << "SDNode *Select_LABEL(const SDOperand &N) {\n"
      << "  SDOperand Chain = N.getOperand(0);\n"
      << "  SDOperand N1 = N.getOperand(1);\n"
-     << "  SDOperand N2 = N.getOperand(2);\n"
-     << "  unsigned C1 = cast<ConstantSDNode>(N1)->getValue();\n"
-     << "  unsigned C2 = cast<ConstantSDNode>(N2)->getValue();\n"
-     << "  SDOperand Tmp1 = CurDAG->getTargetConstant(C1, MVT::i32);\n"
-     << "  SDOperand Tmp2 = CurDAG->getTargetConstant(C2, MVT::i32);\n"
+     << "  unsigned C = cast<ConstantSDNode>(N1)->getValue();\n"
+     << "  SDOperand Tmp = CurDAG->getTargetConstant(C, MVT::i32);\n"
      << "  AddToISelQueue(Chain);\n"
-     << "  SDOperand Ops[] = { Tmp1, Tmp2, Chain };\n"
+     << "  SDOperand Ops[] = { Tmp, Chain };\n"
      << "  return CurDAG->getTargetNode(TargetInstrInfo::LABEL,\n"
-     << "                               MVT::Other, Ops, 3);\n"
-     << "}\n\n";
-
-  OS << "SDNode *Select_DECLARE(const SDOperand &N) {\n"
-     << "  SDOperand Chain = N.getOperand(0);\n"
-     << "  SDOperand N1 = N.getOperand(1);\n"
-     << "  SDOperand N2 = N.getOperand(2);\n"
-     << "  if (!isa<FrameIndexSDNode>(N1) || !isa<GlobalAddressSDNode>(N2)) {\n"
-     << "    cerr << \"Cannot yet select llvm.dbg.declare: \";\n"
-     << "    N.Val->dump(CurDAG);\n"
-     << "    abort();\n"
-     << "  }\n"
-     << "  int FI = cast<FrameIndexSDNode>(N1)->getIndex();\n"
-     << "  GlobalValue *GV = cast<GlobalAddressSDNode>(N2)->getGlobal();\n"
-     << "  SDOperand Tmp1 = "
-     << "CurDAG->getTargetFrameIndex(FI, TLI.getPointerTy());\n"
-     << "  SDOperand Tmp2 = "
-     << "CurDAG->getTargetGlobalAddress(GV, TLI.getPointerTy());\n"
-     << "  AddToISelQueue(Chain);\n"
-     << "  SDOperand Ops[] = { Tmp1, Tmp2, Chain };\n"
-     << "  return CurDAG->getTargetNode(TargetInstrInfo::DECLARE,\n"
-     << "                               MVT::Other, Ops, 3);\n"
+     << "                               MVT::Other, Ops, 2);\n"
      << "}\n\n";
 
   OS << "SDNode *Select_EXTRACT_SUBREG(const SDOperand &N) {\n"
@@ -1912,7 +1833,6 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "  }\n"
      << "  case ISD::INLINEASM: return Select_INLINEASM(N);\n"
      << "  case ISD::LABEL: return Select_LABEL(N);\n"
-     << "  case ISD::DECLARE: return Select_DECLARE(N);\n"
      << "  case ISD::EXTRACT_SUBREG: return Select_EXTRACT_SUBREG(N);\n"
      << "  case ISD::INSERT_SUBREG:  return Select_INSERT_SUBREG(N);\n";
 
@@ -1994,13 +1914,16 @@ void DAGISelEmitter::run(std::ostream &OS) {
      << "// *** instruction selector class.  These functions are really "
      << "methods.\n\n";
   
+  OS << "#include \"llvm/Support/Compiler.h\"\n";
+
   OS << "// Instruction selector priority queue:\n"
      << "std::vector<SDNode*> ISelQueue;\n";
   OS << "/// Keep track of nodes which have already been added to queue.\n"
      << "unsigned char *ISelQueued;\n";
   OS << "/// Keep track of nodes which have already been selected.\n"
      << "unsigned char *ISelSelected;\n";
-
+  OS << "/// Dummy parameter to ReplaceAllUsesOfValueWith().\n"
+     << "std::vector<SDNode*> ISelKilled;\n\n";
 
   OS << "/// IsChainCompatible - Returns true if Chain is Op or Chain does\n";
   OS << "/// not reach Op.\n";
@@ -2048,52 +1971,37 @@ void DAGISelEmitter::run(std::ostream &OS) {
   OS << "  }\n";
   OS << "}\n\n";
 
-  
-  OS << "class VISIBILITY_HIDDEN ISelQueueUpdater :\n";
-  OS << "  public SelectionDAG::DAGUpdateListener {\n";
-  OS << "    std::vector<SDNode*> &ISelQueue;\n";
-  OS << "    bool HadDelete;\n";
-  OS << "  public:\n";
-  OS << "    ISelQueueUpdater(std::vector<SDNode*> &isq)\n";
-  OS << "      : ISelQueue(isq), HadDelete(false) {}\n";
-  OS << "    \n";
-  OS << "    bool hadDelete() const { return HadDelete; }\n";
-  OS << "    \n";
-  OS << "    virtual void NodeDeleted(SDNode *N) {\n";
-  OS << "      ISelQueue.erase(std::remove(ISelQueue.begin(), ISelQueue.end(),";
-  OS << " N),\n                      ISelQueue.end());\n";
-  OS << "      HadDelete = true;\n";
-  OS << "    }\n";
-  OS << "    \n";
-  OS << "    // Ignore updates.\n";
-  OS << "    virtual void NodeUpdated(SDNode *N) {}\n";
-  OS << "  };\n";
-  
-  OS << "inline void UpdateQueue(const ISelQueueUpdater &ISQU) {\n";
-  OS << "  if (ISQU.hadDelete())\n";
-  OS << "    std::make_heap(ISelQueue.begin(), ISelQueue.end(),isel_sort());\n";
+  OS << "inline void RemoveKilled() {\n";
+OS << "  unsigned NumKilled = ISelKilled.size();\n";
+  OS << "  if (NumKilled) {\n";
+  OS << "    for (unsigned i = 0; i != NumKilled; ++i) {\n";
+  OS << "      SDNode *Temp = ISelKilled[i];\n";
+  OS << "      ISelQueue.erase(std::remove(ISelQueue.begin(), ISelQueue.end(), "
+     << "Temp), ISelQueue.end());\n";
+  OS << "    };\n";
+ OS << "    std::make_heap(ISelQueue.begin(), ISelQueue.end(), isel_sort());\n";
+  OS << "    ISelKilled.clear();\n";
+  OS << "  }\n";
   OS << "}\n\n";
 
   OS << "void ReplaceUses(SDOperand F, SDOperand T) DISABLE_INLINE {\n";
-  OS << "  ISelQueueUpdater ISQU(ISelQueue);\n";
-  OS << "  CurDAG->ReplaceAllUsesOfValueWith(F, T, &ISQU);\n";
+  OS << "  CurDAG->ReplaceAllUsesOfValueWith(F, T, &ISelKilled);\n";
   OS << "  setSelected(F.Val->getNodeId());\n";
-  OS << "  UpdateQueue(ISQU);\n";
+  OS << "  RemoveKilled();\n";
   OS << "}\n";
   OS << "void ReplaceUses(SDNode *F, SDNode *T) DISABLE_INLINE {\n";
   OS << "  unsigned FNumVals = F->getNumValues();\n";
   OS << "  unsigned TNumVals = T->getNumValues();\n";
-  OS << "  ISelQueueUpdater ISQU(ISelQueue);\n";
   OS << "  if (FNumVals != TNumVals) {\n";
   OS << "    for (unsigned i = 0, e = std::min(FNumVals, TNumVals); "
      << "i < e; ++i)\n";
   OS << "      CurDAG->ReplaceAllUsesOfValueWith(SDOperand(F, i), "
-     << "SDOperand(T, i), &ISQU);\n";
+     << "SDOperand(T, i), &ISelKilled);\n";
   OS << "  } else {\n";
-  OS << "    CurDAG->ReplaceAllUsesWith(F, T, &ISQU);\n";
+  OS << "    CurDAG->ReplaceAllUsesWith(F, T, &ISelKilled);\n";
   OS << "  }\n";
   OS << "  setSelected(F->getNodeId());\n";
-  OS << "  UpdateQueue(ISQU);\n";
+  OS << "  RemoveKilled();\n";
   OS << "}\n\n";
 
   OS << "// SelectRoot - Top level entry to DAG isel.\n";
@@ -2120,9 +2028,8 @@ void DAGISelEmitter::run(std::ostream &OS) {
   OS << "        if (ResNode)\n";
   OS << "          ReplaceUses(Node, ResNode);\n";
   OS << "        if (Node->use_empty()) { // Don't delete EntryToken, etc.\n";
-  OS << "          ISelQueueUpdater ISQU(ISelQueue);\n";
-  OS << "          CurDAG->RemoveDeadNode(Node, &ISQU);\n";
-  OS << "          UpdateQueue(ISQU);\n";
+  OS << "          CurDAG->RemoveDeadNode(Node, ISelKilled);\n";
+  OS << "          RemoveKilled();\n";
   OS << "        }\n";
   OS << "      }\n";
   OS << "    }\n";

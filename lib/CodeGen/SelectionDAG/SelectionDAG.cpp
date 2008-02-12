@@ -20,10 +20,8 @@
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -43,8 +41,6 @@ static SDVTList makeVTList(const MVT::ValueType *VTs, unsigned NumVTs) {
   SDVTList Res = {VTs, NumVTs};
   return Res;
 }
-
-SelectionDAG::DAGUpdateListener::~DAGUpdateListener() {}
 
 //===----------------------------------------------------------------------===//
 //                              ConstantFPSDNode Class
@@ -174,22 +170,6 @@ bool ISD::isBuildVectorAllZeros(const SDNode *N) {
         N->getOperand(i).getOpcode() != ISD::UNDEF)
       return false;
   return true;
-}
-
-/// isDebugLabel - Return true if the specified node represents a debug
-/// label (i.e. ISD::LABEL or TargetInstrInfo::LABEL node and third operand
-/// is 0).
-bool ISD::isDebugLabel(const SDNode *N) {
-  SDOperand Zero;
-  if (N->getOpcode() == ISD::LABEL)
-    Zero = N->getOperand(2);
-  else if (N->isTargetOpcode() &&
-           N->getTargetOpcode() == TargetInstrInfo::LABEL)
-    // Chain moved to last operand.
-    Zero = N->getOperand(1);
-  else
-    return false;
-  return isa<ConstantSDNode>(Zero) && cast<ConstantSDNode>(Zero)->isNullValue();
 }
 
 /// getSetCCSwappedOperands - Return the operation corresponding to (Y op X)
@@ -344,7 +324,7 @@ static void AddNodeIDNode(FoldingSetNodeID &ID, SDNode *N) {
     break;
   case ISD::TargetConstantFP:
   case ISD::ConstantFP: {
-    ID.Add(cast<ConstantFPSDNode>(N)->getValueAPF());
+    ID.AddAPFloat(cast<ConstantFPSDNode>(N)->getValueAPF());
     break;
   }
   case ISD::TargetGlobalAddress:
@@ -362,16 +342,10 @@ static void AddNodeIDNode(FoldingSetNodeID &ID, SDNode *N) {
   case ISD::Register:
     ID.AddInteger(cast<RegisterSDNode>(N)->getReg());
     break;
-  case ISD::SRCVALUE:
-    ID.AddPointer(cast<SrcValueSDNode>(N)->getValue());
-    break;
-  case ISD::MEMOPERAND: {
-    const MemOperand &MO = cast<MemOperandSDNode>(N)->MO;
-    ID.AddPointer(MO.getValue());
-    ID.AddInteger(MO.getFlags());
-    ID.AddInteger(MO.getOffset());
-    ID.AddInteger(MO.getSize());
-    ID.AddInteger(MO.getAlignment());
+  case ISD::SRCVALUE: {
+    SrcValueSDNode *SV = cast<SrcValueSDNode>(N);
+    ID.AddPointer(SV->getValue());
+    ID.AddInteger(SV->getOffset());
     break;
   }
   case ISD::FrameIndex:
@@ -397,7 +371,7 @@ static void AddNodeIDNode(FoldingSetNodeID &ID, SDNode *N) {
     LoadSDNode *LD = cast<LoadSDNode>(N);
     ID.AddInteger(LD->getAddressingMode());
     ID.AddInteger(LD->getExtensionType());
-    ID.AddInteger((unsigned int)(LD->getMemoryVT()));
+    ID.AddInteger((unsigned int)(LD->getLoadedVT()));
     ID.AddInteger(LD->getAlignment());
     ID.AddInteger(LD->isVolatile());
     break;
@@ -406,7 +380,7 @@ static void AddNodeIDNode(FoldingSetNodeID &ID, SDNode *N) {
     StoreSDNode *ST = cast<StoreSDNode>(N);
     ID.AddInteger(ST->getAddressingMode());
     ID.AddInteger(ST->isTruncatingStore());
-    ID.AddInteger((unsigned int)(ST->getMemoryVT()));
+    ID.AddInteger((unsigned int)(ST->getStoredVT()));
     ID.AddInteger(ST->getAlignment());
     ID.AddInteger(ST->isVolatile());
     break;
@@ -464,7 +438,7 @@ void SelectionDAG::RemoveDeadNodes() {
   setRoot(Dummy.getValue());
 }
 
-void SelectionDAG::RemoveDeadNode(SDNode *N, DAGUpdateListener *UpdateListener){
+void SelectionDAG::RemoveDeadNode(SDNode *N, std::vector<SDNode*> &Deleted) {
   SmallVector<SDNode*, 16> DeadNodes;
   DeadNodes.push_back(N);
 
@@ -473,9 +447,6 @@ void SelectionDAG::RemoveDeadNode(SDNode *N, DAGUpdateListener *UpdateListener){
   while (!DeadNodes.empty()) {
     SDNode *N = DeadNodes.back();
     DeadNodes.pop_back();
-    
-    if (UpdateListener)
-      UpdateListener->NodeDeleted(N);
     
     // Take the node out of the appropriate CSE map.
     RemoveNodeFromCSEMaps(N);
@@ -496,6 +467,7 @@ void SelectionDAG::RemoveDeadNode(SDNode *N, DAGUpdateListener *UpdateListener){
     N->NumOperands = 0;
     
     // Finally, remove N itself.
+    Deleted.push_back(N);
     AllNodes.erase(N);
   }
 }
@@ -662,13 +634,13 @@ SDNode *SelectionDAG::FindModifiedNodeSlot(SDNode *N,
   if (const LoadSDNode *LD = dyn_cast<LoadSDNode>(N)) {
     ID.AddInteger(LD->getAddressingMode());
     ID.AddInteger(LD->getExtensionType());
-    ID.AddInteger((unsigned int)(LD->getMemoryVT()));
+    ID.AddInteger((unsigned int)(LD->getLoadedVT()));
     ID.AddInteger(LD->getAlignment());
     ID.AddInteger(LD->isVolatile());
   } else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
     ID.AddInteger(ST->getAddressingMode());
     ID.AddInteger(ST->isTruncatingStore());
-    ID.AddInteger((unsigned int)(ST->getMemoryVT()));
+    ID.AddInteger((unsigned int)(ST->getStoredVT()));
     ID.AddInteger(ST->getAlignment());
     ID.AddInteger(ST->isVolatile());
   }
@@ -706,25 +678,18 @@ SDOperand SelectionDAG::getString(const std::string &Val) {
 }
 
 SDOperand SelectionDAG::getConstant(uint64_t Val, MVT::ValueType VT, bool isT) {
-  MVT::ValueType EltVT =
-    MVT::isVector(VT) ? MVT::getVectorElementType(VT) : VT;
-
-  return getConstant(APInt(MVT::getSizeInBits(EltVT), Val), VT, isT);
-}
-
-SDOperand SelectionDAG::getConstant(const APInt &Val, MVT::ValueType VT, bool isT) {
   assert(MVT::isInteger(VT) && "Cannot create FP integer constant!");
 
   MVT::ValueType EltVT =
     MVT::isVector(VT) ? MVT::getVectorElementType(VT) : VT;
   
-  assert(Val.getBitWidth() == MVT::getSizeInBits(EltVT) &&
-         "APInt size does not match type size!");
+  // Mask out any bits that are not valid for this constant.
+  Val &= MVT::getIntVTBitMask(EltVT);
 
   unsigned Opc = isT ? ISD::TargetConstant : ISD::Constant;
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, Opc, getVTList(EltVT), 0, 0);
-  ID.Add(Val);
+  ID.AddInteger(Val);
   void *IP = 0;
   SDNode *N = NULL;
   if ((N = CSEMap.FindNodeOrInsertPos(ID, IP)))
@@ -745,11 +710,6 @@ SDOperand SelectionDAG::getConstant(const APInt &Val, MVT::ValueType VT, bool is
   return Result;
 }
 
-SDOperand SelectionDAG::getIntPtrConstant(uint64_t Val, bool isTarget) {
-  return getConstant(Val, TLI.getPointerTy(), isTarget);
-}
-
-
 SDOperand SelectionDAG::getConstantFP(const APFloat& V, MVT::ValueType VT,
                                       bool isTarget) {
   assert(MVT::isFloatingPoint(VT) && "Cannot create integer FP constant!");
@@ -763,7 +723,7 @@ SDOperand SelectionDAG::getConstantFP(const APFloat& V, MVT::ValueType VT,
   unsigned Opc = isTarget ? ISD::TargetConstantFP : ISD::ConstantFP;
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, Opc, getVTList(EltVT), 0, 0);
-  ID.Add(V);
+  ID.AddAPFloat(V);
   void *IP = 0;
   SDNode *N = NULL;
   if ((N = CSEMap.FindNodeOrInsertPos(ID, IP)))
@@ -951,42 +911,18 @@ SDOperand SelectionDAG::getRegister(unsigned RegNo, MVT::ValueType VT) {
   return SDOperand(N, 0);
 }
 
-SDOperand SelectionDAG::getSrcValue(const Value *V) {
+SDOperand SelectionDAG::getSrcValue(const Value *V, int Offset) {
   assert((!V || isa<PointerType>(V->getType())) &&
          "SrcValue is not a pointer?");
 
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::SRCVALUE, getVTList(MVT::Other), 0, 0);
   ID.AddPointer(V);
-
+  ID.AddInteger(Offset);
   void *IP = 0;
   if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP))
     return SDOperand(E, 0);
-
-  SDNode *N = new SrcValueSDNode(V);
-  CSEMap.InsertNode(N, IP);
-  AllNodes.push_back(N);
-  return SDOperand(N, 0);
-}
-
-SDOperand SelectionDAG::getMemOperand(const MemOperand &MO) {
-  const Value *v = MO.getValue();
-  assert((!v || isa<PointerType>(v->getType())) &&
-         "SrcValue is not a pointer?");
-
-  FoldingSetNodeID ID;
-  AddNodeIDNode(ID, ISD::MEMOPERAND, getVTList(MVT::Other), 0, 0);
-  ID.AddPointer(v);
-  ID.AddInteger(MO.getFlags());
-  ID.AddInteger(MO.getOffset());
-  ID.AddInteger(MO.getSize());
-  ID.AddInteger(MO.getAlignment());
-
-  void *IP = 0;
-  if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP))
-    return SDOperand(E, 0);
-
-  SDNode *N = new MemOperandSDNode(MO);
+  SDNode *N = new SrcValueSDNode(V, Offset);
   CSEMap.InsertNode(N, IP);
   AllNodes.push_back(N);
   return SDOperand(N, 0);
@@ -1323,7 +1259,7 @@ void SelectionDAG::ComputeMaskedBits(SDOperand Op, uint64_t Mask,
   case ISD::LOAD: {
     if (ISD::isZEXTLoad(Op.Val)) {
       LoadSDNode *LD = cast<LoadSDNode>(Op);
-      MVT::ValueType VT = LD->getMemoryVT();
+      MVT::ValueType VT = LD->getLoadedVT();
       KnownZero |= ~MVT::getIntVTBitMask(VT) & Mask;
     }
     return;
@@ -1620,10 +1556,10 @@ unsigned SelectionDAG::ComputeNumSignBits(SDOperand Op, unsigned Depth) const{
     switch (ExtType) {
     default: break;
     case ISD::SEXTLOAD:    // '17' bits known
-      Tmp = MVT::getSizeInBits(LD->getMemoryVT());
+      Tmp = MVT::getSizeInBits(LD->getLoadedVT());
       return VTBits-Tmp+1;
     case ISD::ZEXTLOAD:    // '16' bits known
-      Tmp = MVT::getSizeInBits(LD->getMemoryVT());
+      Tmp = MVT::getSizeInBits(LD->getLoadedVT());
       return VTBits-Tmp;
     }
   }
@@ -1660,16 +1596,6 @@ unsigned SelectionDAG::ComputeNumSignBits(SDOperand Op, unsigned Depth) const{
   // Return # leading zeros.  We use 'min' here in case Val was zero before
   // shifting.  We don't want to return '64' as for an i32 "0".
   return std::min(VTBits, CountLeadingZeros_64(Mask));
-}
-
-
-bool SelectionDAG::isVerifiedDebugInfoDesc(SDOperand Op) const {
-  GlobalAddressSDNode *GA = dyn_cast<GlobalAddressSDNode>(Op);
-  if (!GA) return false;
-  GlobalVariable *GV = dyn_cast<GlobalVariable>(GA->getGlobal());
-  if (!GV) return false;
-  MachineModuleInfo *MMI = getMachineModuleInfo();
-  return MMI && MMI->hasDebugInfo() && MMI->isVerified(GV);
 }
 
 
@@ -1778,7 +1704,7 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
   // Constant fold unary operations with a floating point constant operand.
   if (ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(Operand.Val)) {
     APFloat V = C->getValueAPF();    // make copy
-    if (VT != MVT::ppcf128 && Operand.getValueType() != MVT::ppcf128) {
+    if (VT!=MVT::ppcf128 && Operand.getValueType()!=MVT::ppcf128) {
       switch (Opcode) {
       case ISD::FNEG:
         V.changeSign();
@@ -1823,13 +1749,13 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
   switch (Opcode) {
   case ISD::TokenFactor:
     return Operand;         // Factor of one node?  No factor.
-  case ISD::FP_ROUND: assert(0 && "Invalid method to make FP_ROUND node");
+  case ISD::FP_ROUND:
   case ISD::FP_EXTEND:
     assert(MVT::isFloatingPoint(VT) &&
            MVT::isFloatingPoint(Operand.getValueType()) && "Invalid FP cast!");
     if (Operand.getValueType() == VT) return Operand;  // noop conversion.
     break;
-    case ISD::SIGN_EXTEND:
+  case ISD::SIGN_EXTEND:
     assert(MVT::isInteger(VT) && MVT::isInteger(Operand.getValueType()) &&
            "Invalid SIGN_EXTEND!");
     if (Operand.getValueType() == VT) return Operand;   // noop extension
@@ -1928,36 +1854,15 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
 
 SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
                                 SDOperand N1, SDOperand N2) {
-  ConstantSDNode *N1C = dyn_cast<ConstantSDNode>(N1.Val);
-  ConstantSDNode *N2C = dyn_cast<ConstantSDNode>(N2.Val);
+#ifndef NDEBUG
   switch (Opcode) {
-  default: break;
   case ISD::TokenFactor:
     assert(VT == MVT::Other && N1.getValueType() == MVT::Other &&
            N2.getValueType() == MVT::Other && "Invalid token factor!");
-    // Fold trivial token factors.
-    if (N1.getOpcode() == ISD::EntryToken) return N2;
-    if (N2.getOpcode() == ISD::EntryToken) return N1;
     break;
   case ISD::AND:
-    assert(MVT::isInteger(VT) && N1.getValueType() == N2.getValueType() &&
-           N1.getValueType() == VT && "Binary operator types must match!");
-    // (X & 0) -> 0.  This commonly occurs when legalizing i64 values, so it's
-    // worth handling here.
-    if (N2C && N2C->getValue() == 0)
-      return N2;
-    if (N2C && N2C->isAllOnesValue())  // X & -1 -> X
-      return N1;
-    break;
   case ISD::OR:
   case ISD::XOR:
-    assert(MVT::isInteger(VT) && N1.getValueType() == N2.getValueType() &&
-           N1.getValueType() == VT && "Binary operator types must match!");
-    // (X ^| 0) -> X.  This commonly occurs when legalizing i64 values, so it's
-    // worth handling here.
-    if (N2C && N2C->getValue() == 0)
-      return N1;
-    break;
   case ISD::UDIV:
   case ISD::UREM:
   case ISD::MULHU:
@@ -1969,6 +1874,8 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
   case ISD::MUL:
   case ISD::SDIV:
   case ISD::SREM:
+    assert(MVT::isInteger(N1.getValueType()) && "Should use F* for FP ops");
+    // fall through.
   case ISD::FADD:
   case ISD::FSUB:
   case ISD::FMUL:
@@ -2000,27 +1907,10 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
            "Cannot FP_ROUND_INREG integer types");
     assert(MVT::getSizeInBits(EVT) <= MVT::getSizeInBits(VT) &&
            "Not rounding down!");
-    if (cast<VTSDNode>(N2)->getVT() == VT) return N1;  // Not actually rounding.
     break;
   }
-  case ISD::FP_ROUND:
-    assert(MVT::isFloatingPoint(VT) &&
-           MVT::isFloatingPoint(N1.getValueType()) &&
-           MVT::getSizeInBits(VT) <= MVT::getSizeInBits(N1.getValueType()) &&
-           isa<ConstantSDNode>(N2) && "Invalid FP_ROUND!");
-    if (N1.getValueType() == VT) return N1;  // noop conversion.
-    break;
   case ISD::AssertSext:
-  case ISD::AssertZext: {
-    MVT::ValueType EVT = cast<VTSDNode>(N2)->getVT();
-    assert(VT == N1.getValueType() && "Not an inreg extend!");
-    assert(MVT::isInteger(VT) && MVT::isInteger(EVT) &&
-           "Cannot *_EXTEND_INREG FP types");
-    assert(MVT::getSizeInBits(EVT) <= MVT::getSizeInBits(VT) &&
-           "Not extending!");
-    if (VT == EVT) return N1; // noop assertion.
-    break;
-  }
+  case ISD::AssertZext:
   case ISD::SIGN_EXTEND_INREG: {
     MVT::ValueType EVT = cast<VTSDNode>(N2)->getVT();
     assert(VT == N1.getValueType() && "Not an inreg extend!");
@@ -2028,64 +1918,23 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
            "Cannot *_EXTEND_INREG FP types");
     assert(MVT::getSizeInBits(EVT) <= MVT::getSizeInBits(VT) &&
            "Not extending!");
-    if (EVT == VT) return N1;  // Not actually extending
+  }
 
-    if (N1C) {
+  default: break;
+  }
+#endif
+
+  ConstantSDNode *N1C = dyn_cast<ConstantSDNode>(N1.Val);
+  ConstantSDNode *N2C = dyn_cast<ConstantSDNode>(N2.Val);
+  if (N1C) {
+    if (Opcode == ISD::SIGN_EXTEND_INREG) {
       int64_t Val = N1C->getValue();
       unsigned FromBits = MVT::getSizeInBits(cast<VTSDNode>(N2)->getVT());
       Val <<= 64-FromBits;
       Val >>= 64-FromBits;
       return getConstant(Val, VT);
     }
-    break;
-  }
-  case ISD::EXTRACT_VECTOR_ELT:
-    assert(N2C && "Bad EXTRACT_VECTOR_ELT!");
-
-    // EXTRACT_VECTOR_ELT of CONCAT_VECTORS is often formed while lowering is
-    // expanding copies of large vectors from registers.
-    if (N1.getOpcode() == ISD::CONCAT_VECTORS &&
-        N1.getNumOperands() > 0) {
-      unsigned Factor =
-        MVT::getVectorNumElements(N1.getOperand(0).getValueType());
-      return getNode(ISD::EXTRACT_VECTOR_ELT, VT,
-                     N1.getOperand(N2C->getValue() / Factor),
-                     getConstant(N2C->getValue() % Factor, N2.getValueType()));
-    }
-
-    // EXTRACT_VECTOR_ELT of BUILD_VECTOR is often formed while lowering is
-    // expanding large vector constants.
-    if (N1.getOpcode() == ISD::BUILD_VECTOR)
-      return N1.getOperand(N2C->getValue());
-
-    // EXTRACT_VECTOR_ELT of INSERT_VECTOR_ELT is often formed when vector
-    // operations are lowered to scalars.
-    if (N1.getOpcode() == ISD::INSERT_VECTOR_ELT)
-      if (ConstantSDNode *IEC = dyn_cast<ConstantSDNode>(N1.getOperand(2))) {
-        if (IEC == N2C)
-          return N1.getOperand(1);
-        else
-          return getNode(ISD::EXTRACT_VECTOR_ELT, VT, N1.getOperand(0), N2);
-      }
-    break;
-  case ISD::EXTRACT_ELEMENT:
-    assert(N2C && (unsigned)N2C->getValue() < 2 && "Bad EXTRACT_ELEMENT!");
     
-    // EXTRACT_ELEMENT of BUILD_PAIR is often formed while legalize is expanding
-    // 64-bit integers into 32-bit parts.  Instead of building the extract of
-    // the BUILD_PAIR, only to have legalize rip it apart, just do it now. 
-    if (N1.getOpcode() == ISD::BUILD_PAIR)
-      return N1.getOperand(N2C->getValue());
-    
-    // EXTRACT_ELEMENT of a constant int is also very common.
-    if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(N1)) {
-      unsigned Shift = MVT::getSizeInBits(VT) * N2C->getValue();
-      return getConstant(C->getValue() >> Shift, VT);
-    }
-    break;
-  }
-
-  if (N1C) {
     if (N2C) {
       uint64_t C1 = N1C->getValue(), C2 = N2C->getValue();
       switch (Opcode) {
@@ -2128,21 +1977,16 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
     }
   }
 
-  // Constant fold FP operations.
   ConstantFPSDNode *N1CFP = dyn_cast<ConstantFPSDNode>(N1.Val);
   ConstantFPSDNode *N2CFP = dyn_cast<ConstantFPSDNode>(N2.Val);
   if (N1CFP) {
-    if (!N2CFP && isCommutativeBinOp(Opcode)) {
-      // Cannonicalize constant to RHS if commutative
-      std::swap(N1CFP, N2CFP);
-      std::swap(N1, N2);
-    } else if (N2CFP && VT != MVT::ppcf128) {
+    if (N2CFP && VT!=MVT::ppcf128) {
       APFloat V1 = N1CFP->getValueAPF(), V2 = N2CFP->getValueAPF();
       APFloat::opStatus s;
       switch (Opcode) {
       case ISD::FADD: 
         s = V1.add(V2, APFloat::rmNearestTiesToEven);
-        if (s != APFloat::opInvalidOp)
+        if (s!=APFloat::opInvalidOp)
           return getConstantFP(V1, VT);
         break;
       case ISD::FSUB: 
@@ -2169,6 +2013,11 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
         V1.copySign(V2);
         return getConstantFP(V1, VT);
       default: break;
+      }
+    } else {      // Cannonicalize constant to RHS if commutative
+      if (isCommutativeBinOp(Opcode)) {
+        std::swap(N1CFP, N2CFP);
+        std::swap(N1, N2);
       }
     }
   }
@@ -2238,6 +2087,102 @@ SDOperand SelectionDAG::getNode(unsigned Opcode, MVT::ValueType VT,
     case ISD::SRA:
       return N1;
     }
+  }
+
+  // Fold operations.
+  switch (Opcode) {
+  case ISD::TokenFactor:
+    // Fold trivial token factors.
+    if (N1.getOpcode() == ISD::EntryToken) return N2;
+    if (N2.getOpcode() == ISD::EntryToken) return N1;
+    break;
+      
+  case ISD::AND:
+    // (X & 0) -> 0.  This commonly occurs when legalizing i64 values, so it's
+    // worth handling here.
+    if (N2C && N2C->getValue() == 0)
+      return N2;
+    break;
+  case ISD::OR:
+  case ISD::XOR:
+    // (X ^| 0) -> X.  This commonly occurs when legalizing i64 values, so it's
+    // worth handling here.
+    if (N2C && N2C->getValue() == 0)
+      return N1;
+    break;
+  case ISD::FP_ROUND_INREG:
+    if (cast<VTSDNode>(N2)->getVT() == VT) return N1;  // Not actually rounding.
+    break;
+  case ISD::SIGN_EXTEND_INREG: {
+    MVT::ValueType EVT = cast<VTSDNode>(N2)->getVT();
+    if (EVT == VT) return N1;  // Not actually extending
+    break;
+  }
+  case ISD::EXTRACT_VECTOR_ELT:
+    assert(N2C && "Bad EXTRACT_VECTOR_ELT!");
+
+    // EXTRACT_VECTOR_ELT of CONCAT_VECTORS is often formed while lowering is
+    // expanding copies of large vectors from registers.
+    if (N1.getOpcode() == ISD::CONCAT_VECTORS &&
+        N1.getNumOperands() > 0) {
+      unsigned Factor =
+        MVT::getVectorNumElements(N1.getOperand(0).getValueType());
+      return getNode(ISD::EXTRACT_VECTOR_ELT, VT,
+                     N1.getOperand(N2C->getValue() / Factor),
+                     getConstant(N2C->getValue() % Factor, N2.getValueType()));
+    }
+
+    // EXTRACT_VECTOR_ELT of BUILD_VECTOR is often formed while lowering is
+    // expanding large vector constants.
+    if (N1.getOpcode() == ISD::BUILD_VECTOR)
+      return N1.getOperand(N2C->getValue());
+
+    // EXTRACT_VECTOR_ELT of INSERT_VECTOR_ELT is often formed when vector
+    // operations are lowered to scalars.
+    if (N1.getOpcode() == ISD::INSERT_VECTOR_ELT)
+      if (ConstantSDNode *IEC = dyn_cast<ConstantSDNode>(N1.getOperand(2))) {
+        if (IEC == N2C)
+          return N1.getOperand(1);
+        else
+          return getNode(ISD::EXTRACT_VECTOR_ELT, VT, N1.getOperand(0), N2);
+      }
+    break;
+  case ISD::EXTRACT_ELEMENT:
+    assert(N2C && (unsigned)N2C->getValue() < 2 && "Bad EXTRACT_ELEMENT!");
+    
+    // EXTRACT_ELEMENT of BUILD_PAIR is often formed while legalize is expanding
+    // 64-bit integers into 32-bit parts.  Instead of building the extract of
+    // the BUILD_PAIR, only to have legalize rip it apart, just do it now. 
+    if (N1.getOpcode() == ISD::BUILD_PAIR)
+      return N1.getOperand(N2C->getValue());
+    
+    // EXTRACT_ELEMENT of a constant int is also very common.
+    if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(N1)) {
+      unsigned Shift = MVT::getSizeInBits(VT) * N2C->getValue();
+      return getConstant(C->getValue() >> Shift, VT);
+    }
+    break;
+
+  // FIXME: figure out how to safely handle things like
+  // int foo(int x) { return 1 << (x & 255); }
+  // int bar() { return foo(256); }
+#if 0
+  case ISD::SHL:
+  case ISD::SRL:
+  case ISD::SRA:
+    if (N2.getOpcode() == ISD::SIGN_EXTEND_INREG &&
+        cast<VTSDNode>(N2.getOperand(1))->getVT() != MVT::i1)
+      return getNode(Opcode, VT, N1, N2.getOperand(0));
+    else if (N2.getOpcode() == ISD::AND)
+      if (ConstantSDNode *AndRHS = dyn_cast<ConstantSDNode>(N2.getOperand(1))) {
+        // If the and is only masking out bits that cannot effect the shift,
+        // eliminate the and.
+        unsigned NumBits = MVT::getSizeInBits(VT);
+        if ((AndRHS->getValue() & (NumBits-1)) == NumBits-1)
+          return getNode(Opcode, VT, N1, N2.getOperand(0));
+      }
+    break;
+#endif
   }
 
   // Memoize this node if possible.
@@ -2461,14 +2406,14 @@ SelectionDAG::getIndexedLoad(SDOperand OrigLoad, SDOperand Base,
   AddNodeIDNode(ID, ISD::LOAD, VTs, Ops, 3);
   ID.AddInteger(AM);
   ID.AddInteger(LD->getExtensionType());
-  ID.AddInteger((unsigned int)(LD->getMemoryVT()));
+  ID.AddInteger((unsigned int)(LD->getLoadedVT()));
   ID.AddInteger(LD->getAlignment());
   ID.AddInteger(LD->isVolatile());
   void *IP = 0;
   if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP))
     return SDOperand(E, 0);
   SDNode *N = new LoadSDNode(Ops, VTs, AM,
-                             LD->getExtensionType(), LD->getMemoryVT(),
+                             LD->getExtensionType(), LD->getLoadedVT(),
                              LD->getSrcValue(), LD->getSrcValueOffset(),
                              LD->getAlignment(), LD->isVolatile());
   CSEMap.InsertNode(N, IP);
@@ -2571,14 +2516,14 @@ SelectionDAG::getIndexedStore(SDOperand OrigStore, SDOperand Base,
   AddNodeIDNode(ID, ISD::STORE, VTs, Ops, 4);
   ID.AddInteger(AM);
   ID.AddInteger(ST->isTruncatingStore());
-  ID.AddInteger((unsigned int)(ST->getMemoryVT()));
+  ID.AddInteger((unsigned int)(ST->getStoredVT()));
   ID.AddInteger(ST->getAlignment());
   ID.AddInteger(ST->isVolatile());
   void *IP = 0;
   if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP))
     return SDOperand(E, 0);
   SDNode *N = new StoreSDNode(Ops, VTs, AM,
-                              ST->isTruncatingStore(), ST->getMemoryVT(),
+                              ST->isTruncatingStore(), ST->getStoredVT(),
                               ST->getSrcValue(), ST->getSrcValueOffset(),
                               ST->getAlignment(), ST->isVolatile());
   CSEMap.InsertNode(N, IP);
@@ -3213,18 +3158,17 @@ SDNode *SelectionDAG::getTargetNode(unsigned Opcode,
                  Ops, NumOps).Val;
 }
 
-
 /// ReplaceAllUsesWith - Modify anything using 'From' to use 'To' instead.
 /// This can cause recursive merging of nodes in the DAG.
 ///
-/// This version assumes From has a single result value.
+/// This version assumes From/To have a single result value.
 ///
-void SelectionDAG::ReplaceAllUsesWith(SDOperand FromN, SDOperand To,
-                                      DAGUpdateListener *UpdateListener) {
-  SDNode *From = FromN.Val;
-  assert(From->getNumValues() == 1 && FromN.ResNo == 0 && 
+void SelectionDAG::ReplaceAllUsesWith(SDOperand FromN, SDOperand ToN,
+                                      std::vector<SDNode*> *Deleted) {
+  SDNode *From = FromN.Val, *To = ToN.Val;
+  assert(From->getNumValues() == 1 && To->getNumValues() == 1 &&
          "Cannot replace with this method!");
-  assert(From != To.Val && "Cannot replace uses of with self");
+  assert(From != To && "Cannot replace uses of with self");
   
   while (!From->use_empty()) {
     // Process users until they are all gone.
@@ -3237,23 +3181,17 @@ void SelectionDAG::ReplaceAllUsesWith(SDOperand FromN, SDOperand To,
          I != E; ++I)
       if (I->Val == From) {
         From->removeUser(U);
-        *I = To;
-        To.Val->addUser(U);
+        I->Val = To;
+        To->addUser(U);
       }
 
     // Now that we have modified U, add it back to the CSE maps.  If it already
     // exists there, recursively merge the results together.
     if (SDNode *Existing = AddNonLeafNodeToCSEMaps(U)) {
-      ReplaceAllUsesWith(U, Existing, UpdateListener);
-      // U is now dead.  Inform the listener if it exists and delete it.
-      if (UpdateListener) 
-        UpdateListener->NodeDeleted(U);
+      ReplaceAllUsesWith(U, Existing, Deleted);
+      // U is now dead.
+      if (Deleted) Deleted->push_back(U);
       DeleteNodeNotInCSEMaps(U);
-    } else {
-      // If the node doesn't already exist, we updated it.  Inform a listener if
-      // it exists.
-      if (UpdateListener) 
-        UpdateListener->NodeUpdated(U);
     }
   }
 }
@@ -3265,13 +3203,14 @@ void SelectionDAG::ReplaceAllUsesWith(SDOperand FromN, SDOperand To,
 /// values.
 ///
 void SelectionDAG::ReplaceAllUsesWith(SDNode *From, SDNode *To,
-                                      DAGUpdateListener *UpdateListener) {
+                                      std::vector<SDNode*> *Deleted) {
   assert(From != To && "Cannot replace uses of with self");
   assert(From->getNumValues() == To->getNumValues() &&
          "Cannot use this version of ReplaceAllUsesWith!");
-  if (From->getNumValues() == 1)   // If possible, use the faster version.
-    return ReplaceAllUsesWith(SDOperand(From, 0), SDOperand(To, 0),
-                              UpdateListener);
+  if (From->getNumValues() == 1) {  // If possible, use the faster version.
+    ReplaceAllUsesWith(SDOperand(From, 0), SDOperand(To, 0), Deleted);
+    return;
+  }
   
   while (!From->use_empty()) {
     // Process users until they are all gone.
@@ -3291,16 +3230,10 @@ void SelectionDAG::ReplaceAllUsesWith(SDNode *From, SDNode *To,
     // Now that we have modified U, add it back to the CSE maps.  If it already
     // exists there, recursively merge the results together.
     if (SDNode *Existing = AddNonLeafNodeToCSEMaps(U)) {
-      ReplaceAllUsesWith(U, Existing, UpdateListener);
-      // U is now dead.  Inform the listener if it exists and delete it.
-      if (UpdateListener) 
-        UpdateListener->NodeDeleted(U);
+      ReplaceAllUsesWith(U, Existing, Deleted);
+      // U is now dead.
+      if (Deleted) Deleted->push_back(U);
       DeleteNodeNotInCSEMaps(U);
-    } else {
-      // If the node doesn't already exist, we updated it.  Inform a listener if
-      // it exists.
-      if (UpdateListener) 
-        UpdateListener->NodeUpdated(U);
     }
   }
 }
@@ -3312,9 +3245,12 @@ void SelectionDAG::ReplaceAllUsesWith(SDNode *From, SDNode *To,
 /// number and types of values returned by From.
 void SelectionDAG::ReplaceAllUsesWith(SDNode *From,
                                       const SDOperand *To,
-                                      DAGUpdateListener *UpdateListener) {
-  if (From->getNumValues() == 1)  // Handle the simple case efficiently.
-    return ReplaceAllUsesWith(SDOperand(From, 0), To[0], UpdateListener);
+                                      std::vector<SDNode*> *Deleted) {
+  if (From->getNumValues() == 1 && To[0].Val->getNumValues() == 1) {
+    // Degenerate case handled above.
+    ReplaceAllUsesWith(SDOperand(From, 0), To[0], Deleted);
+    return;
+  }
 
   while (!From->use_empty()) {
     // Process users until they are all gone.
@@ -3335,67 +3271,35 @@ void SelectionDAG::ReplaceAllUsesWith(SDNode *From,
     // Now that we have modified U, add it back to the CSE maps.  If it already
     // exists there, recursively merge the results together.
     if (SDNode *Existing = AddNonLeafNodeToCSEMaps(U)) {
-      ReplaceAllUsesWith(U, Existing, UpdateListener);
-      // U is now dead.  Inform the listener if it exists and delete it.
-      if (UpdateListener) 
-        UpdateListener->NodeDeleted(U);
+      ReplaceAllUsesWith(U, Existing, Deleted);
+      // U is now dead.
+      if (Deleted) Deleted->push_back(U);
       DeleteNodeNotInCSEMaps(U);
-    } else {
-      // If the node doesn't already exist, we updated it.  Inform a listener if
-      // it exists.
-      if (UpdateListener) 
-        UpdateListener->NodeUpdated(U);
     }
   }
-}
-
-namespace {
-  /// ChainedSetUpdaterListener - This class is a DAGUpdateListener that removes
-  /// any deleted nodes from the set passed into its constructor and recursively
-  /// notifies another update listener if specified.
-  class ChainedSetUpdaterListener : 
-  public SelectionDAG::DAGUpdateListener {
-    SmallSetVector<SDNode*, 16> &Set;
-    SelectionDAG::DAGUpdateListener *Chain;
-  public:
-    ChainedSetUpdaterListener(SmallSetVector<SDNode*, 16> &set,
-                              SelectionDAG::DAGUpdateListener *chain)
-      : Set(set), Chain(chain) {}
-    
-    virtual void NodeDeleted(SDNode *N) {
-      Set.remove(N);
-      if (Chain) Chain->NodeDeleted(N);
-    }
-    virtual void NodeUpdated(SDNode *N) {
-      if (Chain) Chain->NodeUpdated(N);
-    }
-  };
 }
 
 /// ReplaceAllUsesOfValueWith - Replace any uses of From with To, leaving
 /// uses of other values produced by From.Val alone.  The Deleted vector is
-/// handled the same way as for ReplaceAllUsesWith.
+/// handled the same was as for ReplaceAllUsesWith.
 void SelectionDAG::ReplaceAllUsesOfValueWith(SDOperand From, SDOperand To,
-                                             DAGUpdateListener *UpdateListener){
+                                             std::vector<SDNode*> *Deleted) {
   assert(From != To && "Cannot replace a value with itself");
-  
   // Handle the simple, trivial, case efficiently.
-  if (From.Val->getNumValues() == 1) {
-    ReplaceAllUsesWith(From, To, UpdateListener);
+  if (From.Val->getNumValues() == 1 && To.Val->getNumValues() == 1) {
+    ReplaceAllUsesWith(From, To, Deleted);
     return;
   }
-
-  if (From.use_empty()) return;
-
+  
   // Get all of the users of From.Val.  We want these in a nice,
   // deterministically ordered and uniqued set, so we use a SmallSetVector.
   SmallSetVector<SDNode*, 16> Users(From.Val->use_begin(), From.Val->use_end());
 
-  // When one of the recursive merges deletes nodes from the graph, we need to
-  // make sure that UpdateListener is notified *and* that the node is removed
-  // from Users if present.  CSUL does this.
-  ChainedSetUpdaterListener CSUL(Users, UpdateListener);
+  std::vector<SDNode*> LocalDeletionVector;
   
+  // Pick a deletion vector to use.  If the user specified one, use theirs,
+  // otherwise use a local one.
+  std::vector<SDNode*> *DeleteVector = Deleted ? Deleted : &LocalDeletionVector;
   while (!Users.empty()) {
     // We know that this user uses some value of From.  If it is the right
     // value, update it.
@@ -3414,7 +3318,7 @@ void SelectionDAG::ReplaceAllUsesOfValueWith(SDOperand From, SDOperand To,
     // from the CSE maps.
     RemoveNodeFromCSEMaps(User);
     
-    // Update all operands that match "From" in case there are multiple uses.
+    // Update all operands that match "From".
     for (; Op != E; ++Op) {
       if (*Op == From) {
         From.Val->removeUser(User);
@@ -3426,21 +3330,31 @@ void SelectionDAG::ReplaceAllUsesOfValueWith(SDOperand From, SDOperand To,
     // Now that we have modified User, add it back to the CSE maps.  If it
     // already exists there, recursively merge the results together.
     SDNode *Existing = AddNonLeafNodeToCSEMaps(User);
-    if (!Existing) {
-      if (UpdateListener) UpdateListener->NodeUpdated(User);
-      continue;  // Continue on to next user.
-    }
+    if (!Existing) continue;  // Continue on to next user.
     
     // If there was already an existing matching node, use ReplaceAllUsesWith
-    // to replace the dead one with the existing one.  This can cause
+    // to replace the dead one with the existing one.  However, this can cause
     // recursive merging of other unrelated nodes down the line.  The merging
-    // can cause deletion of nodes that used the old value.  To handle this, we
-    // use CSUL to remove them from the Users set.
-    ReplaceAllUsesWith(User, Existing, &CSUL);
+    // can cause deletion of nodes that used the old value.  In this case,
+    // we have to be certain to remove them from the Users set.
+    unsigned NumDeleted = DeleteVector->size();
+    ReplaceAllUsesWith(User, Existing, DeleteVector);
     
-    // User is now dead.  Notify a listener if present.
-    if (UpdateListener) UpdateListener->NodeDeleted(User);
+    // User is now dead.
+    DeleteVector->push_back(User);
     DeleteNodeNotInCSEMaps(User);
+    
+    // We have to be careful here, because ReplaceAllUsesWith could have
+    // deleted a user of From, which means there may be dangling pointers
+    // in the "Users" setvector.  Scan over the deleted node pointers and
+    // remove them from the setvector.
+    for (unsigned i = NumDeleted, e = DeleteVector->size(); i != e; ++i)
+      Users.remove((*DeleteVector)[i]);
+
+    // If the user doesn't need the set of deleted elements, don't retain them
+    // to the next loop iteration.
+    if (Deleted == 0)
+      LocalDeletionVector.clear();
   }
 }
 
@@ -3518,7 +3432,6 @@ void JumpTableSDNode::ANCHOR() {}
 void ConstantPoolSDNode::ANCHOR() {}
 void BasicBlockSDNode::ANCHOR() {}
 void SrcValueSDNode::ANCHOR() {}
-void MemOperandSDNode::ANCHOR() {}
 void RegisterSDNode::ANCHOR() {}
 void ExternalSymbolSDNode::ANCHOR() {}
 void CondCodeSDNode::ANCHOR() {}
@@ -3543,26 +3456,6 @@ GlobalAddressSDNode::GlobalAddressSDNode(bool isTarget, const GlobalValue *GA,
   TheGlobal = const_cast<GlobalValue*>(GA);
 }
 
-/// getMemOperand - Return a MemOperand object describing the memory
-/// reference performed by this load or store.
-MemOperand LSBaseSDNode::getMemOperand() const {
-  int Size = (MVT::getSizeInBits(getMemoryVT()) + 7) >> 3;
-  int Flags =
-    getOpcode() == ISD::LOAD ? MemOperand::MOLoad : MemOperand::MOStore;
-  if (IsVolatile) Flags |= MemOperand::MOVolatile;
-
-  // Check if the load references a frame index, and does not have
-  // an SV attached.
-  const FrameIndexSDNode *FI =
-    dyn_cast<const FrameIndexSDNode>(getBasePtr().Val);
-  if (!getSrcValue() && FI)
-    return MemOperand(PseudoSourceValue::getFixedStack(), Flags,
-                      FI->getIndex(), Size, Alignment);
-  else
-    return MemOperand(getSrcValue(), Flags,
-                      getSrcValueOffset(), Size, Alignment);
-}
-
 /// Profile - Gather unique data for the node.
 ///
 void SDNode::Profile(FoldingSetNodeID &ID) {
@@ -3571,10 +3464,10 @@ void SDNode::Profile(FoldingSetNodeID &ID) {
 
 /// getValueTypeList - Return a pointer to the specified value type.
 ///
-const MVT::ValueType *SDNode::getValueTypeList(MVT::ValueType VT) {
+MVT::ValueType *SDNode::getValueTypeList(MVT::ValueType VT) {
   if (MVT::isExtendedVT(VT)) {
     static std::set<MVT::ValueType> EVTs;
-    return &(*EVTs.insert(VT).first);
+    return (MVT::ValueType *)&(*EVTs.insert(VT).first);
   } else {
     static MVT::ValueType VTs[MVT::LAST_VALUETYPE];
     VTs[VT] = VT;
@@ -3619,7 +3512,7 @@ bool SDNode::hasNUsesOfValue(unsigned NUses, unsigned Value) const {
 bool SDNode::hasAnyUseOfValue(unsigned Value) const {
   assert(Value < getNumValues() && "Bad value!");
 
-  if (use_empty()) return false;
+  if (use_size() == 0) return false;
 
   SDOperand TheValue(const_cast<SDNode *>(this), Value);
 
@@ -3755,7 +3648,6 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::PCMARKER:      return "PCMarker";
   case ISD::READCYCLECOUNTER: return "ReadCycleCounter";
   case ISD::SRCVALUE:      return "SrcValue";
-  case ISD::MEMOPERAND:    return "MemOperand";
   case ISD::EntryToken:    return "EntryToken";
   case ISD::TokenFactor:   return "TokenFactor";
   case ISD::AssertSext:    return "AssertSext";
@@ -3807,7 +3699,6 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::MERGE_VALUES:  return "merge_values";
   case ISD::INLINEASM:     return "inlineasm";
   case ISD::LABEL:         return "label";
-  case ISD::DECLARE:       return "declare";
   case ISD::HANDLENODE:    return "handlenode";
   case ISD::FORMAL_ARGUMENTS: return "formal_arguments";
   case ISD::CALL:          return "call";
@@ -3879,7 +3770,7 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::SIGN_EXTEND_INREG: return "sign_extend_inreg";
   case ISD::TRUNCATE:    return "truncate";
   case ISD::FP_ROUND:    return "fp_round";
-  case ISD::FLT_ROUNDS_: return "flt_rounds";
+  case ISD::FLT_ROUNDS:  return "flt_rounds";
   case ISD::FP_ROUND_INREG: return "fp_round_inreg";
   case ISD::FP_EXTEND:   return "fp_extend";
 
@@ -4051,8 +3942,7 @@ void SDNode::dump(const SelectionDAG *G) const {
       cerr << LBB->getName() << " ";
     cerr << (const void*)BBDN->getBasicBlock() << ">";
   } else if (const RegisterSDNode *R = dyn_cast<RegisterSDNode>(this)) {
-    if (G && R->getReg() &&
-        TargetRegisterInfo::isPhysicalRegister(R->getReg())) {
+    if (G && R->getReg() && MRegisterInfo::isPhysicalRegister(R->getReg())) {
       cerr << " " <<G->getTarget().getRegisterInfo()->getName(R->getReg());
     } else {
       cerr << " #" << R->getReg();
@@ -4062,14 +3952,9 @@ void SDNode::dump(const SelectionDAG *G) const {
     cerr << "'" << ES->getSymbol() << "'";
   } else if (const SrcValueSDNode *M = dyn_cast<SrcValueSDNode>(this)) {
     if (M->getValue())
-      cerr << "<" << M->getValue() << ">";
+      cerr << "<" << M->getValue() << ":" << M->getOffset() << ">";
     else
-      cerr << "<null>";
-  } else if (const MemOperandSDNode *M = dyn_cast<MemOperandSDNode>(this)) {
-    if (M->MO.getValue())
-      cerr << "<" << M->MO.getValue() << ":" << M->MO.getOffset() << ">";
-    else
-      cerr << "<null:" << M->MO.getOffset() << ">";
+      cerr << "<null:" << M->getOffset() << ">";
   } else if (const VTSDNode *N = dyn_cast<VTSDNode>(this)) {
     cerr << ":" << MVT::getValueTypeString(N->getVT());
   } else if (const LoadSDNode *LD = dyn_cast<LoadSDNode>(this)) {
@@ -4096,7 +3981,7 @@ void SDNode::dump(const SelectionDAG *G) const {
       break;
     }
     if (doExt)
-      cerr << MVT::getValueTypeString(LD->getMemoryVT()) << ">";
+      cerr << MVT::getValueTypeString(LD->getLoadedVT()) << ">";
 
     const char *AM = getIndexedModeName(LD->getAddressingMode());
     if (*AM)
@@ -4116,7 +4001,7 @@ void SDNode::dump(const SelectionDAG *G) const {
 
     if (ST->isTruncatingStore())
       cerr << " <trunc "
-           << MVT::getValueTypeString(ST->getMemoryVT()) << ">";
+           << MVT::getValueTypeString(ST->getStoredVT()) << ">";
 
     const char *AM = getIndexedModeName(ST->getAddressingMode());
     if (*AM)

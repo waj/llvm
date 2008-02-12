@@ -16,19 +16,8 @@
 #include "LegalizeTypes.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MathExtras.h"
 using namespace llvm;
-
-#ifndef NDEBUG
-static cl::opt<bool>
-ViewLegalizeTypesDAGs("view-legalize-types-dags", cl::Hidden,
-                cl::desc("Pop up a window to show dags before legalize types"));
-#else
-static const bool ViewLegalizeTypesDAGs = 0;
-#endif
-
-
 
 /// run - This is the main entry point for the type legalizer.  This does a
 /// top-down traversal of the dag, legalizing types as it goes.
@@ -217,35 +206,6 @@ void DAGTypeLegalizer::MarkNewNodes(SDNode *N) {
     Worklist.push_back(N);
 }
 
-namespace {
-  /// NodeUpdateListener - This class is a DAGUpdateListener that listens for
-  /// updates to nodes and recomputes their ready state.
-  class VISIBILITY_HIDDEN NodeUpdateListener :
-    public SelectionDAG::DAGUpdateListener {
-    DAGTypeLegalizer &DTL;
-  public:
-    NodeUpdateListener(DAGTypeLegalizer &dtl) : DTL(dtl) {}
-
-    virtual void NodeDeleted(SDNode *N) {
-      // Ignore deletes.
-      assert(N->getNodeId() != DAGTypeLegalizer::Processed &&
-             N->getNodeId() != DAGTypeLegalizer::ReadyToProcess &&
-             "RAUW deleted processed node!");
-    }
-
-    virtual void NodeUpdated(SDNode *N) {
-      // Node updates can mean pretty much anything.  It is possible that an
-      // operand was set to something already processed (f.e.) in which case
-      // this node could become ready.  Recompute its flags.
-      assert(N->getNodeId() != DAGTypeLegalizer::Processed &&
-             N->getNodeId() != DAGTypeLegalizer::ReadyToProcess &&
-             "RAUW updated processed node!");
-      DTL.ReanalyzeNodeFlags(N);
-    }
-  };
-}
-
-
 /// ReplaceValueWith - The specified value was legalized to the specified other
 /// value.  If they are different, update the DAG and NodeIDs replacing any uses
 /// of From to use To instead.
@@ -258,12 +218,26 @@ void DAGTypeLegalizer::ReplaceValueWith(SDOperand From, SDOperand To) {
   
   // Anything that used the old node should now use the new one.  Note that this
   // can potentially cause recursive merging.
-  NodeUpdateListener NUL(*this);
-  DAG.ReplaceAllUsesOfValueWith(From, To, &NUL);
+  DAG.ReplaceAllUsesOfValueWith(From, To);
 
   // The old node may still be present in ExpandedNodes or PromotedNodes.
   // Inform them about the replacement.
   ReplacedNodes[From] = To;
+
+  // Since we just made an unstructured update to the DAG, which could wreak
+  // general havoc on anything that once used From and now uses To, walk all
+  // users of the result, updating their flags.
+  for (SDNode::use_iterator I = To.Val->use_begin(), E = To.Val->use_end();
+       I != E; ++I) {
+    SDNode *User = *I;
+    // If the node isn't already processed or in the worklist, mark it as new,
+    // then use MarkNewNodes to recompute its ID.
+    int NodeId = User->getNodeId();
+    if (NodeId != ReadyToProcess && NodeId != Processed) {
+      User->setNodeId(NewNode);
+      MarkNewNodes(User);
+    }
+  }
 }
 
 /// ReplaceNodeWith - Replace uses of the 'from' node's results with the 'to'
@@ -279,8 +253,7 @@ void DAGTypeLegalizer::ReplaceNodeWith(SDNode *From, SDNode *To) {
   
   // Anything that used the old node should now use the new one.  Note that this
   // can potentially cause recursive merging.
-  NodeUpdateListener NUL(*this);
-  DAG.ReplaceAllUsesWith(From, To, &NUL);
+  DAG.ReplaceAllUsesWith(From, To);
   
   // The old node may still be present in ExpandedNodes or PromotedNodes.
   // Inform them about the replacement.
@@ -288,6 +261,20 @@ void DAGTypeLegalizer::ReplaceNodeWith(SDNode *From, SDNode *To) {
     assert(From->getValueType(i) == To->getValueType(i) &&
            "Node results don't match");
     ReplacedNodes[SDOperand(From, i)] = SDOperand(To, i);
+  }
+  
+  // Since we just made an unstructured update to the DAG, which could wreak
+  // general havoc on anything that once used From and now uses To, walk all
+  // users of the result, updating their flags.
+  for (SDNode::use_iterator I = To->use_begin(), E = To->use_end();I != E; ++I){
+    SDNode *User = *I;
+    // If the node isn't already processed or in the worklist, mark it as new,
+    // then use MarkNewNodes to recompute its ID.
+    int NodeId = User->getNodeId();
+    if (NodeId != ReadyToProcess && NodeId != Processed) {
+      User->setNodeId(NewNode);
+      MarkNewNodes(User);
+    }
   }
 }
 
@@ -451,7 +438,5 @@ void DAGTypeLegalizer::SplitOp(SDOperand Op, SDOperand &Lo, SDOperand &Hi) {
 /// Note that this is an involved process that may invalidate pointers into
 /// the graph.
 void SelectionDAG::LegalizeTypes() {
-  if (ViewLegalizeTypesDAGs) viewGraph();
-  
   DAGTypeLegalizer(*this).run();
 }

@@ -7,14 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the LiveVariables analysis pass.  For each machine
+// This file implements the LiveVariable analysis pass.  For each machine
 // instruction in the function, this pass calculates the set of registers that
 // are immediately dead after the instruction (i.e., the instruction calculates
 // the value, but it is never used) and the set of registers that are used by
 // the instruction, but are never used after the instruction (i.e., they are
 // killed).
 //
-// This class computes live variables using a sparse implementation based on
+// This class computes live variables using are sparse implementation based on
 // the machine code SSA form.  This class computes live variable information for
 // each virtual and _register allocatable_ physical register in a function.  It
 // uses the dominance properties of SSA form to efficiently compute live
@@ -37,7 +37,7 @@
 
 namespace llvm {
 
-class TargetRegisterInfo;
+class MRegisterInfo;
 
 class LiveVariables : public MachineFunctionPass {
 public:
@@ -130,7 +130,7 @@ private:
 private:   // Intermediate data structures
   MachineFunction *MF;
 
-  const TargetRegisterInfo *RegInfo;
+  const MRegisterInfo *RegInfo;
 
   // PhysRegInfo - Keep track of which instruction was the last def/use of a
   // physical register. This is a purely local property, because all physical
@@ -196,13 +196,26 @@ public:
   /// the records for NewMI.
   void instructionChanged(MachineInstr *OldMI, MachineInstr *NewMI);
 
+  /// transferKillDeadInfo - Similar to instructionChanged except it does not
+  /// update live variables internal data structures.
+  static void transferKillDeadInfo(MachineInstr *OldMI, MachineInstr *NewMI,
+                                   const MRegisterInfo *RegInfo);
+
+  /// addRegisterKilled - We have determined MI kills a register. Look for the
+  /// operand that uses it and mark it as IsKill. If AddIfNotFound is true,
+  /// add a implicit operand if it's not found. Returns true if the operand
+  /// exists / is added.
+  static bool addRegisterKilled(unsigned IncomingReg, MachineInstr *MI,
+                                const MRegisterInfo *RegInfo,
+                                bool AddIfNotFound = false);
+
   /// addVirtualRegisterKilled - Add information about the fact that the
   /// specified register is killed after being used by the specified
   /// instruction. If AddIfNotFound is true, add a implicit operand if it's
   /// not found.
   void addVirtualRegisterKilled(unsigned IncomingReg, MachineInstr *MI,
                                 bool AddIfNotFound = false) {
-    if (MI->addRegisterKilled(IncomingReg, RegInfo, AddIfNotFound))
+    if (addRegisterKilled(IncomingReg, MI, RegInfo, AddIfNotFound))
       getVarInfo(IncomingReg).Kills.push_back(MI); 
   }
 
@@ -233,13 +246,21 @@ public:
   /// removeVirtualRegistersKilled - Remove all killed info for the specified
   /// instruction.
   void removeVirtualRegistersKilled(MachineInstr *MI);
+  
+  /// addRegisterDead - We have determined MI defined a register without a use.
+  /// Look for the operand that defines it and mark it as IsDead. If
+  /// AddIfNotFound is true, add a implicit operand if it's not found. Returns
+  /// true if the operand exists / is added.
+  static bool addRegisterDead(unsigned IncomingReg, MachineInstr *MI,
+                              const MRegisterInfo *RegInfo,
+                              bool AddIfNotFound = false);
 
   /// addVirtualRegisterDead - Add information about the fact that the specified
   /// register is dead after being used by the specified instruction. If
   /// AddIfNotFound is true, add a implicit operand if it's not found.
   void addVirtualRegisterDead(unsigned IncomingReg, MachineInstr *MI,
                               bool AddIfNotFound = false) {
-    if (MI->addRegisterDead(IncomingReg, RegInfo, AddIfNotFound))
+    if (addRegisterDead(IncomingReg, MI, RegInfo, AddIfNotFound))
         getVarInfo(IncomingReg).Kills.push_back(MI);
   }
 

@@ -89,10 +89,6 @@ namespace llvm {
       /// writes a RFP result and a chain.
       FP_GET_RESULT,
 
-      /// FP_GET_RESULT2 - Same as FP_GET_RESULT except it copies two values
-      /// ST(0) and ST(1).
-      FP_GET_RESULT2,
-
       /// FP_SET_RESULT - This corresponds to FpSETRESULT pseudo instruction
       /// which copies the source operand to ST(0). It takes a chain+value and
       /// returns a chain and a flag.
@@ -170,21 +166,9 @@ namespace llvm {
       /// have to match the operand type.
       S2VEC,
 
-      /// PEXTRB - Extract an 8-bit value from a vector and zero extend it to
-      /// i32, corresponds to X86::PEXTRB.
-      PEXTRB,
-
       /// PEXTRW - Extract a 16-bit value from a vector and zero extend it to
       /// i32, corresponds to X86::PEXTRW.
       PEXTRW,
-
-      /// INSERTPS - Insert any element of a 4 x float vector into any element
-      /// of a destination 4 x floatvector.
-      INSERTPS,
-
-      /// PINSRB - Insert the lower 8-bits of a 32-bit value to a vector,
-      /// corresponds to X86::PINSRB.
-      PINSRB,
 
       /// PINSRW - Insert the lower 16-bits of a 32-bit value to a vector,
       /// corresponds to X86::PINSRW.
@@ -217,107 +201,96 @@ namespace llvm {
     };
   }
 
-  /// Define some predicates that are used for node matching.
-  namespace X86 {
-    /// isPSHUFDMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to PSHUFD.
-    bool isPSHUFDMask(SDNode *N);
+ /// Define some predicates that are used for node matching.
+ namespace X86 {
+   /// isPSHUFDMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to PSHUFD.
+   bool isPSHUFDMask(SDNode *N);
 
-    /// isPSHUFHWMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to PSHUFD.
-    bool isPSHUFHWMask(SDNode *N);
+   /// isPSHUFHWMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to PSHUFD.
+   bool isPSHUFHWMask(SDNode *N);
 
-    /// isPSHUFLWMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to PSHUFD.
-    bool isPSHUFLWMask(SDNode *N);
+   /// isPSHUFLWMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to PSHUFD.
+   bool isPSHUFLWMask(SDNode *N);
 
-    /// isSHUFPMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to SHUFP*.
-    bool isSHUFPMask(SDNode *N);
+   /// isSHUFPMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to SHUFP*.
+   bool isSHUFPMask(SDNode *N);
 
-    /// isMOVHLPSMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to MOVHLPS.
-    bool isMOVHLPSMask(SDNode *N);
+   /// isMOVHLPSMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to MOVHLPS.
+   bool isMOVHLPSMask(SDNode *N);
 
-    /// isMOVHLPS_v_undef_Mask - Special case of isMOVHLPSMask for canonical form
-    /// of vector_shuffle v, v, <2, 3, 2, 3>, i.e. vector_shuffle v, undef,
-    /// <2, 3, 2, 3>
-    bool isMOVHLPS_v_undef_Mask(SDNode *N);
+   /// isMOVHLPS_v_undef_Mask - Special case of isMOVHLPSMask for canonical form
+   /// of vector_shuffle v, v, <2, 3, 2, 3>, i.e. vector_shuffle v, undef,
+   /// <2, 3, 2, 3>
+   bool isMOVHLPS_v_undef_Mask(SDNode *N);
 
-    /// isMOVLPMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to MOVLP{S|D}.
-    bool isMOVLPMask(SDNode *N);
+   /// isMOVLPMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to MOVLP{S|D}.
+   bool isMOVLPMask(SDNode *N);
 
-    /// isMOVHPMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to MOVHP{S|D}
-    /// as well as MOVLHPS.
-    bool isMOVHPMask(SDNode *N);
+   /// isMOVHPMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to MOVHP{S|D}
+   /// as well as MOVLHPS.
+   bool isMOVHPMask(SDNode *N);
 
-    /// isUNPCKLMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to UNPCKL.
-    bool isUNPCKLMask(SDNode *N, bool V2IsSplat = false);
+   /// isUNPCKLMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to UNPCKL.
+   bool isUNPCKLMask(SDNode *N, bool V2IsSplat = false);
 
-    /// isUNPCKHMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to UNPCKH.
-    bool isUNPCKHMask(SDNode *N, bool V2IsSplat = false);
+   /// isUNPCKHMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to UNPCKH.
+   bool isUNPCKHMask(SDNode *N, bool V2IsSplat = false);
 
-    /// isUNPCKL_v_undef_Mask - Special case of isUNPCKLMask for canonical form
-    /// of vector_shuffle v, v, <0, 4, 1, 5>, i.e. vector_shuffle v, undef,
-    /// <0, 0, 1, 1>
-    bool isUNPCKL_v_undef_Mask(SDNode *N);
+   /// isUNPCKL_v_undef_Mask - Special case of isUNPCKLMask for canonical form
+   /// of vector_shuffle v, v, <0, 4, 1, 5>, i.e. vector_shuffle v, undef,
+   /// <0, 0, 1, 1>
+   bool isUNPCKL_v_undef_Mask(SDNode *N);
 
-    /// isUNPCKH_v_undef_Mask - Special case of isUNPCKHMask for canonical form
-    /// of vector_shuffle v, v, <2, 6, 3, 7>, i.e. vector_shuffle v, undef,
-    /// <2, 2, 3, 3>
-    bool isUNPCKH_v_undef_Mask(SDNode *N);
+   /// isUNPCKH_v_undef_Mask - Special case of isUNPCKHMask for canonical form
+   /// of vector_shuffle v, v, <2, 6, 3, 7>, i.e. vector_shuffle v, undef,
+   /// <2, 2, 3, 3>
+   bool isUNPCKH_v_undef_Mask(SDNode *N);
 
-    /// isMOVLMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to MOVSS,
-    /// MOVSD, and MOVD, i.e. setting the lowest element.
-    bool isMOVLMask(SDNode *N);
+   /// isMOVLMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to MOVSS,
+   /// MOVSD, and MOVD, i.e. setting the lowest element.
+   bool isMOVLMask(SDNode *N);
 
-    /// isMOVSHDUPMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to MOVSHDUP.
-    bool isMOVSHDUPMask(SDNode *N);
+   /// isMOVSHDUPMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to MOVSHDUP.
+   bool isMOVSHDUPMask(SDNode *N);
 
-    /// isMOVSLDUPMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a shuffle of elements that is suitable for input to MOVSLDUP.
-    bool isMOVSLDUPMask(SDNode *N);
+   /// isMOVSLDUPMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a shuffle of elements that is suitable for input to MOVSLDUP.
+   bool isMOVSLDUPMask(SDNode *N);
 
-    /// isSplatMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a splat of a single element.
-    bool isSplatMask(SDNode *N);
+   /// isSplatMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a splat of a single element.
+   bool isSplatMask(SDNode *N);
 
-    /// isSplatLoMask - Return true if the specified VECTOR_SHUFFLE operand
-    /// specifies a splat of zero element.
-    bool isSplatLoMask(SDNode *N);
+   /// isSplatLoMask - Return true if the specified VECTOR_SHUFFLE operand
+   /// specifies a splat of zero element.
+   bool isSplatLoMask(SDNode *N);
 
-    /// getShuffleSHUFImmediate - Return the appropriate immediate to shuffle
-    /// the specified isShuffleMask VECTOR_SHUFFLE mask with PSHUF* and SHUFP*
-    /// instructions.
-    unsigned getShuffleSHUFImmediate(SDNode *N);
+   /// getShuffleSHUFImmediate - Return the appropriate immediate to shuffle
+   /// the specified isShuffleMask VECTOR_SHUFFLE mask with PSHUF* and SHUFP*
+   /// instructions.
+   unsigned getShuffleSHUFImmediate(SDNode *N);
 
-    /// getShufflePSHUFHWImmediate - Return the appropriate immediate to shuffle
-    /// the specified isShuffleMask VECTOR_SHUFFLE mask with PSHUFHW
-    /// instructions.
-    unsigned getShufflePSHUFHWImmediate(SDNode *N);
+   /// getShufflePSHUFHWImmediate - Return the appropriate immediate to shuffle
+   /// the specified isShuffleMask VECTOR_SHUFFLE mask with PSHUFHW
+   /// instructions.
+   unsigned getShufflePSHUFHWImmediate(SDNode *N);
 
-    /// getShufflePSHUFKWImmediate - Return the appropriate immediate to shuffle
-    /// the specified isShuffleMask VECTOR_SHUFFLE mask with PSHUFLW
-    /// instructions.
-    unsigned getShufflePSHUFLWImmediate(SDNode *N);
-  }
-
-  namespace X86 {
-   /// X86_64SRet - These represent different ways to implement x86_64 struct
-   /// returns call results.
-   enum X86_64SRet {
-     InMemory,    // Really is sret, returns in memory.
-     InGPR64,     // Returns in a pair of 64-bit integer registers.
-     InSSE,       // Returns in a pair of SSE registers.
-     InX87        // Returns in a pair of f80 X87 registers.
-   };
-  }
+   /// getShufflePSHUFKWImmediate - Return the appropriate immediate to shuffle
+   /// the specified isShuffleMask VECTOR_SHUFFLE mask with PSHUFLW
+   /// instructions.
+   unsigned getShufflePSHUFLWImmediate(SDNode *N);
+ }
 
   //===--------------------------------------------------------------------===//
   //  X86TargetLowering - X86 Implementation of the TargetLowering interface
@@ -349,12 +322,6 @@ namespace llvm {
     /// getStackPtrReg - Return the stack pointer register we are using: either
     /// ESP or RSP.
     unsigned getStackPtrReg() const { return X86StackPtr; }
-
-    /// getByValTypeAlignment - Return the desired alignment for ByVal aggregate
-    /// function arguments in the caller parameter area. For X86, aggregates
-    /// that contains are placed at 16-byte boundaries while the rest are at
-    /// 4-byte boundaries.
-    virtual unsigned getByValTypeAlignment(const Type *Ty) const;
     
     /// LowerOperation - Provide custom lowering hooks for some operations.
     ///
@@ -368,8 +335,8 @@ namespace llvm {
     
     virtual SDOperand PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 
-    virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                        MachineBasicBlock *MBB);
+    virtual MachineBasicBlock *InsertAtEndOfBasicBlock(MachineInstr *MI,
+                                                       MachineBasicBlock *MBB);
 
     /// getTargetNodeName - This method returns the name of a target specific
     /// DAG node.
@@ -392,9 +359,6 @@ namespace llvm {
     std::vector<unsigned> 
       getRegClassForInlineAsmConstraint(const std::string &Constraint,
                                         MVT::ValueType VT) const;
-
-    virtual void lowerXConstraint(MVT::ValueType ConstraintVT, 
-                                  std::string&) const;
 
     /// LowerAsmOperandForConstraint - Lower the specified operand into the Ops
     /// vector.  If it is invalid, don't add anything to Ops.
@@ -446,18 +410,11 @@ namespace llvm {
       return static_cast<const TargetSubtarget*>(Subtarget);
     }
 
-    /// isScalarFPTypeInSSEReg - Return true if the specified scalar FP type is
-    /// computed in an SSE register, not on the X87 floating point stack.
-    bool isScalarFPTypeInSSEReg(MVT::ValueType VT) const {
-      return (VT == MVT::f64 && X86ScalarSSEf64) || // f64 is when SSE2
-      (VT == MVT::f32 && X86ScalarSSEf32);   // f32 is when SSE1
-    }
-    
   private:
     /// Subtarget - Keep a pointer to the X86Subtarget around so that we can
     /// make the right decision when generating code for different targets.
     const X86Subtarget *Subtarget;
-    const TargetRegisterInfo *RegInfo;
+    const MRegisterInfo *RegInfo;
 
     /// X86StackPtr - X86 physical register used as stack ptr.
     unsigned X86StackPtr;
@@ -468,21 +425,17 @@ namespace llvm {
     /// When SSE2 is available, use it for f64 operations.
     bool X86ScalarSSEf32;
     bool X86ScalarSSEf64;
-
-    X86::X86_64SRet ClassifyX86_64SRetCallReturn(const Function *Fn);
-
-    void X86_64AnalyzeSRetCallOperands(SDNode*, CCAssignFn*, CCState&);
+    
+    /// isScalarFPTypeInSSEReg - Return true if the specified scalar FP type is
+    /// computed in an SSE register, not on the X87 floating point stack.
+    bool isScalarFPTypeInSSEReg(MVT::ValueType VT) const {
+      return (VT == MVT::f64 && X86ScalarSSEf64) || // f64 is when SSE2
+             (VT == MVT::f32 && X86ScalarSSEf32);   // f32 is when SSE1
+    }
 
     SDNode *LowerCallResult(SDOperand Chain, SDOperand InFlag, SDNode*TheCall,
                             unsigned CallingConv, SelectionDAG &DAG);
-
-    SDNode *LowerCallResultToTwo64BitRegs(SDOperand Chain, SDOperand InFlag,
-                                          SDNode *TheCall, unsigned Reg1,
-                                          unsigned Reg2, MVT::ValueType VT,
-                                          SelectionDAG &DAG);        
-
-    SDNode *LowerCallResultToTwoX87Regs(SDOperand Chain, SDOperand InFlag,
-                                        SDNode *TheCall, SelectionDAG &DAG);        
+        
 
     SDOperand LowerMemArgument(SDOperand Op, SelectionDAG &DAG,
                                const CCValAssign &VA,  MachineFrameInfo *MFI,
@@ -505,9 +458,7 @@ namespace llvm {
     SDOperand LowerBUILD_VECTOR(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerVECTOR_SHUFFLE(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerEXTRACT_VECTOR_ELT(SDOperand Op, SelectionDAG &DAG);
-    SDOperand LowerEXTRACT_VECTOR_ELT_SSE4(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerINSERT_VECTOR_ELT(SDOperand Op, SelectionDAG &DAG);
-    SDOperand LowerINSERT_VECTOR_ELT_SSE4(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerSCALAR_TO_VECTOR(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerConstantPool(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerGlobalAddress(SDOperand Op, SelectionDAG &DAG);
@@ -539,7 +490,7 @@ namespace llvm {
     SDOperand LowerFRAME_TO_ARGS_OFFSET(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerEH_RETURN(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerTRAMPOLINE(SDOperand Op, SelectionDAG &DAG);
-    SDOperand LowerFLT_ROUNDS_(SDOperand Op, SelectionDAG &DAG);
+    SDOperand LowerFLT_ROUNDS(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerCTLZ(SDOperand Op, SelectionDAG &DAG);
     SDOperand LowerCTTZ(SDOperand Op, SelectionDAG &DAG);
     SDNode *ExpandFP_TO_SINT(SDNode *N, SelectionDAG &DAG);

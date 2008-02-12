@@ -370,8 +370,7 @@ void MipsInstrInfo::loadRegFromAddr(MachineFunction &MF, unsigned DestReg,
 }
 
 MachineInstr *MipsInstrInfo::
-foldMemoryOperand(MachineFunction &MF,
-                  MachineInstr* MI,
+foldMemoryOperand(MachineInstr* MI,
                   SmallVectorImpl<unsigned> &Ops, int FI) const 
 {
   if (Ops.size() != 1) return NULL;

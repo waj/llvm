@@ -166,12 +166,11 @@ def HasSSE1      : Predicate<"Subtarget->hasSSE1()">;
 def HasSSE2      : Predicate<"Subtarget->hasSSE2()">;
 def HasSSE3      : Predicate<"Subtarget->hasSSE3()">;
 def HasSSSE3     : Predicate<"Subtarget->hasSSSE3()">;
-def HasSSE41     : Predicate<"Subtarget->hasSSE41()">;
-def HasSSE42     : Predicate<"Subtarget->hasSSE42()">;
 def FPStackf32   : Predicate<"!Subtarget->hasSSE1()">;
 def FPStackf64   : Predicate<"!Subtarget->hasSSE2()">;
 def In32BitMode  : Predicate<"!Subtarget->is64Bit()">;
 def In64BitMode  : Predicate<"Subtarget->is64Bit()">;
+def HasLow4G     : Predicate<"Subtarget->hasLow4GUserSpaceAddress()">;
 def SmallCode    : Predicate<"TM.getCodeModel() == CodeModel::Small">;
 def NotSmallCode : Predicate<"TM.getCodeModel() != CodeModel::Small">;
 def IsStatic     : Predicate<"TM.getRelocationModel() == Reloc::Static">;
@@ -227,6 +226,8 @@ def loadf32 : PatFrag<(ops node:$ptr), (f32 (load node:$ptr))>;
 def loadf64 : PatFrag<(ops node:$ptr), (f64 (load node:$ptr))>;
 def loadf80 : PatFrag<(ops node:$ptr), (f80 (load node:$ptr))>;
 
+def sextloadi16i1  : PatFrag<(ops node:$ptr), (i16 (sextloadi1 node:$ptr))>;
+def sextloadi32i1  : PatFrag<(ops node:$ptr), (i32 (sextloadi1 node:$ptr))>;
 def sextloadi16i8  : PatFrag<(ops node:$ptr), (i16 (sextloadi8 node:$ptr))>;
 def sextloadi32i8  : PatFrag<(ops node:$ptr), (i32 (sextloadi8 node:$ptr))>;
 def sextloadi32i16 : PatFrag<(ops node:$ptr), (i32 (sextloadi16 node:$ptr))>;
@@ -2597,6 +2598,11 @@ def : Pat<(subc GR32:$src1, imm:$src2),
 def : Pat<(subc GR32:$src1, i32immSExt8:$src2),
           (SUB32ri8 GR32:$src1, i32immSExt8:$src2)>;
 
+def : Pat<(truncstorei1 (i8 imm:$src), addr:$dst), 
+          (MOV8mi addr:$dst, imm:$src)>;
+def : Pat<(truncstorei1 GR8:$src, addr:$dst), 
+          (MOV8mr addr:$dst, GR8:$src)>;
+
 // Comparisons.
 
 // TEST R,R is smaller than CMP R,0
@@ -2607,7 +2613,9 @@ def : Pat<(parallel (X86cmp GR16:$src1, 0), (implicit EFLAGS)),
 def : Pat<(parallel (X86cmp GR32:$src1, 0), (implicit EFLAGS)),
           (TEST32rr GR32:$src1, GR32:$src1)>;
 
-// zextload bool -> zextload byte
+// {s|z}extload bool -> {s|z}extload byte
+def : Pat<(sextloadi16i1 addr:$src), (MOVSX16rm8 addr:$src)>;
+def : Pat<(sextloadi32i1 addr:$src), (MOVSX32rm8 addr:$src)>;
 def : Pat<(zextloadi8i1  addr:$src), (MOV8rm     addr:$src)>;
 def : Pat<(zextloadi16i1 addr:$src), (MOVZX16rm8 addr:$src)>;
 def : Pat<(zextloadi32i1 addr:$src), (MOVZX32rm8 addr:$src)>;

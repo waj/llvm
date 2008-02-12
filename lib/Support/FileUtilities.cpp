@@ -20,12 +20,11 @@
 #include <cctype>
 using namespace llvm;
 
-static bool isSignedChar(char C) {
-  return (C == '+' || C == '-');
-}
-
-static bool isExponentChar(char C) {
+static bool isNumberChar(char C) {
   switch (C) {
+  case '0': case '1': case '2': case '3': case '4':
+  case '5': case '6': case '7': case '8': case '9':
+  case '.': case '+': case '-':
   case 'D':  // Strange exponential notation.
   case 'd':  // Strange exponential notation.
   case 'e':
@@ -34,25 +33,13 @@ static bool isExponentChar(char C) {
   }
 }
 
-static bool isNumberChar(char C) {
-  switch (C) {
-  case '0': case '1': case '2': case '3': case '4':
-  case '5': case '6': case '7': case '8': case '9':
-  case '.': return true;
-  default: return isSignedChar(C) || isExponentChar(C);
-  }
-}
-
 static char *BackupNumber(char *Pos, char *FirstChar) {
   // If we didn't stop in the middle of a number, don't backup.
   if (!isNumberChar(*Pos)) return Pos;
 
   // Otherwise, return to the start of the number.
-  while (Pos > FirstChar && isNumberChar(Pos[-1])) {
+  while (Pos > FirstChar && isNumberChar(Pos[-1]))
     --Pos;
-    if (Pos > FirstChar && isSignedChar(Pos[0]) && !isExponentChar(Pos[-1]))
-      break;
-  }
   return Pos;
 }
 

@@ -23,7 +23,6 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Target/TargetLowering.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include <queue>
 #include <set>
@@ -122,8 +121,8 @@ namespace {
       LowerCallTo(SDOperand Chain, const Type *RetTy, bool RetTyIsSigned, 
                   bool isVarArg, unsigned CC, bool isTailCall, SDOperand Callee,
                   ArgListTy &Args, SelectionDAG &DAG);
-    virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                        MachineBasicBlock *MBB);
+    virtual MachineBasicBlock *InsertAtEndOfBasicBlock(MachineInstr *MI,
+                                                       MachineBasicBlock *MBB);
     
     virtual const char *getTargetNodeName(unsigned Opcode) const;
   };
@@ -139,10 +138,7 @@ SparcTargetLowering::SparcTargetLowering(TargetMachine &TM)
 
   // Turn FP extload into load/fextend
   setLoadXAction(ISD::EXTLOAD, MVT::f32, Expand);
-
-  // Sparc doesn't have i1 sign extending load
-  setLoadXAction(ISD::SEXTLOAD, MVT::i1, Promote);
-
+  
   // Custom legalize GlobalAddress nodes into LO/HI parts.
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalTLSAddress, MVT::i32, Custom);
@@ -805,23 +801,25 @@ LowerOperation(SDOperand Op, SelectionDAG &DAG) {
     SDOperand Offset = DAG.getNode(ISD::ADD, MVT::i32,
                                    DAG.getRegister(SP::I6, MVT::i32),
                                 DAG.getConstant(VarArgsFrameOffset, MVT::i32));
-    const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
-    return DAG.getStore(Op.getOperand(0), Offset, Op.getOperand(1), SV, 0);
+    SrcValueSDNode *SV = cast<SrcValueSDNode>(Op.getOperand(2));
+    return DAG.getStore(Op.getOperand(0), Offset, 
+                        Op.getOperand(1), SV->getValue(), SV->getOffset());
   }
   case ISD::VAARG: {
     SDNode *Node = Op.Val;
     MVT::ValueType VT = Node->getValueType(0);
     SDOperand InChain = Node->getOperand(0);
     SDOperand VAListPtr = Node->getOperand(1);
-    const Value *SV = cast<SrcValueSDNode>(Node->getOperand(2))->getValue();
-    SDOperand VAList = DAG.getLoad(getPointerTy(), InChain, VAListPtr, SV, 0);
+    SrcValueSDNode *SV = cast<SrcValueSDNode>(Node->getOperand(2));
+    SDOperand VAList = DAG.getLoad(getPointerTy(), InChain, VAListPtr,
+                                   SV->getValue(), SV->getOffset());
     // Increment the pointer, VAList, to the next vaarg
     SDOperand NextPtr = DAG.getNode(ISD::ADD, getPointerTy(), VAList, 
                                     DAG.getConstant(MVT::getSizeInBits(VT)/8, 
                                                     getPointerTy()));
     // Store the incremented VAList to the legalized pointer
     InChain = DAG.getStore(VAList.getValue(1), NextPtr,
-                           VAListPtr, SV, 0);
+                           VAListPtr, SV->getValue(), SV->getOffset());
     // Load the actual argument out of the pointer VAList, unless this is an
     // f64 load.
     if (VT != MVT::f64) {
@@ -894,8 +892,8 @@ LowerOperation(SDOperand Op, SelectionDAG &DAG) {
 }
 
 MachineBasicBlock *
-SparcTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                 MachineBasicBlock *BB) {
+SparcTargetLowering::InsertAtEndOfBasicBlock(MachineInstr *MI,
+                                             MachineBasicBlock *BB) {
   const TargetInstrInfo &TII = *getTargetMachine().getInstrInfo();
   unsigned BROpcode;
   unsigned CC;

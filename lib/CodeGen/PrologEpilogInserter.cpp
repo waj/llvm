@@ -24,7 +24,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetFrameInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Support/Compiler.h"
@@ -45,8 +45,8 @@ namespace {
     /// frame indexes with appropriate references.
     ///
     bool runOnMachineFunction(MachineFunction &Fn) {
-      const TargetRegisterInfo *TRI = Fn.getTarget().getRegisterInfo();
-      RS = TRI->requiresRegisterScavenging(Fn) ? new RegScavenger() : NULL;
+      const MRegisterInfo *MRI = Fn.getTarget().getRegisterInfo();
+      RS = MRI->requiresRegisterScavenging(Fn) ? new RegScavenger() : NULL;
 
       // Get MachineModuleInfo so that we can track the construction of the
       // frame.
@@ -55,7 +55,7 @@ namespace {
 
       // Allow the target machine to make some adjustments to the function
       // e.g. UsedPhysRegs before calculateCalleeSavedRegisters.
-      TRI->processFunctionBeforeCalleeSavedScan(Fn, RS);
+      MRI->processFunctionBeforeCalleeSavedScan(Fn, RS);
 
       // Scan the function for modified callee saved registers and insert spill
       // code for any callee saved registers that are modified.  Also calculate
@@ -118,7 +118,7 @@ FunctionPass *llvm::createPrologEpilogCodeInserter() { return new PEI(); }
 /// instructions.
 ///
 void PEI::calculateCalleeSavedRegisters(MachineFunction &Fn) {
-  const TargetRegisterInfo *RegInfo = Fn.getTarget().getRegisterInfo();
+  const MRegisterInfo *RegInfo = Fn.getTarget().getRegisterInfo();
   const TargetFrameInfo *TFI = Fn.getTarget().getFrameInfo();
 
   // Get the callee saved register list...
@@ -243,12 +243,11 @@ void PEI::saveCalleeSavedRegisters(MachineFunction &Fn) {
     return;
 
   const TargetInstrInfo &TII = *Fn.getTarget().getInstrInfo();
-
+  
   // Now that we have a stack slot for each register to be saved, insert spill
   // code into the entry block.
   MachineBasicBlock *MBB = Fn.begin();
   MachineBasicBlock::iterator I = MBB->begin();
-
   if (!TII.spillCalleeSavedRegisters(*MBB, I, CSI)) {
     for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
       // Add the callee-saved register as live-in. It's killed at the spill.
@@ -377,7 +376,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
 
   // Make sure the special register scavenging spill slot is closest to the
   // frame pointer if a frame pointer is required.
-  const TargetRegisterInfo *RegInfo = Fn.getTarget().getRegisterInfo();
+  const MRegisterInfo *RegInfo = Fn.getTarget().getRegisterInfo();
   if (RS && RegInfo->hasFP(Fn)) {
     int SFI = RS->getScavengingFrameIndex();
     if (SFI >= 0) {
@@ -500,12 +499,12 @@ void PEI::replaceFrameIndices(MachineFunction &Fn) {
 
   const TargetMachine &TM = Fn.getTarget();
   assert(TM.getRegisterInfo() && "TM::getRegisterInfo() must be implemented!");
-  const TargetRegisterInfo &TRI = *TM.getRegisterInfo();
+  const MRegisterInfo &MRI = *TM.getRegisterInfo();
   const TargetFrameInfo *TFI = TM.getFrameInfo();
   bool StackGrowsDown =
     TFI->getStackGrowthDirection() == TargetFrameInfo::StackGrowsDown;
-  int FrameSetupOpcode   = TRI.getCallFrameSetupOpcode();
-  int FrameDestroyOpcode = TRI.getCallFrameDestroyOpcode();
+  int FrameSetupOpcode   = MRI.getCallFrameSetupOpcode();
+  int FrameDestroyOpcode = MRI.getCallFrameDestroyOpcode();
 
   for (MachineFunction::iterator BB = Fn.begin(), E = Fn.end(); BB != E; ++BB) {
     int SPAdj = 0;  // SP offset due to call frame setup / destroy.
@@ -513,29 +512,26 @@ void PEI::replaceFrameIndices(MachineFunction &Fn) {
     for (MachineBasicBlock::iterator I = BB->begin(); I != BB->end(); ) {
       MachineInstr *MI = I;
 
+      // Remember how much SP has been adjustment to create the call frame.
       if (I->getOpcode() == FrameSetupOpcode ||
           I->getOpcode() == FrameDestroyOpcode) {
-        // Remember how much SP has been adjustment to create the call frame.
         int Size = I->getOperand(0).getImm();
         if ((!StackGrowsDown && I->getOpcode() == FrameSetupOpcode) ||
             (StackGrowsDown && I->getOpcode() == FrameDestroyOpcode))
           Size = -Size;
         SPAdj += Size;
         MachineBasicBlock::iterator PrevI = prior(I);
-        TRI.eliminateCallFramePseudoInstr(Fn, *BB, I);
+        MRI.eliminateCallFramePseudoInstr(Fn, *BB, I);
         // Visit the instructions created by eliminateCallFramePseudoInstr().
         I = next(PrevI);
         MI = NULL;
-      } else if (I->getOpcode() == TargetInstrInfo::DECLARE)
-        // Ignore it.
-        I++;
-      else {
+      } else {
         I++;
         for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i)
           if (MI->getOperand(i).isFrameIndex()) {
             // If this instruction has a FrameIndex operand, we need to use that
             // target machine register info object to eliminate it.
-            TRI.eliminateFrameIndex(MI, SPAdj, RS);
+            MRI.eliminateFrameIndex(MI, SPAdj, RS);
 
             // Revisit the instruction in full.  Some instructions (e.g. inline
             // asm instructions) can have multiple frame indices.

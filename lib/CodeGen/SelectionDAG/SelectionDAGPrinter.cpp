@@ -18,7 +18,7 @@
 #include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/ADT/StringExtras.h"
@@ -132,7 +132,7 @@ std::string DOTGraphTraits<SelectionDAG*>::getNodeLabel(const SDNode *Node,
     //Op += " " + (const void*)BBDN->getBasicBlock();
   } else if (const RegisterSDNode *R = dyn_cast<RegisterSDNode>(Node)) {
     if (G && R->getReg() != 0 &&
-        TargetRegisterInfo::isPhysicalRegister(R->getReg())) {
+        MRegisterInfo::isPhysicalRegister(R->getReg())) {
       Op = Op + " " + G->getTarget().getRegisterInfo()->getName(R->getReg());
     } else {
       Op += " #" + utostr(R->getReg());
@@ -142,14 +142,9 @@ std::string DOTGraphTraits<SelectionDAG*>::getNodeLabel(const SDNode *Node,
     Op += "'" + std::string(ES->getSymbol()) + "'";
   } else if (const SrcValueSDNode *M = dyn_cast<SrcValueSDNode>(Node)) {
     if (M->getValue())
-      Op += "<" + M->getValue()->getName() + ">";
+      Op += "<" + M->getValue()->getName() + ":" + itostr(M->getOffset()) + ">";
     else
-      Op += "<null>";
-  } else if (const MemOperandSDNode *M = dyn_cast<MemOperandSDNode>(Node)) {
-    if (M->MO.getValue())
-      Op += "<" + M->MO.getValue()->getName() + ":" + itostr(M->MO.getOffset()) + ">";
-    else
-      Op += "<null:" + itostr(M->MO.getOffset()) + ">";
+      Op += "<null:" + itostr(M->getOffset()) + ">";
   } else if (const VTSDNode *N = dyn_cast<VTSDNode>(Node)) {
     Op = Op + " VT=" + MVT::getValueTypeString(N->getVT());
   } else if (const StringSDNode *N = dyn_cast<StringSDNode>(Node)) {
@@ -169,20 +164,13 @@ std::string DOTGraphTraits<SelectionDAG*>::getNodeLabel(const SDNode *Node,
       break;
     }
     if (doExt)
-      Op += MVT::getValueTypeString(LD->getMemoryVT()) + ">";
-    if (LD->isVolatile())
-      Op += "<V>";
+      Op = Op + MVT::getValueTypeString(LD->getLoadedVT()) + ">";
+
     Op += LD->getIndexedModeName(LD->getAddressingMode());
-    if (LD->getAlignment() > 1)
-      Op += " A=" + utostr(LD->getAlignment());
   } else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(Node)) {
     if (ST->isTruncatingStore())
-      Op += "<trunc " + MVT::getValueTypeString(ST->getMemoryVT()) + ">";
-    if (ST->isVolatile())
-      Op += "<V>";
+      Op = Op + "<trunc " + MVT::getValueTypeString(ST->getStoredVT()) + ">";
     Op += ST->getIndexedModeName(ST->getAddressingMode());
-    if (ST->getAlignment() > 1)
-      Op += " A=" + utostr(ST->getAlignment());
   }
 
 #if 0

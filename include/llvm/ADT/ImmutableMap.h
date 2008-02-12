@@ -34,19 +34,12 @@ struct ImutKeyValueInfo {
     return V.first;
   }
   
-  static inline data_type_ref DataOfValue(value_type_ref V) {
-    return V.second;
-  }
-  
   static inline bool isEqual(key_type_ref L, key_type_ref R) {
     return ImutContainerInfo<T>::isEqual(L,R);
-  }  
-  static inline bool isLess(key_type_ref L, key_type_ref R) {
-    return ImutContainerInfo<T>::isLess(L,R);
   }
   
-  static inline bool isDataEqual(data_type_ref L, data_type_ref R) {
-    return ImutContainerInfo<S>::isEqual(L,R);
+  static inline bool isLess(key_type_ref L, key_type_ref R) {
+    return ImutContainerInfo<T>::isLess(L,R);
   }
   
   static inline void Profile(FoldingSetNodeID& ID, value_type_ref V) {
@@ -83,9 +76,6 @@ public:
     
   public:
     Factory() {}
-    
-    Factory(BumpPtrAllocator& Alloc)
-      : F(Alloc) {}
     
     ImmutableMap GetEmptyMap() { return ImmutableMap(F.GetEmptyTree()); }
     
@@ -191,16 +181,14 @@ public:
   iterator begin() const { return iterator(Root); }
   iterator end() const { return iterator(); }  
   
-  TreeTy* SlimFind(key_type_ref K) const {
+  iterator find(key_type_ref K) const {
     if (Root) {
       TreeTy* T = Root->find(K);
-      if (T) return T;
+      if (T) return iterator(T);
     }
     
-    return NULL;
+    return iterator();
   }
-  
-  // FIXME: Add 'find' that returns an iterator instead of a TreeTy*.
   
   //===--------------------------------------------------===//    
   // Utility methods.
@@ -208,7 +196,7 @@ public:
   
   inline unsigned getHeight() const { return Root ? Root->getHeight() : 0; }
 
-  static inline void Profile(FoldingSetNodeID& ID, const ImmutableMap& M) {
+  static inline void Profile(FoldingSetNodeID& ID, const ImmutableMap& M) { 
     ID.AddPointer(M.Root);
   }
   

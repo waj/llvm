@@ -17,7 +17,6 @@
 using namespace llvm;
 
 SPUTargetAsmInfo::SPUTargetAsmInfo(const SPUTargetMachine &TM) {
-  PCSymbol = ".";
   CommentString = "#";
   GlobalPrefix = "";
   PrivateGlobalPrefix = ".L";
@@ -25,14 +24,17 @@ SPUTargetAsmInfo::SPUTargetAsmInfo(const SPUTargetMachine &TM) {
   SetDirective = "\t.set";
   Data64bitsDirective = "\t.quad\t";  
   AlignmentIsInBytes = false;
-  SwitchToSectionDirective = ".section\t";
+  SwitchToSectionDirective = "\t.section\t";
   ConstantPoolSection = "\t.const\t";
   JumpTableDataSection = ".const";
   CStringSection = "\t.cstring";
+  LCOMMDirective = "\t.lcomm\t";
   StaticCtorsSection = ".mod_init_func";
   StaticDtorsSection = ".mod_term_func";
   FourByteConstantSection = ".const";
   SixteenByteConstantSection = "\t.section\t.rodata.cst16,\"aM\",@progbits,16";
+  UsedDirective = "\t.no_dead_strip\t";
+  WeakRefDirective = "\t.weak_reference\t";
   InlineAsmStart = "# InlineAsm Start";
   InlineAsmEnd = "# InlineAsm End";
   

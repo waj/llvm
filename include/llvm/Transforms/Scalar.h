@@ -184,6 +184,17 @@ FunctionPass *createReassociatePass();
 
 //===----------------------------------------------------------------------===//
 //
+// CorrelatedExpressionElimination - This pass eliminates correlated
+// conditions, such as these:
+//  if (X == 0)
+//    if (X > 2) ;   // Known false
+//    else
+//      Y = X * Z;   // = 0
+//
+FunctionPass *createCorrelatedExpressionEliminationPass();
+
+//===----------------------------------------------------------------------===//
+//
 // CondPropagationPass - This pass propagates information about conditional
 // expressions through the program, allowing it to eliminate conditional
 // branches in some cases.

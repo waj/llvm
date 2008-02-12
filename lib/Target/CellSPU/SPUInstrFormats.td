@@ -247,10 +247,6 @@ let RT = 0 in {
   { }
 }
 
-//===----------------------------------------------------------------------===//
-// Specialized versions of RI16:
-//===----------------------------------------------------------------------===//
-
 // RI18 Format
 class RI18Form<bits<7> opcode, dag OOL, dag IOL, string asmstr,
               InstrItinClass itin, list<dag> pattern>

@@ -70,7 +70,7 @@ public:
    return const_cast<SPUTargetLowering*>(&TLInfo); 
   }
 
-  virtual const TargetRegisterInfo *getRegisterInfo() const {
+  virtual const MRegisterInfo *getRegisterInfo() const {
     return &InstrInfo.getRegisterInfo();
   }
   

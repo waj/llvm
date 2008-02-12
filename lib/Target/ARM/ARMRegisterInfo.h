@@ -7,14 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the ARM implementation of the TargetRegisterInfo class.
+// This file contains the ARM implementation of the MRegisterInfo class.
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef ARMREGISTERINFO_H
 #define ARMREGISTERINFO_H
 
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "ARMGenRegisterInfo.h.inc"
 
 namespace llvm {

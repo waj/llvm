@@ -16,7 +16,7 @@
 
 #include "X86AsmPrinter.h"
 #include "llvm/CodeGen/ValueTypes.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 
 namespace llvm {
 
@@ -41,8 +41,7 @@ struct VISIBILITY_HIDDEN X86IntelAsmPrinter : public X86SharedAsmPrinter {
                     const char *Modifier = 0) {
     const MachineOperand &MO = MI->getOperand(OpNo);
     if (MO.isRegister()) {
-      assert(TargetRegisterInfo::isPhysicalRegister(MO.getReg()) &&
-             "Not physreg??");
+      assert(MRegisterInfo::isPhysicalRegister(MO.getReg()) && "Not physreg??");
       O << TM.getRegisterInfo()->get(MO.getReg()).Name;
     } else {
       printOp(MO, Modifier);

@@ -126,7 +126,7 @@ MachineFunction::MachineFunction(const Function *F,
   : Annotation(MF_AID), Fn(F), Target(TM) {
   RegInfo = new MachineRegisterInfo(*TM.getRegisterInfo());
   MFInfo = 0;
-  FrameInfo = new MachineFrameInfo(*TM.getFrameInfo());
+  FrameInfo = new MachineFrameInfo();
   ConstantPool = new MachineConstantPool(TM.getTargetData());
   
   // Set up jump table.
@@ -207,14 +207,14 @@ void MachineFunction::print(std::ostream &OS) const {
   // Print Constant Pool
   getConstantPool()->print(OS);
   
-  const TargetRegisterInfo *TRI = getTarget().getRegisterInfo();
+  const MRegisterInfo *MRI = getTarget().getRegisterInfo();
   
   if (!RegInfo->livein_empty()) {
     OS << "Live Ins:";
     for (MachineRegisterInfo::livein_iterator
          I = RegInfo->livein_begin(), E = RegInfo->livein_end(); I != E; ++I) {
-      if (TRI)
-        OS << " " << TRI->getName(I->first);
+      if (MRI)
+        OS << " " << MRI->getName(I->first);
       else
         OS << " Reg #" << I->first;
       
@@ -227,8 +227,8 @@ void MachineFunction::print(std::ostream &OS) const {
     OS << "Live Outs:";
     for (MachineRegisterInfo::liveout_iterator
          I = RegInfo->liveout_begin(), E = RegInfo->liveout_end(); I != E; ++I)
-      if (TRI)
-        OS << " " << TRI->getName(*I);
+      if (MRI)
+        OS << " " << MRI->getName(*I);
       else
         OS << " Reg #" << *I;
     OS << "\n";
@@ -330,19 +330,6 @@ MachineFunction& MachineFunction::get(const Function *F)
 //===----------------------------------------------------------------------===//
 //  MachineFrameInfo implementation
 //===----------------------------------------------------------------------===//
-
-/// CreateFixedObject - Create a new object at a fixed location on the stack.
-/// All fixed objects should be created before other objects are created for
-/// efficiency. By default, fixed objects are immutable. This returns an
-/// index with a negative value.
-///
-int MachineFrameInfo::CreateFixedObject(uint64_t Size, int64_t SPOffset,
-                                        bool Immutable) {
-  assert(Size != 0 && "Cannot allocate zero size fixed stack objects!");
-  Objects.insert(Objects.begin(), StackObject(Size, 1, SPOffset, Immutable));
-  return -++NumFixedObjects;
-}
-
 
 void MachineFrameInfo::print(const MachineFunction &MF, std::ostream &OS) const{
   int ValOffset = MF.getTarget().getFrameInfo()->getOffsetOfLocalArea();

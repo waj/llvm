@@ -104,12 +104,6 @@ static GlobalVariable *getGlobalVariable(Value *V) {
   } else if (ConstantExpr *CE = dyn_cast<ConstantExpr>(V)) {
     if (CE->getOpcode() == Instruction::BitCast) {
       return dyn_cast<GlobalVariable>(CE->getOperand(0));
-    } else if (CE->getOpcode() == Instruction::GetElementPtr) {
-      for (unsigned int i=1; i<CE->getNumOperands(); i++) {
-        if (!CE->getOperand(i)->isNullValue())
-          return NULL;
-      }
-      return dyn_cast<GlobalVariable>(CE->getOperand(0));
     }
   }
   return NULL;
@@ -122,12 +116,6 @@ static bool isGlobalVariable(Value *V) {
     return true;
   } else if (ConstantExpr *CE = dyn_cast<ConstantExpr>(V)) {
     if (CE->getOpcode() == Instruction::BitCast) {
-      return isa<GlobalVariable>(CE->getOperand(0));
-    } else if (CE->getOpcode() == Instruction::GetElementPtr) {
-      for (unsigned int i=1; i<CE->getNumOperands(); i++) {
-        if (!CE->getOperand(i)->isNullValue())
-          return false;
-      }
       return isa<GlobalVariable>(CE->getOperand(0));
     }
   }
@@ -1471,14 +1459,6 @@ bool DIVerifier::Verify(GlobalVariable *GV) {
   return true;
 }
 
-/// isVerified - Return true if the specified GV has already been
-/// verified as a debug information descriptor.
-bool DIVerifier::isVerified(GlobalVariable *GV) {
-  unsigned &ValiditySlot = Validity[GV];
-  if (ValiditySlot) return ValiditySlot == Valid;
-  return false;
-}
-
 //===----------------------------------------------------------------------===//
 
 DebugScope::~DebugScope() {
@@ -1562,6 +1542,12 @@ DebugInfoDesc *MachineModuleInfo::getDescFor(Value *V) {
   return DR.Deserialize(V);
 }
 
+/// Verify - Verify that a Value is debug information descriptor.
+///
+bool MachineModuleInfo::Verify(Value *V) {
+  return VR.Verify(V);
+}
+
 /// AnalyzeModule - Scan the module for global debug information.
 ///
 void MachineModuleInfo::AnalyzeModule(Module &M) {
@@ -1613,11 +1599,11 @@ MachineModuleInfo::getGlobalVariablesUsing(Module &M,
   return ::getGlobalVariablesUsing(M, RootName);
 }
 
-/// RecordSourceLine - Records location information and associates it with a
+/// RecordLabel - Records location information and associates it with a
 /// debug label.  Returns a unique label ID used to generate a label and 
 /// provide correspondence to the source line list.
-unsigned MachineModuleInfo::RecordSourceLine(unsigned Line, unsigned Column,
-                                             unsigned Source) {
+unsigned MachineModuleInfo::RecordLabel(unsigned Line, unsigned Column,
+                                       unsigned Source) {
   unsigned ID = NextLabelID();
   Lines.push_back(SourceLineInfo(Line, Column, Source, ID));
   return ID;
@@ -1659,8 +1645,8 @@ unsigned MachineModuleInfo::RecordRegionEnd(Value *V) {
 
 /// RecordVariable - Indicate the declaration of  a local variable.
 ///
-void MachineModuleInfo::RecordVariable(GlobalValue *GV, unsigned FrameIndex) {
-  VariableDesc *VD = cast<VariableDesc>(DR.Deserialize(GV));
+void MachineModuleInfo::RecordVariable(Value *V, unsigned FrameIndex) {
+  VariableDesc *VD = cast<VariableDesc>(DR.Deserialize(V));
   DebugScope *Scope = getOrCreateScope(VD->getContext());
   DebugVariable *DV = new DebugVariable(VD, FrameIndex);
   Scope->AddVariable(DV);
@@ -1798,7 +1784,7 @@ void MachineModuleInfo::TidyLandingPads() {
     }
 
     // Remove landing pads with no try-ranges.
-    if (LandingPads[i].BeginLabels.empty()) {
+    if (!LandingPads[i].BeginLabels.size()) {
       LandingPads.erase(LandingPads.begin() + i);
       continue;
     }
@@ -1916,7 +1902,7 @@ bool DebugLabelFolder::runOnMachineFunction(MachineFunction &MF) {
     // Iterate through instructions.
     for (MachineBasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ) {
       // Is it a label.
-      if (I->isDebugLabel()) {
+      if ((unsigned)I->getOpcode() == TargetInstrInfo::LABEL) {
         // The label ID # is always operand #0, an immediate.
         unsigned NextLabel = I->getOperand(0).getImm();
         

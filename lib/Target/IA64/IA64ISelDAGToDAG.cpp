@@ -24,7 +24,6 @@
 #include "llvm/Constants.h"
 #include "llvm/GlobalValue.h"
 #include "llvm/Intrinsics.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include <queue>
@@ -467,7 +466,7 @@ SDNode *IA64DAGToDAGISel::Select(SDOperand Op) {
     AddToISelQueue(Chain);
     AddToISelQueue(Address);
 
-    MVT::ValueType TypeBeingLoaded = LD->getMemoryVT();
+    MVT::ValueType TypeBeingLoaded = LD->getLoadedVT();
     unsigned Opc;
     switch (TypeBeingLoaded) {
     default:
@@ -529,7 +528,7 @@ SDNode *IA64DAGToDAGISel::Select(SDOperand Op) {
       case MVT::f64: Opc = IA64::STF8; break;
       }
     } else { // Truncating store
-      switch(ST->getMemoryVT()) {
+      switch(ST->getStoredVT()) {
       default: assert(0 && "unknown type in truncstore");
       case MVT::i8:  Opc = IA64::ST1;  break;
       case MVT::i16: Opc = IA64::ST2;  break;

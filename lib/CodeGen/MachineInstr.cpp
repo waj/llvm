@@ -15,12 +15,9 @@
 #include "llvm/Value.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/PseudoSourceValue.h"
-#include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetInstrDesc.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Support/LeakDetector.h"
 #include "llvm/Support/Streams.h"
 #include <ostream>
@@ -159,7 +156,7 @@ bool MachineOperand::isIdenticalTo(const MachineOperand &Other) const {
 void MachineOperand::print(std::ostream &OS, const TargetMachine *TM) const {
   switch (getType()) {
   case MachineOperand::MO_Register:
-    if (getReg() == 0 || TargetRegisterInfo::isVirtualRegister(getReg())) {
+    if (getReg() == 0 || MRegisterInfo::isVirtualRegister(getReg())) {
       OS << "%reg" << getReg();
     } else {
       // If the instruction is embedded into a basic block, we can find the
@@ -294,7 +291,6 @@ MachineInstr::MachineInstr(const MachineInstr &MI) {
   TID = &MI.getDesc();
   NumImplicitOps = MI.NumImplicitOps;
   Operands.reserve(MI.getNumOperands());
-  MemOperands = MI.MemOperands;
 
   // Add operands
   for (unsigned i = 0; i != MI.getNumOperands(); ++i) {
@@ -513,12 +509,6 @@ unsigned MachineInstr::getNumExplicitOperands() const {
 }
 
 
-/// isDebugLabel - Returns true if the MachineInstr represents a debug label.
-///
-bool MachineInstr::isDebugLabel() const {
-  return getOpcode() == TargetInstrInfo::LABEL && getOperand(1).getImm() == 0;
-}
-
 /// findRegisterUseOperandIdx() - Returns the MachineOperand that is a use of
 /// the specific register or -1 if it is not found. It further tightening
 /// the search criteria to a use that kills the register if isKill is true.
@@ -630,128 +620,6 @@ void MachineInstr::print(std::ostream &OS, const TargetMachine *TM) const {
     getOperand(i).print(OS, TM);
   }
 
-  if (getNumMemOperands() > 0) {
-    OS << ", Mem:";
-    for (unsigned i = 0; i < getNumMemOperands(); i++) {
-      const MemOperand &MRO = getMemOperand(i);
-      const Value *V = MRO.getValue();
-
-      assert((MRO.isLoad() || MRO.isStore()) &&
-             "SV has to be a load, store or both.");
-      
-      if (MRO.isVolatile())
-        OS << "Volatile ";
-
-      if (MRO.isLoad())
-        OS << "LD";
-      if (MRO.isStore())
-        OS << "ST";
-        
-      OS << "(" << MRO.getSize() << "," << MRO.getAlignment() << ") [";
-      
-      if (!V)
-        OS << "<unknown>";
-      else if (!V->getName().empty())
-        OS << V->getName();
-      else if (isa<PseudoSourceValue>(V))
-        OS << *V;
-      else
-        OS << V;
-
-      OS << " + " << MRO.getOffset() << "]";
-    }
-  }
-
   OS << "\n";
 }
 
-bool MachineInstr::addRegisterKilled(unsigned IncomingReg,
-                                     const TargetRegisterInfo *RegInfo,
-                                     bool AddIfNotFound) {
-  bool Found = false;
-  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
-    MachineOperand &MO = getOperand(i);
-    if (MO.isRegister() && MO.isUse()) {
-      unsigned Reg = MO.getReg();
-      if (!Reg)
-        continue;
-      if (Reg == IncomingReg) {
-        MO.setIsKill();
-        Found = true;
-        break;
-      } else if (TargetRegisterInfo::isPhysicalRegister(Reg) &&
-                 TargetRegisterInfo::isPhysicalRegister(IncomingReg) &&
-                 RegInfo->isSuperRegister(IncomingReg, Reg) &&
-                 MO.isKill())
-        // A super-register kill already exists.
-        Found = true;
-    }
-  }
-
-  // If not found, this means an alias of one of the operand is killed. Add a
-  // new implicit operand if required.
-  if (!Found && AddIfNotFound) {
-    addOperand(MachineOperand::CreateReg(IncomingReg, false/*IsDef*/,
-                                         true/*IsImp*/,true/*IsKill*/));
-    return true;
-  }
-  return Found;
-}
-
-bool MachineInstr::addRegisterDead(unsigned IncomingReg,
-                                   const TargetRegisterInfo *RegInfo,
-                                   bool AddIfNotFound) {
-  bool Found = false;
-  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
-    MachineOperand &MO = getOperand(i);
-    if (MO.isRegister() && MO.isDef()) {
-      unsigned Reg = MO.getReg();
-      if (!Reg)
-        continue;
-      if (Reg == IncomingReg) {
-        MO.setIsDead();
-        Found = true;
-        break;
-      } else if (TargetRegisterInfo::isPhysicalRegister(Reg) &&
-                 TargetRegisterInfo::isPhysicalRegister(IncomingReg) &&
-                 RegInfo->isSuperRegister(IncomingReg, Reg) &&
-                 MO.isDead())
-        // There exists a super-register that's marked dead.
-        return true;
-    }
-  }
-
-  // If not found, this means an alias of one of the operand is dead. Add a
-  // new implicit operand.
-  if (!Found && AddIfNotFound) {
-    addOperand(MachineOperand::CreateReg(IncomingReg, true/*IsDef*/,
-                                         true/*IsImp*/,false/*IsKill*/,
-                                         true/*IsDead*/));
-    return true;
-  }
-  return Found;
-}
-
-/// copyKillDeadInfo - copies killed/dead information from one instr to another
-void MachineInstr::copyKillDeadInfo(MachineInstr *OldMI,
-                                    const TargetRegisterInfo *RegInfo) {
-  // If the instruction defines any virtual registers, update the VarInfo,
-  // kill and dead information for the instruction.
-  for (unsigned i = 0, e = OldMI->getNumOperands(); i != e; ++i) {
-    MachineOperand &MO = OldMI->getOperand(i);
-    if (MO.isRegister() && MO.getReg() &&
-        TargetRegisterInfo::isVirtualRegister(MO.getReg())) {
-      unsigned Reg = MO.getReg();
-      if (MO.isDef()) {
-        if (MO.isDead()) {
-          MO.setIsDead(false);
-          addRegisterDead(Reg, RegInfo);
-        }
-      }
-      if (MO.isKill()) {
-        MO.setIsKill(false);
-        addRegisterKilled(Reg, RegInfo);
-      }
-    }
-  }
-}

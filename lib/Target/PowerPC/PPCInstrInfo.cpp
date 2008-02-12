@@ -536,8 +536,7 @@ void PPCInstrInfo::loadRegFromAddr(MachineFunction &MF, unsigned DestReg,
 
 /// foldMemoryOperand - PowerPC (like most RISC's) can only fold spills into
 /// copy instructions, turning them into load/store instructions.
-MachineInstr *PPCInstrInfo::foldMemoryOperand(MachineFunction &MF,
-                                              MachineInstr *MI,
+MachineInstr *PPCInstrInfo::foldMemoryOperand(MachineInstr *MI,
                                               SmallVectorImpl<unsigned> &Ops,
                                               int FrameIndex) const {
   if (Ops.size() != 1) return NULL;
@@ -595,7 +594,7 @@ MachineInstr *PPCInstrInfo::foldMemoryOperand(MachineFunction &MF,
 }
 
 bool PPCInstrInfo::canFoldMemoryOperand(MachineInstr *MI,
-                                        SmallVectorImpl<unsigned> &Ops) const {
+                                         SmallVectorImpl<unsigned> &Ops) const {
   if (Ops.size() != 1) return false;
 
   // Make sure this is a reg-reg copy.  Note that we can't handle MCRF, because

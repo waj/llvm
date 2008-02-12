@@ -165,16 +165,6 @@ bool X86ATTAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     DW.BeginFunction(&MF);
   }
 
-  if (Subtarget->isTargetDarwin()) {
-    // If the function is empty, then we need to emit *something*. Otherwise,
-    // the function's label might be associated with something that it wasn't
-    // meant to be associated with. We emit a noop in this situation.
-    MachineFunction::iterator I = MF.begin();
-
-    if (++I == MF.end() && MF.front().empty())
-      O << "\tnop\n";
-  }
-
   // Print out code for the function.
   for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
        I != E; ++I) {
@@ -183,9 +173,10 @@ bool X86ATTAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
       printBasicBlockLabel(I, true);
       O << '\n';
     }
-    for (MachineBasicBlock::const_iterator II = I->begin(), IE = I->end();
-         II != IE; ++II) {
+    for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
+         II != E; ++II) {
       // Print the assembly for the instruction.
+      O << "\t";
       printMachineInstruction(II);
     }
   }
@@ -216,10 +207,10 @@ static inline bool printStub(TargetMachine &TM, const X86Subtarget* ST) {
 void X86ATTAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
                                     const char *Modifier, bool NotRIPRel) {
   const MachineOperand &MO = MI->getOperand(OpNo);
-  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+  const MRegisterInfo &RI = *TM.getRegisterInfo();
   switch (MO.getType()) {
   case MachineOperand::MO_Register: {
-    assert(TargetRegisterInfo::isPhysicalRegister(MO.getReg()) &&
+    assert(MRegisterInfo::isPhysicalRegister(MO.getReg()) &&
            "Virtual registers should not make it this far!");
     O << '%';
     unsigned Reg = MO.getReg();
@@ -372,7 +363,10 @@ void X86ATTAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
           O << "@GOTOFF";
       } else if (Subtarget->isPICStyleRIPRel() && !NotRIPRel &&
                  TM.getRelocationModel() != Reloc::Static) {
-        if (Subtarget->GVRequiresExtraLoad(GV, TM, false))
+        if ((GV->isDeclaration() ||
+             GV->hasWeakLinkage() ||
+             GV->hasLinkOnceLinkage()) &&
+            TM.getRelocationModel() != Reloc::Static)
           O << "@GOTPCREL";
 
         if (needCloseParen) {
@@ -553,7 +547,7 @@ void X86ATTAsmPrinter::printPICJumpTableEntry(const MachineJumpTableInfo *MJTI,
 
 bool X86ATTAsmPrinter::printAsmMRegister(const MachineOperand &MO,
                                          const char Mode) {
-  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+  const MRegisterInfo &RI = *TM.getRegisterInfo();
   unsigned Reg = MO.getReg();
   switch (Mode) {
   default: return true;  // Unknown mode.

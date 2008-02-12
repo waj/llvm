@@ -61,6 +61,7 @@ def i64immSExt8  : PatLeaf<(i64 imm), [{
   return (int64_t)N->getValue() == (int8_t)N->getValue();
 }]>;
 
+def sextloadi64i1  : PatFrag<(ops node:$ptr), (i64 (sextloadi1 node:$ptr))>;
 def sextloadi64i8  : PatFrag<(ops node:$ptr), (i64 (sextloadi8 node:$ptr))>;
 def sextloadi64i16 : PatFrag<(ops node:$ptr), (i64 (sextloadi16 node:$ptr))>;
 def sextloadi64i32 : PatFrag<(ops node:$ptr), (i64 (sextloadi32 node:$ptr))>;
@@ -90,7 +91,7 @@ def IMPLICIT_DEF_GR64  : I<0, Pseudo, (outs GR64:$dst), (ins),
 let isCall = 1 in
   // All calls clobber the non-callee saved registers...
   let Defs = [RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11,
-              FP0, FP1, FP2, FP3, FP4, FP5, FP6, ST0, ST1,
+              FP0, FP1, FP2, FP3, FP4, FP5, FP6, ST0,
               MM0, MM1, MM2, MM3, MM4, MM5, MM6, MM7,
               XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7,
               XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14, XMM15, EFLAGS] in {
@@ -1125,16 +1126,16 @@ def : Pat<(i64 (X86Wrapper texternalsym:$dst)),
 
 def : Pat<(store (i64 (X86Wrapper tconstpool:$src)), addr:$dst),
           (MOV64mi32 addr:$dst, tconstpool:$src)>,
-          Requires<[SmallCode, IsStatic]>;
+          Requires<[SmallCode, HasLow4G, IsStatic]>;
 def : Pat<(store (i64 (X86Wrapper tjumptable:$src)), addr:$dst),
           (MOV64mi32 addr:$dst, tjumptable:$src)>,
-          Requires<[SmallCode, IsStatic]>;
+          Requires<[SmallCode, HasLow4G, IsStatic]>;
 def : Pat<(store (i64 (X86Wrapper tglobaladdr:$src)), addr:$dst),
           (MOV64mi32 addr:$dst, tglobaladdr:$src)>,
-          Requires<[SmallCode, IsStatic]>;
+          Requires<[SmallCode, HasLow4G, IsStatic]>;
 def : Pat<(store (i64 (X86Wrapper texternalsym:$src)), addr:$dst),
           (MOV64mi32 addr:$dst, texternalsym:$src)>,
-          Requires<[SmallCode, IsStatic]>;
+          Requires<[SmallCode, HasLow4G, IsStatic]>;
 
 // Calls
 // Direct PC relative function call for small code model. 32-bit displacement
@@ -1176,7 +1177,8 @@ def : Pat<(X86tcret (i64 texternalsym:$dst), imm:$off),
 def : Pat<(parallel (X86cmp GR64:$src1, 0), (implicit EFLAGS)),
           (TEST64rr GR64:$src1, GR64:$src1)>;
 
-// zextload bool -> zextload byte
+// {s|z}extload bool -> {s|z}extload byte
+def : Pat<(sextloadi64i1 addr:$src), (MOVSX64rm8 addr:$src)>;
 def : Pat<(zextloadi64i1 addr:$src), (MOVZX64rm8 addr:$src)>;
 
 // extload
@@ -1266,13 +1268,3 @@ def MOVSDto64rr  : RPDI<0x7E, MRMDestReg, (outs GR64:$dst), (ins FR64:$src),
 def MOVSDto64mr  : RPDI<0x7E, MRMDestMem, (outs), (ins i64mem:$dst, FR64:$src),
                         "mov{d|q}\t{$src, $dst|$dst, $src}",
                         [(store (i64 (bitconvert FR64:$src)), addr:$dst)]>;
-
-//===----------------------------------------------------------------------===//
-// X86-64 SSE4.1 Instructions
-//===----------------------------------------------------------------------===//
-
-// PEXTRB, unary, TA, 0x14, REX.W
-// PEXTRW, unary, TA, 0x15, REX.W
-// PEXTRQ, unary, TA, 0x16, REX.W
-// EXTRACTPS, unary, TA, 0x17, REX.W
-// PINSRQ, 2addr, binary, TA, 0x22, REX.W

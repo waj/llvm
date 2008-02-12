@@ -53,8 +53,7 @@ namespace {
     void printOperand(const MachineInstr *MI, unsigned OpNo){
       const MachineOperand &MO = MI->getOperand(OpNo);
       if (MO.getType() == MachineOperand::MO_Register) {
-        assert(TargetRegisterInfo::isPhysicalRegister(MO.getReg()) &&
-               "Not physref??");
+        assert(MRegisterInfo::isPhysicalRegister(MO.getReg())&&"Not physref??");
         //XXX Bug Workaround: See note in Printer::doInitialization about %.
         O << TM.getRegisterInfo()->get(MO.getReg()).Name;
       } else {
@@ -155,6 +154,7 @@ bool IA64AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
       // Print the assembly for the instruction.
+      O << "\t";
       printMachineInstruction(II);
     }
   }
@@ -165,7 +165,7 @@ bool IA64AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 
 void IA64AsmPrinter::printOp(const MachineOperand &MO,
                              bool isBRCALLinsn /* = false */) {
-  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+  const MRegisterInfo &RI = *TM.getRegisterInfo();
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
     O << RI.get(MO.getReg()).Name;
@@ -271,8 +271,8 @@ bool IA64AsmPrinter::doFinalization(Module &M) {
       std::string name = Mang->getValueName(I);
       Constant *C = I->getInitializer();
       unsigned Size = TD->getABITypeSize(C->getType());
-      unsigned Align = TD->getPreferredAlignmentLog(I);
-
+      unsigned Align = TD->getPreferredTypeAlignmentShift(C->getType());
+      
       if (C->isNullValue() &&
           (I->hasLinkOnceLinkage() || I->hasInternalLinkage() ||
            I->hasWeakLinkage() /* FIXME: Verify correct */)) {

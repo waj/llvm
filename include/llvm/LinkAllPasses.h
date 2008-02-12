@@ -54,6 +54,7 @@ namespace {
       (void) llvm::createCFGSimplificationPass();
       (void) llvm::createConstantMergePass();
       (void) llvm::createConstantPropagationPass();
+      (void) llvm::createCorrelatedExpressionEliminationPass();
       (void) llvm::createDeadArgEliminationPass();
       (void) llvm::createDeadCodeEliminationPass();
       (void) llvm::createDeadInstEliminationPass();

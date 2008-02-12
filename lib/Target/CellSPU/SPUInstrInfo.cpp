@@ -391,10 +391,9 @@ void SPUInstrInfo::loadRegFromAddr(MachineFunction &MF, unsigned DestReg,
 /// foldMemoryOperand - SPU, like PPC, can only fold spills into
 /// copy instructions, turning them into load/store instructions.
 MachineInstr *
-SPUInstrInfo::foldMemoryOperand(MachineFunction &MF,
-                                MachineInstr *MI,
-                                SmallVectorImpl<unsigned> &Ops,
-                                int FrameIndex) const
+SPUInstrInfo::foldMemoryOperand(MachineInstr *MI,
+                                   SmallVectorImpl<unsigned> &Ops,
+                                   int FrameIndex) const
 {
 #if SOMEDAY_SCOTT_LOOKS_AT_ME_AGAIN
   if (Ops.size() != 1) return NULL;
@@ -409,8 +408,8 @@ SPUInstrInfo::foldMemoryOperand(MachineFunction &MF,
     if (OpNum == 0) {  // move -> store
       unsigned InReg = MI->getOperand(1).getReg();
       if (FrameIndex < SPUFrameInfo::maxFrameOffset()) {
-        NewMI = addFrameReference(BuildMI(TII.get(SPU::STQDr32)).addReg(InReg),
-                                  FrameIndex);
+	NewMI = addFrameReference(BuildMI(TII.get(SPU::STQDr32)).addReg(InReg),
+				  FrameIndex);
       }
     } else {           // move -> load
       unsigned OutReg = MI->getOperand(0).getReg();

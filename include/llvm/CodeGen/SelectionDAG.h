@@ -139,6 +139,11 @@ public:
   /// SelectionDAG.
   void RemoveDeadNodes();
 
+  /// RemoveDeadNode - Remove the specified node from the system. If any of its
+  /// operands then becomes dead, remove them as well. The vector Deleted is
+  /// populated with nodes that are deleted.
+  void RemoveDeadNode(SDNode *N, std::vector<SDNode*> &Deleted);
+  
   /// DeleteNode - Remove the specified node from the system.  This node must
   /// have no referrers.
   void DeleteNode(SDNode *N);
@@ -172,12 +177,7 @@ public:
   //
   SDOperand getString(const std::string &Val);
   SDOperand getConstant(uint64_t Val, MVT::ValueType VT, bool isTarget = false);
-  SDOperand getConstant(const APInt &Val, MVT::ValueType VT, bool isTarget = false);
-  SDOperand getIntPtrConstant(uint64_t Val, bool isTarget = false);
   SDOperand getTargetConstant(uint64_t Val, MVT::ValueType VT) {
-    return getConstant(Val, VT, true);
-  }
-  SDOperand getTargetConstant(const APInt &Val, MVT::ValueType VT) {
     return getConstant(Val, VT, true);
   }
   SDOperand getConstantFP(double Val, MVT::ValueType VT, bool isTarget = false);
@@ -380,12 +380,8 @@ public:
   SDOperand getIndexedStore(SDOperand OrigStoe, SDOperand Base,
                            SDOperand Offset, ISD::MemIndexedMode AM);
 
-  // getSrcValue - Construct a node to track a Value* through the backend.
-  SDOperand getSrcValue(const Value *v);
-
-  // getMemOperand - Construct a node to track a memory reference
-  // through the backend.
-  SDOperand getMemOperand(const MemOperand &MO);
+  // getSrcValue - construct a node to track a Value* through the backend
+  SDOperand getSrcValue(const Value* I, int offset = 0);
 
   /// UpdateNodeOperands - *Mutate* the specified node in-place to have the
   /// specified operands.  If the resultant node already exists in the DAG,
@@ -467,41 +463,28 @@ public:
   SDNode *getTargetNode(unsigned Opcode, std::vector<MVT::ValueType> &ResultTys,
                         const SDOperand *Ops, unsigned NumOps);
   
-  /// DAGUpdateListener - Clients of various APIs that cause global effects on
-  /// the DAG can optionally implement this interface.  This allows the clients
-  /// to handle the various sorts of updates that happen.
-  class DAGUpdateListener {
-  public:
-    virtual ~DAGUpdateListener();
-    virtual void NodeDeleted(SDNode *N) = 0;
-    virtual void NodeUpdated(SDNode *N) = 0;
-  };
-  
-  /// RemoveDeadNode - Remove the specified node from the system. If any of its
-  /// operands then becomes dead, remove them as well. Inform UpdateListener
-  /// for each node deleted.
-  void RemoveDeadNode(SDNode *N, DAGUpdateListener *UpdateListener = 0);
-  
   /// ReplaceAllUsesWith - Modify anything using 'From' to use 'To' instead.
   /// This can cause recursive merging of nodes in the DAG.  Use the first
   /// version if 'From' is known to have a single result, use the second
   /// if you have two nodes with identical results, use the third otherwise.
   ///
-  /// These methods all take an optional UpdateListener, which (if not null) is 
-  /// informed about nodes that are deleted and modified due to recursive
-  /// changes in the dag.
+  /// These methods all take an optional vector, which (if not null) is 
+  /// populated with any nodes that are deleted from the SelectionDAG, due to
+  /// new equivalences that are discovered.
   ///
   void ReplaceAllUsesWith(SDOperand From, SDOperand Op,
-                          DAGUpdateListener *UpdateListener = 0);
+                          std::vector<SDNode*> *Deleted = 0);
   void ReplaceAllUsesWith(SDNode *From, SDNode *To,
-                          DAGUpdateListener *UpdateListener = 0);
+                          std::vector<SDNode*> *Deleted = 0);
   void ReplaceAllUsesWith(SDNode *From, const SDOperand *To,
-                          DAGUpdateListener *UpdateListener = 0);
+                          std::vector<SDNode*> *Deleted = 0);
 
   /// ReplaceAllUsesOfValueWith - Replace any uses of From with To, leaving
-  /// uses of other values produced by From.Val alone.
+  /// uses of other values produced by From.Val alone.  The Deleted vector is
+  /// handled the same was as for ReplaceAllUsesWith, but it is required for
+  /// this method.
   void ReplaceAllUsesOfValueWith(SDOperand From, SDOperand To,
-                                 DAGUpdateListener *UpdateListener = 0);
+                                 std::vector<SDNode*> *Deleted = 0);
 
   /// AssignNodeIds - Assign a unique node id for each node in the DAG based on
   /// their allnodes order. It returns the maximum id.
@@ -515,8 +498,6 @@ public:
   /// isCommutativeBinOp - Returns true if the opcode is a commutative binary
   /// operation.
   static bool isCommutativeBinOp(unsigned Opcode) {
-    // FIXME: This should get its info from the td file, so that we can include
-    // target info.
     switch (Opcode) {
     case ISD::ADD:
     case ISD::MUL:
@@ -567,10 +548,6 @@ public:
   /// implement the ComputeNumSignBitsForTarget method in the TargetLowering
   /// class to allow target nodes to be understood.
   unsigned ComputeNumSignBits(SDOperand Op, unsigned Depth = 0) const;
-
-  /// isVerifiedDebugInfoDesc - Returns true if the specified SDOperand has
-  /// been verified as a debug information descriptor.
-  bool isVerifiedDebugInfoDesc(SDOperand Op) const;
   
 private:
   void RemoveNodeFromCSEMaps(SDNode *N);

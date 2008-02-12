@@ -71,7 +71,7 @@ public:
   /// such, whenever a client has an instance of instruction info, it should
   /// always be able to get register info as well (through this method).
   ///
-  virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
+  virtual const MRegisterInfo &getRegisterInfo() const { return RI; }
 
   /// getPointerRegClass - Return the register class to use to hold pointers.
   /// This is used for addressing modes.
@@ -131,13 +131,11 @@ public:
   
   /// foldMemoryOperand - PowerPC (like most RISC's) can only fold spills into
   /// copy instructions, turning them into load/store instructions.
-  virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                          MachineInstr* MI,
+  virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                           SmallVectorImpl<unsigned> &Ops,
                                           int FrameIndex) const;
 
-  virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                          MachineInstr* MI,
+  virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                           SmallVectorImpl<unsigned> &Ops,
                                           MachineInstr* LoadMI) const {
     return 0;

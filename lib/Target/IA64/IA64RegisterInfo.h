@@ -7,14 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the IA64 implementation of the TargetRegisterInfo class.
+// This file contains the IA64 implementation of the MRegisterInfo class.
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef IA64REGISTERINFO_H
 #define IA64REGISTERINFO_H
 
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "IA64GenRegisterInfo.h.inc"
 
 namespace llvm { class llvm::Type; }

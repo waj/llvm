@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the ARM implementation of the TargetRegisterInfo class.
+// This file contains the ARM implementation of the MRegisterInfo class.
 //
 //===----------------------------------------------------------------------===//
 

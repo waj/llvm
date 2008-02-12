@@ -16,7 +16,6 @@
 
 #include "llvm/Support/Allocator.h"
 #include <cstring>
-#include <string>
 
 namespace llvm {
   template<typename ValueT>
@@ -27,7 +26,7 @@ namespace llvm {
   class StringMapEntry;
 
 /// StringMapEntryInitializer - This datatype can be partially specialized for
-/// various datatypes in a stringmap to allow them to be initialized when an
+/// various datatypes in a stringmap to allow them to be initialized when an 
 /// entry is default constructed for the map.
 template<typename ValueTy>
 class StringMapEntryInitializer {
@@ -36,17 +35,17 @@ public:
   static void Initialize(StringMapEntry<ValueTy> &T, InitTy InitVal) {
   }
 };
-
-
+  
+  
 /// StringMapEntryBase - Shared base class of StringMapEntry instances.
 class StringMapEntryBase {
   unsigned StrLen;
 public:
   explicit StringMapEntryBase(unsigned Len) : StrLen(Len) {}
-
+  
   unsigned getKeyLength() const { return StrLen; }
 };
-
+  
 /// StringMapImpl - This is the base class of StringMap that is shared among
 /// all of its instantiations.
 class StringMapImpl {
@@ -57,11 +56,11 @@ public:
     /// FullHashValue - This remembers the full hash value of the key for
     /// easy scanning.
     unsigned FullHashValue;
-
+    
     /// Item - This is a pointer to the actual item object.
     StringMapEntryBase *Item;
   };
-
+  
 protected:
   ItemBucket *TheTable;
   unsigned NumBuckets;
@@ -78,7 +77,7 @@ protected:
   }
   StringMapImpl(unsigned InitSize, unsigned ItemSize);
   void RehashTable();
-
+  
   /// ShouldRehash - Return true if the table should be rehashed after a new
   /// element was recently inserted.
   bool ShouldRehash() const {
@@ -88,14 +87,14 @@ protected:
     return NumItems*4 > NumBuckets*3 ||
            NumBuckets-(NumItems+NumTombstones) < NumBuckets/8;
   }
-
+  
   /// LookupBucketFor - Look up the bucket that the specified string should end
   /// up in.  If it already exists as a key in the map, the Item pointer for the
   /// specified bucket will be non-null.  Otherwise, it will be null.  In either
   /// case, the FullHashValue field of the bucket will be set to the hash value
   /// of the string.
   unsigned LookupBucketFor(const char *KeyStart, const char *KeyEnd);
-
+  
   /// FindKey - Look up the bucket that contains the specified key. If it exists
   /// in the map, return the bucket number of the key.  Otherwise return -1.
   /// This does not modify the map.
@@ -114,7 +113,7 @@ public:
   static StringMapEntryBase *getTombstoneVal() {
     return (StringMapEntryBase*)-1;
   }
-
+  
   unsigned getNumBuckets() const { return NumBuckets; }
   unsigned getNumItems() const { return NumItems; }
 
@@ -127,26 +126,23 @@ public:
 /// and data.
 template<typename ValueTy>
 class StringMapEntry : public StringMapEntryBase {
+  ValueTy Val;
 public:
-  ValueTy second;
-
   explicit StringMapEntry(unsigned StrLen)
-    : StringMapEntryBase(StrLen), second() {}
+    : StringMapEntryBase(StrLen), Val() {}
   StringMapEntry(unsigned StrLen, const ValueTy &V)
-    : StringMapEntryBase(StrLen), second(V) {}
+    : StringMapEntryBase(StrLen), Val(V) {}
 
-  const ValueTy &getValue() const { return second; }
-  ValueTy &getValue() { return second; }
-
-  void setValue(const ValueTy &V) { second = V; }
-
+  const ValueTy &getValue() const { return Val; }
+  ValueTy &getValue() { return Val; }
+  
+  void setValue(const ValueTy &V) { Val = V; }
+  
   /// getKeyData - Return the start of the string data that is the key for this
   /// value.  The string data is always stored immediately after the
   /// StringMapEntry object.
   const char *getKeyData() const {return reinterpret_cast<const char*>(this+1);}
-
-  const char *first() const { return getKeyData(); }
-
+  
   /// Create - Create a StringMapEntry for the specified key and default
   /// construct the value.
   template<typename AllocatorTy, typename InitType>
@@ -154,37 +150,37 @@ public:
                                 AllocatorTy &Allocator,
                                 InitType InitVal) {
     unsigned KeyLength = KeyEnd-KeyStart;
-
+    
     // Okay, the item doesn't already exist, and 'Bucket' is the bucket to fill
     // in.  Allocate a new item with space for the string at the end and a null
     // terminator.
-
+    
     unsigned AllocSize = sizeof(StringMapEntry)+KeyLength+1;
     unsigned Alignment = alignof<StringMapEntry>();
-
+    
     StringMapEntry *NewItem =
       static_cast<StringMapEntry*>(Allocator.Allocate(AllocSize,Alignment));
-
+    
     // Default construct the value.
     new (NewItem) StringMapEntry(KeyLength);
-
+    
     // Copy the string information.
     char *StrBuffer = const_cast<char*>(NewItem->getKeyData());
     memcpy(StrBuffer, KeyStart, KeyLength);
     StrBuffer[KeyLength] = 0;  // Null terminate for convenience of clients.
-
+    
     // Initialize the value if the client wants to.
     StringMapEntryInitializer<ValueTy>::Initialize(*NewItem, InitVal);
     return NewItem;
   }
-
+  
   template<typename AllocatorTy>
   static StringMapEntry *Create(const char *KeyStart, const char *KeyEnd,
                                 AllocatorTy &Allocator) {
     return Create(KeyStart, KeyEnd, Allocator, (void*)0);
   }
-
-
+    
+  
   /// Create - Create a StringMapEntry with normal malloc/free.
   template<typename InitType>
   static StringMapEntry *Create(const char *KeyStart, const char *KeyEnd,
@@ -196,20 +192,20 @@ public:
   static StringMapEntry *Create(const char *KeyStart, const char *KeyEnd) {
     return Create(KeyStart, KeyEnd, (void*)0);
   }
-
+  
   /// GetStringMapEntryFromValue - Given a value that is known to be embedded
   /// into a StringMapEntry, return the StringMapEntry itself.
   static StringMapEntry &GetStringMapEntryFromValue(ValueTy &V) {
     StringMapEntry *EPtr = 0;
-    char *Ptr = reinterpret_cast<char*>(&V) -
-                  (reinterpret_cast<char*>(&EPtr->second) -
+    char *Ptr = reinterpret_cast<char*>(&V) - 
+                  (reinterpret_cast<char*>(&EPtr->Val) - 
                    reinterpret_cast<char*>(EPtr));
     return *reinterpret_cast<StringMapEntry*>(Ptr);
   }
   static const StringMapEntry &GetStringMapEntryFromValue(const ValueTy &V) {
     return GetStringMapEntryFromValue(const_cast<ValueTy&>(V));
   }
-
+  
   /// Destroy - Destroy this StringMapEntry, releasing memory back to the
   /// specified allocator.
   template<typename AllocatorTy>
@@ -218,7 +214,7 @@ public:
     this->~StringMapEntry();
     Allocator.Deallocate(this);
   }
-
+  
   /// Destroy this object, releasing memory back to the malloc allocator.
   void Destroy() {
     MallocAllocator A;
@@ -239,18 +235,13 @@ public:
   StringMap() : StringMapImpl(sizeof(MapEntryTy)) {}
   explicit StringMap(unsigned InitialSize)
     : StringMapImpl(InitialSize, sizeof(MapEntryTy)) {}
-
+  
   AllocatorTy &getAllocator() { return Allocator; }
   const AllocatorTy &getAllocator() const { return Allocator; }
 
-  typedef const char* key_type;
-  typedef ValueTy mapped_type;
-  typedef StringMapEntry<ValueTy> value_type;
-  typedef size_t size_type;
-
   typedef StringMapConstIterator<ValueTy> const_iterator;
   typedef StringMapIterator<ValueTy> iterator;
-
+  
   iterator begin() {
     return iterator(TheTable, NumBuckets == 0);
   }
@@ -263,18 +254,11 @@ public:
   const_iterator end() const {
     return const_iterator(TheTable+NumBuckets, true);
   }
-
+  
   iterator find(const char *KeyStart, const char *KeyEnd) {
     int Bucket = FindKey(KeyStart, KeyEnd);
     if (Bucket == -1) return end();
     return iterator(TheTable+Bucket);
-  }
-  iterator find(const char *Key) {
-    return find(Key, Key + strlen(Key));
-  }
-  iterator find(const std::string &Key) {
-    const char* key_start = (Key.empty() ? NULL : &Key[0]);
-    return find(key_start, key_start + Key.size());
   }
 
   const_iterator find(const char *KeyStart, const char *KeyEnd) const {
@@ -282,35 +266,7 @@ public:
     if (Bucket == -1) return end();
     return const_iterator(TheTable+Bucket);
   }
-  const_iterator find(const char *Key) const {
-    return find(Key, Key + strlen(Key));
-  }
-  const_iterator find(const std::string &Key) const {
-    const char* key_start = (Key.empty() ? NULL : &Key[0]);
-    return find(key_start, key_start + Key.size());
-  }
-
-  ValueTy& operator[](const char *Key) {
-    value_type& entry = GetOrCreateValue(Key, Key + strlen(Key));
-    return entry.getValue();
-  }
-  ValueTy& operator[](const std::string &Key) {
-    const char* key_start = (Key.empty() ? NULL : &Key[0]);
-    value_type& entry = GetOrCreateValue(key_start, key_start + Key.size());
-    return entry.getValue();
-  }
-
-  size_type count(const char *KeyStart, const char *KeyEnd) const {
-    return find(KeyStart, KeyEnd) == end() ? 0 : 1;
-  }
-  size_type count(const char *Key) const {
-    return count(Key, Key + strlen(Key));
-  }
-  size_type count(const std::string &Key) const {
-    const char* key_start = (Key.empty() ? NULL : &Key[0]);
-    return count(key_start, key_start + Key.size());
-  }
-
+  
   /// insert - Insert the specified key/value pair into the map.  If the key
   /// already exists in the map, return false and ignore the request, otherwise
   /// insert it and return true.
@@ -319,63 +275,63 @@ public:
       LookupBucketFor(KeyValue->getKeyData(),
                       KeyValue->getKeyData()+KeyValue->getKeyLength());
     ItemBucket &Bucket = TheTable[BucketNo];
-    if (Bucket.Item && Bucket.Item != getTombstoneVal())
+    if (Bucket.Item && Bucket.Item != getTombstoneVal()) 
       return false;  // Already exists in map.
-
+    
     if (Bucket.Item == getTombstoneVal())
       --NumTombstones;
     Bucket.Item = KeyValue;
     ++NumItems;
-
+    
     if (ShouldRehash())
       RehashTable();
     return true;
   }
-
+  
   /// GetOrCreateValue - Look up the specified key in the table.  If a value
   /// exists, return it.  Otherwise, default construct a value, insert it, and
   /// return.
   template <typename InitTy>
-  StringMapEntry<ValueTy> &GetOrCreateValue(const char *KeyStart,
+  StringMapEntry<ValueTy> &GetOrCreateValue(const char *KeyStart, 
                                             const char *KeyEnd,
                                             InitTy Val) {
     unsigned BucketNo = LookupBucketFor(KeyStart, KeyEnd);
     ItemBucket &Bucket = TheTable[BucketNo];
     if (Bucket.Item && Bucket.Item != getTombstoneVal())
       return *static_cast<MapEntryTy*>(Bucket.Item);
-
+    
     MapEntryTy *NewItem = MapEntryTy::Create(KeyStart, KeyEnd, Allocator, Val);
-
+    
     if (Bucket.Item == getTombstoneVal())
       --NumTombstones;
     ++NumItems;
-
+    
     // Fill in the bucket for the hash table.  The FullHashValue was already
     // filled in by LookupBucketFor.
     Bucket.Item = NewItem;
-
+    
     if (ShouldRehash())
       RehashTable();
     return *NewItem;
   }
-
-  StringMapEntry<ValueTy> &GetOrCreateValue(const char *KeyStart,
+  
+  StringMapEntry<ValueTy> &GetOrCreateValue(const char *KeyStart, 
                                             const char *KeyEnd) {
     return GetOrCreateValue(KeyStart, KeyEnd, (void*)0);
   }
-
+  
   /// remove - Remove the specified key/value pair from the map, but do not
   /// erase it.  This aborts if the key is not in the map.
   void remove(MapEntryTy *KeyValue) {
     RemoveKey(KeyValue);
   }
-
+  
   void erase(iterator I) {
     MapEntryTy &V = *I;
     remove(&V);
     V.Destroy(Allocator);
   }
-
+  
   ~StringMap() {
     for (ItemBucket *I = TheTable, *E = TheTable+NumBuckets; I != E; ++I) {
       if (I->Item && I->Item != getTombstoneVal())
@@ -387,7 +343,7 @@ private:
   StringMap(const StringMap &);  // FIXME: Implement.
   void operator=(const StringMap &);  // FIXME: Implement.
 };
-
+  
 
 template<typename ValueTy>
 class StringMapConstIterator {
@@ -399,21 +355,21 @@ public:
   : Ptr(Bucket) {
     if (!NoAdvance) AdvancePastEmptyBuckets();
   }
-
+  
   const StringMapEntry<ValueTy> &operator*() const {
     return *static_cast<StringMapEntry<ValueTy>*>(Ptr->Item);
   }
   const StringMapEntry<ValueTy> *operator->() const {
     return static_cast<StringMapEntry<ValueTy>*>(Ptr->Item);
   }
-
+  
   bool operator==(const StringMapConstIterator &RHS) const {
     return Ptr == RHS.Ptr;
   }
   bool operator!=(const StringMapConstIterator &RHS) const {
     return Ptr != RHS.Ptr;
   }
-
+  
   inline StringMapConstIterator& operator++() {          // Preincrement
     ++Ptr;
     AdvancePastEmptyBuckets();
@@ -422,7 +378,7 @@ public:
   StringMapConstIterator operator++(int) {        // Postincrement
     StringMapConstIterator tmp = *this; ++*this; return tmp;
   }
-
+  
 private:
   void AdvancePastEmptyBuckets() {
     while (Ptr->Item == 0 || Ptr->Item == StringMapImpl::getTombstoneVal())
@@ -432,7 +388,7 @@ private:
 
 template<typename ValueTy>
 class StringMapIterator : public StringMapConstIterator<ValueTy> {
-public:
+public:  
   explicit StringMapIterator(StringMapImpl::ItemBucket *Bucket,
                              bool NoAdvance = false)
     : StringMapConstIterator<ValueTy>(Bucket, NoAdvance) {
@@ -448,3 +404,4 @@ public:
 }
 
 #endif
+

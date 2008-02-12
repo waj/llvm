@@ -237,7 +237,7 @@ bool IfConverter::runOnMachineFunction(MachineFunction &MF) {
 
   // Look for root nodes, i.e. blocks without successors.
   for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I)
-    if (I->succ_empty())
+    if (I->succ_size() == 0)
       Roots.push_back(I);
 
   std::vector<IfcvtToken*> Tokens;
@@ -428,7 +428,7 @@ bool IfConverter::ValidTriangle(BBInfo &TrueBBI, BBInfo &FalseBBI,
 
     unsigned Size = TrueBBI.NonPredSize;
     if (TrueBBI.IsBrAnalyzable) {
-      if (TrueBBI.TrueBB && TrueBBI.BrCond.empty())
+      if (TrueBBI.TrueBB && TrueBBI.BrCond.size() == 0)
         // End with an unconditional branch. It will be removed.
         --Size;
       else {
@@ -646,7 +646,7 @@ IfConverter::BBInfo &IfConverter::AnalyzeBlock(MachineBasicBlock *BB,
   ScanInstructions(BBI);
 
   // Unanalyable or ends with fallthrough or unconditional branch.
-  if (!BBI.IsBrAnalyzable || BBI.BrCond.empty()) {
+  if (!BBI.IsBrAnalyzable || BBI.BrCond.size() == 0) {
     BBI.IsBeingAnalyzed = false;
     BBI.IsAnalyzed = true;
     return BBI;

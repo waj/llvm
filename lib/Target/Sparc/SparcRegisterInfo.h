@@ -7,14 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the Sparc implementation of the TargetRegisterInfo class.
+// This file contains the Sparc implementation of the MRegisterInfo class.
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef SPARCREGISTERINFO_H
 #define SPARCREGISTERINFO_H
 
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "SparcGenRegisterInfo.h.inc"
 
 namespace llvm {

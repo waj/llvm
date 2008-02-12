@@ -6,10 +6,7 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-// The file defines the MachineFrameInfo class.
-//
-//===----------------------------------------------------------------------===//
+
 
 #ifndef LLVM_CODEGEN_MACHINEFRAMEINFO_H
 #define LLVM_CODEGEN_MACHINEFRAMEINFO_H
@@ -22,7 +19,6 @@ class TargetRegisterClass;
 class Type;
 class MachineModuleInfo;
 class MachineFunction;
-class TargetFrameInfo;
 
 /// The CalleeSavedInfo class tracks the information need to locate where a
 /// callee saved register in the current frame.  
@@ -86,17 +82,17 @@ class MachineFrameInfo {
     // Alignment - The required alignment of this stack slot.
     unsigned Alignment;
 
+    // SPOffset - The offset of this object from the stack pointer on entry to
+    // the function.  This field has no meaning for a variable sized element.
+    int64_t SPOffset;
+
     // isImmutable - If true, the value of the stack object is set before
     // entering the function and is not modified inside the function. By
     // default, fixed objects are immutable unless marked otherwise.
     bool isImmutable;
 
-    // SPOffset - The offset of this object from the stack pointer on entry to
-    // the function.  This field has no meaning for a variable sized element.
-    int64_t SPOffset;
-    
     StackObject(uint64_t Sz, unsigned Al, int64_t SP, bool IM = false)
-      : Size(Sz), Alignment(Al), isImmutable(IM), SPOffset(SP) {}
+      : Size(Sz), Alignment(Al), SPOffset(SP), isImmutable(IM) {}
   };
 
   /// Objects - The list of stack objects allocated...
@@ -159,15 +155,12 @@ class MachineFrameInfo {
   /// MMI - This field is set (via setMachineModuleInfo) by a module info
   /// consumer (ex. DwarfWriter) to indicate that frame layout information
   /// should be acquired.  Typically, it's the responsibility of the target's
-  /// TargetRegisterInfo prologue/epilogue emitting code to inform
-  /// MachineModuleInfo of frame layouts.
+  /// MRegisterInfo prologue/epilogue emitting code to inform MachineModuleInfo
+  /// of frame layouts.
   MachineModuleInfo *MMI;
   
-  /// TargetFrameInfo - Target information about frame layout.
-  ///
-  const TargetFrameInfo &TFI;
 public:
-  MachineFrameInfo(const TargetFrameInfo &tfi) : TFI(tfi) {
+  MachineFrameInfo() {
     StackSize = NumFixedObjects = OffsetAdjustment = MaxAlignment = 0;
     HasVarSizedObjects = false;
     HasCalls = false;
@@ -197,15 +190,13 @@ public:
   /// getObjectSize - Return the size of the specified object
   ///
   int64_t getObjectSize(int ObjectIdx) const {
-    assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
-           "Invalid Object Idx!");
+    assert(ObjectIdx+NumFixedObjects < Objects.size() && "Invalid Object Idx!");
     return Objects[ObjectIdx+NumFixedObjects].Size;
   }
 
   /// getObjectAlignment - Return the alignment of the specified stack object...
   int getObjectAlignment(int ObjectIdx) const {
-    assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
-           "Invalid Object Idx!");
+    assert(ObjectIdx+NumFixedObjects < Objects.size() && "Invalid Object Idx!");
     return Objects[ObjectIdx+NumFixedObjects].Alignment;
   }
 
@@ -213,8 +204,7 @@ public:
   /// from the incoming stack pointer.
   ///
   int64_t getObjectOffset(int ObjectIdx) const {
-    assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
-           "Invalid Object Idx!");
+    assert(ObjectIdx+NumFixedObjects < Objects.size() && "Invalid Object Idx!");
     return Objects[ObjectIdx+NumFixedObjects].SPOffset;
   }
 
@@ -222,8 +212,7 @@ public:
   /// offset is relative to the stack pointer on entry to the function.
   ///
   void setObjectOffset(int ObjectIdx, int64_t SPOffset) {
-    assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
-           "Invalid Object Idx!");
+    assert(ObjectIdx+NumFixedObjects < Objects.size() && "Invalid Object Idx!");
     Objects[ObjectIdx+NumFixedObjects].SPOffset = SPOffset;
   }
 
@@ -275,9 +264,12 @@ public:
   /// index with a negative value.
   ///
   int CreateFixedObject(uint64_t Size, int64_t SPOffset,
-                        bool Immutable = true);
-  
-  
+                        bool Immutable = true) {
+    assert(Size != 0 && "Cannot allocate zero size fixed stack objects!");
+    Objects.insert(Objects.begin(), StackObject(Size, 1, SPOffset, Immutable));
+    return -++NumFixedObjects;
+  }
+
   /// isFixedObjectIndex - Returns true if the specified index corresponds to a
   /// fixed stack object.
   bool isFixedObjectIndex(int ObjectIdx) const {
@@ -287,8 +279,6 @@ public:
   /// isImmutableObjectIndex - Returns true if the specified index corresponds
   /// to an immutable object.
   bool isImmutableObjectIndex(int ObjectIdx) const {
-    assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
-           "Invalid Object Idx!");
     return Objects[ObjectIdx+NumFixedObjects].isImmutable;
   }
 
@@ -328,8 +318,8 @@ public:
     CSInfo = CSI;
   }
 
-  /// getMachineModuleInfo - Used by a prologue/epilogue
-  /// emitter (TargetRegisterInfo) to provide frame layout information. 
+  /// getMachineModuleInfo - Used by a prologue/epilogue emitter (MRegisterInfo)
+  /// to provide frame layout information. 
   MachineModuleInfo *getMachineModuleInfo() const { return MMI; }
 
   /// setMachineModuleInfo - Used by a meta info consumer (DwarfWriter) to

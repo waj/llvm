@@ -31,7 +31,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Target/TargetAsmInfo.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/ADT/Statistic.h"
@@ -73,15 +73,14 @@ namespace {
     ///
     void printRegister(const MachineOperand &MO, bool R0AsZero) {
       unsigned RegNo = MO.getReg();
-      assert(TargetRegisterInfo::isPhysicalRegister(RegNo) &&
-             "Not physreg??");
+      assert(MRegisterInfo::isPhysicalRegister(RegNo) && "Not physreg??");
       O << TM.getRegisterInfo()->get(RegNo).Name;
     }
 
     void printOperand(const MachineInstr *MI, unsigned OpNo) {
       const MachineOperand &MO = MI->getOperand(OpNo);
       if (MO.isRegister()) {
-        assert(TargetRegisterInfo::isPhysicalRegister(MO.getReg())&&"Not physreg??");
+        assert(MRegisterInfo::isPhysicalRegister(MO.getReg())&&"Not physreg??");
         O << TM.getRegisterInfo()->get(MO.getReg()).Name;
       } else if (MO.isImmediate()) {
         O << MO.getImm();
@@ -103,7 +102,7 @@ namespace {
       value = (value << (32 - 7)) >> (32 - 7);
 
       assert((value >= -(1 << 8) && value <= (1 << 7) - 1)
-             && "Invalid s7 argument");
+	     && "Invalid s7 argument");
       O << value;
     }
 
@@ -186,7 +185,7 @@ namespace {
     {
       const MachineOperand &MO = MI->getOperand(OpNo);
       assert(MO.isImmediate()
-             && "printMemRegImmS10 first operand is not immedate");
+	     && "printMemRegImmS10 first operand is not immedate");
       printS10ImmOperand(MI, OpNo);
       O << "(";
       printOperand(MI, OpNo+1);
@@ -196,18 +195,12 @@ namespace {
     void
     printAddr256K(const MachineInstr *MI, unsigned OpNo)
     {
-      /* Note: operand 1 is an offset or symbol name. */
+      /* Note: operand 1 is an offset or symbol name. Operand 2 is
+	 ignored. */
       if (MI->getOperand(OpNo).isImmediate()) {
         printS16ImmOperand(MI, OpNo);
       } else {
         printOp(MI->getOperand(OpNo));
-        if (MI->getOperand(OpNo+1).isImmediate()) {
-          int displ = int(MI->getOperand(OpNo+1).getImm());
-          if (displ > 0)
-            O << "+" << displ;
-          else if (displ < 0)
-            O << displ;
-        }
       }
     }
 
@@ -247,7 +240,7 @@ namespace {
       if (MI->getOperand(OpNo).isImmediate()) {
         int value = (int) MI->getOperand(OpNo).getImm();
         assert((value >= 0 && value < 16)
-               && "Invalid negated immediate rotate 7-bit argument");
+	       && "Invalid negated immediate rotate 7-bit argument");
         O << -value;
       } else {
         assert(0 &&"Invalid/non-immediate rotate amount in printRotateNeg7Imm");
@@ -258,7 +251,7 @@ namespace {
       if (MI->getOperand(OpNo).isImmediate()) {
         int value = (int) MI->getOperand(OpNo).getImm();
         assert((value >= 0 && value < 32)
-               && "Invalid negated immediate rotate 7-bit argument");
+	       && "Invalid negated immediate rotate 7-bit argument");
         O << -value;
       } else {
         assert(0 &&"Invalid/non-immediate rotate amount in printRotateNeg7Imm");
@@ -316,6 +309,7 @@ void SPUAsmPrinter::printOp(const MachineOperand &MO) {
   case MachineOperand::MO_JumpTableIndex:
     O << TAI->getPrivateGlobalPrefix() << "JTI" << getFunctionNumber()
       << '_' << MO.getIndex();
+    // FIXME: PIC relocation model
     return;
   case MachineOperand::MO_ConstantPoolIndex:
     O << TAI->getPrivateGlobalPrefix() << "CPI" << getFunctionNumber()
@@ -386,7 +380,7 @@ bool SPUAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
 }
 
 bool SPUAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
-                                          unsigned OpNo,
+    				          unsigned OpNo,
                                           unsigned AsmVariant, 
                                           const char *ExtraCode) {
   if (ExtraCode && ExtraCode[0])
@@ -466,6 +460,7 @@ LinuxAsmPrinter::runOnMachineFunction(MachineFunction &MF)
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
       // Print the assembly for the instruction.
+      O << "\t";
       printMachineInstruction(II);
     }
   }
@@ -526,8 +521,7 @@ bool LinuxAsmPrinter::doFinalization(Module &M) {
         O << "\t.zero\t" << Size;
       } else if (I->hasInternalLinkage()) {
         SwitchToDataSection("\t.data", I);
-        O << ".local " << name << "\n";
-        O << TAI->getCOMMDirective() << name << "," << Size << "," << Align << "\n";
+        O << TAI->getLCOMMDirective() << name << "," << Size << "," << Align;
       } else {
         SwitchToDataSection("\t.data", I);
         O << ".comm " << name << "," << Size;

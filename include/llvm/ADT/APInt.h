@@ -24,7 +24,6 @@
 namespace llvm {
   class Serializer;
   class Deserializer;
-  class FoldingSetNodeID;
   
   /* An unsigned host type used as a single part of a multi-part
      bignum.  */
@@ -211,10 +210,6 @@ public:
   ///  for object deserialization (pair this with the static method Read).
   explicit APInt() : BitWidth(1) {}
   
-  /// Profile - Used to insert APInt objects, or objects that contain APInt 
-  ///  objects, into FoldingSets.
-  void Profile(FoldingSetNodeID& id) const;
-  
   /// @brief Used by the Bitcode serializer to emit APInts to Bitcode.
   void Emit(Serializer& S) const;
   
@@ -280,7 +275,7 @@ public:
                            isNegative() && countPopulation() == 1;
   }
 
-  /// @brief Check if this APInt has an N-bits unsigned integer value.
+  /// @brief Check if this APInt has an N-bits integer value.
   inline bool isIntN(uint32_t N) const {
     assert(N && "N == 0 ???");
     if (isSingleWord()) {
@@ -289,12 +284,6 @@ public:
       APInt Tmp(N, getNumWords(), pVal);
       return Tmp == (*this);
     }
-  }
-
-  /// @brief Check if this APInt has an N-bits signed integer value.
-  inline bool isSignedIntN(uint32_t N) const {
-    assert(N && "N == 0 ???");
-    return getMinSignedBits() <= N;
   }
 
   /// @returns true if the argument APInt value is a power of two > 0.
@@ -371,9 +360,9 @@ public:
 
   /// Constructs an APInt value that has a contiguous range of bits set. The
   /// bits from loBit to hiBit will be set. All other bits will be zero. For
-  /// example, with parameters(32, 0, 15) you would get 0x0000FFFF. If hiBit is
+  /// example, with parameters(32, 15, 0) you would get 0x0000FFFF. If hiBit is
   /// less than loBit then the set bits "wrap". For example, with 
-  /// parameters (32, 28, 3), you would get 0xF000000F. 
+  /// parameters (32, 3, 28), you would get 0xF000000F. 
   /// @param numBits the intended bit width of the result
   /// @param loBit the index of the lowest bit set.
   /// @param hiBit the index of the highest bit set.
@@ -384,7 +373,7 @@ public:
     assert(loBit < numBits && "loBit out of range");
     if (hiBit < loBit)
       return getLowBitsSet(numBits, hiBit+1) |
-             getHighBitsSet(numBits, numBits-loBit);
+             getHighBitsSet(numBits, numBits-loBit+1);
     return getLowBitsSet(numBits, hiBit-loBit+1).shl(loBit);
   }
 
@@ -1227,14 +1216,9 @@ inline APInt umax(const APInt &A, const APInt &B) {
   return A.ugt(B) ? A : B;
 }
 
-/// @brief Check if the specified APInt has a N-bits unsigned integer value.
+/// @brief Check if the specified APInt has a N-bits integer value.
 inline bool isIntN(uint32_t N, const APInt& APIVal) {
   return APIVal.isIntN(N);
-}
-
-/// @brief Check if the specified APInt has a N-bits signed integer value.
-inline bool isSignedIntN(uint32_t N, const APInt& APIVal) {
-  return APIVal.isSignedIntN(N);
 }
 
 /// @returns true if the argument APInt value is a sequence of ones

@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the X86 implementation of the TargetRegisterInfo class.
+// This file contains the X86 implementation of the MRegisterInfo class.
 //
 //===----------------------------------------------------------------------===//
 
@@ -16,7 +16,7 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "X86GenRegisterInfo.h.inc"
 
 namespace llvm {
@@ -71,7 +71,7 @@ public:
 
   /// getX86RegNum - Returns the native X86 register number for the given LLVM
   /// register identifier.
-  unsigned getX86RegNum(unsigned RegNo) const;
+  unsigned getX86RegNum(unsigned RegNo);
 
   unsigned getStackAlignment() const { return StackAlign; }
 
@@ -122,7 +122,6 @@ public:
   // Debug information queries.
   unsigned getRARegister() const;
   unsigned getFrameRegister(MachineFunction &MF) const;
-  int getFrameIndexOffset(MachineFunction &MF, int FI) const;
   void getInitialFrameState(std::vector<MachineMove> &Moves) const;
 
   // Exception handling queries.

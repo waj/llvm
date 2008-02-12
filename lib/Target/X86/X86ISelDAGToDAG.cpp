@@ -63,7 +63,7 @@ namespace {
       int FrameIndex;
     } Base;
 
-    bool isRIPRel;     // RIP as base?
+    bool isRIPRel;     // RIP relative?
     unsigned Scale;
     SDOperand IndexReg; 
     unsigned Disp;
@@ -156,8 +156,7 @@ namespace {
     bool TryFoldLoad(SDOperand P, SDOperand N,
                      SDOperand &Base, SDOperand &Scale,
                      SDOperand &Index, SDOperand &Disp);
-    void PreprocessForRMW(SelectionDAG &DAG);
-    void PreprocessForFPConvert(SelectionDAG &DAG);
+    void InstructionSelectPreprocess(SelectionDAG &DAG);
 
     /// SelectInlineAsmMemoryOperand - Implement addressing mode selection for
     /// inline asm expressions.
@@ -351,10 +350,9 @@ static void MoveBelowTokenFactor(SelectionDAG &DAG, SDOperand Load,
                          Store.getOperand(2), Store.getOperand(3));
 }
 
-/// PreprocessForRMW - Preprocess the DAG to make instruction selection better.
-/// This is only run if not in -fast mode (aka -O0).
-/// This allows the instruction selector to pick more read-modify-write
-/// instructions. This is a common case:
+/// InstructionSelectPreprocess - Preprocess the DAG to allow the instruction
+/// selector to pick more load-modify-store instructions. This is a common
+/// case:
 ///
 ///     [Load chain]
 ///         ^
@@ -391,7 +389,7 @@ static void MoveBelowTokenFactor(SelectionDAG &DAG, SDOperand Load,
 ///       \      /
 ///        \    /
 ///       [Store]
-void X86DAGToDAGISel::PreprocessForRMW(SelectionDAG &DAG) {
+void X86DAGToDAGISel::InstructionSelectPreprocess(SelectionDAG &DAG) {
   for (SelectionDAG::allnodes_iterator I = DAG.allnodes_begin(),
          E = DAG.allnodes_end(); I != E; ++I) {
     if (!ISD::isNON_TRUNCStore(I))
@@ -461,66 +459,6 @@ void X86DAGToDAGISel::PreprocessForRMW(SelectionDAG &DAG) {
   }
 }
 
-
-/// PreprocessForFPConvert - Walk over the dag lowering fpround and fpextend
-/// nodes that target the FP stack to be store and load to the stack.  This is a
-/// gross hack.  We would like to simply mark these as being illegal, but when
-/// we do that, legalize produces these when it expands calls, then expands
-/// these in the same legalize pass.  We would like dag combine to be able to
-/// hack on these between the call expansion and the node legalization.  As such
-/// this pass basically does "really late" legalization of these inline with the
-/// X86 isel pass.
-void X86DAGToDAGISel::PreprocessForFPConvert(SelectionDAG &DAG) {
-  for (SelectionDAG::allnodes_iterator I = DAG.allnodes_begin(),
-       E = DAG.allnodes_end(); I != E; ) {
-    SDNode *N = I++;  // Preincrement iterator to avoid invalidation issues.
-    if (N->getOpcode() != ISD::FP_ROUND && N->getOpcode() != ISD::FP_EXTEND)
-      continue;
-    
-    // If the source and destination are SSE registers, then this is a legal
-    // conversion that should not be lowered.
-    MVT::ValueType SrcVT = N->getOperand(0).getValueType();
-    MVT::ValueType DstVT = N->getValueType(0);
-    bool SrcIsSSE = X86Lowering.isScalarFPTypeInSSEReg(SrcVT);
-    bool DstIsSSE = X86Lowering.isScalarFPTypeInSSEReg(DstVT);
-    if (SrcIsSSE && DstIsSSE)
-      continue;
-
-    // If this is an FPStack extension (but not a truncation), it is a noop.
-    if (!SrcIsSSE && !DstIsSSE && N->getOpcode() == ISD::FP_EXTEND)
-      continue;
-    
-    // Here we could have an FP stack truncation or an FPStack <-> SSE convert.
-    // FPStack has extload and truncstore.  SSE can fold direct loads into other
-    // operations.  Based on this, decide what we want to do.
-    MVT::ValueType MemVT;
-    if (N->getOpcode() == ISD::FP_ROUND)
-      MemVT = DstVT;  // FP_ROUND must use DstVT, we can't do a 'trunc load'.
-    else
-      MemVT = SrcIsSSE ? SrcVT : DstVT;
-    
-    SDOperand MemTmp = DAG.CreateStackTemporary(MemVT);
-    
-    // FIXME: optimize the case where the src/dest is a load or store?
-    SDOperand Store = DAG.getTruncStore(DAG.getEntryNode(), N->getOperand(0),
-                                        MemTmp, NULL, 0, MemVT);
-    SDOperand Result = DAG.getExtLoad(ISD::EXTLOAD, DstVT, Store, MemTmp,
-                                      NULL, 0, MemVT);
-
-    // We're about to replace all uses of the FP_ROUND/FP_EXTEND with the
-    // extload we created.  This will cause general havok on the dag because
-    // anything below the conversion could be folded into other existing nodes.
-    // To avoid invalidating 'I', back it up to the convert node.
-    --I;
-    DAG.ReplaceAllUsesOfValueWith(SDOperand(N, 0), Result);
-    
-    // Now that we did that, the node is dead.  Increment the iterator to the
-    // next node to process, then delete N.
-    ++I;
-    DAG.DeleteNode(N);
-  }  
-}
-
 /// InstructionSelectBasicBlock - This callback is invoked by SelectionDAGISel
 /// when it has created a SelectionDAG for us to codegen.
 void X86DAGToDAGISel::InstructionSelectBasicBlock(SelectionDAG &DAG) {
@@ -528,10 +466,7 @@ void X86DAGToDAGISel::InstructionSelectBasicBlock(SelectionDAG &DAG) {
   MachineFunction::iterator FirstMBB = BB;
 
   if (!FastISel)
-    PreprocessForRMW(DAG);
-
-  // FIXME: This should only happen when not -fast.
-  PreprocessForFPConvert(DAG);
+    InstructionSelectPreprocess(DAG);
 
   // Codegen the basic block.
 #ifndef NDEBUG
@@ -569,7 +504,7 @@ void X86DAGToDAGISel::InstructionSelectBasicBlock(SelectionDAG &DAG) {
         const TargetRegisterClass *clas;
         for (unsigned op = 0, e = I->getNumOperands(); op != e; ++op) {
           if (I->getOperand(op).isRegister() && I->getOperand(op).isDef() &&
-              TargetRegisterInfo::isVirtualRegister(I->getOperand(op).getReg()) &&
+              MRegisterInfo::isVirtualRegister(I->getOperand(op).getReg()) &&
               ((clas = RegInfo->getRegClass(I->getOperand(0).getReg())) == 
                  X86::RFP32RegisterClass ||
                clas == X86::RFP64RegisterClass ||
@@ -664,9 +599,7 @@ bool X86DAGToDAGISel::MatchAddress(SDOperand N, X86ISelAddressMode &AM,
   case X86ISD::Wrapper: {
     bool is64Bit = Subtarget->is64Bit();
     // Under X86-64 non-small code model, GV (and friends) are 64-bits.
-    // Also, base and index reg must be 0 in order to use rip as base.
-    if (is64Bit && (TM.getCodeModel() != CodeModel::Small ||
-                    AM.Base.Reg.Val || AM.IndexReg.Val))
+    if (is64Bit && TM.getCodeModel() != CodeModel::Small)
       break;
     if (AM.GV != 0 || AM.CP != 0 || AM.ES != 0 || AM.JT != -1)
       break;
@@ -674,27 +607,39 @@ bool X86DAGToDAGISel::MatchAddress(SDOperand N, X86ISelAddressMode &AM,
     // been picked, we can't fit the result available in the register in the
     // addressing mode. Duplicate GlobalAddress or ConstantPool as displacement.
     if (!AlreadySelected || (AM.Base.Reg.Val && AM.IndexReg.Val)) {
+      bool isStatic = TM.getRelocationModel() == Reloc::Static;
       SDOperand N0 = N.getOperand(0);
+      // Mac OS X X86-64 lower 4G address is not available.
+      bool isAbs32 = !is64Bit ||
+        (isStatic && Subtarget->hasLow4GUserSpaceAddress());
       if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(N0)) {
         GlobalValue *GV = G->getGlobal();
-        AM.GV = GV;
-        AM.Disp += G->getOffset();
-        AM.isRIPRel = is64Bit;
-        return false;
+        if (isAbs32 || isRoot) {
+          AM.GV = GV;
+          AM.Disp += G->getOffset();
+          AM.isRIPRel = !isAbs32;
+          return false;
+        }
       } else if (ConstantPoolSDNode *CP = dyn_cast<ConstantPoolSDNode>(N0)) {
-        AM.CP = CP->getConstVal();
-        AM.Align = CP->getAlignment();
-        AM.Disp += CP->getOffset();
-        AM.isRIPRel = is64Bit;
-        return false;
+        if (isAbs32 || isRoot) {
+          AM.CP = CP->getConstVal();
+          AM.Align = CP->getAlignment();
+          AM.Disp += CP->getOffset();
+          AM.isRIPRel = !isAbs32;
+          return false;
+        }
       } else if (ExternalSymbolSDNode *S =dyn_cast<ExternalSymbolSDNode>(N0)) {
-        AM.ES = S->getSymbol();
-        AM.isRIPRel = is64Bit;
-        return false;
+        if (isAbs32 || isRoot) {
+          AM.ES = S->getSymbol();
+          AM.isRIPRel = !isAbs32;
+          return false;
+        }
       } else if (JumpTableSDNode *J = dyn_cast<JumpTableSDNode>(N0)) {
-        AM.JT = J->getIndex();
-        AM.isRIPRel = is64Bit;
-        return false;
+        if (isAbs32 || isRoot) {
+          AM.JT = J->getIndex();
+          AM.isRIPRel = !isAbs32;
+          return false;
+        }
       }
     }
     break;
@@ -709,7 +654,7 @@ bool X86DAGToDAGISel::MatchAddress(SDOperand N, X86ISelAddressMode &AM,
     break;
 
   case ISD::SHL:
-    if (AlreadySelected || AM.IndexReg.Val != 0 || AM.Scale != 1 || AM.isRIPRel)
+    if (AlreadySelected || AM.IndexReg.Val != 0 || AM.Scale != 1)
       break;
       
     if (ConstantSDNode *CN = dyn_cast<ConstantSDNode>(N.Val->getOperand(1))) {
@@ -749,8 +694,7 @@ bool X86DAGToDAGISel::MatchAddress(SDOperand N, X86ISelAddressMode &AM,
     if (!AlreadySelected &&
         AM.BaseType == X86ISelAddressMode::RegBase &&
         AM.Base.Reg.Val == 0 &&
-        AM.IndexReg.Val == 0 &&
-        !AM.isRIPRel) {
+        AM.IndexReg.Val == 0) {
       if (ConstantSDNode *CN = dyn_cast<ConstantSDNode>(N.Val->getOperand(1)))
         if (CN->getValue() == 3 || CN->getValue() == 5 || CN->getValue() == 9) {
           AM.Scale = unsigned(CN->getValue())-1;
@@ -825,9 +769,6 @@ bool X86DAGToDAGISel::MatchAddress(SDOperand N, X86ISelAddressMode &AM,
     
     // Scale must not be used already.
     if (AM.IndexReg.Val != 0 || AM.Scale != 1) break;
-
-    // Not when RIP is used as the base.
-    if (AM.isRIPRel) break;
       
     ConstantSDNode *C2 = dyn_cast<ConstantSDNode>(N.getOperand(1));
     ConstantSDNode *C1 = dyn_cast<ConstantSDNode>(Shift.getOperand(1));
@@ -868,7 +809,7 @@ bool X86DAGToDAGISel::MatchAddressBase(SDOperand N, X86ISelAddressMode &AM,
   // Is the base register already occupied?
   if (AM.BaseType != X86ISelAddressMode::RegBase || AM.Base.Reg.Val) {
     // If so, check to see if the scale index register is set.
-    if (AM.IndexReg.Val == 0 && !AM.isRIPRel) {
+    if (AM.IndexReg.Val == 0) {
       AM.IndexReg = N;
       AM.Scale = 1;
       return false;
@@ -1145,26 +1086,6 @@ SDNode *X86DAGToDAGISel::Select(SDOperand N) {
     default: break;
     case X86ISD::GlobalBaseReg: 
       return getGlobalBaseReg();
-
-    case X86ISD::FP_GET_RESULT2: {
-      SDOperand Chain = N.getOperand(0);
-      SDOperand InFlag = N.getOperand(1);
-      AddToISelQueue(Chain);
-      AddToISelQueue(InFlag);
-      std::vector<MVT::ValueType> Tys;
-      Tys.push_back(MVT::f80);
-      Tys.push_back(MVT::f80);
-      Tys.push_back(MVT::Other);
-      Tys.push_back(MVT::Flag);
-      SDOperand Ops[] = { Chain, InFlag };
-      SDNode *ResNode = CurDAG->getTargetNode(X86::FpGETRESULT80x2, Tys,
-                                              Ops, 2);
-      Chain = SDOperand(ResNode, 2);
-      InFlag = SDOperand(ResNode, 3);
-      ReplaceUses(SDOperand(N.Val, 2), Chain);
-      ReplaceUses(SDOperand(N.Val, 3), InFlag);
-      return ResNode;
-    }
 
     case ISD::ADD: {
       // Turn ADD X, c to MOV32ri X+c. This cannot be done with tblgen'd

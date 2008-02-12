@@ -844,10 +844,6 @@ public:
   /// serialization of a DebugInfoDesc.
   bool Verify(Value *V);
   bool Verify(GlobalVariable *GV);
-
-  /// isVerified - Return true if the specified GV has already been
-  /// verified as a debug information descriptor.
-  bool isVerified(GlobalVariable *GV);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1077,11 +1073,7 @@ public:
   
   /// Verify - Verify that a Value is debug information descriptor.
   ///
-  bool Verify(Value *V) { return VR.Verify(V); }
-
-  /// isVerified - Return true if the specified GV has already been
-  /// verified as a debug information descriptor.
-  bool isVerified(GlobalVariable *GV) { return VR.isVerified(GV); }
+  bool Verify(Value *V);
   
   /// AnalyzeModule - Scan the module for global debug information.
   ///
@@ -1109,10 +1101,10 @@ public:
     return ID;
   }
   
-  /// RecordSourceLine - Records location information and associates it with a
+  /// RecordLabel - Records location information and associates it with a
   /// label.  Returns a unique label ID used to generate a label and 
   /// provide correspondence to the source line list.
-  unsigned RecordSourceLine(unsigned Line, unsigned Column, unsigned Source);
+  unsigned RecordLabel(unsigned Line, unsigned Column, unsigned Source);
   
   /// InvalidateLabel - Inhibit use of the specified label # from
   /// MachineModuleInfo, for example because the code was deleted.
@@ -1205,7 +1197,7 @@ public:
 
   /// RecordVariable - Indicate the declaration of  a local variable.
   ///
-  void RecordVariable(GlobalValue *GV, unsigned FrameIndex);
+  void RecordVariable(Value *V, unsigned FrameIndex);
   
   /// getRootScope - Return current functions root scope.
   ///

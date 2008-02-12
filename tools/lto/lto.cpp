@@ -31,7 +31,6 @@
 #include "llvm/Analysis/Verifier.h"
 #include "llvm/CodeGen/FileWriters.h"
 #include "llvm/Target/SubtargetFeature.h"
-#include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetMachineRegistry.h"
@@ -247,19 +246,8 @@ LTO::getTarget (Module *M) {
     return;
   
   // Create target
-  SubtargetFeatures Features;
-  std::string FeatureStr;
-  std::string TargetTriple = M->getTargetTriple();
-
-  if (strncmp(TargetTriple.c_str(), "powerpc-apple-", 14) == 0) 
-    Features.AddFeature("altivec", true);
-  else if (strncmp(TargetTriple.c_str(), "powerpc64-apple-", 16) == 0) {
-    Features.AddFeature("64bit", true);
-    Features.AddFeature("altivec", true);
-  }
-
-  FeatureStr = Features.getString();
-  Target = March->CtorFn(*M, FeatureStr);
+  std::string Features;
+  Target = March->CtorFn(*M, Features);
 }
 
 /// Optimize module M using various IPO passes. Use exportList to 
@@ -278,11 +266,7 @@ LTO::optimize(Module *M, std::ostream &Out,
 
   if (!Target)
     return LTO_NO_TARGET;
-
-  // If target supports exception handling then enable it now.
-  if (Target->getTargetAsmInfo()->doesSupportExceptionHandling())
-    ExceptionHandling = true;
-
+  
   // Start off with a verification pass.
   Passes.add(createVerifierPass());
   
@@ -303,10 +287,7 @@ LTO::optimize(Module *M, std::ostream &Out,
   // If the -s command line option was specified, strip the symbols out of the
   // resulting program to make it smaller.  -s is a GLD option that we are
   // supporting.
-  if(!ExceptionHandling)
-    // FIXME : This causes multiple nameless _.eh symbols on 
-    // darwin when EH is ON.
-    Passes.add(createStripSymbolsPass());
+  Passes.add(createStripSymbolsPass());
   
   // Propagate constants at call sites into the functions they call.
   Passes.add(createIPConstantPropagationPass());
@@ -503,22 +484,6 @@ LTO::optimizeModules(const std::string &OutputFilename,
 
   std::vector<const char*> args;
   args.push_back(gcc.c_str());
-  if (strncmp(targetTriple.c_str(), "i686-apple-", 11) == 0) {
-    args.push_back("-arch");
-    args.push_back("i386");
-  }
-  if (strncmp(targetTriple.c_str(), "x86_64-apple-", 13) == 0) {
-    args.push_back("-arch");
-    args.push_back("x86_64");
-  }
-  if (strncmp(targetTriple.c_str(), "powerpc-apple-", 14) == 0) {
-    args.push_back("-arch");
-    args.push_back("ppc");
-  }
-  if (strncmp(targetTriple.c_str(), "powerpc64-apple-", 16) == 0) {
-    args.push_back("-arch");
-    args.push_back("ppc64");
-  }
   args.push_back("-c");
   args.push_back("-x");
   args.push_back("assembler");
@@ -527,7 +492,7 @@ LTO::optimizeModules(const std::string &OutputFilename,
   args.push_back(tmpAsmFilePath.c_str());
   args.push_back(0);
 
-  if (sys::Program::ExecuteAndWait(gcc, &args[0], 0, 0, 0, 0, &ErrMsg)) {
+  if (sys::Program::ExecuteAndWait(gcc, &args[0], 0, 0, 1, 0, &ErrMsg)) {
     cerr << "lto: " << ErrMsg << "\n";
     return LTO_ASM_FAILURE;
   }

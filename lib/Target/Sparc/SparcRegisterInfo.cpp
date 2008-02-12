@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the SPARC implementation of the TargetRegisterInfo class.
+// This file contains the SPARC implementation of the MRegisterInfo class.
 //
 //===----------------------------------------------------------------------===//
 

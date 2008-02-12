@@ -112,10 +112,6 @@ SDTypeConstraint::SDTypeConstraint(Record *R) {
     ConstraintType = SDTCisIntVectorOfSameSize;
     x.SDTCisIntVectorOfSameSize_Info.OtherOperandNum =
       R->getValueAsInt("OtherOpNum");
-  } else if (R->isSubClassOf("SDTCisEltOfVec")) {
-    ConstraintType = SDTCisEltOfVec;
-    x.SDTCisEltOfVec_Info.OtherOperandNum =
-      R->getValueAsInt("OtherOpNum");
   } else {
     cerr << "Unrecognized SDTypeConstraint '" << R->getName() << "'!\n";
     exit(1);
@@ -288,19 +284,6 @@ bool SDTypeConstraint::ApplyTypeConstraint(TreePatternNode *N,
         TP.error(N->getOperator()->getName() + " VT operand must be a vector!");
       MVT::ValueType IVT = OtherOperand->getTypeNum(0);
       IVT = MVT::getIntVectorWithNumElements(MVT::getVectorNumElements(IVT));
-      return NodeToApply->UpdateNodeType(IVT, TP);
-    }
-    return false;
-  }
-  case SDTCisEltOfVec: {
-    TreePatternNode *OtherOperand =
-      getOperandNum(x.SDTCisIntVectorOfSameSize_Info.OtherOperandNum,
-                    N, NumResults);
-    if (OtherOperand->hasTypeSet()) {
-      if (!MVT::isVector(OtherOperand->getTypeNum(0)))
-        TP.error(N->getOperator()->getName() + " VT operand must be a vector!");
-      MVT::ValueType IVT = OtherOperand->getTypeNum(0);
-      IVT = MVT::getVectorElementType(IVT);
       return NodeToApply->UpdateNodeType(IVT, TP);
     }
     return false;

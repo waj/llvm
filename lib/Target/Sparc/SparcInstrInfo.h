@@ -41,7 +41,7 @@ public:
   /// such, whenever a client has an instance of instruction info, it should
   /// always be able to get register info as well (through this method).
   ///
-  virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
+  virtual const MRegisterInfo &getRegisterInfo() const { return RI; }
 
   /// Return true if the instruction is a register to register move and
   /// leave the source and dest operands in the passed parameters.
@@ -94,13 +94,11 @@ public:
                                const TargetRegisterClass *RC,
                                SmallVectorImpl<MachineInstr*> &NewMIs) const;
   
-  virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                          MachineInstr* MI,
+  virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                           SmallVectorImpl<unsigned> &Ops,
                                           int FrameIndex) const;
 
-  virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                          MachineInstr* MI,
+  virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                           SmallVectorImpl<unsigned> &Ops,
                                           MachineInstr* LoadMI) const {
     return 0;

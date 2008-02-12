@@ -39,8 +39,8 @@ namespace {
 
   //! MVT::ValueType mapping to useful data for Cell SPU
   struct valtype_map_s {
-    const MVT::ValueType        valtype;
-    const int                   prefslot_byte;
+    const MVT::ValueType	valtype;
+    const int			prefslot_byte;
   };
   
   const valtype_map_s valtype_map[] = {
@@ -61,16 +61,16 @@ namespace {
 
     for (size_t i = 0; i < n_valtype_map; ++i) {
       if (valtype_map[i].valtype == VT) {
-        retval = valtype_map + i;
-        break;
+	retval = valtype_map + i;
+	break;
       }
     }
 
 #ifndef NDEBUG
     if (retval == 0) {
       cerr << "getValueTypeMapEntry returns NULL for "
-           << MVT::getValueTypeString(VT)
-           << "\n";
+	   << MVT::getValueTypeString(VT)
+	   << "\n";
       abort();
     }
 #endif
@@ -100,14 +100,6 @@ namespace {
             || Opc == ISD::TargetExternalSymbol
             || Opc == SPUISD::AFormAddr);
   }
-
-  //! Predicate that returns true if the operand is an indirect target
-  bool isIndirectOperand(const SDOperand &Op)
-  {
-    const unsigned Opc = Op.getOpcode();
-    return (Opc == ISD::Register
-            || Opc == SPUISD::LDRESULT);
-  }
 }
 
 SPUTargetLowering::SPUTargetLowering(SPUTargetMachine &TM)
@@ -134,24 +126,16 @@ SPUTargetLowering::SPUTargetLowering(SPUTargetMachine &TM)
   addRegisterClass(MVT::i128, SPU::GPRCRegisterClass);
   
   // SPU has no sign or zero extended loads for i1, i8, i16:
-  setLoadXAction(ISD::EXTLOAD,  MVT::i1, Promote);
+  setLoadXAction(ISD::EXTLOAD,  MVT::i1, Custom);
   setLoadXAction(ISD::SEXTLOAD, MVT::i1, Promote);
   setLoadXAction(ISD::ZEXTLOAD, MVT::i1, Promote);
-  setTruncStoreAction(MVT::i8, MVT::i1, Custom);
-  setTruncStoreAction(MVT::i16, MVT::i1, Custom);
-  setTruncStoreAction(MVT::i32, MVT::i1, Custom);
-  setTruncStoreAction(MVT::i64, MVT::i1, Custom);
-  setTruncStoreAction(MVT::i128, MVT::i1, Custom);
+  setStoreXAction(MVT::i1, Custom);
 
   setLoadXAction(ISD::EXTLOAD,  MVT::i8, Custom);
   setLoadXAction(ISD::SEXTLOAD, MVT::i8, Custom);
   setLoadXAction(ISD::ZEXTLOAD, MVT::i8, Custom);
-  setTruncStoreAction(MVT::i8  , MVT::i8, Custom);
-  setTruncStoreAction(MVT::i16 , MVT::i8, Custom);
-  setTruncStoreAction(MVT::i32 , MVT::i8, Custom);
-  setTruncStoreAction(MVT::i64 , MVT::i8, Custom);
-  setTruncStoreAction(MVT::i128, MVT::i8, Custom);
-  
+  setStoreXAction(MVT::i8, Custom);
+
   setLoadXAction(ISD::EXTLOAD,  MVT::i16, Custom);
   setLoadXAction(ISD::SEXTLOAD, MVT::i16, Custom);
   setLoadXAction(ISD::ZEXTLOAD, MVT::i16, Custom);
@@ -168,9 +152,10 @@ SPUTargetLowering::SPUTargetLowering(SPUTargetMachine &TM)
     setOperationAction(ISD::STORE, sctype, Custom);
   }
 
-  // Custom lower BRCOND for i1, i8 to "promote" the result to
-  // i32 and i16, respectively.
-  setOperationAction(ISD::BRCOND, MVT::Other, Custom);
+  // SPU supports BRCOND, although DAGCombine will convert BRCONDs
+  // into BR_CCs. BR_CC instructions are custom selected in
+  // SPUDAGToDAGISel.
+  setOperationAction(ISD::BRCOND, MVT::Other, Legal);
 
   // Expand the jumptable branches
   setOperationAction(ISD::BR_JT,        MVT::Other, Expand);
@@ -289,12 +274,14 @@ SPUTargetLowering::SPUTargetLowering(SPUTargetMachine &TM)
   
   // We want to legalize GlobalAddress and ConstantPool nodes into the 
   // appropriate instructions to materialize the address.
-  for (unsigned sctype = (unsigned) MVT::i1; sctype < (unsigned) MVT::f128;
-       ++sctype) {
-    setOperationAction(ISD::GlobalAddress, sctype, Custom);
-    setOperationAction(ISD::ConstantPool,  sctype, Custom);
-    setOperationAction(ISD::JumpTable,     sctype, Custom);
-  }
+  setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
+  setOperationAction(ISD::ConstantPool,  MVT::i32, Custom);
+  setOperationAction(ISD::ConstantPool,  MVT::f32, Custom);
+  setOperationAction(ISD::JumpTable,     MVT::i32, Custom);
+  setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
+  setOperationAction(ISD::ConstantPool,  MVT::i64, Custom);
+  setOperationAction(ISD::ConstantPool,  MVT::f64, Custom);
+  setOperationAction(ISD::JumpTable,     MVT::i64, Custom);
 
   // RET must be custom lowered, to meet ABI requirements
   setOperationAction(ISD::RET,           MVT::Other, Custom);
@@ -375,7 +362,7 @@ SPUTargetLowering::SPUTargetLowering(SPUTargetMachine &TM)
   setStackPointerRegisterToSaveRestore(SPU::R1);
   
   // We have target-specific dag combine patterns for the following nodes:
-  setTargetDAGCombine(ISD::ADD);
+  // e.g., setTargetDAGCombine(ISD::SUB);
   
   computeRegisterProperties();
 }
@@ -389,7 +376,8 @@ SPUTargetLowering::getTargetNodeName(unsigned Opcode) const
     node_names[(unsigned) SPUISD::Lo] = "SPUISD::Lo";
     node_names[(unsigned) SPUISD::PCRelAddr] = "SPUISD::PCRelAddr";
     node_names[(unsigned) SPUISD::AFormAddr] = "SPUISD::AFormAddr";
-    node_names[(unsigned) SPUISD::IndirectAddr] = "SPUISD::IndirectAddr";
+    node_names[(unsigned) SPUISD::DFormAddr] = "SPUISD::DFormAddr";
+    node_names[(unsigned) SPUISD::XFormAddr] = "SPUISD::XFormAddr";
     node_names[(unsigned) SPUISD::LDRESULT] = "SPUISD::LDRESULT";
     node_names[(unsigned) SPUISD::CALL] = "SPUISD::CALL";
     node_names[(unsigned) SPUISD::SHUFB] = "SPUISD::SHUFB";
@@ -476,7 +464,7 @@ AlignedLoad(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST,
     SDOperand Op1 = basePtr.Val->getOperand(1);
 
     if (Op1.getOpcode() == ISD::Constant || Op1.getOpcode() == ISD::TargetConstant) {
-      const ConstantSDNode *CN = cast<ConstantSDNode>(basePtr.getOperand(1));
+      const ConstantSDNode *CN = cast<ConstantSDNode>(basePtr.Val->getOperand(1));
 
       alignOffs = (int) CN->getValue();
       prefSlotOffs = (int) (alignOffs & 0xf);
@@ -486,13 +474,15 @@ AlignedLoad(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST,
       prefSlotOffs -= vtm->prefslot_byte;
       basePtr = basePtr.getOperand(0);
 
-      // Loading from memory, can we adjust alignment?
-      if (basePtr.getOpcode() == SPUISD::AFormAddr) {
-        SDOperand APtr = basePtr.getOperand(0);
-        if (APtr.getOpcode() == ISD::TargetGlobalAddress) {
-          GlobalAddressSDNode *GSDN = cast<GlobalAddressSDNode>(APtr);
-          alignment = GSDN->getGlobal()->getAlignment();
-        }
+      // Modify alignment, since the ADD is likely from getElementPtr:
+      switch (basePtr.getOpcode()) {
+      case ISD::GlobalAddress:
+      case ISD::TargetGlobalAddress: {
+        GlobalAddressSDNode *GN = cast<GlobalAddressSDNode>(basePtr.Val);
+        const GlobalValue *GV = GN->getGlobal();
+        alignment = GV->getAlignment();
+        break;
+      }
       }
     } else {
       alignOffs = 0;
@@ -506,9 +496,15 @@ AlignedLoad(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST,
   if (alignment == 16) {
     // Realign the base pointer as a D-Form address:
     if (!isMemoryOperand(basePtr) || (alignOffs & ~0xf) != 0) {
-      basePtr = DAG.getNode(ISD::ADD, PtrVT,
-                            basePtr,
-                            DAG.getConstant((alignOffs & ~0xf), PtrVT));
+      if (isMemoryOperand(basePtr)) {
+        SDOperand Zero = DAG.getConstant(0, PtrVT);
+        unsigned Opc = (!ST->usingLargeMem()
+                        ? SPUISD::AFormAddr
+                        : SPUISD::XFormAddr);
+        basePtr = DAG.getNode(Opc, PtrVT, basePtr, Zero);
+      }
+      basePtr = DAG.getNode(SPUISD::DFormAddr, PtrVT,
+                          basePtr, DAG.getConstant((alignOffs & ~0xf), PtrVT));
     }
 
     // Emit the vector load:
@@ -520,13 +516,12 @@ AlignedLoad(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST,
 
   // Unaligned load or we're using the "large memory" model, which means that
   // we have to be very pessimistic:
-  if (isMemoryOperand(basePtr) || isIndirectOperand(basePtr)) {
-    basePtr = DAG.getNode(SPUISD::IndirectAddr, PtrVT, basePtr, DAG.getConstant(0, PtrVT));
+  if (isMemoryOperand(basePtr)) {
+    basePtr = DAG.getNode(SPUISD::XFormAddr, PtrVT, basePtr, DAG.getConstant(0, PtrVT));
   }
 
   // Add the offset
-  basePtr = DAG.getNode(ISD::ADD, PtrVT, basePtr,
-                        DAG.getConstant((alignOffs & ~0xf), PtrVT));
+  basePtr = DAG.getNode(ISD::ADD, PtrVT, basePtr, DAG.getConstant(alignOffs, PtrVT));
   was16aligned = false;
   return DAG.getLoad(MVT::v16i8, chain, basePtr,
                      LSN->getSrcValue(), LSN->getSrcValueOffset(),
@@ -542,11 +537,18 @@ static SDOperand
 LowerLOAD(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
   LoadSDNode *LN = cast<LoadSDNode>(Op);
   SDOperand the_chain = LN->getChain();
-  MVT::ValueType VT = LN->getMemoryVT();
+  MVT::ValueType VT = LN->getLoadedVT();
   MVT::ValueType OpVT = Op.Val->getValueType(0);
   ISD::LoadExtType ExtType = LN->getExtensionType();
   unsigned alignment = LN->getAlignment();
   SDOperand Ops[8];
+
+  // For an extending load of an i1 variable, just call it i8 (or whatever we
+  // were passed) and make it zero-extended:
+  if (VT == MVT::i1) {
+    VT = OpVT;
+    ExtType = ISD::ZEXTLOAD;
+  }
 
   switch (LN->getAddressingMode()) {
   case ISD::UNINDEXED: {
@@ -565,15 +567,17 @@ LowerLOAD(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
     if (rotamt != 0 || !was16aligned) {
       SDVTList vecvts = DAG.getVTList(MVT::v16i8, MVT::Other);
 
-      Ops[0] = the_chain;
-      Ops[1] = result;
       if (was16aligned) {
+        Ops[0] = the_chain;
+        Ops[1] = result;
         Ops[2] = DAG.getConstant(rotamt, MVT::i16);
       } else {
-        MVT::ValueType PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
+	MVT::ValueType PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
         LoadSDNode *LN1 = cast<LoadSDNode>(result);
+        Ops[0] = the_chain;
+        Ops[1] = result;
         Ops[2] = DAG.getNode(ISD::ADD, PtrVT, LN1->getBasePtr(),
-                             DAG.getConstant(rotamt, PtrVT));
+			     DAG.getConstant(rotamt, PtrVT));
       }
 
       result = DAG.getNode(SPUISD::ROTBYTES_LEFT_CHAINED, vecvts, Ops, 3);
@@ -616,13 +620,9 @@ LowerLOAD(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
     }
 
     SDVTList retvts = DAG.getVTList(OpVT, MVT::Other);
-    SDOperand retops[2] = {
-      result,
-      the_chain
-    };
+    SDOperand retops[2] = { result, the_chain };
 
-    result = DAG.getNode(SPUISD::LDRESULT, retvts,
-                         retops, sizeof(retops) / sizeof(retops[0]));
+    result = DAG.getNode(SPUISD::LDRESULT, retvts, retops, 2);
     return result;
   }
   case ISD::PRE_INC:
@@ -651,7 +651,7 @@ LowerSTORE(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
   StoreSDNode *SN = cast<StoreSDNode>(Op);
   SDOperand Value = SN->getValue();
   MVT::ValueType VT = Value.getValueType();
-  MVT::ValueType StVT = (!SN->isTruncatingStore() ? VT : SN->getMemoryVT());
+  MVT::ValueType StVT = (!SN->isTruncatingStore() ? VT : SN->getStoredVT());
   MVT::ValueType PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
   unsigned alignment = SN->getAlignment();
 
@@ -682,8 +682,8 @@ LowerSTORE(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
     SDOperand result;
 
     if (StVT != VT
-        && (theValue.getOpcode() == ISD::AssertZext
-            || theValue.getOpcode() == ISD::AssertSext)) {
+	&& (theValue.getOpcode() == ISD::AssertZext
+	    || theValue.getOpcode() == ISD::AssertSext)) {
       // Drill down and get the value for zero- and sign-extended
       // quantities
       theValue = theValue.getOperand(0); 
@@ -703,27 +703,25 @@ LowerSTORE(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
     DEBUG(basePtr.Val->dump(&DAG));
     DEBUG(cerr << "\n");
 
-    if (basePtr.getOpcode() == SPUISD::IndirectAddr ||
-        (basePtr.getOpcode() == ISD::ADD
-         && basePtr.getOperand(0).getOpcode() == SPUISD::IndirectAddr)) {
+    if (basePtr.getOpcode() == SPUISD::DFormAddr) {
+      insertEltPtr = DAG.getNode(SPUISD::DFormAddr, PtrVT,
+				 basePtr.getOperand(0),
+				 insertEltOffs);
+    } else if (basePtr.getOpcode() == SPUISD::XFormAddr ||
+	       (basePtr.getOpcode() == ISD::ADD
+		&& basePtr.getOperand(0).getOpcode() == SPUISD::XFormAddr)) {
       insertEltPtr = basePtr;
     } else {
-#if 0
-      // $sp is always aligned, so use it when necessary to avoid loading
-      // an address
-      SDOperand ptrP =
-        basePtr.Val->hasOneUse() ? DAG.getRegister(SPU::R1, PtrVT) : basePtr;
-      insertEltPtr = DAG.getNode(ISD::ADD, PtrVT, ptrP, insertEltOffs);
-#else
-      insertEltPtr = DAG.getNode(ISD::ADD, PtrVT, basePtr, insertEltOffs);
-#endif
+      insertEltPtr = DAG.getNode(SPUISD::DFormAddr, PtrVT,
+				 DAG.getRegister(SPU::R1, PtrVT),
+				 insertEltOffs);
     }
 
     insertEltOp = DAG.getNode(SPUISD::INSERT_MASK, stVecVT, insertEltPtr);
     result = DAG.getNode(SPUISD::SHUFB, vecVT,
-                         DAG.getNode(ISD::SCALAR_TO_VECTOR, vecVT, theValue),
-                         alignLoadVec,
-                         DAG.getNode(ISD::BIT_CONVERT, vecVT, insertEltOp));
+			 DAG.getNode(ISD::SCALAR_TO_VECTOR, vecVT, theValue),
+			 alignLoadVec,
+			 DAG.getNode(ISD::BIT_CONVERT, vecVT, insertEltOp));
 
     result = DAG.getStore(the_chain, result, basePtr,
                           LN->getSrcValue(), LN->getSrcValueOffset(),
@@ -760,15 +758,16 @@ LowerConstantPool(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
   if (TM.getRelocationModel() == Reloc::Static) {
     if (!ST->usingLargeMem()) {
       // Just return the SDOperand with the constant pool address in it.
-      return DAG.getNode(SPUISD::AFormAddr, PtrVT, CPI, Zero);
+      return CPI;
     } else {
 #if 1
+      // Generate hi/lo address pair
       SDOperand Hi = DAG.getNode(SPUISD::Hi, PtrVT, CPI, Zero);
       SDOperand Lo = DAG.getNode(SPUISD::Lo, PtrVT, CPI, Zero);
 
       return DAG.getNode(ISD::ADD, PtrVT, Lo, Hi);
 #else
-      return DAG.getNode(SPUISD::IndirectAddr, PtrVT, CPI, Zero);
+      return DAG.getNode(SPUISD::XFormAddr, PtrVT, CPI, Zero);
 #endif
     }
   }
@@ -787,10 +786,9 @@ LowerJumpTable(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
   const TargetMachine &TM = DAG.getTarget();
 
   if (TM.getRelocationModel() == Reloc::Static) {
-    SDOperand JmpAForm = DAG.getNode(SPUISD::AFormAddr, PtrVT, JTI, Zero);
     return (!ST->usingLargeMem()
-            ? JmpAForm
-            : DAG.getNode(SPUISD::IndirectAddr, PtrVT, JmpAForm, Zero));
+            ? JTI
+            : DAG.getNode(SPUISD::XFormAddr, PtrVT, JTI, Zero));
   }
 
   assert(0 &&
@@ -808,16 +806,12 @@ LowerGlobalAddress(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
   SDOperand Zero = DAG.getConstant(0, PtrVT);
   
   if (TM.getRelocationModel() == Reloc::Static) {
-    if (!ST->usingLargeMem()) {
-      return DAG.getNode(SPUISD::AFormAddr, PtrVT, GA, Zero);
-    } else {
-      SDOperand Hi = DAG.getNode(SPUISD::Hi, PtrVT, GA, Zero);
-      SDOperand Lo = DAG.getNode(SPUISD::Lo, PtrVT, GA, Zero);
-      return DAG.getNode(SPUISD::IndirectAddr, PtrVT, Hi, Lo);
-    }
+    return (!ST->usingLargeMem()
+            ? GA
+            : DAG.getNode(SPUISD::XFormAddr, PtrVT, GA, Zero));
   } else {
     cerr << "LowerGlobalAddress: Relocation model other than static not "
-         << "supported.\n";
+	 << "supported.\n";
     abort();
     /*NOTREACHED*/
   }
@@ -838,12 +832,12 @@ LowerConstant(SDOperand Op, SelectionDAG &DAG) {
   if (VT == MVT::i64) {
     SDOperand T = DAG.getConstant(CN->getValue(), MVT::i64);
     return DAG.getNode(SPUISD::EXTRACT_ELT0, VT,
-                       DAG.getNode(ISD::BUILD_VECTOR, MVT::v2i64, T, T));
+		       DAG.getNode(ISD::BUILD_VECTOR, MVT::v2i64, T, T));
 
   } else {
     cerr << "LowerConstant: unhandled constant type "
-         << MVT::getValueTypeString(VT)
-         << "\n";
+	 << MVT::getValueTypeString(VT)
+	 << "\n";
     abort();
     /*NOTREACHED*/
   }
@@ -863,37 +857,19 @@ LowerConstantFP(SDOperand Op, SelectionDAG &DAG) {
   ConstantFPSDNode *FP = cast<ConstantFPSDNode>(Op.Val);
 
   assert((FP != 0) &&
-         "LowerConstantFP: Node is not ConstantFPSDNode");
+	 "LowerConstantFP: Node is not ConstantFPSDNode");
 
   if (VT == MVT::f32) {
     float targetConst = FP->getValueAPF().convertToFloat();
     return DAG.getNode(SPUISD::SFPConstant, VT,
-                       DAG.getTargetConstantFP(targetConst, VT));
+		       DAG.getTargetConstantFP(targetConst, VT));
   } else if (VT == MVT::f64) {
     uint64_t dbits = DoubleToBits(FP->getValueAPF().convertToDouble());
     return DAG.getNode(ISD::BIT_CONVERT, VT,
-                       LowerConstant(DAG.getConstant(dbits, MVT::i64), DAG));
+		       LowerConstant(DAG.getConstant(dbits, MVT::i64), DAG));
   }
 
   return SDOperand();
-}
-
-//! Lower MVT::i1, MVT::i8 brcond to a promoted type (MVT::i32, MVT::i16)
-static SDOperand
-LowerBRCOND(SDOperand Op, SelectionDAG &DAG)
-{
-  SDOperand Cond = Op.getOperand(1);
-  MVT::ValueType CondVT = Cond.getValueType();
-  MVT::ValueType CondNVT;
-
-  if (CondVT == MVT::i1 || CondVT == MVT::i8) {
-    CondNVT = (CondVT == MVT::i1 ? MVT::i32 : MVT::i16);
-    return DAG.getNode(ISD::BRCOND, Op.getValueType(),
-                      Op.getOperand(0),
-                      DAG.getNode(ISD::ZERO_EXTEND, CondNVT, Op.getOperand(1)),
-                      Op.getOperand(2));
-  } else
-    return SDOperand();                // Unchanged
 }
 
 static SDOperand
@@ -925,7 +901,7 @@ LowerFORMAL_ARGUMENTS(SDOperand Op, SelectionDAG &DAG, int &VarArgsFrameIndex)
     switch (ObjectVT) {
     default: {
       cerr << "LowerFORMAL_ARGUMENTS Unhandled argument type: "
-           << MVT::getValueTypeString(ObjectVT)
+	   << MVT::getValueTypeString(ObjectVT)
            << "\n";
       abort();
     }
@@ -1125,7 +1101,7 @@ LowerCALL(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
         RegsToPass.push_back(std::make_pair(ArgRegs[ArgRegIdx++], Arg));
       } else {
         MemOpChains.push_back(DAG.getStore(Chain, Arg, PtrOff, NULL, 0));
-        ArgOffset += StackSlotSize;
+	ArgOffset += StackSlotSize;
       }
       break;
     case MVT::f32:
@@ -1134,7 +1110,7 @@ LowerCALL(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
         RegsToPass.push_back(std::make_pair(ArgRegs[ArgRegIdx++], Arg));
       } else {
         MemOpChains.push_back(DAG.getStore(Chain, Arg, PtrOff, NULL, 0));
-        ArgOffset += StackSlotSize;
+	ArgOffset += StackSlotSize;
       }
       break;
     case MVT::v4f32:
@@ -1145,7 +1121,7 @@ LowerCALL(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
         RegsToPass.push_back(std::make_pair(ArgRegs[ArgRegIdx++], Arg));
       } else {
         MemOpChains.push_back(DAG.getStore(Chain, Arg, PtrOff, NULL, 0));
-        ArgOffset += StackSlotSize;
+	ArgOffset += StackSlotSize;
       }
       break;
     }
@@ -1203,7 +1179,7 @@ LowerCALL(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
     } else {
       // "Large memory" mode: Turn all calls into indirect calls with a X-form
       // address pairs:
-      Callee = DAG.getNode(SPUISD::IndirectAddr, PtrVT, GA, Zero);
+      Callee = DAG.getNode(SPUISD::XFormAddr, PtrVT, GA, Zero);
     }
   } else if (ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(Callee))
     Callee = DAG.getExternalSymbol(S->getSymbol(), Callee.getValueType());
@@ -1226,13 +1202,6 @@ LowerCALL(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
     Ops.push_back(InFlag);
   Chain = DAG.getNode(CallOpc, NodeTys, &Ops[0], Ops.size());
   InFlag = Chain.getValue(1);
-
-  Chain = DAG.getCALLSEQ_END(Chain,
-                             DAG.getConstant(NumStackBytes, PtrVT),
-                             DAG.getConstant(0, PtrVT),
-                             InFlag);
-  if (Op.Val->getValueType(0) != MVT::Other)
-    InFlag = Chain.getValue(1);
 
   SDOperand ResultVals[3];
   unsigned NumResults = 0;
@@ -1285,6 +1254,8 @@ LowerCALL(SDOperand Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
     break;
   }
   
+  Chain = DAG.getNode(ISD::CALLSEQ_END, MVT::Other, Chain,
+                      DAG.getConstant(NumStackBytes, PtrVT));
   NodeTys.push_back(MVT::Other);
   
   // If the function returns void, just return the chain.
@@ -1382,19 +1353,19 @@ SDOperand SPU::get_vec_i16imm(SDNode *N, SelectionDAG &DAG,
       int SExtValue = ((Value & 0xffff) << 16) >> 16;
 
       if (Value == SExtValue)
-        return DAG.getConstant(Value, ValueType);
+	return DAG.getConstant(Value, ValueType);
     } else if (ValueType == MVT::i16) {
       short Value = (short) CN->getValue();
       int SExtValue = ((int) Value << 16) >> 16;
 
       if (Value == (short) SExtValue)
-        return DAG.getConstant(Value, ValueType);
+	return DAG.getConstant(Value, ValueType);
     } else if (ValueType == MVT::i64) {
       int64_t Value = CN->getValue();
       int64_t SExtValue = ((Value & 0xffff) << (64 - 16)) >> (64 - 16);
 
       if (Value == SExtValue)
-        return DAG.getConstant(Value, ValueType);
+	return DAG.getConstant(Value, ValueType);
     }
   }
 
@@ -1409,7 +1380,7 @@ SDOperand SPU::get_vec_i10imm(SDNode *N, SelectionDAG &DAG,
   if (ConstantSDNode *CN = getVecImm(N)) {
     int Value = (int) CN->getValue();
     if ((ValueType == MVT::i32 && isS10Constant(Value))
-        || (ValueType == MVT::i16 && isS10Constant((short) Value)))
+	|| (ValueType == MVT::i16 && isS10Constant((short) Value)))
       return DAG.getConstant(Value, ValueType);
   }
 
@@ -1428,11 +1399,11 @@ SDOperand SPU::get_vec_i8imm(SDNode *N, SelectionDAG &DAG,
   if (ConstantSDNode *CN = getVecImm(N)) {
     int Value = (int) CN->getValue();
     if (ValueType == MVT::i16
-        && Value <= 0xffff                 /* truncated from uint64_t */
-        && ((short) Value >> 8) == ((short) Value & 0xff))
+	&& Value <= 0xffff                 /* truncated from uint64_t */
+	&& ((short) Value >> 8) == ((short) Value & 0xff))
       return DAG.getConstant(Value & 0xff, ValueType);
     else if (ValueType == MVT::i8
-             && (Value & 0xff) == Value)
+	     && (Value & 0xff) == Value)
       return DAG.getConstant(Value, ValueType);
   }
 
@@ -1447,8 +1418,8 @@ SDOperand SPU::get_ILHUvec_imm(SDNode *N, SelectionDAG &DAG,
   if (ConstantSDNode *CN = getVecImm(N)) {
     uint64_t Value = CN->getValue();
     if ((ValueType == MVT::i32
-          && ((unsigned) Value & 0xffff0000) == (unsigned) Value)
-        || (ValueType == MVT::i64 && (Value & 0xffff0000) == Value))
+	  && ((unsigned) Value & 0xffff0000) == (unsigned) Value)
+	|| (ValueType == MVT::i64 && (Value & 0xffff0000) == Value))
       return DAG.getConstant(Value >> 16, ValueType);
   }
 
@@ -1500,8 +1471,8 @@ static bool GetConstantBuildVectorBits(SDNode *BV, uint64_t VectorBits[2],
     } else if (ConstantFPSDNode *CN = dyn_cast<ConstantFPSDNode>(OpVal)) {
       const APFloat &apf = CN->getValueAPF();
       EltBits = (CN->getValueType(0) == MVT::f32
-                 ? FloatToBits(apf.convertToFloat())
-                 : DoubleToBits(apf.convertToDouble()));
+		 ? FloatToBits(apf.convertToFloat())
+		 : DoubleToBits(apf.convertToDouble()));
     } else {
       // Nonconstant element.
       return true;
@@ -1521,7 +1492,7 @@ static bool GetConstantBuildVectorBits(SDNode *BV, uint64_t VectorBits[2],
 /// SplatSize = 1 byte.
 static bool isConstantSplat(const uint64_t Bits128[2], 
                             const uint64_t Undef128[2],
-                            int MinSplatBits,
+			    int MinSplatBits,
                             uint64_t &SplatBits, uint64_t &SplatUndef,
                             int &SplatSize) {
   // Don't let undefs prevent splats from matching.  See if the top 64-bits are
@@ -1539,34 +1510,34 @@ static bool isConstantSplat(const uint64_t Bits128[2],
       // Check that the top 32-bits are the same as the lower 32-bits, ignoring
       // undefs.
       if ((Bits64 & (~Undef64 >> 32)) == ((Bits64 >> 32) & ~Undef64)) {
-        if (MinSplatBits < 32) {
+	if (MinSplatBits < 32) {
 
-          // If the top 16-bits are different than the lower 16-bits, ignoring
-          // undefs, we have an i32 splat.
-          if ((Bits32 & (~Undef32 >> 16)) == ((Bits32 >> 16) & ~Undef32)) {
-            if (MinSplatBits < 16) {
-              // If the top 8-bits are different than the lower 8-bits, ignoring
-              // undefs, we have an i16 splat.
-              if ((Bits16 & (uint16_t(~Undef16) >> 8)) == ((Bits16 >> 8) & ~Undef16)) {
-                // Otherwise, we have an 8-bit splat.
-                SplatBits  = uint8_t(Bits16)  | uint8_t(Bits16 >> 8);
-                SplatUndef = uint8_t(Undef16) & uint8_t(Undef16 >> 8);
-                SplatSize = 1;
-                return true;
-              }
-            } else {
-              SplatBits = Bits16;
-              SplatUndef = Undef16;
-              SplatSize = 2;
-              return true;
-            }
-          }
-        } else {
-          SplatBits = Bits32;
-          SplatUndef = Undef32;
-          SplatSize = 4;
-          return true;
-        }
+	  // If the top 16-bits are different than the lower 16-bits, ignoring
+	  // undefs, we have an i32 splat.
+	  if ((Bits32 & (~Undef32 >> 16)) == ((Bits32 >> 16) & ~Undef32)) {
+	    if (MinSplatBits < 16) {
+	      // If the top 8-bits are different than the lower 8-bits, ignoring
+	      // undefs, we have an i16 splat.
+	      if ((Bits16 & (uint16_t(~Undef16) >> 8)) == ((Bits16 >> 8) & ~Undef16)) {
+		// Otherwise, we have an 8-bit splat.
+		SplatBits  = uint8_t(Bits16)  | uint8_t(Bits16 >> 8);
+		SplatUndef = uint8_t(Undef16) & uint8_t(Undef16 >> 8);
+		SplatSize = 1;
+		return true;
+	      }
+	    } else {
+	      SplatBits = Bits16;
+	      SplatUndef = Undef16;
+	      SplatSize = 2;
+	      return true;
+	    }
+	  }
+	} else {
+	  SplatBits = Bits32;
+	  SplatUndef = Undef32;
+	  SplatSize = 4;
+	  return true;
+	}
       }
     } else {
       SplatBits = Bits128[0];
@@ -1596,7 +1567,7 @@ static SDOperand LowerBUILD_VECTOR(SDOperand Op, SelectionDAG &DAG) {
   int SplatSize;
   if (GetConstantBuildVectorBits(Op.Val, VectorBits, UndefBits)
       || !isConstantSplat(VectorBits, UndefBits,
-                          MVT::getSizeInBits(MVT::getVectorElementType(VT)),
+			  MVT::getSizeInBits(MVT::getVectorElementType(VT)),
                           SplatBits, SplatUndef, SplatSize))
     return SDOperand();   // Not a constant vector, not a splat.
   
@@ -1605,21 +1576,21 @@ static SDOperand LowerBUILD_VECTOR(SDOperand Op, SelectionDAG &DAG) {
   case MVT::v4f32: {
     uint32_t Value32 = SplatBits;
     assert(SplatSize == 4
-           && "LowerBUILD_VECTOR: Unexpected floating point vector element.");
+	   && "LowerBUILD_VECTOR: Unexpected floating point vector element.");
     // NOTE: pretend the constant is an integer. LLVM won't load FP constants
     SDOperand T = DAG.getConstant(Value32, MVT::i32);
     return DAG.getNode(ISD::BIT_CONVERT, MVT::v4f32,
-                       DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32, T, T, T, T));
+		       DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32, T, T, T, T));
     break;
   }
   case MVT::v2f64: {
     uint64_t f64val = SplatBits;
     assert(SplatSize == 8
-           && "LowerBUILD_VECTOR: 64-bit float vector element: unexpected size.");
+	   && "LowerBUILD_VECTOR: 64-bit float vector element: unexpected size.");
     // NOTE: pretend the constant is an integer. LLVM won't load FP constants
     SDOperand T = DAG.getConstant(f64val, MVT::i64);
     return DAG.getNode(ISD::BIT_CONVERT, MVT::v2f64,
-                       DAG.getNode(ISD::BUILD_VECTOR, MVT::v2i64, T, T));
+		       DAG.getNode(ISD::BUILD_VECTOR, MVT::v2i64, T, T));
     break;
   }
   case MVT::v16i8: {
@@ -1669,69 +1640,69 @@ static SDOperand LowerBUILD_VECTOR(SDOperand Op, SelectionDAG &DAG) {
 
       // Create lower vector if not a special pattern
       if (!lower_special) {
-        SDOperand LO32C = DAG.getConstant(lower, MVT::i32);
-        LO32 = DAG.getNode(ISD::BIT_CONVERT, VT,
-                           DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32,
-                                       LO32C, LO32C, LO32C, LO32C));
+	SDOperand LO32C = DAG.getConstant(lower, MVT::i32);
+	LO32 = DAG.getNode(ISD::BIT_CONVERT, VT,
+			   DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32,
+				       LO32C, LO32C, LO32C, LO32C));
       }
 
       // Create upper vector if not a special pattern
       if (!upper_special) {
-        SDOperand HI32C = DAG.getConstant(upper, MVT::i32);
-        HI32 = DAG.getNode(ISD::BIT_CONVERT, VT,
-                           DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32,
-                                       HI32C, HI32C, HI32C, HI32C));
+	SDOperand HI32C = DAG.getConstant(upper, MVT::i32);
+	HI32 = DAG.getNode(ISD::BIT_CONVERT, VT,
+			   DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32,
+				       HI32C, HI32C, HI32C, HI32C));
       }
 
       // If either upper or lower are special, then the two input operands are
       // the same (basically, one of them is a "don't care")
       if (lower_special)
-        LO32 = HI32;
+	LO32 = HI32;
       if (upper_special)
-        HI32 = LO32;
+	HI32 = LO32;
       if (lower_special && upper_special) {
-        // Unhappy situation... both upper and lower are special, so punt with
-        // a target constant:
+	// Unhappy situation... both upper and lower are special, so punt with
+	// a target constant:
         SDOperand Zero = DAG.getConstant(0, MVT::i32);
-        HI32 = LO32 = DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32, Zero, Zero,
+	HI32 = LO32 = DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32, Zero, Zero,
                                   Zero, Zero);
       }
 
       for (int i = 0; i < 4; ++i) {
-        for (int j = 0; j < 4; ++j) {
-          SDOperand V;
-          bool process_upper, process_lower;
-          uint64_t val = 0;
+	for (int j = 0; j < 4; ++j) {
+	  SDOperand V;
+	  bool process_upper, process_lower;
+	  uint64_t val = 0;
 
-          process_upper = (upper_special && (i & 1) == 0);
-          process_lower = (lower_special && (i & 1) == 1);
+	  process_upper = (upper_special && (i & 1) == 0);
+	  process_lower = (lower_special && (i & 1) == 1);
 
-          if (process_upper || process_lower) {
-            if ((process_upper && upper == 0)
-                || (process_lower && lower == 0))
-              val = 0x80;
-            else if ((process_upper && upper == 0xffffffff)
-                     || (process_lower && lower == 0xffffffff))
-              val = 0xc0;
-            else if ((process_upper && upper == 0x80000000)
-                     || (process_lower && lower == 0x80000000))
-              val = (j == 0 ? 0xe0 : 0x80);
-          } else
-            val = i * 4 + j + ((i & 1) * 16);
+	  if (process_upper || process_lower) {
+	    if ((process_upper && upper == 0)
+		|| (process_lower && lower == 0))
+	      val = 0x80;
+	    else if ((process_upper && upper == 0xffffffff)
+		     || (process_lower && lower == 0xffffffff))
+	      val = 0xc0;
+	    else if ((process_upper && upper == 0x80000000)
+		     || (process_lower && lower == 0x80000000))
+	      val = (j == 0 ? 0xe0 : 0x80);
+	  } else
+	    val = i * 4 + j + ((i & 1) * 16);
 
-          ShufBytes.push_back(DAG.getConstant(val, MVT::i8));
-        }
+	  ShufBytes.push_back(DAG.getConstant(val, MVT::i8));
+	}
       }
 
       return DAG.getNode(SPUISD::SHUFB, VT, HI32, LO32,
-                         DAG.getNode(ISD::BUILD_VECTOR, MVT::v16i8,
-                                     &ShufBytes[0], ShufBytes.size()));
+			 DAG.getNode(ISD::BUILD_VECTOR, MVT::v16i8,
+				     &ShufBytes[0], ShufBytes.size()));
     } else {
       // For zero, this can be lowered efficiently via v4i32 BUILD_VECTOR
       SDOperand Zero = DAG.getConstant(0, MVT::i32);
       return DAG.getNode(ISD::BIT_CONVERT, VT,
-                         DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32,
-                                     Zero, Zero, Zero, Zero));
+			 DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32,
+				     Zero, Zero, Zero, Zero));
     }
   }
   }
@@ -1808,8 +1779,8 @@ static SDOperand LowerVECTOR_SHUFFLE(SDOperand Op, SelectionDAG &DAG) {
     // Copy register's contents as index in INSERT_MASK:
     SDOperand ShufMaskOp =
       DAG.getNode(SPUISD::INSERT_MASK, V1.getValueType(),
-                  DAG.getTargetConstant(V2Elt, MVT::i32),
-                  DAG.getCopyFromReg(InitTempReg, VReg, PtrVT));
+		  DAG.getTargetConstant(V2Elt, MVT::i32),
+		  DAG.getCopyFromReg(InitTempReg, VReg, PtrVT));
     // Use shuffle mask in SHUFB synthetic instruction:
     return DAG.getNode(SPUISD::SHUFB, V1.getValueType(), V2, V1, ShufMaskOp);
   } else {
@@ -1820,24 +1791,24 @@ static SDOperand LowerVECTOR_SHUFFLE(SDOperand Op, SelectionDAG &DAG) {
     for (unsigned i = 0, e = PermMask.getNumOperands(); i != e; ++i) {
       unsigned SrcElt;
       if (PermMask.getOperand(i).getOpcode() == ISD::UNDEF)
-        SrcElt = 0;
+	SrcElt = 0;
       else 
-        SrcElt = cast<ConstantSDNode>(PermMask.getOperand(i))->getValue();
+	SrcElt = cast<ConstantSDNode>(PermMask.getOperand(i))->getValue();
       
       for (unsigned j = 0; j != BytesPerElement; ++j) {
-        ResultMask.push_back(DAG.getConstant(SrcElt*BytesPerElement+j,
-                                             MVT::i8));
+	ResultMask.push_back(DAG.getConstant(SrcElt*BytesPerElement+j,
+					     MVT::i8));
       }
     }
     
     SDOperand VPermMask = DAG.getNode(ISD::BUILD_VECTOR, MVT::v16i8,
-                                      &ResultMask[0], ResultMask.size());
+				      &ResultMask[0], ResultMask.size());
     return DAG.getNode(SPUISD::SHUFB, V1.getValueType(), V1, V2, VPermMask);
   }
 }
 
 static SDOperand LowerSCALAR_TO_VECTOR(SDOperand Op, SelectionDAG &DAG) {
-  SDOperand Op0 = Op.getOperand(0);                     // Op0 = the scalar
+  SDOperand Op0 = Op.getOperand(0);			// Op0 = the scalar
 
   if (Op0.Val->getOpcode() == ISD::Constant) {
     // For a constant, build the appropriate constant vector, which will
@@ -1851,7 +1822,7 @@ static SDOperand LowerSCALAR_TO_VECTOR(SDOperand Op, SelectionDAG &DAG) {
     // Create a constant vector:
     switch (Op.getValueType()) {
     default: assert(0 && "Unexpected constant value type in "
-                         "LowerSCALAR_TO_VECTOR");
+		         "LowerSCALAR_TO_VECTOR");
     case MVT::v16i8: n_copies = 16; VT = MVT::i8; break;
     case MVT::v8i16: n_copies = 8; VT = MVT::i16; break;
     case MVT::v4i32: n_copies = 4; VT = MVT::i32; break;
@@ -1865,7 +1836,7 @@ static SDOperand LowerSCALAR_TO_VECTOR(SDOperand Op, SelectionDAG &DAG) {
       ConstVecValues.push_back(CValue);
 
     return DAG.getNode(ISD::BUILD_VECTOR, Op.getValueType(),
-                       &ConstVecValues[0], ConstVecValues.size());
+	               &ConstVecValues[0], ConstVecValues.size());
   } else {
     // Otherwise, copy the value from one register to another:
     switch (Op0.getValueType()) {
@@ -1916,24 +1887,24 @@ static SDOperand LowerVectorMUL(SDOperand Op, SelectionDAG &DAG) {
 
     SDOperand FSMBOp =
       DAG.getCopyToReg(Chain, FSMBIreg,
-                       DAG.getNode(SPUISD::FSMBI, MVT::v8i16,
-                                   DAG.getConstant(0xcccc, MVT::i32)));
+		       DAG.getNode(SPUISD::FSMBI, MVT::v8i16,
+				   DAG.getConstant(0xcccc, MVT::i32)));
 
     SDOperand HHProd =
       DAG.getCopyToReg(FSMBOp, HiProdReg,
-                       DAG.getNode(SPUISD::MPYHH, MVT::v8i16, rA, rB));
+		       DAG.getNode(SPUISD::MPYHH, MVT::v8i16, rA, rB));
 
     SDOperand HHProd_v4i32 =
       DAG.getNode(ISD::BIT_CONVERT, MVT::v4i32,
-                  DAG.getCopyFromReg(HHProd, HiProdReg, MVT::v4i32));
+		  DAG.getCopyFromReg(HHProd, HiProdReg, MVT::v4i32));
 
     return DAG.getNode(SPUISD::SELB, MVT::v8i16,
-                       DAG.getNode(SPUISD::MPY, MVT::v8i16, rA, rB),
-                       DAG.getNode(ISD::BIT_CONVERT, Op.getValueType(),
-                                   DAG.getNode(SPUISD::VEC_SHL, MVT::v4i32,
-                                               HHProd_v4i32,
-                                               DAG.getConstant(16, MVT::i16))),
-                       DAG.getCopyFromReg(FSMBOp, FSMBIreg, MVT::v4i32));
+		       DAG.getNode(SPUISD::MPY, MVT::v8i16, rA, rB),
+		       DAG.getNode(ISD::BIT_CONVERT, Op.getValueType(),
+				   DAG.getNode(SPUISD::VEC_SHL, MVT::v4i32,
+					       HHProd_v4i32,
+					       DAG.getConstant(16, MVT::i16))),
+		       DAG.getCopyFromReg(FSMBOp, FSMBIreg, MVT::v4i32));
   }
 
   // This M00sE is N@stI! (apologies to Monty Python)
@@ -1956,8 +1927,8 @@ static SDOperand LowerVectorMUL(SDOperand Op, SelectionDAG &DAG) {
 
     SDOperand LLProd =
       DAG.getNode(SPUISD::MPY, MVT::v8i16,
-                  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16, rA),
-                  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16, rB));
+		  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16, rA),
+		  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16, rB));
 
     SDOperand rALH = DAG.getNode(SPUISD::VEC_SRA, MVT::v8i16, rA, c8);
 
@@ -1965,70 +1936,70 @@ static SDOperand LowerVectorMUL(SDOperand Op, SelectionDAG &DAG) {
 
     SDOperand LHProd =
       DAG.getNode(SPUISD::VEC_SHL, MVT::v8i16,
-                  DAG.getNode(SPUISD::MPY, MVT::v8i16, rALH, rBLH), c8);
+		  DAG.getNode(SPUISD::MPY, MVT::v8i16, rALH, rBLH), c8);
 
     SDOperand FSMBdef_2222 =
       DAG.getCopyToReg(Chain, FSMBreg_2222,
-                       DAG.getNode(SPUISD::FSMBI, MVT::v8i16,
-                                   DAG.getConstant(0x2222, MVT::i32)));
+		       DAG.getNode(SPUISD::FSMBI, MVT::v8i16,
+				   DAG.getConstant(0x2222, MVT::i32)));
 
     SDOperand FSMBuse_2222 =
       DAG.getCopyFromReg(FSMBdef_2222, FSMBreg_2222, MVT::v4i32);
 
     SDOperand LoProd_1 =
       DAG.getCopyToReg(Chain, LoProd_reg,
-                       DAG.getNode(SPUISD::SELB, MVT::v8i16, LLProd, LHProd,
-                                   FSMBuse_2222));
+		       DAG.getNode(SPUISD::SELB, MVT::v8i16, LLProd, LHProd,
+				   FSMBuse_2222));
 
     SDOperand LoProdMask = DAG.getConstant(0xffff, MVT::i32);
 
     SDOperand LoProd = 
       DAG.getNode(ISD::AND, MVT::v4i32,
-                  DAG.getCopyFromReg(LoProd_1, LoProd_reg, MVT::v4i32),
-                  DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32,
-                              LoProdMask, LoProdMask,
-                              LoProdMask, LoProdMask));
+		  DAG.getCopyFromReg(LoProd_1, LoProd_reg, MVT::v4i32),
+		  DAG.getNode(ISD::BUILD_VECTOR, MVT::v4i32,
+			      LoProdMask, LoProdMask,
+			      LoProdMask, LoProdMask));
 
     SDOperand rAH =
       DAG.getNode(SPUISD::VEC_SRA, MVT::v4i32,
-                  DAG.getNode(ISD::BIT_CONVERT, MVT::v4i32, rA), c16);
+		  DAG.getNode(ISD::BIT_CONVERT, MVT::v4i32, rA), c16);
 
     SDOperand rBH =
       DAG.getNode(SPUISD::VEC_SRA, MVT::v4i32,
-                  DAG.getNode(ISD::BIT_CONVERT, MVT::v4i32, rB), c16);
+		  DAG.getNode(ISD::BIT_CONVERT, MVT::v4i32, rB), c16);
 
     SDOperand HLProd =
       DAG.getNode(SPUISD::MPY, MVT::v8i16,
-                  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16, rAH),
-                  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16, rBH));
+		  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16, rAH),
+		  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16, rBH));
 
     SDOperand HHProd_1 =
       DAG.getNode(SPUISD::MPY, MVT::v8i16,
-                  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16,
-                              DAG.getNode(SPUISD::VEC_SRA, MVT::v4i32, rAH, c8)),
-                  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16,
-                              DAG.getNode(SPUISD::VEC_SRA, MVT::v4i32, rBH, c8)));
+		  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16,
+			      DAG.getNode(SPUISD::VEC_SRA, MVT::v4i32, rAH, c8)),
+		  DAG.getNode(ISD::BIT_CONVERT, MVT::v8i16,
+			      DAG.getNode(SPUISD::VEC_SRA, MVT::v4i32, rBH, c8)));
 
     SDOperand HHProd =
       DAG.getCopyToReg(Chain, HiProd_reg,
-                       DAG.getNode(SPUISD::SELB, MVT::v8i16,
-                                   HLProd,
-                                   DAG.getNode(SPUISD::VEC_SHL, MVT::v8i16, HHProd_1, c8),
-                                   FSMBuse_2222));
+		       DAG.getNode(SPUISD::SELB, MVT::v8i16,
+				   HLProd,
+				   DAG.getNode(SPUISD::VEC_SHL, MVT::v8i16, HHProd_1, c8),
+				   FSMBuse_2222));
 
     SDOperand HiProd =
       DAG.getNode(SPUISD::VEC_SHL, MVT::v4i32,
-                  DAG.getCopyFromReg(HHProd, HiProd_reg, MVT::v4i32), c16);
+		  DAG.getCopyFromReg(HHProd, HiProd_reg, MVT::v4i32), c16);
 
     return DAG.getNode(ISD::BIT_CONVERT, MVT::v16i8,
-                       DAG.getNode(ISD::OR, MVT::v4i32,
-                                   LoProd, HiProd));
+		       DAG.getNode(ISD::OR, MVT::v4i32,
+				   LoProd, HiProd));
   }
 
   default:
     cerr << "CellSPU: Unknown vector multiplication, got "
          << MVT::getValueTypeString(Op.getValueType())
-         << "\n";
+	 << "\n";
     abort();
     /*NOTREACHED*/
   }
@@ -2060,24 +2031,24 @@ static SDOperand LowerFDIVf32(SDOperand Op, SelectionDAG &DAG) {
   // (Floating Interpolate (FP Reciprocal Estimate B))
   SDOperand BRcpl =
       DAG.getCopyToReg(DAG.getEntryNode(), VRegBR, 
-                       DAG.getNode(SPUISD::FPInterp, VT, B, 
-                                DAG.getNode(SPUISD::FPRecipEst, VT, B)));
+		       DAG.getNode(SPUISD::FPInterp, VT, B, 
+				DAG.getNode(SPUISD::FPRecipEst, VT, B)));
   
   // Computes A * BRcpl and stores in a temporary register
   SDOperand AxBRcpl =
       DAG.getCopyToReg(BRcpl, VRegC,
-                 DAG.getNode(ISD::FMUL, VT, A, 
-                        DAG.getCopyFromReg(BRcpl, VRegBR, VT)));
+		 DAG.getNode(ISD::FMUL, VT, A, 
+			DAG.getCopyFromReg(BRcpl, VRegBR, VT)));
   // What's the Chain variable do? It's magic!
   // TODO: set Chain = Op(0).getEntryNode()
   
   return DAG.getNode(ISD::FADD, VT, 
-                DAG.getCopyFromReg(AxBRcpl, VRegC, VT),
-                DAG.getNode(ISD::FMUL, VT, 
-                        DAG.getCopyFromReg(AxBRcpl, VRegBR, VT), 
-                        DAG.getNode(ISD::FSUB, VT, A,
-                            DAG.getNode(ISD::FMUL, VT, B, 
-                            DAG.getCopyFromReg(AxBRcpl, VRegC, VT)))));
+		DAG.getCopyFromReg(AxBRcpl, VRegC, VT),
+		DAG.getNode(ISD::FMUL, VT, 
+			DAG.getCopyFromReg(AxBRcpl, VRegBR, VT), 
+			DAG.getNode(ISD::FSUB, VT, A,
+			    DAG.getNode(ISD::FMUL, VT, B, 
+			    DAG.getCopyFromReg(AxBRcpl, VRegC, VT)))));
 }
 
 static SDOperand LowerEXTRACT_VECTOR_ELT(SDOperand Op, SelectionDAG &DAG) {
@@ -2130,7 +2101,7 @@ static SDOperand LowerEXTRACT_VECTOR_ELT(SDOperand Op, SelectionDAG &DAG) {
   }
 
   assert(prefslot_begin != -1 && prefslot_end != -1 &&
-         "LowerEXTRACT_VECTOR_ELT: preferred slots uninitialized");
+	 "LowerEXTRACT_VECTOR_ELT: preferred slots uninitialized");
 
   for (int i = 0; i < 16; ++i) {
     // zero fill uppper part of preferred slot, don't care about the
@@ -2139,9 +2110,9 @@ static SDOperand LowerEXTRACT_VECTOR_ELT(SDOperand Op, SelectionDAG &DAG) {
 
     if (i <= prefslot_end) {
       mask_val =
-        ((i < prefslot_begin)
-         ? 0x80
-         : elt_byte + (i - prefslot_begin));
+	((i < prefslot_begin)
+	 ? 0x80
+	 : elt_byte + (i - prefslot_begin));
 
       ShufMask[i] = DAG.getConstant(mask_val, MVT::i8);
     } else 
@@ -2150,13 +2121,13 @@ static SDOperand LowerEXTRACT_VECTOR_ELT(SDOperand Op, SelectionDAG &DAG) {
 
   SDOperand ShufMaskVec =
     DAG.getNode(ISD::BUILD_VECTOR, MVT::v16i8,
-                &ShufMask[0],
-                sizeof(ShufMask) / sizeof(ShufMask[0]));
+		&ShufMask[0],
+		sizeof(ShufMask) / sizeof(ShufMask[0]));
 
   return DAG.getNode(SPUISD::EXTRACT_ELT0, VT,
-                     DAG.getNode(SPUISD::SHUFB, N.getValueType(),
-                                 N, N, ShufMaskVec));
-                                 
+		     DAG.getNode(SPUISD::SHUFB, N.getValueType(),
+				 N, N, ShufMaskVec));
+				 
 }
 
 static SDOperand LowerINSERT_VECTOR_ELT(SDOperand Op, SelectionDAG &DAG) {
@@ -2180,7 +2151,7 @@ static SDOperand LowerINSERT_VECTOR_ELT(SDOperand Op, SelectionDAG &DAG) {
                             DAG.getNode(ISD::ADD, PtrVT,
                                         PtrBase,
                                         DAG.getConstant(CN->getValue(),
-                                                        PtrVT))));
+					                PtrVT))));
 
   return result;
 }
@@ -2287,7 +2258,7 @@ LowerByteImmed(SDOperand Op, SelectionDAG &DAG) {
       ConstVec = Op.getOperand(1);
       Arg = Op.getOperand(0);
       if (ConstVec.Val->getOpcode() == ISD::BIT_CONVERT) {
-        ConstVec = ConstVec.getOperand(0);
+	ConstVec = ConstVec.getOperand(0);
       }
     }
   }
@@ -2299,19 +2270,19 @@ LowerByteImmed(SDOperand Op, SelectionDAG &DAG) {
     int SplatSize;
 
     if (!GetConstantBuildVectorBits(ConstVec.Val, VectorBits, UndefBits)
-        && isConstantSplat(VectorBits, UndefBits,
-                           MVT::getSizeInBits(MVT::getVectorElementType(VT)),
-                           SplatBits, SplatUndef, SplatSize)) {
+	&& isConstantSplat(VectorBits, UndefBits,
+			   MVT::getSizeInBits(MVT::getVectorElementType(VT)),
+			   SplatBits, SplatUndef, SplatSize)) {
       SDOperand tcVec[16];
       SDOperand tc = DAG.getTargetConstant(SplatBits & 0xff, MVT::i8);
       const size_t tcVecSize = sizeof(tcVec) / sizeof(tcVec[0]);
 
       // Turn the BUILD_VECTOR into a set of target constants:
       for (size_t i = 0; i < tcVecSize; ++i)
-        tcVec[i] = tc;
+	tcVec[i] = tc;
 
       return DAG.getNode(Op.Val->getOpcode(), VT, Arg,
-                         DAG.getNode(ISD::BUILD_VECTOR, VT, tcVec, tcVecSize));
+			 DAG.getNode(ISD::BUILD_VECTOR, VT, tcVec, tcVecSize));
     }
   }
 
@@ -2325,7 +2296,7 @@ static SDOperand LowerMUL(SDOperand Op, SelectionDAG &DAG, unsigned VT,
   default:
     cerr << "CellSPU: Unknown LowerMUL value type, got "
          << MVT::getValueTypeString(Op.getValueType())
-         << "\n";
+	 << "\n";
     abort();
     /*NOTREACHED*/
 
@@ -2334,10 +2305,10 @@ static SDOperand LowerMUL(SDOperand Op, SelectionDAG &DAG, unsigned VT,
     SDOperand rB = Op.getOperand(1);
 
     return DAG.getNode(ISD::ADD, MVT::i32,
-                       DAG.getNode(ISD::ADD, MVT::i32,
-                                   DAG.getNode(SPUISD::MPYH, MVT::i32, rA, rB),
-                                   DAG.getNode(SPUISD::MPYH, MVT::i32, rB, rA)),
-                       DAG.getNode(SPUISD::MPYU, MVT::i32, rA, rB));
+		       DAG.getNode(ISD::ADD, MVT::i32,
+				   DAG.getNode(SPUISD::MPYH, MVT::i32, rA, rB),
+				   DAG.getNode(SPUISD::MPYH, MVT::i32, rB, rA)),
+		       DAG.getNode(SPUISD::MPYU, MVT::i32, rA, rB));
   }
   }
 
@@ -2383,18 +2354,18 @@ static SDOperand LowerCTPOP(SDOperand Op, SelectionDAG &DAG) {
     // CNTB_reg, SUM1_reg become associated:
     SDOperand CNTB_result =
       DAG.getNode(ISD::EXTRACT_VECTOR_ELT, MVT::i16, CNTB, Elt0);
-                  
+		  
     SDOperand CNTB_rescopy =
       DAG.getCopyToReg(CNTB_result, CNTB_reg, CNTB_result);
 
     SDOperand Tmp1 = DAG.getCopyFromReg(CNTB_rescopy, CNTB_reg, MVT::i16);
 
     return DAG.getNode(ISD::AND, MVT::i16,
-                       DAG.getNode(ISD::ADD, MVT::i16,
-                                   DAG.getNode(ISD::SRL, MVT::i16,
-                                               Tmp1, Shift1),
-                                   Tmp1),
-                       Mask0);
+		       DAG.getNode(ISD::ADD, MVT::i16,
+				   DAG.getNode(ISD::SRL, MVT::i16,
+					       Tmp1, Shift1),
+				   Tmp1),
+		       Mask0);
   }
 
   case MVT::i32: {
@@ -2417,28 +2388,28 @@ static SDOperand LowerCTPOP(SDOperand Op, SelectionDAG &DAG) {
     // CNTB_reg, SUM1_reg become associated:
     SDOperand CNTB_result =
       DAG.getNode(ISD::EXTRACT_VECTOR_ELT, MVT::i32, CNTB, Elt0);
-                  
+		  
     SDOperand CNTB_rescopy =
       DAG.getCopyToReg(CNTB_result, CNTB_reg, CNTB_result);
 
     SDOperand Comp1 =
       DAG.getNode(ISD::SRL, MVT::i32,
-                  DAG.getCopyFromReg(CNTB_rescopy, CNTB_reg, MVT::i32), Shift1);
+		  DAG.getCopyFromReg(CNTB_rescopy, CNTB_reg, MVT::i32), Shift1);
 
     SDOperand Sum1 =
       DAG.getNode(ISD::ADD, MVT::i32,
-                  Comp1, DAG.getCopyFromReg(CNTB_rescopy, CNTB_reg, MVT::i32));
+		  Comp1, DAG.getCopyFromReg(CNTB_rescopy, CNTB_reg, MVT::i32));
 
     SDOperand Sum1_rescopy =
       DAG.getCopyToReg(CNTB_result, SUM1_reg, Sum1);
 
     SDOperand Comp2 =
       DAG.getNode(ISD::SRL, MVT::i32,
-                  DAG.getCopyFromReg(Sum1_rescopy, SUM1_reg, MVT::i32),
-                  Shift2);
+		  DAG.getCopyFromReg(Sum1_rescopy, SUM1_reg, MVT::i32),
+		  Shift2);
     SDOperand Sum2 =
       DAG.getNode(ISD::ADD, MVT::i32, Comp2,
-                  DAG.getCopyFromReg(Sum1_rescopy, SUM1_reg, MVT::i32));
+		  DAG.getCopyFromReg(Sum1_rescopy, SUM1_reg, MVT::i32));
 
     return DAG.getNode(ISD::AND, MVT::i32, Sum2, Mask0);
   }
@@ -2479,10 +2450,8 @@ SPUTargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG)
     return LowerConstant(Op, DAG);
   case ISD::ConstantFP:
     return LowerConstantFP(Op, DAG);
-  case ISD::BRCOND:
-    return LowerBRCOND(Op, DAG);
   case ISD::FORMAL_ARGUMENTS:
-    return LowerFORMAL_ARGUMENTS(Op, DAG, VarArgsFrameIndex);
+      return LowerFORMAL_ARGUMENTS(Op, DAG, VarArgsFrameIndex);
   case ISD::CALL:
     return LowerCALL(Op, DAG, SPUTM.getSubtargetImpl());
   case ISD::RET:
@@ -2540,6 +2509,17 @@ SPUTargetLowering::LowerOperation(SDOperand Op, SelectionDAG &DAG)
 }
 
 //===----------------------------------------------------------------------===//
+//  Other Lowering Code
+//===----------------------------------------------------------------------===//
+
+MachineBasicBlock *
+SPUTargetLowering::InsertAtEndOfBasicBlock(MachineInstr *MI,
+                                           MachineBasicBlock *BB)
+{
+  return BB;
+}
+
+//===----------------------------------------------------------------------===//
 // Target Optimization Hooks
 //===----------------------------------------------------------------------===//
 
@@ -2548,81 +2528,49 @@ SPUTargetLowering::PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const
 {
 #if 0
   TargetMachine &TM = getTargetMachine();
-#endif
-  const SPUSubtarget *ST = SPUTM.getSubtargetImpl();
   SelectionDAG &DAG = DCI.DAG;
-  SDOperand N0 = N->getOperand(0);      // everything has at least one operand
+#endif
+  SDOperand N0 = N->getOperand(0);	// everything has at least one operand
 
   switch (N->getOpcode()) {
   default: break;
-  case SPUISD::IndirectAddr: {
-    if (!ST->usingLargeMem() && N0.getOpcode() == SPUISD::AFormAddr) {
-      ConstantSDNode *CN = cast<ConstantSDNode>(N->getOperand(1));
-      if (CN->getValue() == 0) {
-        // (SPUindirect (SPUaform <addr>, 0), 0) ->
-        // (SPUaform <addr>, 0)
 
-        DEBUG(cerr << "Replace: ");
-        DEBUG(N->dump(&DAG));
-        DEBUG(cerr << "\nWith:    ");
-        DEBUG(N0.Val->dump(&DAG));
-        DEBUG(cerr << "\n");
-
-        return N0;
+  // Look for obvious optimizations for shift left:
+  // a) Replace 0 << V with 0
+  // b) Replace V << 0 with V
+  //
+  // N.B: llvm will generate an undef node if the shift amount is greater than
+  // 15 (e.g.: V << 16), which will naturally trigger an assert.
+  case SPU::SHLIr32:
+  case SPU::SHLHIr16:
+  case SPU::SHLQBIIvec:
+  case SPU::ROTHIr16:
+  case SPU::ROTHIr16_i32:
+  case SPU::ROTIr32:
+  case SPU::ROTIr32_i16:
+  case SPU::ROTQBYIvec:
+  case SPU::ROTQBYBIvec:
+  case SPU::ROTQBIIvec:
+  case SPU::ROTHMIr16:
+  case SPU::ROTMIr32:
+  case SPU::ROTQMBYIvec: {
+    if (N0.getOpcode() == ISD::Constant) {
+      if (ConstantSDNode *C = cast<ConstantSDNode>(N0)) {
+	if (C->getValue() == 0)   	// 0 << V -> 0.
+	  return N0;
       }
     }
-  }
-  case ISD::ADD: {
-    SDOperand Op0 = N->getOperand(0);
-    SDOperand Op1 = N->getOperand(1);
-
-    if ((Op1.getOpcode() == ISD::Constant
-         || Op1.getOpcode() == ISD::TargetConstant)
-        && Op0.getOpcode() == SPUISD::IndirectAddr) {
-      SDOperand Op01 = Op0.getOperand(1);
-      if (Op01.getOpcode() == ISD::Constant
-          || Op01.getOpcode() == ISD::TargetConstant) {
-        // (add <const>, (SPUindirect <arg>, <const>)) ->
-        // (SPUindirect <arg>, <const + const>)
-        ConstantSDNode *CN0 = cast<ConstantSDNode>(Op1);
-        ConstantSDNode *CN1 = cast<ConstantSDNode>(Op01);
-        SDOperand combinedConst =
-          DAG.getConstant(CN0->getValue() + CN1->getValue(),
-                          Op0.getValueType());
-
-        DEBUG(cerr << "Replace: (add " << CN0->getValue() << ", "
-                   << "(SPUindirect <arg>, " << CN1->getValue() << "))\n");
-        DEBUG(cerr << "With:    (SPUindirect <arg>, "
-                   << CN0->getValue() + CN1->getValue() << ")\n");
-        return DAG.getNode(SPUISD::IndirectAddr, Op0.getValueType(),
-                           Op0.getOperand(0), combinedConst);
-      }
-    } else if ((Op0.getOpcode() == ISD::Constant
-                || Op0.getOpcode() == ISD::TargetConstant)
-               && Op1.getOpcode() == SPUISD::IndirectAddr) {
-      SDOperand Op11 = Op1.getOperand(1);
-      if (Op11.getOpcode() == ISD::Constant
-          || Op11.getOpcode() == ISD::TargetConstant) {
-        // (add (SPUindirect <arg>, <const>), <const>) ->
-        // (SPUindirect <arg>, <const + const>)
-        ConstantSDNode *CN0 = cast<ConstantSDNode>(Op0);
-        ConstantSDNode *CN1 = cast<ConstantSDNode>(Op11);
-        SDOperand combinedConst =
-          DAG.getConstant(CN0->getValue() + CN1->getValue(),
-                          Op0.getValueType());
-
-        DEBUG(cerr << "Replace: (add " << CN0->getValue() << ", "
-                   << "(SPUindirect <arg>, " << CN1->getValue() << "))\n");
-        DEBUG(cerr << "With:    (SPUindirect <arg>, "
-                   << CN0->getValue() + CN1->getValue() << ")\n");
-
-        return DAG.getNode(SPUISD::IndirectAddr, Op1.getValueType(),
-                           Op1.getOperand(0), combinedConst);
+    SDOperand N1 = N->getOperand(1);
+    if (N1.getOpcode() == ISD::Constant) {
+      if (ConstantSDNode *C = cast<ConstantSDNode>(N1)) {
+	if (C->getValue() == 0)		// V << 0 -> V
+	  return N1;
       }
     }
+    break;
   }
   }
-  // Otherwise, return unchanged.
+  
   return SDOperand();
 }
 
@@ -2676,11 +2624,11 @@ SPUTargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
 
 void
 SPUTargetLowering::computeMaskedBitsForTargetNode(const SDOperand Op,
-                                                  uint64_t Mask,
-                                                  uint64_t &KnownZero, 
-                                                  uint64_t &KnownOne,
-                                                  const SelectionDAG &DAG,
-                                                  unsigned Depth ) const {
+						  uint64_t Mask,
+						  uint64_t &KnownZero, 
+						  uint64_t &KnownOne,
+						  const SelectionDAG &DAG,
+						  unsigned Depth ) const {
   KnownZero = 0;
   KnownOne = 0;
 }

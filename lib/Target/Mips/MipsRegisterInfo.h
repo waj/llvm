@@ -7,14 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the Mips implementation of the TargetRegisterInfo class.
+// This file contains the Mips implementation of the MRegisterInfo class.
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef MIPSREGISTERINFO_H
 #define MIPSREGISTERINFO_H
 
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "MipsGenRegisterInfo.h.inc"
 
 namespace llvm {

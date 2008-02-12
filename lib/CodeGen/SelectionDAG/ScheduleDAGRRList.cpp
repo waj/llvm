@@ -18,7 +18,7 @@
 #define DEBUG_TYPE "pre-RA-sched"
 #include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -58,6 +58,7 @@ private:
   bool isBottomUp;
   
   /// AvailableQueue - The priority queue to use for the available SUnits.
+  ///a
   SchedulingPriorityQueue *AvailableQueue;
 
   /// LiveRegs / LiveRegDefs - A set of physical registers and their definition
@@ -106,8 +107,8 @@ private:
 void ScheduleDAGRRList::Schedule() {
   DOUT << "********** List Scheduling **********\n";
 
-  LiveRegDefs.resize(TRI->getNumRegs(), NULL);  
-  LiveRegCycles.resize(TRI->getNumRegs(), 0);
+  LiveRegDefs.resize(MRI->getNumRegs(), NULL);  
+  LiveRegCycles.resize(MRI->getNumRegs(), 0);
 
   // Build scheduling units.
   BuildSchedUnits();
@@ -651,7 +652,7 @@ bool ScheduleDAGRRList::DelayForLiveRegsBottomUp(SUnit *SU,
         if (RegAdded.insert(Reg))
           LRegs.push_back(Reg);
       }
-      for (const unsigned *Alias = TRI->getAliasSet(Reg);
+      for (const unsigned *Alias = MRI->getAliasSet(Reg);
            *Alias; ++Alias)
         if (LiveRegs.count(*Alias) && LiveRegDefs[*Alias] != I->Dep) {
           if (RegAdded.insert(*Alias))
@@ -672,7 +673,7 @@ bool ScheduleDAGRRList::DelayForLiveRegsBottomUp(SUnit *SU,
         if (RegAdded.insert(*Reg))
           LRegs.push_back(*Reg);
       }
-      for (const unsigned *Alias = TRI->getAliasSet(*Reg);
+      for (const unsigned *Alias = MRI->getAliasSet(*Reg);
            *Alias; ++Alias)
         if (LiveRegs.count(*Alias) && LiveRegDefs[*Alias] != SU) {
           if (RegAdded.insert(*Alias))
@@ -768,8 +769,8 @@ void ScheduleDAGRRList::ListScheduleBottomUp() {
           // Issue expensive cross register class copies.
           MVT::ValueType VT = getPhysicalRegisterVT(LRDef->Node, Reg, TII);
           const TargetRegisterClass *RC =
-            TRI->getPhysicalRegisterRegClass(VT, Reg);
-          const TargetRegisterClass *DestRC = TRI->getCrossCopyRegClass(RC);
+            MRI->getPhysicalRegisterRegClass(VT, Reg);
+          const TargetRegisterClass *DestRC = MRI->getCrossCopyRegClass(RC);
           if (!DestRC) {
             assert(false && "Don't know how to copy this physical register!");
             abort();
@@ -898,7 +899,7 @@ void ScheduleDAGRRList::ListScheduleTopDown() {
   // All leaves to Available queue.
   for (unsigned i = 0, e = SUnits.size(); i != e; ++i) {
     // It is available if it has no predecessors.
-    if (SUnits[i].Preds.empty() && &SUnits[i] != Entry) {
+    if (SUnits[i].Preds.size() == 0 && &SUnits[i] != Entry) {
       AvailableQueue->push(&SUnits[i]);
       SUnits[i].isAvailable = true;
     }
@@ -1063,11 +1064,11 @@ namespace {
     std::vector<unsigned> SethiUllmanNumbers;
 
     const TargetInstrInfo *TII;
-    const TargetRegisterInfo *TRI;
+    const MRegisterInfo *MRI;
   public:
     explicit BURegReductionPriorityQueue(const TargetInstrInfo *tii,
-                                         const TargetRegisterInfo *tri)
-      : TII(tii), TRI(tri) {}
+                                         const MRegisterInfo *mri)
+      : TII(tii), MRI(mri) {}
 
     void initNodes(DenseMap<SDNode*, std::vector<SUnit*> > &sumap,
                    std::vector<SUnit> &sunits) {
@@ -1320,7 +1321,7 @@ static bool hasCopyToRegUse(SUnit *SU) {
 /// physical register def.
 static bool canClobberPhysRegDefs(SUnit *SuccSU, SUnit *SU,
                                   const TargetInstrInfo *TII,
-                                  const TargetRegisterInfo *TRI) {
+                                  const MRegisterInfo *MRI) {
   SDNode *N = SuccSU->Node;
   unsigned NumDefs = TII->get(N->getTargetOpcode()).getNumDefs();
   const unsigned *ImpDefs = TII->get(N->getTargetOpcode()).getImplicitDefs();
@@ -1337,7 +1338,7 @@ static bool canClobberPhysRegDefs(SUnit *SuccSU, SUnit *SU,
     unsigned Reg = ImpDefs[i - NumDefs];
     for (;*SUImpDefs; ++SUImpDefs) {
       unsigned SUReg = *SUImpDefs;
-      if (TRI->regsOverlap(Reg, SUReg))
+      if (MRI->regsOverlap(Reg, SUReg))
         return true;
     }
   }
@@ -1386,9 +1387,9 @@ void BURegReductionPriorityQueue<SF>::AddPseudoTwoAddrDeps() {
           if (!SuccSU->Node || !SuccSU->Node->isTargetOpcode())
             continue;
           // Don't constrain nodes with physical register defs if the
-          // predecessor can clobber them.
+          // predecessor can cloober them.
           if (SuccSU->hasPhysRegDefs) {
-            if (canClobberPhysRegDefs(SuccSU, SU, TII, TRI))
+            if (canClobberPhysRegDefs(SuccSU, SU, TII, MRI))
               continue;
           }
           // Don't constraint extract_subreg / insert_subreg these may be
@@ -1580,9 +1581,9 @@ llvm::ScheduleDAG* llvm::createBURRListDAGScheduler(SelectionDAGISel *IS,
                                                     SelectionDAG *DAG,
                                                     MachineBasicBlock *BB) {
   const TargetInstrInfo *TII = DAG->getTarget().getInstrInfo();
-  const TargetRegisterInfo *TRI = DAG->getTarget().getRegisterInfo();
+  const MRegisterInfo *MRI = DAG->getTarget().getRegisterInfo();
   return new ScheduleDAGRRList(*DAG, BB, DAG->getTarget(), true,
-                      new BURegReductionPriorityQueue<bu_ls_rr_sort>(TII, TRI));
+                      new BURegReductionPriorityQueue<bu_ls_rr_sort>(TII, MRI));
 }
 
 llvm::ScheduleDAG* llvm::createTDRRListDAGScheduler(SelectionDAGISel *IS,

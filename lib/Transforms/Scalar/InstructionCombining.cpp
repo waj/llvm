@@ -45,7 +45,6 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Support/CallSite.h"
-#include "llvm/Support/ConstantRange.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/InstVisitor.h"
@@ -204,7 +203,7 @@ namespace {
     Instruction *visitTrunc(TruncInst &CI);
     Instruction *visitZExt(ZExtInst &CI);
     Instruction *visitSExt(SExtInst &CI);
-    Instruction *visitFPTrunc(FPTruncInst &CI);
+    Instruction *visitFPTrunc(CastInst &CI);
     Instruction *visitFPExt(CastInst &CI);
     Instruction *visitFPToUI(CastInst &CI);
     Instruction *visitFPToSI(CastInst &CI);
@@ -1944,48 +1943,6 @@ Instruction *InstCombiner::FoldOpIntoPhi(Instruction &I) {
   return ReplaceInstUsesWith(I, NewPN);
 }
 
-
-/// CannotBeNegativeZero - Return true if we can prove that the specified FP 
-/// value is never equal to -0.0.
-///
-/// Note that this function will need to be revisited when we support nondefault
-/// rounding modes!
-///
-static bool CannotBeNegativeZero(const Value *V) {
-  if (const ConstantFP *CFP = dyn_cast<ConstantFP>(V))
-    return !CFP->getValueAPF().isNegZero();
-
-  // (add x, 0.0) is guaranteed to return +0.0, not -0.0.
-  if (const Instruction *I = dyn_cast<Instruction>(V)) {
-    if (I->getOpcode() == Instruction::Add &&
-        isa<ConstantFP>(I->getOperand(1)) && 
-        cast<ConstantFP>(I->getOperand(1))->isNullValue())
-      return true;
-    
-    if (const IntrinsicInst *II = dyn_cast<IntrinsicInst>(I))
-      if (II->getIntrinsicID() == Intrinsic::sqrt)
-        return CannotBeNegativeZero(II->getOperand(1));
-    
-    if (const CallInst *CI = dyn_cast<CallInst>(I))
-      if (const Function *F = CI->getCalledFunction()) {
-        if (F->isDeclaration()) {
-          switch (F->getNameLen()) {
-          case 3:  // abs(x) != -0.0
-            if (!strcmp(F->getNameStart(), "abs")) return true;
-            break;
-          case 4:  // abs[lf](x) != -0.0
-            if (!strcmp(F->getNameStart(), "absf")) return true;
-            if (!strcmp(F->getNameStart(), "absl")) return true;
-            break;
-          }
-        }
-      }
-  }
-  
-  return false;
-}
-
-
 Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
   bool Changed = SimplifyCommutative(I);
   Value *LHS = I.getOperand(0), *RHS = I.getOperand(1);
@@ -2124,30 +2081,6 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
     if (Instruction *R = AssociativeOpt(I, AddMaskingAnd(C2)))
       return R;
 
-  // W*X + Y*Z --> W * (X+Z)  iff W == Y
-  if (I.getType()->isIntOrIntVector()) {
-    Value *W, *X, *Y, *Z;
-    if (match(LHS, m_Mul(m_Value(W), m_Value(X))) &&
-        match(RHS, m_Mul(m_Value(Y), m_Value(Z)))) {
-      if (W != Y) {
-        if (W == Z) {
-	  std::swap(Y, Z);
-        } else if (Y == X) {
-	  std::swap(W, X);
-	} else if (X == Z) {
-          std::swap(Y, Z);
-          std::swap(W, X);
-        }
-      }
-
-      if (W == Y) {
-        Value *NewAdd = InsertNewInstBefore(BinaryOperator::createAdd(X, Z,
-                                                            LHS->getName()), I);
-        return BinaryOperator::createMul(W, NewAdd);
-      }
-    }
-  }
-
   if (ConstantInt *CRHS = dyn_cast<ConstantInt>(RHS)) {
     Value *X = 0;
     if (match(LHS, m_Not(m_Value(X))))    // ~X + C --> (C-1) - X
@@ -2227,11 +2160,6 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
         return new SelectInst(SI->getCondition(), A, N);
     }
   }
-  
-  // Check for X+0.0.  Simplify it to X if we know X is not -0.0.
-  if (ConstantFP *CFP = dyn_cast<ConstantFP>(RHS))
-    if (CFP->getValueAPF().isPosZero() && CannotBeNegativeZero(LHS))
-      return ReplaceInstUsesWith(I, LHS);
 
   return Changed ? &I : 0;
 }
@@ -2566,15 +2494,14 @@ Instruction *InstCombiner::commonDivTransforms(BinaryOperator &I) {
   if (isa<UndefValue>(Op1))
     return ReplaceInstUsesWith(I, Op1);
 
-  // Handle cases involving: [su]div X, (select Cond, Y, Z)
-  // This does not apply for fdiv.
+  // Handle cases involving: div X, (select Cond, Y, Z)
   if (SelectInst *SI = dyn_cast<SelectInst>(Op1)) {
-    // [su]div X, (Cond ? 0 : Y) -> div X, Y.  If the div and the select are in
-    // the same basic block, then we replace the select with Y, and the
-    // condition of the select with false (if the cond value is in the same BB).
-    // If the select has uses other than the div, this allows them to be
-    // simplified also. Note that div X, Y is just as good as div X, 0 (undef)
-    if (ConstantInt *ST = dyn_cast<ConstantInt>(SI->getOperand(1)))
+    // div X, (Cond ? 0 : Y) -> div X, Y.  If the div and the select are in the
+    // same basic block, then we replace the select with Y, and the condition 
+    // of the select with false (if the cond value is in the same BB).  If the
+    // select has uses other than the div, this allows them to be simplified
+    // also. Note that div X, Y is just as good as div X, 0 (undef)
+    if (Constant *ST = dyn_cast<Constant>(SI->getOperand(1)))
       if (ST->isNullValue()) {
         Instruction *CondI = dyn_cast<Instruction>(SI->getOperand(0));
         if (CondI && CondI->getParent() == I.getParent())
@@ -2586,8 +2513,8 @@ Instruction *InstCombiner::commonDivTransforms(BinaryOperator &I) {
         return &I;
       }
 
-    // Likewise for: [su]div X, (Cond ? Y : 0) -> div X, Y
-    if (ConstantInt *ST = dyn_cast<ConstantInt>(SI->getOperand(2)))
+    // Likewise for: div X, (Cond ? Y : 0) -> div X, Y
+    if (Constant *ST = dyn_cast<Constant>(SI->getOperand(2)))
       if (ST->isNullValue()) {
         Instruction *CondI = dyn_cast<Instruction>(SI->getOperand(0));
         if (CondI && CondI->getParent() == I.getParent())
@@ -4629,11 +4556,60 @@ Instruction *InstCombiner::FoldGEPICmp(User *GEPLHS, Value *RHS,
 
   Value *PtrBase = GEPLHS->getOperand(0);
   if (PtrBase == RHS) {
-    // ((gep Ptr, OFFSET) cmp Ptr)   ---> (OFFSET cmp 0).
-    // This transformation is valid because we know pointers can't overflow.
-    Value *Offset = EmitGEPOffset(GEPLHS, I, *this);
-    return new ICmpInst(ICmpInst::getSignedPredicate(Cond), Offset,
-                        Constant::getNullValue(Offset->getType()));
+    // As an optimization, we don't actually have to compute the actual value of
+    // OFFSET if this is a icmp_eq or icmp_ne comparison, just return whether 
+    // each index is zero or not.
+    if (Cond == ICmpInst::ICMP_EQ || Cond == ICmpInst::ICMP_NE) {
+      Instruction *InVal = 0;
+      gep_type_iterator GTI = gep_type_begin(GEPLHS);
+      for (unsigned i = 1, e = GEPLHS->getNumOperands(); i != e; ++i, ++GTI) {
+        bool EmitIt = true;
+        if (Constant *C = dyn_cast<Constant>(GEPLHS->getOperand(i))) {
+          if (isa<UndefValue>(C))  // undef index -> undef.
+            return ReplaceInstUsesWith(I, UndefValue::get(I.getType()));
+          if (C->isNullValue())
+            EmitIt = false;
+          else if (TD->getABITypeSize(GTI.getIndexedType()) == 0) {
+            EmitIt = false;  // This is indexing into a zero sized array?
+          } else if (isa<ConstantInt>(C))
+            return ReplaceInstUsesWith(I, // No comparison is needed here.
+                                 ConstantInt::get(Type::Int1Ty, 
+                                                  Cond == ICmpInst::ICMP_NE));
+        }
+
+        if (EmitIt) {
+          Instruction *Comp =
+            new ICmpInst(Cond, GEPLHS->getOperand(i),
+                    Constant::getNullValue(GEPLHS->getOperand(i)->getType()));
+          if (InVal == 0)
+            InVal = Comp;
+          else {
+            InVal = InsertNewInstBefore(InVal, I);
+            InsertNewInstBefore(Comp, I);
+            if (Cond == ICmpInst::ICMP_NE)   // True if any are unequal
+              InVal = BinaryOperator::createOr(InVal, Comp);
+            else                              // True if all are equal
+              InVal = BinaryOperator::createAnd(InVal, Comp);
+          }
+        }
+      }
+
+      if (InVal)
+        return InVal;
+      else
+        // No comparison is needed here, all indexes = 0
+        ReplaceInstUsesWith(I, ConstantInt::get(Type::Int1Ty, 
+                                                Cond == ICmpInst::ICMP_EQ));
+    }
+
+    // Only lower this if the icmp is the only user of the GEP or if we expect
+    // the result to fold to a constant!
+    if (isa<ConstantExpr>(GEPLHS) || GEPLHS->hasOneUse()) {
+      // ((gep Ptr, OFFSET) cmp Ptr)   ---> (OFFSET cmp 0).
+      Value *Offset = EmitGEPOffset(GEPLHS, I, *this);
+      return new ICmpInst(ICmpInst::getSignedPredicate(Cond), Offset,
+                          Constant::getNullValue(Offset->getType()));
+    }
   } else if (User *GEPRHS = dyn_castGetElementPtr(RHS)) {
     // If the base pointers are different, but the indices are the same, just
     // compare the base pointer.
@@ -5656,37 +5632,6 @@ Instruction *InstCombiner::visitICmpInstWithInstAndIntCst(ICmpInst &ICI,
                                           DivRHS))
         return R;
     break;
-
-  case Instruction::Add:
-    // Fold: icmp pred (add, X, C1), C2
-
-    if (!ICI.isEquality()) {
-      ConstantInt *LHSC = dyn_cast<ConstantInt>(LHSI->getOperand(1));
-      if (!LHSC) break;
-      const APInt &LHSV = LHSC->getValue();
-
-      ConstantRange CR = ICI.makeConstantRange(ICI.getPredicate(), RHSV)
-                            .subtract(LHSV);
-
-      if (ICI.isSignedPredicate()) {
-        if (CR.getLower().isSignBit()) {
-          return new ICmpInst(ICmpInst::ICMP_SLT, LHSI->getOperand(0),
-                              ConstantInt::get(CR.getUpper()));
-        } else if (CR.getUpper().isSignBit()) {
-          return new ICmpInst(ICmpInst::ICMP_SGE, LHSI->getOperand(0),
-                              ConstantInt::get(CR.getLower()));
-        }
-      } else {
-        if (CR.getLower().isMinValue()) {
-          return new ICmpInst(ICmpInst::ICMP_ULT, LHSI->getOperand(0),
-                              ConstantInt::get(CR.getUpper()));
-        } else if (CR.getUpper().isMinValue()) {
-          return new ICmpInst(ICmpInst::ICMP_UGE, LHSI->getOperand(0),
-                              ConstantInt::get(CR.getLower()));
-        }
-      }
-    }
-    break;
   }
   
   // Simplify icmp_eq and icmp_ne instructions with integer constant RHS.
@@ -5874,22 +5819,18 @@ Instruction *InstCombiner::visitICmpInstWithCastAndCast(ICmpInst &ICI) {
     if (RHSCIOp->getType() != LHSCIOp->getType()) 
       return 0;
     
-    // If the signedness of the two casts doesn't agree (i.e. one is a sext
+    // If the signedness of the two compares doesn't agree (i.e. one is a sext
     // and the other is a zext), then we can't handle this.
     if (CI->getOpcode() != LHSCI->getOpcode())
       return 0;
 
-    // Deal with equality cases early.
-    if (ICI.isEquality())
-      return new ICmpInst(ICI.getPredicate(), LHSCIOp, RHSCIOp);
-
-    // A signed comparison of sign extended values simplifies into a
-    // signed comparison.
-    if (isSignedCmp && isSignedExt)
-      return new ICmpInst(ICI.getPredicate(), LHSCIOp, RHSCIOp);
-
-    // The other three cases all fold into an unsigned comparison.
-    return new ICmpInst(ICI.getUnsignedPredicate(), LHSCIOp, RHSCIOp);
+    // Likewise, if the signedness of the [sz]exts and the compare don't match, 
+    // then we can't handle this.
+    if (isSignedExt != isSignedCmp && !ICI.isEquality())
+      return 0;
+    
+    // Okay, just insert a compare of the reduced operands now!
+    return new ICmpInst(ICI.getPredicate(), LHSCIOp, RHSCIOp);
   }
 
   // If we aren't dealing with a constant on the RHS, exit early
@@ -6571,14 +6512,6 @@ static bool CanEvaluateInDifferentType(Value *V, const IntegerType *Ty,
            CanEvaluateInDifferentType(I->getOperand(1), Ty, CastOpc,
                                       NumCastsRemoved);
 
-  case Instruction::Mul:
-    // A multiply can be truncated by truncating its operands.
-    return Ty->getBitWidth() < OrigTy->getBitWidth() && 
-           CanEvaluateInDifferentType(I->getOperand(0), Ty, CastOpc,
-                                      NumCastsRemoved) &&
-           CanEvaluateInDifferentType(I->getOperand(1), Ty, CastOpc,
-                                      NumCastsRemoved);
-
   case Instruction::Shl:
     // If we are truncating the result of this SHL, and if it's a shift of a
     // constant amount, we can always perform a SHL in a smaller type.
@@ -6638,7 +6571,6 @@ Value *InstCombiner::EvaluateInDifferentType(Value *V, const Type *Ty,
   switch (I->getOpcode()) {
   case Instruction::Add:
   case Instruction::Sub:
-  case Instruction::Mul:
   case Instruction::And:
   case Instruction::Or:
   case Instruction::Xor:
@@ -7200,80 +7132,8 @@ Instruction *InstCombiner::visitSExt(SExtInst &CI) {
   return 0;
 }
 
-/// FitsInFPType - Return a Constant* for the specified FP constant if it fits
-/// in the specified FP type without changing its value.
-static Constant *FitsInFPType(ConstantFP *CFP, const Type *FPTy, 
-                              const fltSemantics &Sem) {
-  APFloat F = CFP->getValueAPF();
-  if (F.convert(Sem, APFloat::rmNearestTiesToEven) == APFloat::opOK)
-    return ConstantFP::get(FPTy, F);
-  return 0;
-}
-
-/// LookThroughFPExtensions - If this is an fp extension instruction, look
-/// through it until we get the source value.
-static Value *LookThroughFPExtensions(Value *V) {
-  if (Instruction *I = dyn_cast<Instruction>(V))
-    if (I->getOpcode() == Instruction::FPExt)
-      return LookThroughFPExtensions(I->getOperand(0));
-  
-  // If this value is a constant, return the constant in the smallest FP type
-  // that can accurately represent it.  This allows us to turn
-  // (float)((double)X+2.0) into x+2.0f.
-  if (ConstantFP *CFP = dyn_cast<ConstantFP>(V)) {
-    if (CFP->getType() == Type::PPC_FP128Ty)
-      return V;  // No constant folding of this.
-    // See if the value can be truncated to float and then reextended.
-    if (Value *V = FitsInFPType(CFP, Type::FloatTy, APFloat::IEEEsingle))
-      return V;
-    if (CFP->getType() == Type::DoubleTy)
-      return V;  // Won't shrink.
-    if (Value *V = FitsInFPType(CFP, Type::DoubleTy, APFloat::IEEEdouble))
-      return V;
-    // Don't try to shrink to various long double types.
-  }
-  
-  return V;
-}
-
-Instruction *InstCombiner::visitFPTrunc(FPTruncInst &CI) {
-  if (Instruction *I = commonCastTransforms(CI))
-    return I;
-  
-  // If we have fptrunc(add (fpextend x), (fpextend y)), where x and y are
-  // smaller than the destination type, we can eliminate the truncate by doing
-  // the add as the smaller type.  This applies to add/sub/mul/div as well as
-  // many builtins (sqrt, etc).
-  BinaryOperator *OpI = dyn_cast<BinaryOperator>(CI.getOperand(0));
-  if (OpI && OpI->hasOneUse()) {
-    switch (OpI->getOpcode()) {
-    default: break;
-    case Instruction::Add:
-    case Instruction::Sub:
-    case Instruction::Mul:
-    case Instruction::FDiv:
-    case Instruction::FRem:
-      const Type *SrcTy = OpI->getType();
-      Value *LHSTrunc = LookThroughFPExtensions(OpI->getOperand(0));
-      Value *RHSTrunc = LookThroughFPExtensions(OpI->getOperand(1));
-      if (LHSTrunc->getType() != SrcTy && 
-          RHSTrunc->getType() != SrcTy) {
-        unsigned DstSize = CI.getType()->getPrimitiveSizeInBits();
-        // If the source types were both smaller than the destination type of
-        // the cast, do this xform.
-        if (LHSTrunc->getType()->getPrimitiveSizeInBits() <= DstSize &&
-            RHSTrunc->getType()->getPrimitiveSizeInBits() <= DstSize) {
-          LHSTrunc = InsertCastBefore(Instruction::FPExt, LHSTrunc,
-                                      CI.getType(), CI);
-          RHSTrunc = InsertCastBefore(Instruction::FPExt, RHSTrunc,
-                                      CI.getType(), CI);
-          return BinaryOperator::create(OpI->getOpcode(), LHSTrunc, RHSTrunc);
-        }
-      }
-      break;  
-    }
-  }
-  return 0;
+Instruction *InstCombiner::visitFPTrunc(CastInst &CI) {
+  return commonCastTransforms(CI);
 }
 
 Instruction *InstCombiner::visitFPExt(CastInst &CI) {

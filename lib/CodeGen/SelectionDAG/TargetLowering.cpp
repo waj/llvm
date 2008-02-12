@@ -15,7 +15,7 @@
 #include "llvm/Target/TargetSubtarget.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/ADT/StringExtras.h"
@@ -158,9 +158,9 @@ TargetLowering::TargetLowering(TargetMachine &tm)
   // All operations default to being supported.
   memset(OpActions, 0, sizeof(OpActions));
   memset(LoadXActions, 0, sizeof(LoadXActions));
-  memset(TruncStoreActions, 0, sizeof(TruncStoreActions));
-  memset(IndexedModeActions, 0, sizeof(IndexedModeActions));
-  memset(ConvertActions, 0, sizeof(ConvertActions));
+  memset(&StoreXActions, 0, sizeof(StoreXActions));
+  memset(&IndexedModeActions, 0, sizeof(IndexedModeActions));
+  memset(&ConvertActions, 0, sizeof(ConvertActions));
 
   // Set default actions for various operations.
   for (unsigned VT = 0; VT != (unsigned)MVT::LAST_VALUETYPE; ++VT) {
@@ -412,12 +412,6 @@ unsigned TargetLowering::getVectorTypeBreakdown(MVT::ValueType VT,
   }
   
   return 1;
-}
-
-/// getByValTypeAlignment - Return the desired alignment for ByVal aggregate
-/// function arguments in the caller parameter area.
-unsigned TargetLowering::getByValTypeAlignment(const Type *Ty) const {
-  return Log2_32(TD->getCallFrameTypeAlignment(Ty));
 }
 
 SDOperand TargetLowering::getPICJumpTableRelocBase(SDOperand Table,
@@ -842,7 +836,7 @@ bool TargetLowering::SimplifyDemandedBits(SDOperand Op, uint64_t DemandedMask,
   case ISD::LOAD: {
     if (ISD::isZEXTLoad(Op.Val)) {
       LoadSDNode *LD = cast<LoadSDNode>(Op);
-      MVT::ValueType VT = LD->getMemoryVT();
+      MVT::ValueType VT = LD->getLoadedVT();
       KnownZero |= ~MVT::getIntVTBitMask(VT) & DemandedMask;
     }
     break;
@@ -1525,19 +1519,6 @@ TargetLowering::getConstraintType(const std::string &Constraint) const {
   return C_Unknown;
 }
 
-/// LowerXConstraint - try to replace an X constraint, which matches anything,
-/// with another that has more specific requirements based on the type of the
-/// corresponding operand.
-void TargetLowering::lowerXConstraint(MVT::ValueType ConstraintVT, 
-                                      std::string& s) const {
-  if (MVT::isInteger(ConstraintVT))
-    s = "r";
-  else if (MVT::isFloatingPoint(ConstraintVT))
-    s = "f";      // works for many targets
-  else 
-    s = "";
-}
-
 /// LowerAsmOperandForConstraint - Lower the specified operand into the Ops
 /// vector.  If it is invalid, don't add anything to Ops.
 void TargetLowering::LowerAsmOperandForConstraint(SDOperand Op,
@@ -1614,8 +1595,8 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
   std::string RegName(Constraint.begin()+1, Constraint.end()-1);
 
   // Figure out which register class contains this reg.
-  const TargetRegisterInfo *RI = TM.getRegisterInfo();
-  for (TargetRegisterInfo::regclass_iterator RCI = RI->regclass_begin(),
+  const MRegisterInfo *RI = TM.getRegisterInfo();
+  for (MRegisterInfo::regclass_iterator RCI = RI->regclass_begin(),
        E = RI->regclass_end(); RCI != E; ++RCI) {
     const TargetRegisterClass *RC = *RCI;
     

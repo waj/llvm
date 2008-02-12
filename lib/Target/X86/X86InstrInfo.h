@@ -17,7 +17,7 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "X86RegisterInfo.h"
 #include "llvm/ADT/IndexedMap.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 
 namespace llvm {
   class X86RegisterInfo;
@@ -245,7 +245,7 @@ public:
   /// such, whenever a client has an instance of instruction info, it should
   /// always be able to get register info as well (through this method).
   ///
-  virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
+  virtual const MRegisterInfo &getRegisterInfo() const { return RI; }
 
   // Return true if the instruction is a register to register move and
   // leave the source and dest operands in the passed parameters.
@@ -324,16 +324,14 @@ public:
   /// folding and return true, otherwise it should return false.  If it folds
   /// the instruction, it is likely that the MachineInstruction the iterator
   /// references has been changed.
-  virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                          MachineInstr* MI,
+  virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                           SmallVectorImpl<unsigned> &Ops,
                                           int FrameIndex) const;
 
   /// foldMemoryOperand - Same as the previous version except it allows folding
   /// of any load and store from / to any address, not just from a specific
   /// stack slot.
-  virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
-                                          MachineInstr* MI,
+  virtual MachineInstr* foldMemoryOperand(MachineInstr* MI,
                                   SmallVectorImpl<unsigned> &Ops,
                                   MachineInstr* LoadMI) const;
 

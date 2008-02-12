@@ -84,12 +84,9 @@ public:
       delete SubLoops[i];
   }
 
-  /// getLoopDepth - Return the nesting level of this loop.  An outer-most
-  /// loop has depth 1, for consistency with loop depth values used for basic
-  /// blocks, where depth 0 is used for blocks not inside any loops.
   unsigned getLoopDepth() const {
-    unsigned D = 1;
-    for (const LoopBase<BlockT> *CurLoop = ParentLoop; CurLoop;
+    unsigned D = 0;
+    for (const LoopBase<BlockT> *CurLoop = this; CurLoop;
          CurLoop = CurLoop->ParentLoop)
       ++D;
     return D;
@@ -360,16 +357,12 @@ public:
     // Loop over all of the PHI nodes, looking for a canonical indvar.
     for (typename BlockT::iterator I = H->begin(); isa<PHINode>(I); ++I) {
       PHINode *PN = cast<PHINode>(I);
-      if (ConstantInt *CI =
-          dyn_cast<ConstantInt>(PN->getIncomingValueForBlock(Incoming)))
-        if (CI->isNullValue())
-          if (Instruction *Inc =
-              dyn_cast<Instruction>(PN->getIncomingValueForBlock(Backedge)))
-            if (Inc->getOpcode() == Instruction::Add &&
-                Inc->getOperand(0) == PN)
-              if (ConstantInt *CI = dyn_cast<ConstantInt>(Inc->getOperand(1)))
-                if (CI->equalsInt(1))
-                  return PN;
+      if (Instruction *Inc =
+          dyn_cast<Instruction>(PN->getIncomingValueForBlock(Backedge)))
+        if (Inc->getOpcode() == Instruction::Add && Inc->getOperand(0) == PN)
+          if (ConstantInt *CI = dyn_cast<ConstantInt>(Inc->getOperand(1)))
+            if (CI->equalsInt(1))
+              return PN;
     }
     return 0;
   }
@@ -610,8 +603,7 @@ public:
     return getLoopFor(BB);
   }
   
-  /// getLoopDepth - Return the loop nesting level of the specified block.  A
-  /// depth of 0 means the block is not inside any loop.
+  /// getLoopDepth - Return the loop nesting level of the specified block...
   ///
   unsigned getLoopDepth(const BlockT *BB) const {
     const LoopBase<BlockT> *L = getLoopFor(BB);
@@ -906,8 +898,7 @@ public:
     return LI->getLoopFor(BB);
   }
 
-  /// getLoopDepth - Return the loop nesting level of the specified block.  A
-  /// depth of 0 means the block is not inside any loop.
+  /// getLoopDepth - Return the loop nesting level of the specified block...
   ///
   inline unsigned getLoopDepth(const BasicBlock *BB) const {
     return LI->getLoopDepth(BB);

@@ -17,12 +17,10 @@
 #define LLVM_CODEGEN_MACHINEINSTR_H
 
 #include "llvm/CodeGen/MachineOperand.h"
-#include "llvm/CodeGen/MemOperand.h"
 
 namespace llvm {
 
 class TargetInstrDesc;
-class TargetRegisterInfo;
 
 template <typename T> struct ilist_traits;
 template <typename T> struct ilist;
@@ -36,7 +34,6 @@ class MachineInstr {
                                         // are determined at construction time).
 
   std::vector<MachineOperand> Operands; // the operands
-  std::vector<MemOperand> MemOperands;  // information on memory references
   MachineInstr *Prev, *Next;            // Links for MBB's intrusive list.
   MachineBasicBlock *Parent;            // Pointer to the owning basic block.
 
@@ -96,18 +93,6 @@ public:
   ///
   unsigned getNumExplicitOperands() const;
   
-  /// Access to memory operands of the instruction
-  unsigned getNumMemOperands() const { return MemOperands.size(); }
-
-  const MemOperand& getMemOperand(unsigned i) const {
-    assert(i < getNumMemOperands() && "getMemOperand() out of range!");
-    return MemOperands[i];
-  }
-  MemOperand& getMemOperand(unsigned i) {
-    assert(i < getNumMemOperands() && "getMemOperand() out of range!");
-    return MemOperands[i];
-  }
-
   /// isIdenticalTo - Return true if this instruction is identical to (same
   /// opcode and same operands as) the specified instruction.
   bool isIdenticalTo(const MachineInstr *Other) const {
@@ -134,10 +119,6 @@ public:
     delete removeFromParent();
   }
 
-  /// isDebugLabel - Returns true if the MachineInstr represents a debug label.
-  ///
-  bool isDebugLabel() const;
-
   /// findRegisterUseOperandIdx() - Returns the operand index that is a use of
   /// the specific register or -1 if it is not found. It further tightening
   /// the search criteria to a use that kills the register if isKill is true.
@@ -162,25 +143,6 @@ public:
 
   /// copyPredicates - Copies predicate operand(s) from MI.
   void copyPredicates(const MachineInstr *MI);
-
-  /// addRegisterKilled - We have determined MI kills a register. Look for the
-  /// operand that uses it and mark it as IsKill. If AddIfNotFound is true,
-  /// add a implicit operand if it's not found. Returns true if the operand
-  /// exists / is added.
-  bool addRegisterKilled(unsigned IncomingReg,
-                         const TargetRegisterInfo *RegInfo,
-                         bool AddIfNotFound = false);
-  
-  /// addRegisterDead - We have determined MI defined a register without a use.
-  /// Look for the operand that defines it and mark it as IsDead. If
-  /// AddIfNotFound is true, add a implicit operand if it's not found. Returns
-  /// true if the operand exists / is added.
-  bool addRegisterDead(unsigned IncomingReg, const TargetRegisterInfo *RegInfo,
-                       bool AddIfNotFound = false);
-
-  /// copyKillDeadInfo - copies killed/dead information from one instr to another
-  void copyKillDeadInfo(MachineInstr *OldMI,
-                        const TargetRegisterInfo *RegInfo);
 
   //
   // Debugging support
@@ -210,12 +172,6 @@ public:
   /// fewer operand than it started with.
   ///
   void RemoveOperand(unsigned i);
-
-  /// addMemOperand - Add a MemOperand to the machine instruction, referencing
-  /// arbitrary storage.
-  void addMemOperand(const MemOperand &MO) {
-    MemOperands.push_back(MO);
-  }
 
 private:
   /// getRegInfo - If this instruction is embedded into a MachineFunction,

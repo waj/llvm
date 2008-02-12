@@ -24,9 +24,7 @@
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/iterator"
 #include "llvm/ADT/APFloat.h"
-#include "llvm/ADT/APInt.h"
 #include "llvm/CodeGen/ValueTypes.h"
-#include "llvm/CodeGen/MemOperand.h"
 #include "llvm/Support/DataTypes.h"
 #include <cassert>
 
@@ -387,40 +385,31 @@ namespace ISD {
     // operand, a ValueType node.
     SIGN_EXTEND_INREG,
 
-    /// FP_TO_[US]INT - Convert a floating point value to a signed or unsigned
-    /// integer.
+    // FP_TO_[US]INT - Convert a floating point value to a signed or unsigned
+    // integer.
     FP_TO_SINT,
     FP_TO_UINT,
 
-    /// X = FP_ROUND(Y, TRUNC) - Rounding 'Y' from a larger floating point type
-    /// down to the precision of the destination VT.  TRUNC is a flag, which is
-    /// always an integer that is zero or one.  If TRUNC is 0, this is a
-    /// normal rounding, if it is 1, this FP_ROUND is known to not change the
-    /// value of Y.
-    ///
-    /// The TRUNC = 1 case is used in cases where we know that the value will
-    /// not be modified by the node, because Y is not using any of the extra
-    /// precision of source type.  This allows certain transformations like
-    /// FP_EXTEND(FP_ROUND(X,1)) -> X which are not safe for 
-    /// FP_EXTEND(FP_ROUND(X,0)) because the extra bits aren't removed.
+    // FP_ROUND - Perform a rounding operation from the current
+    // precision down to the specified precision (currently always 64->32).
     FP_ROUND,
-    
-    // FLT_ROUNDS_ - Returns current rounding mode:
+
+    // FLT_ROUNDS - Returns current rounding mode:
     // -1 Undefined
     //  0 Round to 0
     //  1 Round to nearest
     //  2 Round to +inf
     //  3 Round to -inf
-    FLT_ROUNDS_,
+    FLT_ROUNDS,
 
-    /// X = FP_ROUND_INREG(Y, VT) - This operator takes an FP register, and
-    /// rounds it to a floating point value.  It then promotes it and returns it
-    /// in a register of the same size.  This operation effectively just
-    /// discards excess precision.  The type to round down to is specified by
-    /// the VT operand, a VTSDNode.
+    // FP_ROUND_INREG - This operator takes a floating point register, and
+    // rounds it to a floating point value.  It then promotes it and returns it
+    // in a register of the same size.  This operation effectively just discards
+    // excess precision.  The type to round down to is specified by the 1th
+    // operation, a VTSDNode (currently always 64->32->64).
     FP_ROUND_INREG,
 
-    /// X = FP_EXTEND(Y) - Extend a smaller FP type into a larger FP type.
+    // FP_EXTEND - Extend a smaller FP type into a larger FP type.
     FP_EXTEND,
 
     // BIT_CONVERT - Theis operator converts between integer and FP values, as
@@ -497,15 +486,7 @@ namespace ISD {
     // returns a chain.
     //   Operand #0 : input chain.
     //   Operand #1 : module unique number use to identify the label.
-    //   Operand #2 : 0 indicates a debug label (e.g. stoppoint), 1 indicates
-    //                a EH label, 2 indicates unknown label type.
     LABEL,
-
-    // DECLARE - Represents a llvm.dbg.declare intrinsic. It's used to track
-    // local variable declarations for debugging information. First operand is
-    // a chain, while the next two operands are first two arguments (address
-    // and variable) of a llvm.dbg.declare instruction.
-    DECLARE,
     
     // STACKSAVE - STACKSAVE has one operand, an input chain.  It produces a
     // value, the same type as the pointer type for the system, and an output
@@ -544,14 +525,10 @@ namespace ISD {
     // pointer, and a SRCVALUE.
     VAEND, VASTART,
 
-    // SRCVALUE - This is a node type that holds a Value* that is used to
-    // make reference to a value in the LLVM IR.
+    // SRCVALUE - This corresponds to a Value*, and is used to associate memory
+    // locations with their value.  This allows one use alias analysis
+    // information in the backend.
     SRCVALUE,
-
-    // MEMOPERAND - This is a node that contains a MemOperand which records
-    // information about a memory reference. This is used to make AliasAnalysis
-    // queries from the backend.
-    MEMOPERAND,
 
     // PCMARKER - This corresponds to the pcmarker intrinsic.
     PCMARKER,
@@ -602,11 +579,6 @@ namespace ISD {
   /// isBuildVectorAllZeros - Return true if the specified node is a
   /// BUILD_VECTOR where all of the elements are 0 or undef.
   bool isBuildVectorAllZeros(const SDNode *N);
-
-  /// isDebugLabel - Return true if the specified node represents a debug
-  /// label (i.e. ISD::LABEL or TargetInstrInfo::LABEL node and third operand
-  /// is 0).
-  bool isDebugLabel(const SDNode *N);
   
   //===--------------------------------------------------------------------===//
   /// MemIndexedMode enum - This enum defines the load / store indexed 
@@ -1002,7 +974,7 @@ protected:
   
   /// getValueTypeList - Return a pointer to the specified value type.
   ///
-  static const MVT::ValueType *getValueTypeList(MVT::ValueType VT);
+  static MVT::ValueType *getValueTypeList(MVT::ValueType VT);
   static SDVTList getSDVTList(MVT::ValueType VT) {
     SDVTList Ret = { getValueTypeList(VT), 1 };
     return Ret;
@@ -1174,22 +1146,21 @@ public:
 };  
 
 class ConstantSDNode : public SDNode {
-  APInt Value;
+  uint64_t Value;
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  ConstantSDNode(bool isTarget, const APInt &val, MVT::ValueType VT)
+  ConstantSDNode(bool isTarget, uint64_t val, MVT::ValueType VT)
     : SDNode(isTarget ? ISD::TargetConstant : ISD::Constant, getSDVTList(VT)),
       Value(val) {
   }
 public:
 
-  const APInt &getAPIntValue() const { return Value; }
-  uint64_t getValue() const { return Value.getZExtValue(); }
+  uint64_t getValue() const { return Value; }
 
   int64_t getSignExtended() const {
     unsigned Bits = MVT::getSizeInBits(getValueType(0));
-    return ((int64_t)Value.getZExtValue() << (64-Bits)) >> (64-Bits);
+    return ((int64_t)Value << (64-Bits)) >> (64-Bits);
   }
 
   bool isNullValue() const { return Value == 0; }
@@ -1228,9 +1199,10 @@ public:
   /// convenient to write "2.0" and the like.  Without this function we'd 
   /// have to duplicate its logic everywhere it's called.
   bool isExactlyValue(double V) const { 
-    APFloat Tmp(V);
-    Tmp.convert(Value.getSemantics(), APFloat::rmNearestTiesToEven);
-    return isExactlyValue(Tmp);
+    if (getValueType(0)==MVT::f64)
+      return isExactlyValue(APFloat(V));
+    else
+      return isExactlyValue(APFloat((float)V));
   }
   bool isExactlyValue(const APFloat& V) const;
 
@@ -1398,43 +1370,21 @@ public:
 
 class SrcValueSDNode : public SDNode {
   const Value *V;
+  int offset;
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  /// Create a SrcValue for a general value.
-  explicit SrcValueSDNode(const Value *v)
-    : SDNode(ISD::SRCVALUE, getSDVTList(MVT::Other)), V(v) {}
+  SrcValueSDNode(const Value* v, int o)
+    : SDNode(ISD::SRCVALUE, getSDVTList(MVT::Other)), V(v), offset(o) {
+  }
 
 public:
-  /// getValue - return the contained Value.
   const Value *getValue() const { return V; }
+  int getOffset() const { return offset; }
 
   static bool classof(const SrcValueSDNode *) { return true; }
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::SRCVALUE;
-  }
-};
-
-
-/// MemOperandSDNode - An SDNode that holds a MemOperand. This is
-/// used to represent a reference to memory after ISD::LOAD
-/// and ISD::STORE have been lowered.
-///
-class MemOperandSDNode : public SDNode {
-  virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
-protected:
-  friend class SelectionDAG;
-  /// Create a MemOperand node
-  explicit MemOperandSDNode(const MemOperand &mo)
-    : SDNode(ISD::MEMOPERAND, getSDVTList(MVT::Other)), MO(mo) {}
-
-public:
-  /// MO - The contained MemOperand.
-  const MemOperand MO;
-
-  static bool classof(const MemOperandSDNode *) { return true; }
-  static bool classof(const SDNode *N) {
-    return N->getOpcode() == ISD::MEMOPERAND;
   }
 };
 
@@ -1519,12 +1469,6 @@ public:
 ///
 class LSBaseSDNode : public SDNode {
 private:
-  // AddrMode - unindexed, pre-indexed, post-indexed.
-  ISD::MemIndexedMode AddrMode;
-
-  // MemoryVT - VT of in-memory value.
-  MVT::ValueType MemoryVT;
-
   //! SrcValue - Memory location for alias analysis.
   const Value *SrcValue;
 
@@ -1545,20 +1489,11 @@ protected:
    */
   SDOperand Ops[4];
 public:
-  LSBaseSDNode(ISD::NodeType NodeTy, SDOperand *Operands, unsigned NumOperands,
-               SDVTList VTs, ISD::MemIndexedMode AM, MVT::ValueType VT, 
-               const Value *SV, int SVO, unsigned Align, bool Vol)
+  LSBaseSDNode(ISD::NodeType NodeTy, SDVTList VTs, const Value *SV, int SVO,
+               unsigned Align, bool Vol)
     : SDNode(NodeTy, VTs),
-      AddrMode(AM), MemoryVT(VT),
       SrcValue(SV), SVOffset(SVO), Alignment(Align), IsVolatile(Vol)
-  {
-    for (unsigned i = 0; i != NumOperands; ++i)
-      Ops[i] = Operands[i];
-    InitOperands(Ops, NumOperands);
-    assert(Align != 0 && "Loads and stores should have non-zero aligment");
-    assert((getOffset().getOpcode() == ISD::UNDEF || isIndexed()) &&
-           "Only indexed loads and stores have a non-undef offset operand");
-  }
+  { }
 
   const SDOperand getChain() const {
     return getOperand(0);
@@ -1577,26 +1512,10 @@ public:
   const Value *getSrcValue() const { return SrcValue; }
   int getSrcValueOffset() const { return SVOffset; }
   unsigned getAlignment() const { return Alignment; }
-  MVT::ValueType getMemoryVT() const { return MemoryVT; }
   bool isVolatile() const { return IsVolatile; }
 
-  ISD::MemIndexedMode getAddressingMode() const { return AddrMode; }
-
-  /// isIndexed - Return true if this is a pre/post inc/dec load/store.
-  bool isIndexed() const { return AddrMode != ISD::UNINDEXED; }
-
-  /// isUnindexed - Return true if this is NOT a pre/post inc/dec load/store.
-  bool isUnindexed() const { return AddrMode == ISD::UNINDEXED; }
-
-  /// getMemOperand - Return a MemOperand object describing the memory
-  /// reference performed by this load or store.
-  MemOperand getMemOperand() const;
-
   static bool classof(const LSBaseSDNode *N) { return true; }
-  static bool classof(const SDNode *N) {
-    return N->getOpcode() == ISD::LOAD ||
-           N->getOpcode() == ISD::STORE;
-  }
+  static bool classof(const SDNode *N) { return true; }
 };
 
 /// LoadSDNode - This class is used to represent ISD::LOAD nodes.
@@ -1604,21 +1523,36 @@ public:
 class LoadSDNode : public LSBaseSDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
   
+  // AddrMode - unindexed, pre-indexed, post-indexed.
+  ISD::MemIndexedMode AddrMode;
+
   // ExtType - non-ext, anyext, sext, zext.
   ISD::LoadExtType ExtType;
 
+  // LoadedVT - VT of loaded value before extension.
+  MVT::ValueType LoadedVT;
 protected:
   friend class SelectionDAG;
   LoadSDNode(SDOperand *ChainPtrOff, SDVTList VTs,
              ISD::MemIndexedMode AM, ISD::LoadExtType ETy, MVT::ValueType LVT,
              const Value *SV, int O=0, unsigned Align=0, bool Vol=false)
-    : LSBaseSDNode(ISD::LOAD, ChainPtrOff, 3,
-                   VTs, AM, LVT, SV, O, Align, Vol),
-      ExtType(ETy) { }
+    : LSBaseSDNode(ISD::LOAD, VTs, SV, O, Align, Vol),
+      AddrMode(AM), ExtType(ETy), LoadedVT(LVT) {
+    Ops[0] = ChainPtrOff[0]; // Chain
+    Ops[1] = ChainPtrOff[1]; // Ptr
+    Ops[2] = ChainPtrOff[2]; // Off
+    InitOperands(Ops, 3);
+    assert(Align != 0 && "Loads should have non-zero aligment");
+    assert((getOffset().getOpcode() == ISD::UNDEF ||
+            AddrMode != ISD::UNINDEXED) &&
+           "Only indexed load has a non-undef offset operand");
+  }
 public:
 
+  ISD::MemIndexedMode getAddressingMode() const { return AddrMode; }
   ISD::LoadExtType getExtensionType() const { return ExtType; }
-  
+  MVT::ValueType getLoadedVT() const { return LoadedVT; }
+
   static bool classof(const LoadSDNode *) { return true; }
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::LOAD;
@@ -1630,20 +1564,37 @@ public:
 class StoreSDNode : public LSBaseSDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
     
+  // AddrMode - unindexed, pre-indexed, post-indexed.
+  ISD::MemIndexedMode AddrMode;
+
   // IsTruncStore - True if the op does a truncation before store.
   bool IsTruncStore;
+
+  // StoredVT - VT of the value after truncation.
+  MVT::ValueType StoredVT;
 protected:
   friend class SelectionDAG;
   StoreSDNode(SDOperand *ChainValuePtrOff, SDVTList VTs,
               ISD::MemIndexedMode AM, bool isTrunc, MVT::ValueType SVT,
               const Value *SV, int O=0, unsigned Align=0, bool Vol=false)
-    : LSBaseSDNode(ISD::STORE, ChainValuePtrOff, 4,
-                   VTs, AM, SVT, SV, O, Align, Vol),
-      IsTruncStore(isTrunc) { }
+    : LSBaseSDNode(ISD::STORE, VTs, SV, O, Align, Vol),
+      AddrMode(AM), IsTruncStore(isTrunc), StoredVT(SVT) {
+    Ops[0] = ChainValuePtrOff[0]; // Chain
+    Ops[1] = ChainValuePtrOff[1]; // Value
+    Ops[2] = ChainValuePtrOff[2]; // Ptr
+    Ops[3] = ChainValuePtrOff[3]; // Off
+    InitOperands(Ops, 4);
+    assert(Align != 0 && "Stores should have non-zero aligment");
+    assert((getOffset().getOpcode() == ISD::UNDEF || 
+            AddrMode != ISD::UNINDEXED) &&
+           "Only indexed store has a non-undef offset operand");
+  }
 public:
 
+  ISD::MemIndexedMode getAddressingMode() const { return AddrMode; }
   bool isTruncatingStore() const { return IsTruncStore; }
-  
+  MVT::ValueType getStoredVT() const { return StoredVT; }
+
   static bool classof(const StoreSDNode *) { return true; }
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::STORE;

@@ -66,6 +66,8 @@ namespace llvm {
     /// (currently, only "ret void")
     virtual SDOperand LowerOperation(SDOperand Op, SelectionDAG &DAG);
     
+// XXX    virtual MachineBasicBlock *InsertAtEndOfBasicBlock(MachineInstr *MI,
+// XXX                                                      MachineBasicBlock *MBB);
   };
 }
 

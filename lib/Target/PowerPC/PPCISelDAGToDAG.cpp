@@ -225,7 +225,7 @@ void PPCDAGToDAGISel::InsertVRSaveCode(Function &F) {
   // by the scheduler.  Detect them now.
   MachineFunction &Fn = MachineFunction::get(&F);
   bool HasVectorVReg = false;
-  for (unsigned i = TargetRegisterInfo::FirstVirtualRegister, 
+  for (unsigned i = MRegisterInfo::FirstVirtualRegister, 
        e = RegInfo->getLastVirtReg()+1; i != e; ++i)
     if (RegInfo->getRegClass(i) == &PPC::VRRCRegClass) {
       HasVectorVReg = true;
@@ -921,7 +921,7 @@ SDNode *PPCDAGToDAGISel::Select(SDOperand Op) {
   case ISD::LOAD: {
     // Handle preincrement loads.
     LoadSDNode *LD = cast<LoadSDNode>(Op);
-    MVT::ValueType LoadedVT = LD->getMemoryVT();
+    MVT::ValueType LoadedVT = LD->getLoadedVT();
     
     // Normal loads are handled by code generated from the .td file.
     if (LD->getAddressingMode() != ISD::PRE_INC)

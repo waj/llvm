@@ -13,7 +13,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/Debug.h"
@@ -46,13 +46,13 @@ FunctionPass *llvm::createLowerSubregsPass() {
 
 // Returns the Register Class of a physical register.
 static const TargetRegisterClass *getPhysicalRegisterRegClass(
-        const TargetRegisterInfo &TRI,
+        const MRegisterInfo &MRI,
         unsigned reg) {
-  assert(TargetRegisterInfo::isPhysicalRegister(reg) &&
+  assert(MRegisterInfo::isPhysicalRegister(reg) &&
          "reg must be a physical register");
   // Pick the register class of the right type that contains this physreg.
-  for (TargetRegisterInfo::regclass_iterator I = TRI.regclass_begin(),
-         E = TRI.regclass_end(); I != E; ++I)
+  for (MRegisterInfo::regclass_iterator I = MRI.regclass_begin(),
+         E = MRI.regclass_end(); I != E; ++I)
     if ((*I)->contains(reg))
       return *I;
   assert(false && "Couldn't find the register class");
@@ -62,7 +62,7 @@ static const TargetRegisterClass *getPhysicalRegisterRegClass(
 bool LowerSubregsInstructionPass::LowerExtract(MachineInstr *MI) {
    MachineBasicBlock *MBB = MI->getParent();
    MachineFunction &MF = *MBB->getParent();
-   const TargetRegisterInfo &TRI = *MF.getTarget().getRegisterInfo();
+   const MRegisterInfo &MRI = *MF.getTarget().getRegisterInfo();
    const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
    
    assert(MI->getOperand(0).isRegister() && MI->getOperand(0).isDef() &&
@@ -72,21 +72,21 @@ bool LowerSubregsInstructionPass::LowerExtract(MachineInstr *MI) {
    unsigned SuperReg = MI->getOperand(1).getReg();
    unsigned SubIdx = MI->getOperand(2).getImm();
 
-   assert(TargetRegisterInfo::isPhysicalRegister(SuperReg) &&
+   assert(MRegisterInfo::isPhysicalRegister(SuperReg) &&
           "Extract supperg source must be a physical register");
-   unsigned SrcReg = TRI.getSubReg(SuperReg, SubIdx);
+   unsigned SrcReg = MRI.getSubReg(SuperReg, SubIdx);
    unsigned DstReg = MI->getOperand(0).getReg();
 
    DOUT << "subreg: CONVERTING: " << *MI;
 
    if (SrcReg != DstReg) {
      const TargetRegisterClass *TRC = 0;
-     if (TargetRegisterInfo::isPhysicalRegister(DstReg)) {
-       TRC = getPhysicalRegisterRegClass(TRI, DstReg);
+     if (MRegisterInfo::isPhysicalRegister(DstReg)) {
+       TRC = getPhysicalRegisterRegClass(MRI, DstReg);
      } else {
        TRC = MF.getRegInfo().getRegClass(DstReg);
      }
-     assert(TRC == getPhysicalRegisterRegClass(TRI, SrcReg) &&
+     assert(TRC == getPhysicalRegisterRegClass(MRI, SrcReg) &&
              "Extract subreg and Dst must be of same register class");
 
      TII.copyRegToReg(*MBB, MI, DstReg, SrcReg, TRC, TRC);
@@ -103,7 +103,7 @@ bool LowerSubregsInstructionPass::LowerExtract(MachineInstr *MI) {
 bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
   MachineBasicBlock *MBB = MI->getParent();
   MachineFunction &MF = *MBB->getParent();
-  const TargetRegisterInfo &TRI = *MF.getTarget().getRegisterInfo(); 
+  const MRegisterInfo &MRI = *MF.getTarget().getRegisterInfo(); 
   const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
   unsigned DstReg = 0;
   unsigned SrcReg = 0;
@@ -133,13 +133,13 @@ bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
     assert(0 && "Malformed extract_subreg");
 
   assert(SubIdx != 0 && "Invalid index for extract_subreg");
-  unsigned DstSubReg = TRI.getSubReg(DstReg, SubIdx);
+  unsigned DstSubReg = MRI.getSubReg(DstReg, SubIdx);
 
-  assert(TargetRegisterInfo::isPhysicalRegister(SrcReg) &&
+  assert(MRegisterInfo::isPhysicalRegister(SrcReg) &&
          "Insert superreg source must be in a physical register");
-  assert(TargetRegisterInfo::isPhysicalRegister(DstReg) &&
+  assert(MRegisterInfo::isPhysicalRegister(DstReg) &&
          "Insert destination must be in a physical register");
-  assert(TargetRegisterInfo::isPhysicalRegister(InsReg) &&
+  assert(MRegisterInfo::isPhysicalRegister(InsReg) &&
          "Inserted value must be in a physical register");
 
   DOUT << "subreg: CONVERTING: " << *MI;
@@ -148,14 +148,14 @@ bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
   // of the destination, we copy the subreg into the source
   // However, this is only safe if the insert instruction is the kill
   // of the source register
-  bool revCopyOrder = TRI.isSubRegister(DstReg, InsReg);
+  bool revCopyOrder = MRI.isSubRegister(DstReg, InsReg);
   if (revCopyOrder && InsReg != DstSubReg) {
     if (MI->getOperand(1).isKill()) {
-      DstSubReg = TRI.getSubReg(SrcReg, SubIdx);
+      DstSubReg = MRI.getSubReg(SrcReg, SubIdx);
       // Insert sub-register copy
       const TargetRegisterClass *TRC1 = 0;
-      if (TargetRegisterInfo::isPhysicalRegister(InsReg)) {
-        TRC1 = getPhysicalRegisterRegClass(TRI, InsReg);
+      if (MRegisterInfo::isPhysicalRegister(InsReg)) {
+        TRC1 = getPhysicalRegisterRegClass(MRI, InsReg);
       } else {
         TRC1 = MF.getRegInfo().getRegClass(InsReg);
       }
@@ -178,12 +178,12 @@ bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
   if (SrcReg != DstReg) {
     // Insert super-register copy
     const TargetRegisterClass *TRC0 = 0;
-    if (TargetRegisterInfo::isPhysicalRegister(DstReg)) {
-      TRC0 = getPhysicalRegisterRegClass(TRI, DstReg);
+    if (MRegisterInfo::isPhysicalRegister(DstReg)) {
+      TRC0 = getPhysicalRegisterRegClass(MRI, DstReg);
     } else {
       TRC0 = MF.getRegInfo().getRegClass(DstReg);
     }
-    assert(TRC0 == getPhysicalRegisterRegClass(TRI, SrcReg) &&
+    assert(TRC0 == getPhysicalRegisterRegClass(MRI, SrcReg) &&
             "Insert superreg and Dst must be of same register class");
 
     TII.copyRegToReg(*MBB, MI, DstReg, SrcReg, TRC0, TRC0);
@@ -203,8 +203,8 @@ bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
   if (!revCopyOrder && InsReg != DstSubReg) {
     // Insert sub-register copy
     const TargetRegisterClass *TRC1 = 0;
-    if (TargetRegisterInfo::isPhysicalRegister(InsReg)) {
-      TRC1 = getPhysicalRegisterRegClass(TRI, InsReg);
+    if (MRegisterInfo::isPhysicalRegister(InsReg)) {
+      TRC1 = getPhysicalRegisterRegClass(MRI, InsReg);
     } else {
       TRC1 = MF.getRegInfo().getRegClass(InsReg);
     }

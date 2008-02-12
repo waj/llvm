@@ -200,9 +200,14 @@ uint16_t ParamAttr::typeIncompatible (const Type *Ty) {
     // Attributes that only apply to integers.
     Incompatible |= SExt | ZExt;
 
-  if (!isa<PointerType>(Ty))
+  if (const PointerType *PTy = dyn_cast<PointerType>(Ty)) {
+    if (!PTy->getElementType()->isSized())
+      // The byval attribute only applies to pointers to types with a size.
+      Incompatible |= ParamAttr::ByVal;
+  } else {
     // Attributes that only apply to pointers.
     Incompatible |= ByVal | Nest | NoAlias | StructRet;
+  }
 
   return Incompatible;
 }

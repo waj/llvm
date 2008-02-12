@@ -98,7 +98,7 @@ static inline std::string ftostr(const APFloat& V) {
     return ftostr(V.convertToDouble());
   else if (&V.getSemantics() == &APFloat::IEEEsingle)
     return ftostr((double)V.convertToFloat());
-  return "<unknown format in ftostr>"; // error
+  return 0; // error
 }
 
 static inline std::string LowercaseString(const std::string &S) {

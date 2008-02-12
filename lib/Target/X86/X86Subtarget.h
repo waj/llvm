@@ -38,7 +38,7 @@ public:
   };
 protected:
   enum X86SSEEnum {
-    NoMMXSSE, MMX, SSE1, SSE2, SSE3, SSSE3, SSE41, SSE42
+    NoMMXSSE, MMX, SSE1, SSE2, SSE3, SSSE3
   };
 
   enum X863DNowEnum {
@@ -82,6 +82,10 @@ private:
   /// pointer size is 64 bit.
   bool Is64Bit;
 
+  /// HasLow4GUserAddress - True if the low 4G user-space address is available.
+  ///
+  bool HasLow4GUserAddress;
+
 public:
   enum {
     isELF, isCygwin, isDarwin, isWindows, isMingw
@@ -111,6 +115,10 @@ public:
 
   bool is64Bit() const { return Is64Bit; }
 
+  /// hasLow4GUserSpaceAddress - True if lower 4G user-space address is
+  /// available.
+  bool hasLow4GUserSpaceAddress() const { return HasLow4GUserAddress; }
+
   PICStyle::Style getPICStyle() const { return PICStyle; }
   void setPICStyle(PICStyle::Style Style)  { PICStyle = Style; }
 
@@ -119,8 +127,6 @@ public:
   bool hasSSE2() const { return X86SSELevel >= SSE2; }
   bool hasSSE3() const { return X86SSELevel >= SSE3; }
   bool hasSSSE3() const { return X86SSELevel >= SSSE3; }
-  bool hasSSE41() const { return X86SSELevel >= SSE41; }
-  bool hasSSE42() const { return X86SSELevel >= SSE42; }
   bool has3DNow() const { return X863DNowLevel >= ThreeDNow; }
   bool has3DNowA() const { return X863DNowLevel >= ThreeDNowA; }
 

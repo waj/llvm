@@ -61,15 +61,6 @@ def RetCC_X86_32_Fast : CallingConv<[
   CCDelegateTo<RetCC_X86Common>
 ]>;
 
-// X86-32 SSEregparm return-value convention.
-def RetCC_X86_32_SSE : CallingConv<[
-  // The X86-32 sseregparm calling convention returns FP values in XMM0 if the
-  // target has SSE2, otherwise it is the C calling convention.
-  CCIfType<[f32], CCIfSubtarget<"hasSSE2()", CCAssignToReg<[XMM0]>>>,
-  CCIfType<[f64], CCIfSubtarget<"hasSSE2()", CCAssignToReg<[XMM0]>>>,
-  CCDelegateTo<RetCC_X86Common>
-]>;
-
 // X86-64 C return-value convention.
 def RetCC_X86_64_C : CallingConv<[
   // The X86-64 calling convention always returns FP values in XMM0.
@@ -78,12 +69,12 @@ def RetCC_X86_64_C : CallingConv<[
   CCDelegateTo<RetCC_X86Common>
 ]>;
 
+
+
 // This is the root return-value convention for the X86-32 backend.
 def RetCC_X86_32 : CallingConv<[
   // If FastCC, use RetCC_X86_32_Fast.
   CCIfCC<"CallingConv::Fast", CCDelegateTo<RetCC_X86_32_Fast>>,
-  // If SSECC, use RetCC_X86_32_SSE.
-  CCIfCC<"CallingConv::X86_SSECall", CCDelegateTo<RetCC_X86_32_SSE>>,
   // Otherwise, use RetCC_X86_32_C.
   CCDelegateTo<RetCC_X86_32_C>
 ]>;
@@ -188,11 +179,6 @@ def CC_X86_32_Common : CallingConv<[
   // Handles byval parameters.
   CCIfByVal<CCPassByVal<4, 4>>,
 
-  // The first 3 float or double arguments, if marked 'inreg' and if the call
-  // is not a vararg call and if SSE2 is available, are passed in SSE registers.
-  CCIfNotVarArg<CCIfInReg<CCIfType<[f32,f64], CCIfSubtarget<"hasSSE2()",
-                CCAssignToReg<[XMM0,XMM1,XMM2]>>>>>,
-
   // Integer/Float values get stored in stack slots that are 4 bytes in
   // size and 4-byte aligned.
   CCIfType<[i32, f32], CCAssignToStack<4, 4>>,
@@ -204,8 +190,8 @@ def CC_X86_32_Common : CallingConv<[
   CCIfType<[f80], CCAssignToStack<0, 4>>,
 
   // The first 4 vector arguments are passed in XMM registers.
-  CCIfNotVarArg<CCIfType<[v16i8, v8i16, v4i32, v2i64, v4f32, v2f64],
-                CCAssignToReg<[XMM0, XMM1, XMM2, XMM3]>>>,
+  CCIfType<[v16i8, v8i16, v4i32, v2i64, v4f32, v2f64],
+              CCAssignToReg<[XMM0, XMM1, XMM2, XMM3]>>,
 
   // Other vectors get 16-byte stack slots that are 16-byte aligned.
   CCIfType<[v16i8, v8i16, v4i32, v2i64, v4f32, v2f64], CCAssignToStack<16, 16>>,

@@ -30,14 +30,13 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
-#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Support/Mangler.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Target/TargetAsmInfo.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/MRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/ADT/Statistic.h"
@@ -105,7 +104,7 @@ namespace {
     ///
     void printRegister(const MachineOperand &MO, bool R0AsZero) {
       unsigned RegNo = MO.getReg();
-      assert(TargetRegisterInfo::isPhysicalRegister(RegNo) && "Not physreg??");
+      assert(MRegisterInfo::isPhysicalRegister(RegNo) && "Not physreg??");
       
       // If we should use 0 for R0.
       if (R0AsZero && RegNo == PPC::R0) {
@@ -514,10 +513,10 @@ void PPCAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
     unsigned char MB = MI->getOperand(3).getImm();
     unsigned char ME = MI->getOperand(4).getImm();
     if (SH <= 31 && MB == 0 && ME == (31-SH)) {
-      O << "\tslwi "; FoundMnemonic = true;
+      O << "slwi "; FoundMnemonic = true;
     }
     if (SH <= 31 && MB == (32-SH) && ME == 31) {
-      O << "\tsrwi "; FoundMnemonic = true;
+      O << "srwi "; FoundMnemonic = true;
       SH = 32-SH;
     }
     if (FoundMnemonic) {
@@ -529,7 +528,7 @@ void PPCAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
     }
   } else if (MI->getOpcode() == PPC::OR || MI->getOpcode() == PPC::OR8) {
     if (MI->getOperand(1).getReg() == MI->getOperand(2).getReg()) {
-      O << "\tmr ";
+      O << "mr ";
       printOperand(MI, 0);
       O << ", ";
       printOperand(MI, 1);
@@ -541,7 +540,7 @@ void PPCAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
     unsigned char ME = MI->getOperand(3).getImm();
     // rldicr RA, RS, SH, 63-SH == sldi RA, RS, SH
     if (63-SH == ME) {
-      O << "\tsldi ";
+      O << "sldi ";
       printOperand(MI, 0);
       O << ", ";
       printOperand(MI, 1);
@@ -610,6 +609,7 @@ bool LinuxAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
       // Print the assembly for the instruction.
+      O << "\t";
       printMachineInstruction(II);
     }
   }
@@ -813,14 +813,6 @@ bool DarwinAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   // Emit pre-function debug information.
   DW.BeginFunction(&MF);
 
-  // If the function is empty, then we need to emit *something*. Otherwise, the
-  // function's label might be associated with something that it wasn't meant to
-  // be associated with. We emit a noop in this situation.
-  MachineFunction::iterator I = MF.begin();
-
-  if (++I == MF.end() && MF.front().empty())
-    O << "\tnop\n";
-
   // Print out code for the function.
   for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
        I != E; ++I) {
@@ -829,9 +821,10 @@ bool DarwinAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
       printBasicBlockLabel(I, true);
       O << '\n';
     }
-    for (MachineBasicBlock::const_iterator II = I->begin(), IE = I->end();
-         II != IE; ++II) {
+    for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
+         II != E; ++II) {
       // Print the assembly for the instruction.
+      O << "\t";
       printMachineInstruction(II);
     }
   }
@@ -965,11 +958,8 @@ bool DarwinAsmPrinter::doFinalization(Module &M) {
             break;
           }
         }
-        if (I->hasSection()) {
-          // Honor all section names on Darwin; ObjC uses this
-          std::string SectionName = ".section " + I->getSection();
-          SwitchToDataSection(SectionName.c_str());
-        } else if (!I->isConstant())
+
+        if (!I->isConstant())
           SwitchToDataSection(TAI->getDataSection(), I);
         else {
           // Read-only data.

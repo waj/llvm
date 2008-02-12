@@ -41,13 +41,6 @@ else
 LLVM_ASSERTIONS := no
 endif
 
-# Default is optimized build.
-ifeq ($(LLVM_DEBUG),1)
-LLVM_OPTIMIZED := no
-else
-LLVM_OPTIMIZED := yes
-endif
-
 ifndef RC_ProjectSourceVersion
 RC_ProjectSourceVersion = 9999
 endif
@@ -56,14 +49,12 @@ ifndef RC_ProjectSourceSubversion
 RC_ProjectSourceSubversion = 01
 endif
 
-# NOTE : Always put version numbers at the end because they are optional.
 install: $(OBJROOT) $(SYMROOT) $(DSTROOT)
 	cd $(OBJROOT) && \
 	  $(SRC)/build_llvm "$(RC_ARCHS)" "$(TARGETS)" \
 	    $(SRC) $(PREFIX) $(DSTROOT) $(SYMROOT) \
-	    $(LLVM_ASSERTIONS) $(LLVM_OPTIMIZED) \
-	    $(RC_ProjectSourceVersion) $(RC_ProjectSourceSubversion) 
-
+	    $(RC_ProjectSourceVersion) $(RC_ProjectSourceSubversion) \
+	    $(LLVM_ASSERTIONS)
 
 # installhdrs does nothing, because the headers aren't useful until
 # the compiler is installed.

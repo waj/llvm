@@ -95,7 +95,11 @@ namespace {
     
     /// RegInfo - For dealing with machine register info (aliases, folds
     /// etc)
-    const TargetRegisterInfo *RegInfo;
+    const MRegisterInfo *RegInfo;
+
+    /// LV - Our generic LiveVariables pointer
+    ///
+    LiveVariables *LV;
 
     typedef SmallVector<unsigned, 2> VRegTimes;
 
@@ -152,8 +156,8 @@ namespace {
     /// markVirtRegModified - Lets us flip bits in the VirtRegModified bitset
     ///
     void markVirtRegModified(unsigned Reg, bool Val = true) {
-      assert(TargetRegisterInfo::isVirtualRegister(Reg) && "Illegal VirtReg!");
-      Reg -= TargetRegisterInfo::FirstVirtualRegister;
+      assert(MRegisterInfo::isVirtualRegister(Reg) && "Illegal VirtReg!");
+      Reg -= MRegisterInfo::FirstVirtualRegister;
       if (VirtRegModified.size() <= Reg)
         VirtRegModified.resize(Reg+1);
       VirtRegModified[Reg] = Val;
@@ -162,10 +166,10 @@ namespace {
     /// isVirtRegModified - Lets us query the VirtRegModified bitset
     ///
     bool isVirtRegModified(unsigned Reg) const {
-      assert(TargetRegisterInfo::isVirtualRegister(Reg) && "Illegal VirtReg!");
-      assert(Reg - TargetRegisterInfo::FirstVirtualRegister < VirtRegModified.size()
+      assert(MRegisterInfo::isVirtualRegister(Reg) && "Illegal VirtReg!");
+      assert(Reg - MRegisterInfo::FirstVirtualRegister < VirtRegModified.size()
              && "Illegal virtual register!");
-      return VirtRegModified[Reg - TargetRegisterInfo::FirstVirtualRegister];
+      return VirtRegModified[Reg - MRegisterInfo::FirstVirtualRegister];
     }
 
   public:
@@ -178,6 +182,7 @@ namespace {
     /// getAnalaysisUsage - declares the required analyses
     ///
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+      AU.addRequired<LiveVariables>();
       AU.addRequiredID(PHIEliminationID);
       AU.addRequiredID(TwoAddressInstructionPassID);
       MachineFunctionPass::getAnalysisUsage(AU);
@@ -521,9 +526,11 @@ MachineInstr *RABigBlock::reloadVirtReg(MachineBasicBlock &MBB, MachineInstr *MI
     // try to fold the spill into the instruction
     SmallVector<unsigned, 2> Ops;
     Ops.push_back(OpNum);
-    if(MachineInstr* FMI = TII->foldMemoryOperand(*MF, MI, Ops, FrameIndex)) {
+    if(MachineInstr* FMI = TII->foldMemoryOperand(MI, Ops, FrameIndex)) {
       ++NumFolded;
-      FMI->copyKillDeadInfo(MI);
+      // Since we changed the address of MI, make sure to update live variables
+      // to know that the new instruction has the properties of the old one.
+      LV->instructionChanged(MI, FMI);
       return MBB.insert(MBB.erase(MI), FMI);
     }
     
@@ -562,7 +569,7 @@ void RABigBlock::FillVRegReadTable(MachineBasicBlock &MBB) {
       MachineOperand& MO = MI->getOperand(i);
       // look for vreg reads..
       if (MO.isRegister() && !MO.isDef() && MO.getReg() &&
-          TargetRegisterInfo::isVirtualRegister(MO.getReg())) {
+          MRegisterInfo::isVirtualRegister(MO.getReg())) {
           // ..and add them to the read table.
           VRegTimes* &Times = VRegReadTable[MO.getReg()];
           if(!VRegReadTable[MO.getReg()]) {
@@ -675,7 +682,7 @@ void RABigBlock::AllocateBasicBlock(MachineBasicBlock &MBB) {
       MachineOperand& MO = MI->getOperand(i);
       // here we are looking for only used operands (never def&use)
       if (MO.isRegister() && !MO.isDef() && MO.getReg() && !MO.isImplicit() &&
-          TargetRegisterInfo::isVirtualRegister(MO.getReg()))
+          MRegisterInfo::isVirtualRegister(MO.getReg()))
         MI = reloadVirtReg(MBB, MI, i);
     }
 
@@ -686,7 +693,7 @@ void RABigBlock::AllocateBasicBlock(MachineBasicBlock &MBB) {
     for (unsigned i = 0, e = Kills.size(); i != e; ++i) {
       unsigned VirtReg = Kills[i];
       unsigned PhysReg = VirtReg;
-      if (TargetRegisterInfo::isVirtualRegister(VirtReg)) {
+      if (MRegisterInfo::isVirtualRegister(VirtReg)) {
         // If the virtual register was never materialized into a register, it
         // might not be in the map, but it won't hurt to zero it out anyway.
         unsigned &PhysRegSlot = getVirt2PhysRegMapSlot(VirtReg);
@@ -721,7 +728,7 @@ void RABigBlock::AllocateBasicBlock(MachineBasicBlock &MBB) {
     for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
       MachineOperand& MO = MI->getOperand(i);
       if (MO.isRegister() && MO.isDef() && !MO.isImplicit() && MO.getReg() &&
-          TargetRegisterInfo::isPhysicalRegister(MO.getReg())) {
+          MRegisterInfo::isPhysicalRegister(MO.getReg())) {
         unsigned Reg = MO.getReg();
         if (PhysRegsUsed[Reg] == -2) continue;  // Something like ESP.
         // These are extra physical register defs when a sub-register
@@ -777,7 +784,7 @@ void RABigBlock::AllocateBasicBlock(MachineBasicBlock &MBB) {
     for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
       MachineOperand& MO = MI->getOperand(i);
       if (MO.isRegister() && MO.isDef() && MO.getReg() &&
-          TargetRegisterInfo::isVirtualRegister(MO.getReg())) {
+          MRegisterInfo::isVirtualRegister(MO.getReg())) {
         unsigned DestVirtReg = MO.getReg();
         unsigned DestPhysReg;
 
@@ -796,7 +803,7 @@ void RABigBlock::AllocateBasicBlock(MachineBasicBlock &MBB) {
     for (unsigned i = 0, e = DeadDefs.size(); i != e; ++i) {
       unsigned VirtReg = DeadDefs[i];
       unsigned PhysReg = VirtReg;
-      if (TargetRegisterInfo::isVirtualRegister(VirtReg)) {
+      if (MRegisterInfo::isVirtualRegister(VirtReg)) {
         unsigned &PhysRegSlot = getVirt2PhysRegMapSlot(VirtReg);
         PhysReg = PhysRegSlot;
         assert(PhysReg != 0);
@@ -825,8 +832,11 @@ void RABigBlock::AllocateBasicBlock(MachineBasicBlock &MBB) {
     
     // Finally, if this is a noop copy instruction, zap it.
     unsigned SrcReg, DstReg;
-    if (TII.isMoveInstr(*MI, SrcReg, DstReg) && SrcReg == DstReg)
+    if (TII.isMoveInstr(*MI, SrcReg, DstReg) && SrcReg == DstReg) {
+      LV->removeVirtualRegistersKilled(MI);
+      LV->removeVirtualRegistersDead(MI);
       MBB.erase(MI);
+    }
   }
 
   MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
@@ -847,6 +857,7 @@ bool RABigBlock::runOnMachineFunction(MachineFunction &Fn) {
   MF = &Fn;
   TM = &Fn.getTarget();
   RegInfo = TM->getRegisterInfo();
+  LV = &getAnalysis<LiveVariables>();
 
   PhysRegsUsed.assign(RegInfo->getNumRegs(), -1);
   
@@ -865,7 +876,7 @@ bool RABigBlock::runOnMachineFunction(MachineFunction &Fn) {
   Virt2PhysRegMap.grow(MF->getRegInfo().getLastVirtReg());
   StackSlotForVirtReg.grow(MF->getRegInfo().getLastVirtReg());
   VirtRegModified.resize(MF->getRegInfo().getLastVirtReg() - 
-                         TargetRegisterInfo::FirstVirtualRegister + 1, 0);
+                         MRegisterInfo::FirstVirtualRegister + 1, 0);
 
   // Loop over all of the basic blocks, eliminating virtual register references
   for (MachineFunction::iterator MBB = Fn.begin(), MBBe = Fn.end();

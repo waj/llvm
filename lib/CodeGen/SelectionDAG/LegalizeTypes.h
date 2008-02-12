@@ -40,7 +40,7 @@ namespace llvm {
 class VISIBILITY_HIDDEN DAGTypeLegalizer {
   TargetLowering &TLI;
   SelectionDAG &DAG;
-public:
+  
   // NodeIDFlags - This pass uses the NodeID on the SDNodes to hold information
   // about the state of the node.  The enum has all the values.
   enum NodeIDFlags {
@@ -57,7 +57,7 @@ public:
     
     // 1+ - This is a node which has this many unlegalized operands.
   };
-private:
+  
   enum LegalizeAction {
     Legal,      // The target natively supports this type.
     Promote,    // This type should be executed in a larger type.
@@ -80,6 +80,10 @@ private:
   ///
   bool isTypeLegal(MVT::ValueType VT) const {
     return getTypeAction(VT) == Legal;
+  }
+  
+  SDOperand getIntPtrConstant(uint64_t Val) {
+    return DAG.getConstant(Val, TLI.getPointerTy());
   }
   
   /// PromotedNodes - For nodes that are below legal width, this map indicates
@@ -116,13 +120,6 @@ public:
   }      
   
   void run();
-  
-  /// ReanalyzeNodeFlags - Recompute the NodeID flags for the specified node,
-  /// adding it to the worklist if ready.
-  void ReanalyzeNodeFlags(SDNode *N) {
-    N->setNodeId(NewNode);
-    MarkNewNodes(N);
-  }
   
 private:
   void MarkNewNodes(SDNode *N);
@@ -209,8 +206,6 @@ private:
   void ExpandResult_ANY_EXTEND (SDNode *N, SDOperand &Lo, SDOperand &Hi);
   void ExpandResult_ZERO_EXTEND(SDNode *N, SDOperand &Lo, SDOperand &Hi);
   void ExpandResult_SIGN_EXTEND(SDNode *N, SDOperand &Lo, SDOperand &Hi);
-  void ExpandResult_AssertZext (SDNode *N, SDOperand &Lo, SDOperand &Hi);
-  void ExpandResult_TRUNCATE   (SDNode *N, SDOperand &Lo, SDOperand &Hi);
   void ExpandResult_BIT_CONVERT(SDNode *N, SDOperand &Lo, SDOperand &Hi);
   void ExpandResult_SIGN_EXTEND_INREG(SDNode *N, SDOperand &Lo, SDOperand &Hi);
   void ExpandResult_LOAD       (LoadSDNode *N, SDOperand &Lo, SDOperand &Hi);

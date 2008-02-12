@@ -282,7 +282,7 @@ ARMInstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
     MachineOperand &MO = MI->getOperand(i);
     if (MO.isRegister() && MO.getReg() &&
-        TargetRegisterInfo::isVirtualRegister(MO.getReg())) {
+        MRegisterInfo::isVirtualRegister(MO.getReg())) {
       unsigned Reg = MO.getReg();
       LiveVariables::VarInfo &VI = LV.getVarInfo(Reg);
       if (MO.isDef()) {
@@ -640,10 +640,9 @@ bool ARMInstrInfo::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
   return true;
 }
 
-MachineInstr *ARMInstrInfo::foldMemoryOperand(MachineFunction &MF,
-                                              MachineInstr *MI,
-                                              SmallVectorImpl<unsigned> &Ops,
-                                              int FI) const {
+MachineInstr *ARMInstrInfo::foldMemoryOperand(MachineInstr *MI,
+                                                 SmallVectorImpl<unsigned> &Ops,
+                                                 int FI) const {
   if (Ops.size() != 1) return NULL;
 
   unsigned OpNum = Ops[0];
@@ -722,7 +721,7 @@ MachineInstr *ARMInstrInfo::foldMemoryOperand(MachineFunction &MF,
 }
 
 bool ARMInstrInfo::canFoldMemoryOperand(MachineInstr *MI,
-                                        SmallVectorImpl<unsigned> &Ops) const {
+                                         SmallVectorImpl<unsigned> &Ops) const {
   if (Ops.size() != 1) return false;
 
   unsigned OpNum = Ops[0];
