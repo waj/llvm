@@ -14,6 +14,12 @@ USAGE:
   cd llvm/test
   svn switch http(s)://llvm.org/svn/llvm-project/llvm/branches/ggreif/parallelized-test .
 
+ alternatively you can only switch the two affected files:
+  cd llvm/test
+  svn switch http(s)://llvm.org/svn/llvm-project/llvm/branches/ggreif/parallelized-test/Makefile Makefile
+  svn switch http(s)://llvm.org/svn/llvm-project/llvm/branches/ggreif/parallelized-test/lib/llvm.exp lib/llvm.exp
+
+
 2) <class Use> size reduction.
 After some conversation with Chris I think we are ready for a
 16 -> 12 byte size reduction of the Use class. There are some
