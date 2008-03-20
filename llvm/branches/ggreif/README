@@ -9,7 +9,10 @@ Modelled after the successful clang "make test -jX" experiment, I am
 now bold enough to sink my teeth into the LLVM test suite.
 I have a prototype implementation, along the same lines, ready.
 
-BRANCH NAME: TBD
+BRANCH NAME: parallelized-test
+USAGE:
+  cd llvm/test
+  svn switch http(s)://llvm.org/svn/llvm-project/llvm/branches/ggreif/parallelized-test .
 
 2) <class Use> size reduction.
 After some conversation with Chris I think we are ready for a
