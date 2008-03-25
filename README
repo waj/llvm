@@ -15,11 +15,14 @@ USAGE:
   cd llvm/test
   svn switch http(s)://llvm.org/svn/llvm-project/llvm/branches/ggreif/parallelized-test .
 
- alternatively you can only switch the two affected files:
+ alternatively (preferred) you can only switch
+ the two affected files (and one directory that is to be deleted):
+
   cd llvm/test
   svn switch http(s)://llvm.org/svn/llvm-project/llvm/branches/ggreif/parallelized-test/Makefile Makefile
   svn switch http(s)://llvm.org/svn/llvm-project/llvm/branches/ggreif/parallelized-test/lib/llvm.exp lib/llvm.exp
-
+  svn switch http(s)://llvm.org/svn/llvm-project/llvm/branches/ggreif/parallelized-test/Transforms/DecomposeMultiDimRefs Transforms/DecomposeMultiDimRefs
+  rm -r Transforms/DecomposeMultiDimRefs
 
 --------------------------------------------------------------------------------
 2) <class Use> size reduction.
