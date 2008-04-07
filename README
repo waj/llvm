@@ -8,7 +8,7 @@ Questions? <mailto:ggreif@gmail.com>
 1) Parallel "make check".
 Modelled after the successful clang "make test -jX" experiment, I am
 now bold enough to sink my teeth into the LLVM test suite.
-I have a prototype implementation, along the same lines, ready.
+I have a functional implementation, along the same lines, ready.
 
 BRANCH NAME: parallelized-test
 USAGE:
@@ -31,11 +31,20 @@ After some conversation with Chris I think we are ready for a
 collateral improvements too. This project is in its very early
 implementation phase.
 
+WHY ON A BRANCH:
+Contrary to the accepted development model of LLVM, which
+predominantly uses the trunk for ongoing (even disruptive)
+development, I am more comfortable with developing on a branch,
+because I tend to perform many small changes on different
+machines and cannot guarantee compilability when checking in.
+
 SYNOPSIS:
-There will be six waves until this project can be closed. A
+There will be seven waves until this project can be closed. A
 wave is defined as a point in the implementation that is consistent,
-correct and mergable to trunk. Each wave ends with a code review
-and the necessary rework (which may require a new review, etc.).
+correct and mergable to trunk. Each wave starts with some general
+discussion of how I should proceed, and what the exact scope of the
+wave should be. Each wave ends with a code review and
+the necessary rework (which may require a new review, etc.).
 Whether a merge actually takes place will be decided on a
 case-by-case basis.
 
@@ -53,7 +62,10 @@ WAVE4: Remove User* from Use, introducing surrogate getters. Embedded and
 
 WAVE5: Stylistic and performance tweaks. Valgrind testing.
 
-WAVE6: Measurements, finishing touches.
+WAVE6: Realizing additional savings. Several space vs. time tradeoffs to
+       be balanced. May involve tweaking some basic interfaces.
+
+WAVE7: Measurements, finishing touches.
 
 BRANCH NAME: use-diet
 USAGE:
