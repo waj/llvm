@@ -54,13 +54,16 @@ WAVE1: Finalize the design, document it, adapt memory allocation for Users.
 WAVE2: Remove Use objects that are embedded in Users. 'operator new' now
        performs real work. Create wrappers to destructor and 'operator delete'
        that do the right thing (where needed).
+       Assertions ensure consistency of stored and computed User in the Use.
 
 WAVE3: Flip indexing order of Uses. This involves changing the iterators.
+       NOTE: This wave is probably void.
 
 WAVE4: Remove User* from Use, introducing surrogate getters. Embedded and
        out-of-object representations being considered.
 
 WAVE5: Stylistic and performance tweaks. Valgrind testing.
+       Doxygenizing of new interfaces.
 
 WAVE6: Realizing additional savings. Several space vs. time tradeoffs to
        be balanced. May involve tweaking some basic interfaces.
