@@ -28,8 +28,9 @@ USAGE:
 2) <class Use> size reduction.
 After some conversation with Chris I think we are ready for a
 16 -> 12 byte size reduction of the Use class. There are some
-collateral improvements too. This project is in its very early
-implementation phase.
+collateral improvements too. This project is basically complete
+(only waves 4 to 7 need some more work) and ready to be merged
+to trunk.
 
 WHY ON A BRANCH:
 Contrary to the accepted development model of LLVM, which
@@ -56,11 +57,11 @@ WAVE2: Remove Use objects that are embedded in Users. 'operator new' now
        that do the right thing (where needed).
        Assertions ensure consistency of stored and computed User in the Use.
 
-WAVE3: Flip indexing order of Uses. This involves changing the iterators.
-       NOTE: This wave is probably void.
-
-WAVE4: Remove User* from Use, introducing surrogate getters. Embedded and
+WAVE3: Remove User* from Use, introducing surrogate getters. Embedded and
        out-of-object representations being considered.
+
+WAVE4: Flip indexing order of Uses. This involves changing the iterators.
+       NOTE: This wave is probably void.
 
 WAVE5: Stylistic and performance tweaks. Valgrind testing.
        Doxygenizing of new interfaces.
