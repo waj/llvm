@@ -121,12 +121,11 @@ namespace {
     }
 
   };
-}
 
-char AliasDebugger::ID = 0;
-static RegisterPass<AliasDebugger>
-X("debug-aa", "AA use debugger", false, true);
-static RegisterAnalysisGroup<AliasAnalysis> Y(X);
+  char AliasDebugger::ID = 0;
+  RegisterPass<AliasDebugger> X("debug-aa", "AA use debugger", false, true);
+  RegisterAnalysisGroup<AliasAnalysis> Y(X);
+}
 
 Pass *llvm::createAliasDebugger() { return new AliasDebugger(); }
 

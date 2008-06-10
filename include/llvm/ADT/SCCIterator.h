@@ -22,7 +22,7 @@
 #define LLVM_ADT_SCCITERATOR_H
 
 #include "llvm/ADT/GraphTraits.h"
-#include "llvm/ADT/iterator.h"
+#include "llvm/ADT/iterator"
 #include <vector>
 #include <map>
 

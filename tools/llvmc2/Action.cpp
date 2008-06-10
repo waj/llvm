@@ -1,4 +1,4 @@
-//===--- Action.cpp - The LLVM Compiler Driver ------------------*- C++ -*-===//
+//===--- Tools.h - The LLVM Compiler Driver ---------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -22,12 +22,11 @@
 using namespace llvm;
 using namespace llvmc;
 
-extern cl::opt<bool> DryRun;
 extern cl::opt<bool> VerboseMode;
 
 namespace {
   int ExecuteProgram(const std::string& name,
-                     const StrVector& args) {
+                     const StringVector& args) {
     sys::Path prog = sys::Program::FindProgramByName(name);
 
     if (prog.isEmpty())
@@ -43,7 +42,7 @@ namespace {
     argv.reserve((args.size()+2));
     argv.push_back(name.c_str());
 
-    for (StrVector::const_iterator B = args.begin(), E = args.end();
+    for (StringVector::const_iterator B = args.begin(), E = args.end();
          B!=E; ++B) {
       if (*B == ">") {
         ++B;
@@ -66,13 +65,10 @@ namespace {
 }
 
 int llvmc::Action::Execute() const {
-  if (DryRun || VerboseMode) {
+  if (VerboseMode) {
     std::cerr << Command_ << " ";
     std::for_each(Args_.begin(), Args_.end(), print_string);
     std::cerr << '\n';
   }
-  if (DryRun)
-    return 0;
-  else
-    return ExecuteProgram(Command_, Args_);
+  return ExecuteProgram(Command_, Args_);
 }

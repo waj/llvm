@@ -19,7 +19,7 @@
 #include "llvm/Target/TargetOptions.h"
 using namespace llvm;
 
-static cl::opt<X86Subtarget::AsmWriterFlavorTy>
+cl::opt<X86Subtarget::AsmWriterFlavorTy>
 AsmWriterFlavor("x86-asm-syntax", cl::init(X86Subtarget::Unset),
   cl::desc("Choose style of code to emit from X86 backend:"),
   cl::values(
@@ -41,15 +41,11 @@ bool X86Subtarget::GVRequiresExtraLoad(const GlobalValue* GV,
     if (isTargetDarwin()) {
       return (!isDirectCall &&
               (GV->hasWeakLinkage() || GV->hasLinkOnceLinkage() ||
-               GV->hasCommonLinkage() ||
                (GV->isDeclaration() && !GV->hasNotBeenReadFromBitcode())));
     } else if (isTargetELF()) {
-      // Extra load is needed for all externally visible.
-      if (isDirectCall)
-        return false;
-      if (GV->hasInternalLinkage() || GV->hasHiddenVisibility())
-        return false;
-      return true;
+      // Extra load is needed for all non-statics.
+      return (!isDirectCall &&
+              (GV->isDeclaration() || !GV->hasInternalLinkage()));
     } else if (isTargetCygMing() || isTargetWindows()) {
       return (GV->hasDLLImportLinkage());
     }

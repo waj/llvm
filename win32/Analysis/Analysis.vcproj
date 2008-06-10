@@ -408,10 +408,6 @@
 				RelativePath="..\..\lib\Analysis\ValueNumbering.cpp"
 				>
 			</File>
-			<File
-				RelativePath="..\..\lib\Analysis\ValueTracking.cpp"
-				>
-			</File>
 			<Filter
 				Name="IPA"
 				>
@@ -492,6 +488,10 @@
 			</File>
 			<File
 				RelativePath="..\..\include\llvm\Analysis\IntervalPartition.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\include\llvm\Analysis\LibCallSemantics.h"
 				>
 			</File>
 			<File

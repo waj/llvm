@@ -18,7 +18,6 @@
 
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Analysis/LoopPass.h"
-#include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -42,33 +41,31 @@ namespace {
     bool IsLoopInvariantInst(Instruction *I, Loop* L);
     
     virtual void getAnalysisUsage(AnalysisUsage& AU) const {
-      AU.addRequired<ScalarEvolution>();
       AU.addRequired<DominatorTree>();
       AU.addRequired<LoopInfo>();
       AU.addRequiredID(LoopSimplifyID);
       AU.addRequiredID(LCSSAID);
       
-      AU.addPreserved<ScalarEvolution>();
       AU.addPreserved<DominatorTree>();
       AU.addPreserved<LoopInfo>();
       AU.addPreservedID(LoopSimplifyID);
       AU.addPreservedID(LCSSAID);
     }
   };
-}
   
-char LoopDeletion::ID = 0;
-static RegisterPass<LoopDeletion> X("loop-deletion", "Delete dead loops");
+  char LoopDeletion::ID = 0;
+  RegisterPass<LoopDeletion> X ("loop-deletion", "Delete dead loops");
+}
 
 LoopPass* llvm::createLoopDeletionPass() {
   return new LoopDeletion();
 }
 
 /// SingleDominatingExit - Checks that there is only a single blocks that 
-/// branches out of the loop, and that it also g the latch block.  Loops
+/// branches out of the loop, and that it also dominates the latch block.  Loops
 /// with multiple or non-latch-dominating exiting blocks could be dead, but we'd
 /// have to do more extensive analysis to make sure, for instance, that the 
-/// control flow logic involved was or could be made loop-invariant.
+/// control flow logic involves was or could be made loop-invariant.
 bool LoopDeletion::SingleDominatingExit(Loop* L,
                                    SmallVector<BasicBlock*, 4>& exitingBlocks) {
   
@@ -80,7 +77,10 @@ bool LoopDeletion::SingleDominatingExit(Loop* L,
     return false;
   
   DominatorTree& DT = getAnalysis<DominatorTree>();
-  return DT.dominates(exitingBlocks[0], latch);
+  if (DT.dominates(exitingBlocks[0], latch))
+    return true;
+  else
+    return false;
 }
 
 /// IsLoopInvariantInst - Checks if an instruction is invariant with respect to
@@ -98,7 +98,7 @@ bool LoopDeletion::IsLoopInvariantInst(Instruction *I, Loop* L)  {
   for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
     if (!L->isLoopInvariant(I->getOperand(i)))
       return false;
-  
+
   // If we got this far, the instruction is loop invariant!
   return true;
 }
@@ -153,6 +153,19 @@ bool LoopDeletion::IsLoopDead(Loop* L,
 /// NOTE: This entire process relies pretty heavily on LoopSimplify and LCSSA
 /// in order to make various safety checks work.
 bool LoopDeletion::runOnLoop(Loop* L, LPPassManager& LPM) {
+  SmallVector<BasicBlock*, 4> exitingBlocks;
+  L->getExitingBlocks(exitingBlocks);
+  
+  SmallVector<BasicBlock*, 4> exitBlocks;
+  L->getUniqueExitBlocks(exitBlocks);
+  
+  // We require that the loop only have a single exit block.  Otherwise, we'd
+  // be in the situation of needing to be able to solve statically which exit
+  // block will be branced to, or trying to preserve the branching logic in
+  // a loop invariant manner.
+  if (exitBlocks.size() != 1)
+    return false;
+  
   // We can only remove the loop if there is a preheader that we can 
   // branch from after removing it.
   BasicBlock* preheader = L->getLoopPreheader();
@@ -164,17 +177,9 @@ bool LoopDeletion::runOnLoop(Loop* L, LPPassManager& LPM) {
   if (L->begin() != L->end())
     return false;
   
-  SmallVector<BasicBlock*, 4> exitingBlocks;
-  L->getExitingBlocks(exitingBlocks);
-  
-  SmallVector<BasicBlock*, 4> exitBlocks;
-  L->getUniqueExitBlocks(exitBlocks);
-  
-  // We require that the loop only have a single exit block.  Otherwise, we'd
-  // be in the situation of needing to be able to solve statically which exit
-  // block will be branched to, or trying to preserve the branching logic in
-  // a loop invariant manner.
-  if (exitBlocks.size() != 1)
+  // Don't remove loops for which we can't solve the trip count.
+  // They could be infinite, in which case we'd be changing program behavior.
+  if (!L->getTripCount())
     return false;
   
   // Loops with multiple exits or exits that don't dominate the latch
@@ -184,13 +189,6 @@ bool LoopDeletion::runOnLoop(Loop* L, LPPassManager& LPM) {
   
   // Finally, we have to check that the loop really is dead.
   if (!IsLoopDead(L, exitingBlocks, exitBlocks))
-    return false;
-  
-  // Don't remove loops for which we can't solve the trip count.
-  // They could be infinite, in which case we'd be changing program behavior.
-  ScalarEvolution& SE = getAnalysis<ScalarEvolution>();
-  SCEVHandle S = SE.getIterationCount(L);
-  if (isa<SCEVCouldNotCompute>(S))
     return false;
   
   // Now that we know the removal is safe, remove the loop by changing the
@@ -241,15 +239,13 @@ bool LoopDeletion::runOnLoop(Loop* L, LPPassManager& LPM) {
     ChildNodes.clear();
     DT.eraseNode(*LI);
     
-    // Remove instructions that we're deleting from ScalarEvolution.
+    // Drop all references between the instructions and the block so
+    // that we don't have reference counting problems later.
     for (BasicBlock::iterator BI = (*LI)->begin(), BE = (*LI)->end();
-         BI != BE; ++BI)
-      SE.deleteValueFromRecords(BI);
+         BI != BE; ++BI) {
+      BI->dropAllReferences();
+    }
     
-    SE.deleteValueFromRecords(*LI);
-    
-    // Remove the block from the reference counting scheme, so that we can
-    // delete it freely later.
     (*LI)->dropAllReferences();
   }
   
@@ -258,8 +254,12 @@ bool LoopDeletion::runOnLoop(Loop* L, LPPassManager& LPM) {
   // NOTE: This iteration is safe because erasing the block does not remove its
   // entry from the loop's block list.  We do that in the next section.
   for (Loop::block_iterator LI = L->block_begin(), LE = L->block_end();
-       LI != LE; ++LI)
+       LI != LE; ++LI) {
+    for (Value::use_iterator UI = (*LI)->use_begin(), UE = (*LI)->use_end();
+         UI != UE; ++UI)
+      (*UI)->dump();
     (*LI)->eraseFromParent();
+  }
   
   // Finally, the blocks from loopinfo.  This has to happen late because
   // otherwise our loop iterators won't work.

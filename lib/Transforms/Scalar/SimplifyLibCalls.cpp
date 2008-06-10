@@ -731,17 +731,17 @@ struct VISIBILITY_HIDDEN MemCmpOpt : public LibCallOptimization {
         !isa<PointerType>(FT->getParamType(1)) ||
         FT->getReturnType() != Type::Int32Ty)
       return 0;
-
+    
     Value *LHS = CI->getOperand(1), *RHS = CI->getOperand(2);
-
+    
     if (LHS == RHS)  // memcmp(s,s,x) -> 0
       return Constant::getNullValue(CI->getType());
-
+    
     // Make sure we have a constant length.
     ConstantInt *LenC = dyn_cast<ConstantInt>(CI->getOperand(3));
     if (!LenC) return 0;
     uint64_t Len = LenC->getZExtValue();
-
+    
     if (Len == 0) // memcmp(s1,s2,0) -> 0
       return Constant::getNullValue(CI->getType());
 
@@ -750,20 +750,18 @@ struct VISIBILITY_HIDDEN MemCmpOpt : public LibCallOptimization {
       Value *RHSV = B.CreateLoad(CastToCStr(RHS, B), "rhsv");
       return B.CreateZExt(B.CreateSub(LHSV, RHSV, "chardiff"), CI->getType());
     }
-
+    
     // memcmp(S1,S2,2) != 0 -> (*(short*)LHS ^ *(short*)RHS)  != 0
     // memcmp(S1,S2,4) != 0 -> (*(int*)LHS ^ *(int*)RHS)  != 0
     if ((Len == 2 || Len == 4) && IsOnlyUsedInZeroEqualityComparison(CI)) {
-      const Type *PTy = PointerType::getUnqual(Len == 2 ?
-                                               Type::Int16Ty : Type::Int32Ty);
-      LHS = B.CreateBitCast(LHS, PTy, "tmp");
-      RHS = B.CreateBitCast(RHS, PTy, "tmp");
+      LHS = B.CreateBitCast(LHS, PointerType::getUnqual(Type::Int16Ty), "tmp");
+      RHS = B.CreateBitCast(RHS, LHS->getType(), "tmp");
       LoadInst *LHSV = B.CreateLoad(LHS, "lhsv");
       LoadInst *RHSV = B.CreateLoad(RHS, "rhsv");
       LHSV->setAlignment(1); RHSV->setAlignment(1);  // Unaligned loads.
       return B.CreateZExt(B.CreateXor(LHSV, RHSV, "shortdiff"), CI->getType());
     }
-
+    
     return 0;
   }
 };
@@ -984,27 +982,6 @@ struct VISIBILITY_HIDDEN IsAsciiOpt : public LibCallOptimization {
     return B.CreateZExt(Op, CI->getType());
   }
 };
-  
-//===---------------------------------------===//
-// 'abs', 'labs', 'llabs' Optimizations
-
-struct VISIBILITY_HIDDEN AbsOpt : public LibCallOptimization {
-  virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder &B) {
-    const FunctionType *FT = Callee->getFunctionType();
-    // We require integer(integer) where the types agree.
-    if (FT->getNumParams() != 1 || !isa<IntegerType>(FT->getReturnType()) ||
-        FT->getParamType(0) != FT->getReturnType())
-      return 0;
-    
-    // abs(x) -> x >s -1 ? x : -x
-    Value *Op = CI->getOperand(1);
-    Value *Pos = B.CreateICmpSGT(Op,ConstantInt::getAllOnesValue(Op->getType()),
-                                 "ispos");
-    Value *Neg = B.CreateNeg(Op, "neg");
-    return B.CreateSelect(Pos, Op, Neg);
-  }
-};
-  
 
 //===---------------------------------------===//
 // 'toascii' Optimizations
@@ -1279,8 +1256,7 @@ namespace {
     // Math Library Optimizations
     PowOpt Pow; Exp2Opt Exp2; UnaryDoubleFPOpt UnaryDoubleFP;
     // Integer Optimizations
-    FFSOpt FFS; AbsOpt Abs; IsDigitOpt IsDigit; IsAsciiOpt IsAscii;
-    ToAsciiOpt ToAscii;
+    FFSOpt FFS; IsDigitOpt IsDigit; IsAsciiOpt IsAscii; ToAsciiOpt ToAscii;
     // Formatting and IO Optimizations
     SPrintFOpt SPrintF; PrintFOpt PrintF;
     FWriteOpt FWrite; FPutsOpt FPuts; FPrintFOpt FPrintF;
@@ -1350,9 +1326,6 @@ void SimplifyLibCalls::InitOptimizations() {
   Optimizations["ffs"] = &FFS;
   Optimizations["ffsl"] = &FFS;
   Optimizations["ffsll"] = &FFS;
-  Optimizations["abs"] = &Abs;
-  Optimizations["labs"] = &Abs;
-  Optimizations["llabs"] = &Abs;
   Optimizations["isdigit"] = &IsDigit;
   Optimizations["isascii"] = &IsAscii;
   Optimizations["toascii"] = &ToAscii;

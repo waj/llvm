@@ -98,13 +98,13 @@ namespace {
                                 AllocaInst *InvokeNum, SwitchInst *CatchSwitch);
     bool insertExpensiveEHSupport(Function &F);
   };
+
+  char LowerInvoke::ID = 0;
+  RegisterPass<LowerInvoke>
+  X("lowerinvoke", "Lower invoke and unwind, for unwindless code generators");
 }
 
-char LowerInvoke::ID = 0;
-static RegisterPass<LowerInvoke>
-X("lowerinvoke", "Lower invoke and unwind, for unwindless code generators");
-
-const PassInfo *const llvm::LowerInvokePassID = &X;
+const PassInfo *llvm::LowerInvokePassID = X.getPassInfo();
 
 // Public Interface To the LowerInvoke pass.
 FunctionPass *llvm::createLowerInvokePass(const TargetLowering *TLI) { 
@@ -282,7 +282,8 @@ void LowerInvoke::rewriteExpensiveInvoke(InvokeInst *II, unsigned InvokeNo,
   // location afterward.
   new StoreInst(InvokeNoC, InvokeNum, true, II);  // volatile
   
-  BasicBlock::iterator NI = II->getNormalDest()->getFirstNonPHI();
+  BasicBlock::iterator NI = II->getNormalDest()->begin();
+  while (isa<PHINode>(NI)) ++NI;
   // nonvolatile.
   new StoreInst(Constant::getNullValue(Type::Int32Ty), InvokeNum, false, NI);
   

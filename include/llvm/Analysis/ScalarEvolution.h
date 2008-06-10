@@ -24,7 +24,8 @@
 #include "llvm/Pass.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Support/DataTypes.h"
-#include <iosfwd>
+#include "llvm/Support/Streams.h"
+#include <set>
 
 namespace llvm {
   class APInt;

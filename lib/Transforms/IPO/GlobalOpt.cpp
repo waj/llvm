@@ -68,14 +68,12 @@ namespace {
     bool OptimizeGlobalCtorsList(GlobalVariable *&GCL);
     bool ProcessInternalGlobal(GlobalVariable *GV,Module::global_iterator &GVI);
   };
+
+  char GlobalOpt::ID = 0;
+  RegisterPass<GlobalOpt> X("globalopt", "Global Variable Optimizer");
 }
 
-char GlobalOpt::ID = 0;
-static RegisterPass<GlobalOpt> X("globalopt", "Global Variable Optimizer");
-
 ModulePass *llvm::createGlobalOptimizerPass() { return new GlobalOpt(); }
-
-namespace {
 
 /// GlobalStatus - As we analyze each global, keep track of some information
 /// about it.  If we find out that the address of the global is taken, none of
@@ -131,7 +129,7 @@ struct VISIBILITY_HIDDEN GlobalStatus {
                    HasNonInstructionUser(false), HasPHIUser(false) {}
 };
 
-}
+
 
 /// ConstantIsDead - Return true if the specified constant is (transitively)
 /// dead.  The constant may be used by other constants (e.g. constant arrays and
@@ -704,9 +702,8 @@ static bool OptimizeAwayTrappingUsesOfValue(Value *V, Constant *NewV) {
       // Should handle GEP here.
       SmallVector<Constant*, 8> Idxs;
       Idxs.reserve(GEPI->getNumOperands()-1);
-      for (User::op_iterator i = GEPI->op_begin() + 1, e = GEPI->op_end();
-           i != e; ++i)
-        if (Constant *C = dyn_cast<Constant>(*i))
+      for (unsigned i = 1, e = GEPI->getNumOperands(); i != e; ++i)
+        if (Constant *C = dyn_cast<Constant>(GEPI->getOperand(i)))
           Idxs.push_back(C);
         else
           break;
@@ -873,7 +870,7 @@ static GlobalVariable *OptimizeGlobalAddressOfMalloc(GlobalVariable *GV,
           case ICmpInst::ICMP_ULE:
           case ICmpInst::ICMP_SLE:
           case ICmpInst::ICMP_EQ:
-            LV = BinaryOperator::CreateNot(LV, "notinit", CI);
+            LV = BinaryOperator::createNot(LV, "notinit", CI);
             break;
           case ICmpInst::ICMP_NE:
           case ICmpInst::ICMP_UGE:
@@ -985,8 +982,8 @@ static bool GlobalLoadUsesSimpleEnoughForHeapSRA(GlobalVariable *GV,
     if (LoadInst *LI = dyn_cast<LoadInst>(*UI)) {
       // We permit two users of the load: setcc comparing against the null
       // pointer, and a getelementptr of a specific form.
-      for (Value::use_iterator UI = LI->use_begin(), E = LI->use_end();
-	   UI != E; ++UI) {
+      for (Value::use_iterator UI = LI->use_begin(), E = LI->use_end(); UI != E; 
+           ++UI) {
         // Comparison against null is ok.
         if (ICmpInst *ICI = dyn_cast<ICmpInst>(*UI)) {
           if (!isa<ConstantPointerNull>(ICI->getOperand(1)))
@@ -1083,8 +1080,7 @@ static void RewriteHeapSROALoadUser(LoadInst *Load, Instruction *LoadUser,
     GEPIdx.push_back(GEPI->getOperand(1));
     GEPIdx.append(GEPI->op_begin()+3, GEPI->op_end());
     
-    Value *NGEPI = GetElementPtrInst::Create(NewPtr,
-                                             GEPIdx.begin(), GEPIdx.end(),
+    Value *NGEPI = GetElementPtrInst::Create(NewPtr, GEPIdx.begin(), GEPIdx.end(),
                                              GEPI->getName(), GEPI);
     GEPI->replaceAllUsesWith(NGEPI);
     GEPI->eraseFromParent();
@@ -1194,7 +1190,7 @@ static GlobalVariable *PerformHeapAllocSRoA(GlobalVariable *GV, MallocInst *MI){
     if (!RunningOr)
       RunningOr = Cond;   // First seteq
     else
-      RunningOr = BinaryOperator::CreateOr(RunningOr, Cond, "tmp", MI);
+      RunningOr = BinaryOperator::createOr(RunningOr, Cond, "tmp", MI);
   }
 
   // Split the basic block at the old malloc.
@@ -1280,10 +1276,9 @@ static bool OptimizeOnceStoredGlobal(GlobalVariable *GV, Value *StoredOnceVal,
   else if (GetElementPtrInst *GEPI =dyn_cast<GetElementPtrInst>(StoredOnceVal)){
     // "getelementptr Ptr, 0, 0, 0" is really just a cast.
     bool IsJustACast = true;
-    for (User::op_iterator i = GEPI->op_begin() + 1, e = GEPI->op_end();
-         i != e; ++i)
-      if (!isa<Constant>(*i) ||
-          !cast<Constant>(*i)->isNullValue()) {
+    for (unsigned i = 1, e = GEPI->getNumOperands(); i != e; ++i)
+      if (!isa<Constant>(GEPI->getOperand(i)) ||
+          !cast<Constant>(GEPI->getOperand(i))->isNullValue()) {
         IsJustACast = false;
         break;
       }
@@ -1495,11 +1490,11 @@ bool GlobalOpt::ProcessInternalGlobal(GlobalVariable *GV,
     // this global a local variable) we replace the global with a local alloca
     // in this function.
     //
-    // NOTE: It doesn't make sense to promote non single-value types since we
+    // NOTE: It doesn't make sense to promote non first class types since we
     // are just replacing static memory to stack memory.
     if (!GS.HasMultipleAccessingFunctions &&
         GS.AccessingFunction && !GS.HasNonInstructionUser &&
-        GV->getType()->getElementType()->isSingleValueType() &&
+        GV->getType()->getElementType()->isFirstClassType() &&
         GS.AccessingFunction->getName() == "main" &&
         GS.AccessingFunction->hasExternalLinkage()) {
       DOUT << "LOCALIZING GLOBAL: " << *GV;
@@ -1550,7 +1545,7 @@ bool GlobalOpt::ProcessInternalGlobal(GlobalVariable *GV,
 
       ++NumMarked;
       return true;
-    } else if (!GV->getInitializer()->getType()->isSingleValueType()) {
+    } else if (!GV->getInitializer()->getType()->isFirstClassType()) {
       if (GlobalVariable *FirstNewGV = SRAGlobal(GV, 
                                                  getAnalysis<TargetData>())) {
         GVI = FirstNewGV;  // Don't skip the newly produced globals!
@@ -1608,9 +1603,8 @@ static bool OnlyCalledDirectly(Function *F) {
     if (!isa<CallInst>(User) && !isa<InvokeInst>(User)) return false;
 
     // See if the function address is passed as an argument.
-    for (User::op_iterator i = User->op_begin() + 1, e = User->op_end();
-	 i != e; ++i)
-      if (*i == F) return false;
+    for (unsigned i = 1, e = User->getNumOperands(); i != e; ++i)
+      if (User->getOperand(i) == F) return false;
   }
   return true;
 }
@@ -1715,8 +1709,8 @@ GlobalVariable *GlobalOpt::FindGlobalCtors(Module &M) {
       if (!I->hasInitializer()) return 0;
       ConstantArray *CA = dyn_cast<ConstantArray>(I->getInitializer());
       if (!CA) return 0;
-      for (User::op_iterator i = CA->op_begin(), e = CA->op_end(); i != e; ++i)
-        if (ConstantStruct *CS = dyn_cast<ConstantStruct>(*i)) {
+      for (unsigned i = 0, e = CA->getNumOperands(); i != e; ++i)
+        if (ConstantStruct *CS = dyn_cast<ConstantStruct>(CA->getOperand(i))) {
           if (isa<ConstantPointerNull>(CS->getOperand(1)))
             continue;
 
@@ -1743,8 +1737,8 @@ static std::vector<Function*> ParseGlobalCtors(GlobalVariable *GV) {
   ConstantArray *CA = cast<ConstantArray>(GV->getInitializer());
   std::vector<Function*> Result;
   Result.reserve(CA->getNumOperands());
-  for (User::op_iterator i = CA->op_begin(), e = CA->op_end(); i != e; ++i) {
-    ConstantStruct *CS = cast<ConstantStruct>(*i);
+  for (unsigned i = 0, e = CA->getNumOperands(); i != e; ++i) {
+    ConstantStruct *CS = cast<ConstantStruct>(CA->getOperand(i));
     Result.push_back(dyn_cast<Function>(CS->getOperand(1)));
   }
   return Result;
@@ -1857,8 +1851,8 @@ static Constant *EvaluateStoreInto(Constant *Init, Constant *Val,
 
     // Break up the constant into its elements.
     if (ConstantStruct *CS = dyn_cast<ConstantStruct>(Init)) {
-      for (User::op_iterator i = CS->op_begin(), e = CS->op_end(); i != e; ++i)
-        Elts.push_back(cast<Constant>(*i));
+      for (unsigned i = 0, e = CS->getNumOperands(); i != e; ++i)
+        Elts.push_back(CS->getOperand(i));
     } else if (isa<ConstantAggregateZero>(Init)) {
       for (unsigned i = 0, e = STy->getNumElements(); i != e; ++i)
         Elts.push_back(Constant::getNullValue(STy->getElementType(i)));
@@ -1885,8 +1879,8 @@ static Constant *EvaluateStoreInto(Constant *Init, Constant *Val,
     // Break up the array into elements.
     std::vector<Constant*> Elts;
     if (ConstantArray *CA = dyn_cast<ConstantArray>(Init)) {
-      for (User::op_iterator i = CA->op_begin(), e = CA->op_end(); i != e; ++i)
-        Elts.push_back(cast<Constant>(*i));
+      for (unsigned i = 0, e = CA->getNumOperands(); i != e; ++i)
+        Elts.push_back(CA->getOperand(i));
     } else if (isa<ConstantAggregateZero>(Init)) {
       Constant *Elt = Constant::getNullValue(ATy->getElementType());
       Elts.assign(ATy->getNumElements(), Elt);
@@ -2014,9 +2008,8 @@ static bool EvaluateFunction(Function *F, Constant *&RetVal,
     } else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(CurInst)) {
       Constant *P = getVal(Values, GEP->getOperand(0));
       SmallVector<Constant*, 8> GEPOps;
-      for (User::op_iterator i = GEP->op_begin() + 1, e = GEP->op_end();
-           i != e; ++i)
-        GEPOps.push_back(getVal(Values, *i));
+      for (unsigned i = 1, e = GEP->getNumOperands(); i != e; ++i)
+        GEPOps.push_back(getVal(Values, GEP->getOperand(i)));
       InstResult = ConstantExpr::getGetElementPtr(P, &GEPOps[0], GEPOps.size());
     } else if (LoadInst *LI = dyn_cast<LoadInst>(CurInst)) {
       if (LI->isVolatile()) return false;  // no volatile accesses.
@@ -2040,9 +2033,8 @@ static bool EvaluateFunction(Function *F, Constant *&RetVal,
       if (!Callee) return false;  // Cannot resolve.
 
       std::vector<Constant*> Formals;
-      for (User::op_iterator i = CI->op_begin() + 1, e = CI->op_end();
-           i != e; ++i)
-        Formals.push_back(getVal(Values, *i));
+      for (unsigned i = 1, e = CI->getNumOperands(); i != e; ++i)
+        Formals.push_back(getVal(Values, CI->getOperand(i)));
       
       if (Callee->isDeclaration()) {
         // If this is a function we can constant fold, do it.

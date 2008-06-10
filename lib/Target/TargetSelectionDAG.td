@@ -53,8 +53,8 @@ class SDTCisOpSmallerThanOp<int SmallOp, int BigOp> : SDTypeConstraint<SmallOp>{
 
 /// SDTCisIntVectorOfSameSize - This indicates that ThisOp and OtherOp are
 /// vector types, and that ThisOp is the result of 
-/// MVT::getIntVectorWithNumElements with the number of elements
-/// that ThisOp has.
+/// MVT::getIntVectorWithNumElements with the number of elements that ThisOp
+/// has.
 class SDTCisIntVectorOfSameSize<int ThisOp, int OtherOp>
   : SDTypeConstraint<ThisOp> {
   int OtherOpNum = OtherOp;
@@ -62,7 +62,7 @@ class SDTCisIntVectorOfSameSize<int ThisOp, int OtherOp>
 
 /// SDTCisEltOfVec - This indicates that ThisOp is a scalar type of the same
 /// type as the element type of OtherOp, which is a vector type.
-class SDTCisEltOfVec<int ThisOp, int OtherOp>
+class  SDTCisEltOfVec<int ThisOp, int OtherOp>
   : SDTypeConstraint<ThisOp> {
   int OtherOpNum = OtherOp;
 }
@@ -337,7 +337,6 @@ def fp_to_uint : SDNode<"ISD::FP_TO_UINT" , SDTFPToIntOp>;
 def setcc      : SDNode<"ISD::SETCC"      , SDTSetCC>;
 def select     : SDNode<"ISD::SELECT"     , SDTSelect>;
 def selectcc   : SDNode<"ISD::SELECT_CC"  , SDTSelectCC>;
-def vsetcc     : SDNode<"ISD::VSETCC"     , SDTSetCC>;
 
 def brcond     : SDNode<"ISD::BRCOND"     , SDTBrcond, [SDNPHasChain]>;
 def brind      : SDNode<"ISD::BRIND"      , SDTBrind,  [SDNPHasChain]>;
@@ -467,8 +466,8 @@ class PatLeaf<dag frag, code pred = [{}], SDNodeXForm xform = NOOP_SDNodeXForm>
 
 // Leaf fragments.
 
-def vtInt      : PatLeaf<(vt),  [{ return N->getVT().isInteger(); }]>;
-def vtFP       : PatLeaf<(vt),  [{ return N->getVT().isFloatingPoint(); }]>;
+def vtInt      : PatLeaf<(vt),  [{ return MVT::isInteger(N->getVT()); }]>;
+def vtFP       : PatLeaf<(vt),  [{ return MVT::isFloatingPoint(N->getVT()); }]>;
 
 def immAllOnes : PatLeaf<(imm), [{ return N->isAllOnesValue(); }]>;
 def immAllOnesV: PatLeaf<(build_vector), [{

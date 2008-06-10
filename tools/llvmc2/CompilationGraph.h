@@ -19,10 +19,9 @@
 
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/iterator.h"
+#include "llvm/ADT/iterator"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/StringSet.h"
 #include "llvm/System/Path.h"
 
 #include <cassert>
@@ -30,7 +29,22 @@
 
 namespace llvmc {
 
-  typedef llvm::StringSet<> InputLanguagesSet;
+  /// StringSet - A wrapper for StringMap that provides set-like
+  /// functionality.  Only insert() and count() methods are used by my
+  /// code.
+  template <class AllocatorTy = llvm::MallocAllocator>
+  class StringSet : public llvm::StringMap<char, AllocatorTy> {
+    typedef llvm::StringMap<char, AllocatorTy> base;
+  public:
+    void insert (const std::string& InLang) {
+      assert(!InLang.empty());
+      const char* KeyStart = &InLang[0];
+      const char* KeyEnd = KeyStart + InLang.size();
+      base::insert(llvm::StringMapEntry<char>::
+                   Create(KeyStart, KeyEnd, base::getAllocator(), '+'));
+    }
+  };
+  typedef StringSet<> InputLanguagesSet;
 
   /// Edge - Represents an edge of the compilation graph.
   class Edge : public llvm::RefCountedBaseVPTR<Edge> {
@@ -79,6 +93,8 @@ namespace llvmc {
     { OutEdges.push_back(llvm::IntrusiveRefCntPtr<Edge>(E)); }
 
     // Inward edge counter. Used to implement topological sort.
+    // TOTHINK: Move the mutable counter back into Tool classes? Makes
+    // us more const-correct.
     void IncrInEdges() { ++InEdges; }
     void DecrInEdges() { --InEdges; }
     bool HasNoInEdges() const { return InEdges == 0; }
@@ -109,6 +125,8 @@ namespace llvmc {
     llvm::SmallVector<llvm::IntrusiveRefCntPtr<Edge>, 3> tools_vector_type;
     typedef llvm::StringMap<tools_vector_type> tools_map_type;
 
+    /// ExtsToLangs - Map from file extensions to language names.
+    LanguageMap ExtsToLangs;
     /// ToolsMap - Map from language names to lists of tool names.
     tools_map_type ToolsMap;
     /// NodesMap - Map from tool names to Tool objects.
@@ -130,7 +148,7 @@ namespace llvmc {
     /// options are passed implicitly as global variables.
     int Build(llvm::sys::Path const& tempDir);
 
-    /// getNode - Return a reference to the node correponding to the
+    /// getNode -Return a reference to the node correponding to the
     /// given tool name. Throws std::runtime_error.
     Node& getNode(const std::string& ToolName);
     const Node& getNode(const std::string& ToolName) const;
@@ -148,9 +166,14 @@ namespace llvmc {
     // GraphTraits support.
     friend NodesIterator GraphBegin(CompilationGraph*);
     friend NodesIterator GraphEnd(CompilationGraph*);
+    friend void PopulateCompilationGraph(CompilationGraph&);
 
   private:
     // Helper functions.
+
+    /// getLanguage - Find out which language corresponds to the
+    /// suffix of this file.
+    const std::string& getLanguage(const llvm::sys::Path& File) const;
 
     /// getToolsVector - Return a reference to the list of tool names
     /// corresponding to the given language name. Throws

@@ -27,8 +27,9 @@ using namespace llvm;
 using namespace llvm::dwarf;
 
 // Handle the Pass registration stuff necessary to use TargetData's.
-static RegisterPass<MachineModuleInfo>
-X("machinemoduleinfo", "Module Information");
+namespace {
+  RegisterPass<MachineModuleInfo> X("machinemoduleinfo", "Module Information");
+}
 char MachineModuleInfo::ID = 0;
 
 //===----------------------------------------------------------------------===//
@@ -158,8 +159,6 @@ static ConstantInt *getUIntOperand(GlobalVariable *GV, unsigned i) {
 void DIVisitor::ApplyToFields(DebugInfoDesc *DD) {
   DD->ApplyToFields(this);
 }
-
-namespace {
 
 //===----------------------------------------------------------------------===//
 /// DICountVisitor - This DIVisitor counts all the fields in the supplied debug
@@ -480,7 +479,6 @@ public:
   }
 };
 
-}
 
 //===----------------------------------------------------------------------===//
 

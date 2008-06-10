@@ -48,7 +48,7 @@ namespace llvm {
     template<typename EdgeIter>
     static std::string getEdgeAttributes(const void *Node, EdgeIter EI) {
       SDOperand Op = EI.getNode()->getOperand(EI.getOperand());
-      MVT VT = Op.getValueType();
+      MVT::ValueType VT = Op.getValueType();
       if (VT == MVT::Flag)
         return "color=red,style=bold";
       else if (VT == MVT::Other)
@@ -90,7 +90,7 @@ std::string DOTGraphTraits<SelectionDAG*>::getNodeLabel(const SDNode *Node,
     if (Node->getValueType(i) == MVT::Other)
       Op += ":ch";
     else
-      Op = Op + ":" + Node->getValueType(i).getMVTString();
+      Op = Op + ":" + MVT::getValueTypeString(Node->getValueType(i));
     
   if (const ConstantSDNode *CSDN = dyn_cast<ConstantSDNode>(Node)) {
     Op += ": " + utostr(CSDN->getValue());
@@ -154,7 +154,7 @@ std::string DOTGraphTraits<SelectionDAG*>::getNodeLabel(const SDNode *Node,
   } else if (const ARG_FLAGSSDNode *N = dyn_cast<ARG_FLAGSSDNode>(Node)) {
     Op = Op + " AF=" + N->getArgFlags().getArgFlagsString();
   } else if (const VTSDNode *N = dyn_cast<VTSDNode>(Node)) {
-    Op = Op + " VT=" + N->getVT().getMVTString();
+    Op = Op + " VT=" + MVT::getValueTypeString(N->getVT());
   } else if (const StringSDNode *N = dyn_cast<StringSDNode>(Node)) {
     Op = Op + "\"" + N->getValue() + "\"";
   } else if (const LoadSDNode *LD = dyn_cast<LoadSDNode>(Node)) {
@@ -172,7 +172,7 @@ std::string DOTGraphTraits<SelectionDAG*>::getNodeLabel(const SDNode *Node,
       break;
     }
     if (doExt)
-      Op += LD->getMemoryVT().getMVTString() + ">";
+      Op += MVT::getValueTypeString(LD->getMemoryVT()) + ">";
     if (LD->isVolatile())
       Op += "<V>";
     Op += LD->getIndexedModeName(LD->getAddressingMode());
@@ -180,7 +180,7 @@ std::string DOTGraphTraits<SelectionDAG*>::getNodeLabel(const SDNode *Node,
       Op += " A=" + utostr(LD->getAlignment());
   } else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(Node)) {
     if (ST->isTruncatingStore())
-      Op += "<trunc " + ST->getMemoryVT().getMVTString() + ">";
+      Op += "<trunc " + MVT::getValueTypeString(ST->getMemoryVT()) + ">";
     if (ST->isVolatile())
       Op += "<V>";
     Op += ST->getIndexedModeName(ST->getAddressingMode());

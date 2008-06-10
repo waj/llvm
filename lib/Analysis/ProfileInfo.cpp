@@ -21,7 +21,9 @@
 using namespace llvm;
 
 // Register the ProfileInfo interface, providing a nice name to refer to.
-static RegisterAnalysisGroup<ProfileInfo> Z("Profile Information");
+namespace {
+  RegisterAnalysisGroup<ProfileInfo> Z("Profile Information");
+}
 char ProfileInfo::ID = 0;
 
 ProfileInfo::~ProfileInfo() {}
@@ -87,14 +89,14 @@ namespace {
     static char ID; // Class identification, replacement for typeinfo
     NoProfileInfo() : ImmutablePass((intptr_t)&ID) {}
   };
+
+  char NoProfileInfo::ID = 0;
+  // Register this pass...
+  RegisterPass<NoProfileInfo>
+  X("no-profile", "No Profile Information", false, true);
+
+  // Declare that we implement the ProfileInfo interface
+  RegisterAnalysisGroup<ProfileInfo, true> Y(X);
 }  // End of anonymous namespace
-
-char NoProfileInfo::ID = 0;
-// Register this pass...
-static RegisterPass<NoProfileInfo>
-X("no-profile", "No Profile Information", false, true);
-
-// Declare that we implement the ProfileInfo interface
-static RegisterAnalysisGroup<ProfileInfo, true> Y(X);
 
 ImmutablePass *llvm::createNoProfileInfoPass() { return new NoProfileInfo(); }

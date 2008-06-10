@@ -14,7 +14,7 @@
 #ifndef LLVM_ADT_SMALLVECTOR_H
 #define LLVM_ADT_SMALLVECTOR_H
 
-#include "llvm/ADT/iterator.h"
+#include "llvm/ADT/iterator"
 #include <algorithm>
 #include <memory>
 
@@ -300,18 +300,13 @@ public:
   
   bool operator==(const SmallVectorImpl &RHS) const {
     if (size() != RHS.size()) return false;
-    for (T *This = Begin, *That = RHS.Begin, *E = Begin+size(); 
-         This != E; ++This, ++That)
+    for (T *This = Begin, *That = RHS.Begin, *End = Begin+size(); 
+         This != End; ++This, ++That)
       if (*This != *That)
         return false;
     return true;
   }
   bool operator!=(const SmallVectorImpl &RHS) const { return !(*this == RHS); }
-
-  bool operator<(const SmallVectorImpl &RHS) const {
-    return std::lexicographical_compare(begin(), end(),
-                                        RHS.begin(), RHS.end());
-  }
   
 private:
   /// isSmall - Return true if this is a smallvector which has not had dynamic

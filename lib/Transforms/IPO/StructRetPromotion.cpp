@@ -58,11 +58,11 @@ namespace {
     void updateCallSites(Function *F, Function *NF);
     bool nestedStructType(const StructType *STy);
   };
-}
 
-char SRETPromotion::ID = 0;
-static RegisterPass<SRETPromotion>
-X("sretpromotion", "Promote sret arguments to multiple ret values");
+  char SRETPromotion::ID = 0;
+  RegisterPass<SRETPromotion> X("sretpromotion",
+                               "Promote sret arguments to multiple ret values");
+}
 
 Pass *llvm::createStructRetPromotionPass() {
   return new SRETPromotion();
@@ -158,17 +158,9 @@ bool SRETPromotion::isSafeToUpdateAllCallers(Function *F) {
 
   for (Value::use_iterator FnUseI = F->use_begin(), FnUseE = F->use_end();
        FnUseI != FnUseE; ++FnUseI) {
-    // The function is passed in as an argument to (possibly) another function,
-    // we can't change it!
-    if (FnUseI.getOperandNo() != 0)
-      return false;
 
     CallSite CS = CallSite::get(*FnUseI);
     Instruction *Call = CS.getInstruction();
-    // The function is used by something else than a call or invoke instruction,
-    // we can't change it!
-    if (!Call)
-      return false;
     CallSite::arg_iterator AI = CS.arg_begin();
     Value *FirstArg = *AI;
 
@@ -240,7 +232,7 @@ Function *SRETPromotion::cloneFunctionBody(Function *F,
 
   FunctionType *NFTy = FunctionType::get(STy, Params, FTy->isVarArg());
   Function *NF = Function::Create(NFTy, F->getLinkage(), F->getName());
-  NF->copyAttributesFrom(F);
+  NF->setCallingConv(F->getCallingConv());
   NF->setParamAttrs(PAListPtr::get(ParamAttrsVec.begin(), ParamAttrsVec.end()));
   F->getParent()->getFunctionList().insert(F, NF);
   NF->getBasicBlockList().splice(NF->begin(), F->getBasicBlockList());
@@ -347,7 +339,7 @@ bool SRETPromotion::nestedStructType(const StructType *STy) {
   unsigned Num = STy->getNumElements();
   for (unsigned i = 0; i < Num; i++) {
     const Type *Ty = STy->getElementType(i);
-    if (!Ty->isSingleValueType() && Ty != Type::VoidTy)
+    if (!Ty->isFirstClassType() && Ty != Type::VoidTy)
       return true;
   }
   return false;

@@ -30,9 +30,11 @@ using namespace llvm;
 STATISTIC(NumInlined, "Number of functions inlined");
 STATISTIC(NumDeleted, "Number of functions deleted because all callers found");
 
-static cl::opt<int>
-InlineLimit("inline-threshold", cl::Hidden, cl::init(200),
+namespace {
+  static cl::opt<int>
+  InlineLimit("inline-threshold", cl::Hidden, cl::init(200),
         cl::desc("Control the amount of inlining to perform (default = 200)"));
+}
 
 Inliner::Inliner(const void *ID) 
   : CallGraphSCCPass((intptr_t)ID), InlineThreshold(InlineLimit) {}

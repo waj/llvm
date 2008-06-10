@@ -42,11 +42,9 @@ namespace {
     bool PropagateConstantsIntoArguments(Function &F);
     bool PropagateConstantReturn(Function &F);
   };
+  char IPCP::ID = 0;
+  RegisterPass<IPCP> X("ipconstprop", "Interprocedural constant propagation");
 }
-
-char IPCP::ID = 0;
-static RegisterPass<IPCP>
-X("ipconstprop", "Interprocedural constant propagation");
 
 ModulePass *llvm::createIPConstantPropagationPass() { return new IPCP(); }
 
@@ -147,11 +145,6 @@ bool IPCP::PropagateConstantReturn(Function &F) {
   if (F.getReturnType() == Type::VoidTy)
     return false; // No return value.
 
-  // If this function could be overridden later in the link stage, we can't
-  // propagate information about its results into callers.
-  if (F.hasLinkOnceLinkage() || F.hasWeakLinkage())
-    return false;
-  
   // Check to see if this function returns a constant.
   SmallVector<Value *,4> RetVals;
   const StructType *STy = dyn_cast<StructType>(F.getReturnType());

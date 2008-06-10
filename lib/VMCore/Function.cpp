@@ -106,8 +106,7 @@ bool Argument::hasNoAliasAttr() const {
 /// it in its containing function.
 bool Argument::hasStructRetAttr() const {
   if (!isa<PointerType>(getType())) return false;
-  if (this != getParent()->arg_begin())
-    return false; // StructRet param must be first param
+  if (this != getParent()->arg_begin()) return false; // StructRet param must be first param
   return getParent()->paramHasAttr(1, ParamAttr::StructRet);
 }
 
@@ -240,12 +239,6 @@ void Function::setDoesNotThrow(bool doesNotThrow) {
   setParamAttrs(PAL);
 }
 
-void Function::addParamAttr(unsigned i, ParameterAttributes attr) {
-  PAListPtr PAL = getParamAttrs();
-  PAL = PAL.addAttr(i, attr);
-  setParamAttrs(PAL);
-}
-
 // Maintain the collector name for each function in an on-the-side table. This
 // saves allocating an additional word in Function for programs which do not use
 // GC (i.e., most programs) at the cost of increased overhead for clients which
@@ -282,18 +275,6 @@ void Function::clearCollector() {
       }
     }
   }
-}
-
-/// copyAttributesFrom - copy all additional attributes (those not needed to
-/// create a Function) from the Function Src to this one.
-void Function::copyAttributesFrom(const GlobalValue *Src) {
-  assert(isa<Function>(Src) && "Expected a Function!");
-  GlobalValue::copyAttributesFrom(Src);
-  const Function *SrcF = cast<Function>(Src);
-  setCallingConv(SrcF->getCallingConv());
-  setParamAttrs(SrcF->getParamAttrs());
-  if (SrcF->hasCollector())
-    setCollector(SrcF->getCollector());
 }
 
 /// getIntrinsicID - This method returns the ID number of the specified
@@ -336,7 +317,7 @@ std::string Intrinsic::getName(ID id, const Type **Tys, unsigned numTys) {
   std::string Result(Table[id]);
   for (unsigned i = 0; i < numTys; ++i) 
     if (Tys[i])
-      Result += "." + MVT::getMVT(Tys[i]).getMVTString();
+      Result += "." + MVT::getValueTypeString(MVT::getValueType(Tys[i]));
   return Result;
 }
 

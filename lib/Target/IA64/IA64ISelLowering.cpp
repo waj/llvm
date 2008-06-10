@@ -26,108 +26,101 @@ using namespace llvm;
 IA64TargetLowering::IA64TargetLowering(TargetMachine &TM)
   : TargetLowering(TM) {
  
-  // register class for general registers
-  addRegisterClass(MVT::i64, IA64::GRRegisterClass);
+      // register class for general registers
+      addRegisterClass(MVT::i64, IA64::GRRegisterClass);
 
-  // register class for FP registers
-  addRegisterClass(MVT::f64, IA64::FPRegisterClass);
+      // register class for FP registers
+      addRegisterClass(MVT::f64, IA64::FPRegisterClass);
 
-  // register class for predicate registers
-  addRegisterClass(MVT::i1, IA64::PRRegisterClass);
+      // register class for predicate registers
+      addRegisterClass(MVT::i1, IA64::PRRegisterClass);
 
-  setLoadXAction(ISD::EXTLOAD          , MVT::i1   , Promote);
+      setLoadXAction(ISD::EXTLOAD          , MVT::i1   , Promote);
 
-  setLoadXAction(ISD::ZEXTLOAD         , MVT::i1   , Promote);
+      setLoadXAction(ISD::ZEXTLOAD         , MVT::i1   , Promote);
 
-  setLoadXAction(ISD::SEXTLOAD         , MVT::i1   , Promote);
-  setLoadXAction(ISD::SEXTLOAD         , MVT::i8   , Expand);
-  setLoadXAction(ISD::SEXTLOAD         , MVT::i16  , Expand);
-  setLoadXAction(ISD::SEXTLOAD         , MVT::i32  , Expand);
+      setLoadXAction(ISD::SEXTLOAD         , MVT::i1   , Promote);
+      setLoadXAction(ISD::SEXTLOAD         , MVT::i8   , Expand);
+      setLoadXAction(ISD::SEXTLOAD         , MVT::i16  , Expand);
+      setLoadXAction(ISD::SEXTLOAD         , MVT::i32  , Expand);
 
-  setOperationAction(ISD::BRIND            , MVT::Other, Expand);
-  setOperationAction(ISD::BR_JT            , MVT::Other, Expand);
-  setOperationAction(ISD::BR_CC            , MVT::Other, Expand);
-  setOperationAction(ISD::FP_ROUND_INREG   , MVT::f32  , Expand);
+      setOperationAction(ISD::BRIND            , MVT::Other, Expand);
+      setOperationAction(ISD::BR_JT            , MVT::Other, Expand);
+      setOperationAction(ISD::BR_CC            , MVT::Other, Expand);
+      setOperationAction(ISD::FP_ROUND_INREG   , MVT::f32  , Expand);
 
-  // ia64 uses SELECT not SELECT_CC
-  setOperationAction(ISD::SELECT_CC        , MVT::Other,  Expand);
-  
-  // We need to handle ISD::RET for void functions ourselves,
-  // so we get a chance to restore ar.pfs before adding a
-  // br.ret insn
-  setOperationAction(ISD::RET, MVT::Other, Custom);
+      // ia64 uses SELECT not SELECT_CC
+      setOperationAction(ISD::SELECT_CC        , MVT::Other,  Expand);
+      
+      // We need to handle ISD::RET for void functions ourselves,
+      // so we get a chance to restore ar.pfs before adding a
+      // br.ret insn
+      setOperationAction(ISD::RET, MVT::Other, Custom);
 
-  setShiftAmountType(MVT::i64);
+      setShiftAmountType(MVT::i64);
 
-  setOperationAction(ISD::FREM             , MVT::f32  , Expand);
-  setOperationAction(ISD::FREM             , MVT::f64  , Expand);
+      setOperationAction(ISD::FREM             , MVT::f32  , Expand);
+      setOperationAction(ISD::FREM             , MVT::f64  , Expand);
 
-  setOperationAction(ISD::UREM             , MVT::f32  , Expand);
-  setOperationAction(ISD::UREM             , MVT::f64  , Expand);
+      setOperationAction(ISD::UREM             , MVT::f32  , Expand);
+      setOperationAction(ISD::UREM             , MVT::f64  , Expand);
 
-  setOperationAction(ISD::MEMBARRIER       , MVT::Other, Expand);
+      setOperationAction(ISD::MEMBARRIER       , MVT::Other, Expand);
 
-  setOperationAction(ISD::SINT_TO_FP       , MVT::i1   , Promote);
-  setOperationAction(ISD::UINT_TO_FP       , MVT::i1   , Promote);
+      setOperationAction(ISD::SINT_TO_FP       , MVT::i1   , Promote);
+      setOperationAction(ISD::UINT_TO_FP       , MVT::i1   , Promote);
 
-  // We don't support sin/cos/sqrt/pow
-  setOperationAction(ISD::FSIN , MVT::f64, Expand);
-  setOperationAction(ISD::FCOS , MVT::f64, Expand);
-  setOperationAction(ISD::FSQRT, MVT::f64, Expand);
-  setOperationAction(ISD::FPOW , MVT::f64, Expand);
-  setOperationAction(ISD::FSIN , MVT::f32, Expand);
-  setOperationAction(ISD::FCOS , MVT::f32, Expand);
-  setOperationAction(ISD::FSQRT, MVT::f32, Expand);
-  setOperationAction(ISD::FPOW , MVT::f32, Expand);
+      // We don't support sin/cos/sqrt/pow
+      setOperationAction(ISD::FSIN , MVT::f64, Expand);
+      setOperationAction(ISD::FCOS , MVT::f64, Expand);
+      setOperationAction(ISD::FSQRT, MVT::f64, Expand);
+      setOperationAction(ISD::FPOW , MVT::f64, Expand);
+      setOperationAction(ISD::FSIN , MVT::f32, Expand);
+      setOperationAction(ISD::FCOS , MVT::f32, Expand);
+      setOperationAction(ISD::FSQRT, MVT::f32, Expand);
+      setOperationAction(ISD::FPOW , MVT::f32, Expand);
 
-  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1   , Expand);
-    
-  // FIXME: IA64 supports fcopysign natively!
-  setOperationAction(ISD::FCOPYSIGN, MVT::f64, Expand);
-  setOperationAction(ISD::FCOPYSIGN, MVT::f32, Expand);
-  
-  // We don't have line number support yet.
-  setOperationAction(ISD::LOCATION, MVT::Other, Expand);
-  setOperationAction(ISD::DEBUG_LOC, MVT::Other, Expand);
-  setOperationAction(ISD::LABEL, MVT::Other, Expand);
+      // FIXME: IA64 supports fcopysign natively!
+      setOperationAction(ISD::FCOPYSIGN, MVT::f64, Expand);
+      setOperationAction(ISD::FCOPYSIGN, MVT::f32, Expand);
+      
+      // We don't have line number support yet.
+      setOperationAction(ISD::LOCATION, MVT::Other, Expand);
+      setOperationAction(ISD::DEBUG_LOC, MVT::Other, Expand);
+      setOperationAction(ISD::LABEL, MVT::Other, Expand);
 
-  // IA64 has ctlz in the form of the 'fnorm' instruction.  The Legalizer 
-  // expansion for ctlz/cttz in terms of ctpop is much larger, but lower
-  // latency.
-  // FIXME: Custom lower CTLZ when compiling for size?
-  setOperationAction(ISD::CTLZ , MVT::i64  , Expand);
-  setOperationAction(ISD::CTTZ , MVT::i64  , Expand);
-  setOperationAction(ISD::ROTL , MVT::i64  , Expand);
-  setOperationAction(ISD::ROTR , MVT::i64  , Expand);
+      //IA64 has these, but they are not implemented
+      setOperationAction(ISD::CTTZ , MVT::i64  , Expand);
+      setOperationAction(ISD::CTLZ , MVT::i64  , Expand);
+      setOperationAction(ISD::ROTL , MVT::i64  , Expand);
+      setOperationAction(ISD::ROTR , MVT::i64  , Expand);
+      setOperationAction(ISD::BSWAP, MVT::i64  , Expand);  // mux @rev
 
-  // FIXME: IA64 has this, but is not implemented. should be mux @rev
-  setOperationAction(ISD::BSWAP, MVT::i64  , Expand);
+      // VASTART needs to be custom lowered to use the VarArgsFrameIndex
+      setOperationAction(ISD::VAARG             , MVT::Other, Custom);
+      setOperationAction(ISD::VASTART           , MVT::Other, Custom);
+      
+      // Use the default implementation.
+      setOperationAction(ISD::VACOPY            , MVT::Other, Expand);
+      setOperationAction(ISD::VAEND             , MVT::Other, Expand);
+      setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
+      setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
+      setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i64, Expand);
 
-  // VASTART needs to be custom lowered to use the VarArgsFrameIndex
-  setOperationAction(ISD::VAARG             , MVT::Other, Custom);
-  setOperationAction(ISD::VASTART           , MVT::Other, Custom);
-  
-  // Use the default implementation.
-  setOperationAction(ISD::VACOPY            , MVT::Other, Expand);
-  setOperationAction(ISD::VAEND             , MVT::Other, Expand);
-  setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
-  setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
-  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i64, Expand);
+      // Thread Local Storage
+      setOperationAction(ISD::GlobalTLSAddress, MVT::i64, Custom);
 
-  // Thread Local Storage
-  setOperationAction(ISD::GlobalTLSAddress, MVT::i64, Custom);
+      setStackPointerRegisterToSaveRestore(IA64::r12);
 
-  setStackPointerRegisterToSaveRestore(IA64::r12);
+      setJumpBufSize(704); // on ia64-linux, jmp_bufs are 704 bytes..
+      setJumpBufAlignment(16); // ...and must be 16-byte aligned
+      
+      computeRegisterProperties();
 
-  setJumpBufSize(704); // on ia64-linux, jmp_bufs are 704 bytes..
-  setJumpBufAlignment(16); // ...and must be 16-byte aligned
-  
-  computeRegisterProperties();
-
-  addLegalFPImmediate(APFloat(+0.0));
-  addLegalFPImmediate(APFloat(-0.0));
-  addLegalFPImmediate(APFloat(+1.0));
-  addLegalFPImmediate(APFloat(-1.0));
+      addLegalFPImmediate(APFloat(+0.0));
+      addLegalFPImmediate(APFloat(-0.0));
+      addLegalFPImmediate(APFloat(+1.0));
+      addLegalFPImmediate(APFloat(-1.0));
 }
 
 const char *IA64TargetLowering::getTargetNodeName(unsigned Opcode) const {
@@ -139,7 +132,8 @@ const char *IA64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   }
 }
   
-MVT IA64TargetLowering::getSetCCResultType(const SDOperand &) const {
+MVT::ValueType
+IA64TargetLowering::getSetCCResultType(const SDOperand &) const {
   return MVT::i1;
 }
 
@@ -180,7 +174,7 @@ IA64TargetLowering::LowerArguments(Function &F, SelectionDAG &DAG) {
       SDOperand newroot, argt;
       if(count < 8) { // need to fix this logic? maybe.
 
-        switch (getValueType(I->getType()).getSimpleVT()) {
+        switch (getValueType(I->getType())) {
           default:
             assert(0 && "ERROR in LowerArgs: can't lower this type of arg.\n"); 
           case MVT::f32:
@@ -285,7 +279,7 @@ IA64TargetLowering::LowerArguments(Function &F, SelectionDAG &DAG) {
 
   // Finally, inform the code generator which regs we return values in.
   // (see the ISD::RET: case in the instruction selector)
-  switch (getValueType(F.getReturnType()).getSimpleVT()) {
+  switch (getValueType(F.getReturnType())) {
   default: assert(0 && "i have no idea where to return this type!");
   case MVT::isVoid: break;
   case MVT::i1:
@@ -346,10 +340,10 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy,
   for (unsigned i = 0, e = Args.size(); i != e; ++i)
     {
       SDOperand Val = Args[i].Node;
-      MVT ObjectVT = Val.getValueType();
+      MVT::ValueType ObjectVT = Val.getValueType();
       SDOperand ValToStore(0, 0), ValToConvert(0, 0);
       unsigned ObjSize=8;
-      switch (ObjectVT.getSimpleVT()) {
+      switch (ObjectVT) {
       default: assert(0 && "unexpected argument type!");
       case MVT::i1:
       case MVT::i8:
@@ -441,7 +435,7 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy,
   // flagged for now, but shouldn't have to be (TODO)
   unsigned seenConverts = 0;
   for (unsigned i = 0, e = RegValuesToPass.size(); i != e; ++i) {
-    if(RegValuesToPass[i].getValueType().isFloatingPoint()) {
+    if(MVT::isFloatingPoint(RegValuesToPass[i].getValueType())) {
       Chain = DAG.getCopyToReg(Chain, IntArgRegs[i], Converts[seenConverts++], 
                                InFlag);
       InFlag = Chain.getValue(1);
@@ -452,7 +446,7 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy,
   unsigned usedFPArgs = 0;
   for (unsigned i = 0, e = RegValuesToPass.size(); i != e; ++i) {
     Chain = DAG.getCopyToReg(Chain,
-      RegValuesToPass[i].getValueType().isInteger() ?
+      MVT::isInteger(RegValuesToPass[i].getValueType()) ?
         IntArgRegs[i] : FPArgRegs[usedFPArgs++], RegValuesToPass[i], InFlag);
     InFlag = Chain.getValue(1);
   }
@@ -465,7 +459,7 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy,
   }
 */
 
-  std::vector<MVT> NodeTys;
+  std::vector<MVT::ValueType> NodeTys;
   std::vector<SDOperand> CallOperands;
   NodeTys.push_back(MVT::Other);   // Returns a chain
   NodeTys.push_back(MVT::Flag);    // Returns a flag for retval copy to use.
@@ -491,14 +485,14 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy,
   Chain = DAG.getCopyToReg(Chain, IA64::rp, RPBeforeCall, InFlag);
   InFlag = Chain.getValue(1);
  
-  std::vector<MVT> RetVals;
+  std::vector<MVT::ValueType> RetVals;
   RetVals.push_back(MVT::Other);
   RetVals.push_back(MVT::Flag);
  
-  MVT RetTyVT = getValueType(RetTy);
+  MVT::ValueType RetTyVT = getValueType(RetTy);
   SDOperand RetVal;
   if (RetTyVT != MVT::isVoid) {
-    switch (RetTyVT.getSimpleVT()) {
+    switch (RetTyVT) {
     default: assert(0 && "Unknown value type to return!");
     case MVT::i1: { // bools are just like other integers (returned in r8)
       // we *could* fall through to the truncate below, but this saves a
@@ -534,8 +528,7 @@ IA64TargetLowering::LowerCallTo(SDOperand Chain, const Type *RetTy,
     case MVT::f32:
       RetVal = DAG.getCopyFromReg(Chain, IA64::F8, MVT::f64, InFlag);
       Chain = RetVal.getValue(1);
-      RetVal = DAG.getNode(ISD::FP_ROUND, MVT::f32, RetVal,
-                           DAG.getIntPtrConstant(0));
+      RetVal = DAG.getNode(ISD::TRUNCATE, MVT::f32, RetVal);
       break;
     case MVT::f64:
       RetVal = DAG.getCopyFromReg(Chain, IA64::F8, MVT::f64, InFlag);
@@ -572,8 +565,8 @@ LowerOperation(SDOperand Op, SelectionDAG &DAG) {
       return DAG.getNode(IA64ISD::RET_FLAG, MVT::Other, AR_PFSVal);
     case 3: {
       // Copy the result into the output register & restore ar.pfs
-      MVT ArgVT = Op.getOperand(1).getValueType();
-      unsigned ArgReg = ArgVT.isInteger() ? IA64::r8 : IA64::F8;
+      MVT::ValueType ArgVT = Op.getOperand(1).getValueType();
+      unsigned ArgReg = MVT::isInteger(ArgVT) ? IA64::r8 : IA64::F8;
 
       AR_PFSVal = DAG.getCopyFromReg(Op.getOperand(0), VirtGPR, MVT::i64);
       Copy = DAG.getCopyToReg(AR_PFSVal.getValue(1), ArgReg, Op.getOperand(1),
@@ -587,13 +580,13 @@ LowerOperation(SDOperand Op, SelectionDAG &DAG) {
     return SDOperand();
   }
   case ISD::VAARG: {
-    MVT VT = getPointerTy();
+    MVT::ValueType VT = getPointerTy();
     const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
     SDOperand VAList = DAG.getLoad(VT, Op.getOperand(0), Op.getOperand(1), 
                                    SV, 0);
     // Increment the pointer, VAList, to the next vaarg
     SDOperand VAIncr = DAG.getNode(ISD::ADD, VT, VAList, 
-                                   DAG.getConstant(VT.getSizeInBits()/8,
+                                   DAG.getConstant(MVT::getSizeInBits(VT)/8, 
                                                    VT));
     // Store the incremented VAList to the legalized pointer
     VAIncr = DAG.getStore(VAList.getValue(1), VAIncr,

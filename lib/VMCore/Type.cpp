@@ -396,24 +396,16 @@ bool StructType::indexValid(const Value *V) const {
   // Structure indexes require 32-bit integer constants.
   if (V->getType() == Type::Int32Ty)
     if (const ConstantInt *CU = dyn_cast<ConstantInt>(V))
-      return indexValid(CU->getZExtValue());
+      return CU->getZExtValue() < NumContainedTys;
   return false;
-}
-
-bool StructType::indexValid(unsigned V) const {
-  return V < NumContainedTys;
 }
 
 // getTypeAtIndex - Given an index value into the type, return the type of the
 // element.  For a structure type, this must be a constant value...
 //
 const Type *StructType::getTypeAtIndex(const Value *V) const {
+  assert(indexValid(V) && "Invalid structure index!");
   unsigned Idx = (unsigned)cast<ConstantInt>(V)->getZExtValue();
-  return getTypeAtIndex(Idx);
-}
-
-const Type *StructType::getTypeAtIndex(unsigned Idx) const {
-  assert(indexValid(Idx) && "Invalid structure index!");
   return ContainedTys[Idx];
 }
 
@@ -558,7 +550,6 @@ void DerivedType::dropAllTypeUses() {
 }
 
 
-namespace {
 
 /// TypePromotionGraph and graph traits - this is designed to allow us to do
 /// efficient SCC processing of type graphs.  This is the exact same as
@@ -568,8 +559,6 @@ struct TypePromotionGraph {
   Type *Ty;
   TypePromotionGraph(Type *T) : Ty(T) {}
 };
-
-}
 
 namespace llvm {
   template <> struct GraphTraits<TypePromotionGraph> {

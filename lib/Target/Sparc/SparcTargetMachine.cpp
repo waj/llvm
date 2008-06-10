@@ -18,8 +18,10 @@
 #include "llvm/Target/TargetMachineRegistry.h"
 using namespace llvm;
 
-// Register the target.
-static RegisterTarget<SparcTargetMachine> X("sparc", "  SPARC");
+namespace {
+  // Register the target.
+  RegisterTarget<SparcTargetMachine> X("sparc", "  SPARC");
+}
 
 const TargetAsmInfo *SparcTargetMachine::createTargetAsmInfo() const {
   return new SparcTargetAsmInfo(*this);

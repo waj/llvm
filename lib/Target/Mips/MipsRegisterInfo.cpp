@@ -147,7 +147,7 @@ getReservedRegs(const MachineFunction &MF) const
 //
 //  0                 ----------
 //  4                 Args to pass
-//  .                 saved $GP  (used in PIC)
+//  .                 saved $GP  (used in PIC - not supported yet)
 //  .                 Local Area
 //  .                 saved "Callee Saved" Registers
 //  .                 saved FP
@@ -369,7 +369,7 @@ emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const
   // lw  $ra, stack_loc($sp)
   if (MFI->hasCalls()) { 
     BuildMI(MBB, MBBI, TII.get(Mips::LW))
-      .addReg(Mips::RA).addImm(RAOffset).addReg(Mips::SP);
+        .addReg(Mips::RA).addImm(RAOffset).addReg(Mips::SP);
   }
 
   // adjust stack  : insert addi sp, sp, (imm)

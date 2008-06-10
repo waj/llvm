@@ -559,10 +559,6 @@ def rotNeg7imm_i16 : Operand<i16> {
   let PrintMethod = "printROTNeg7Imm";
 }
 
-def rotNeg7imm_i8 : Operand<i8> {
-  let PrintMethod = "printROTNeg7Imm";
-}
-
 def target : Operand<OtherVT> {
   let PrintMethod = "printBranchOperand";
 }

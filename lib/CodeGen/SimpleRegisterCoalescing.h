@@ -83,6 +83,7 @@ namespace llvm {
     const TargetRegisterInfo* tri_;
     const TargetInstrInfo* tii_;
     LiveIntervals *li_;
+    LiveVariables *lv_;
     const MachineLoopInfo* loopInfo;
     
     BitVector allocatableRegs_;

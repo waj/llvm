@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/BasicBlock.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
@@ -91,13 +92,6 @@ void CallSite::setDoesNotThrow(bool doesNotThrow) {
     cast<InvokeInst>(I)->setDoesNotThrow(doesNotThrow);
 }
 
-bool CallSite::hasArgument(const Value *Arg) const {
-  for (arg_iterator AI = this->arg_begin(), E = this->arg_end(); AI != E; ++AI)
-    if (AI->get() == Arg)
-      return true;
-  return false;
-}
-
 //===----------------------------------------------------------------------===//
 //                            TerminatorInst Class
 //===----------------------------------------------------------------------===//
@@ -106,13 +100,10 @@ bool CallSite::hasArgument(const Value *Arg) const {
 TerminatorInst::~TerminatorInst() {
 }
 
-//===----------------------------------------------------------------------===//
-//                           UnaryInstruction Class
-//===----------------------------------------------------------------------===//
-
 // Out of line virtual method, so the vtable, etc has a home.
 UnaryInstruction::~UnaryInstruction() {
 }
+
 
 //===----------------------------------------------------------------------===//
 //                               PHINode Class
@@ -120,17 +111,17 @@ UnaryInstruction::~UnaryInstruction() {
 
 PHINode::PHINode(const PHINode &PN)
   : Instruction(PN.getType(), Instruction::PHI,
-                allocHungoffUses(PN.getNumOperands()), PN.getNumOperands()),
+                new Use[PN.getNumOperands()], PN.getNumOperands()),
     ReservedSpace(PN.getNumOperands()) {
   Use *OL = OperandList;
   for (unsigned i = 0, e = PN.getNumOperands(); i != e; i+=2) {
-    OL[i] = PN.getOperand(i);
-    OL[i+1] = PN.getOperand(i+1);
+    OL[i].init(PN.getOperand(i), this);
+    OL[i+1].init(PN.getOperand(i+1), this);
   }
 }
 
 PHINode::~PHINode() {
-  dropHungoffUses(OperandList);
+  delete [] OperandList;
 }
 
 // removeIncomingValue - Remove an incoming value.  This is useful if a
@@ -173,9 +164,8 @@ Value *PHINode::removeIncomingValue(unsigned Idx, bool DeletePHIIfEmpty) {
 ///   3. If NumOps == NumOperands, trim the reserved space.
 ///
 void PHINode::resizeOperands(unsigned NumOps) {
-  unsigned e = getNumOperands();
   if (NumOps == 0) {
-    NumOps = e*3/2;
+    NumOps = (getNumOperands())*3/2;
     if (NumOps < 4) NumOps = 4;      // 4 op PHI nodes are VERY common.
   } else if (NumOps*2 > NumOperands) {
     // No resize needed.
@@ -187,13 +177,14 @@ void PHINode::resizeOperands(unsigned NumOps) {
   }
 
   ReservedSpace = NumOps;
+  Use *NewOps = new Use[NumOps];
   Use *OldOps = OperandList;
-  Use *NewOps = allocHungoffUses(NumOps);
-  for (unsigned i = 0; i != e; ++i) {
-      NewOps[i] = OldOps[i];
+  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
+      NewOps[i].init(OldOps[i], this);
+      OldOps[i].set(0);
   }
+  delete [] OldOps;
   OperandList = NewOps;
-  if (OldOps) Use::zap(OldOps, OldOps + e, true);
 }
 
 /// hasConstantValue - If the specified PHI node always merges together the same
@@ -250,12 +241,13 @@ Value *PHINode::hasConstantValue(bool AllowNonDominatingInstruction) const {
 //===----------------------------------------------------------------------===//
 
 CallInst::~CallInst() {
+  delete [] OperandList;
 }
 
 void CallInst::init(Value *Func, Value* const *Params, unsigned NumParams) {
-  assert(NumOperands == NumParams+1 && "NumOperands not set up?");
-  Use *OL = OperandList;
-  OL[0] = Func;
+  NumOperands = NumParams+1;
+  Use *OL = OperandList = new Use[NumParams+1];
+  OL[0].init(Func, this);
 
   const FunctionType *FTy =
     cast<FunctionType>(cast<PointerType>(Func->getType())->getElementType());
@@ -268,16 +260,16 @@ void CallInst::init(Value *Func, Value* const *Params, unsigned NumParams) {
     assert((i >= FTy->getNumParams() || 
             FTy->getParamType(i) == Params[i]->getType()) &&
            "Calling a function with a bad signature!");
-    OL[i+1] = Params[i];
+    OL[i+1].init(Params[i], this);
   }
 }
 
 void CallInst::init(Value *Func, Value *Actual1, Value *Actual2) {
-  assert(NumOperands == 3 && "NumOperands not set up?");
-  Use *OL = OperandList;
-  OL[0] = Func;
-  OL[1] = Actual1;
-  OL[2] = Actual2;
+  NumOperands = 3;
+  Use *OL = OperandList = new Use[3];
+  OL[0].init(Func, this);
+  OL[1].init(Actual1, this);
+  OL[2].init(Actual2, this);
 
   const FunctionType *FTy =
     cast<FunctionType>(cast<PointerType>(Func->getType())->getElementType());
@@ -295,10 +287,10 @@ void CallInst::init(Value *Func, Value *Actual1, Value *Actual2) {
 }
 
 void CallInst::init(Value *Func, Value *Actual) {
-  assert(NumOperands == 2 && "NumOperands not set up?");
-  Use *OL = OperandList;
-  OL[0] = Func;
-  OL[1] = Actual;
+  NumOperands = 2;
+  Use *OL = OperandList = new Use[2];
+  OL[0].init(Func, this);
+  OL[1].init(Actual, this);
 
   const FunctionType *FTy =
     cast<FunctionType>(cast<PointerType>(Func->getType())->getElementType());
@@ -313,9 +305,9 @@ void CallInst::init(Value *Func, Value *Actual) {
 }
 
 void CallInst::init(Value *Func) {
-  assert(NumOperands == 1 && "NumOperands not set up?");
-  Use *OL = OperandList;
-  OL[0] = Func;
+  NumOperands = 1;
+  Use *OL = OperandList = new Use[1];
+  OL[0].init(Func, this);
 
   const FunctionType *FTy =
     cast<FunctionType>(cast<PointerType>(Func->getType())->getElementType());
@@ -328,9 +320,7 @@ CallInst::CallInst(Value *Func, Value* Actual, const std::string &Name,
                    Instruction *InsertBefore)
   : Instruction(cast<FunctionType>(cast<PointerType>(Func->getType())
                                    ->getElementType())->getReturnType(),
-                Instruction::Call,
-                OperandTraits<CallInst>::op_end(this) - 2,
-                2, InsertBefore) {
+                Instruction::Call, 0, 0, InsertBefore) {
   init(Func, Actual);
   setName(Name);
 }
@@ -339,9 +329,7 @@ CallInst::CallInst(Value *Func, Value* Actual, const std::string &Name,
                    BasicBlock  *InsertAtEnd)
   : Instruction(cast<FunctionType>(cast<PointerType>(Func->getType())
                                    ->getElementType())->getReturnType(),
-                Instruction::Call,
-                OperandTraits<CallInst>::op_end(this) - 2,
-                2, InsertAtEnd) {
+                Instruction::Call, 0, 0, InsertAtEnd) {
   init(Func, Actual);
   setName(Name);
 }
@@ -349,9 +337,7 @@ CallInst::CallInst(Value *Func, const std::string &Name,
                    Instruction *InsertBefore)
   : Instruction(cast<FunctionType>(cast<PointerType>(Func->getType())
                                    ->getElementType())->getReturnType(),
-                Instruction::Call,
-                OperandTraits<CallInst>::op_end(this) - 1,
-                1, InsertBefore) {
+                Instruction::Call, 0, 0, InsertBefore) {
   init(Func);
   setName(Name);
 }
@@ -360,29 +346,20 @@ CallInst::CallInst(Value *Func, const std::string &Name,
                    BasicBlock *InsertAtEnd)
   : Instruction(cast<FunctionType>(cast<PointerType>(Func->getType())
                                    ->getElementType())->getReturnType(),
-                Instruction::Call,
-                OperandTraits<CallInst>::op_end(this) - 1,
-                1, InsertAtEnd) {
+                Instruction::Call, 0, 0, InsertAtEnd) {
   init(Func);
   setName(Name);
 }
 
 CallInst::CallInst(const CallInst &CI)
-  : Instruction(CI.getType(), Instruction::Call,
-                OperandTraits<CallInst>::op_end(this) - CI.getNumOperands(),
+  : Instruction(CI.getType(), Instruction::Call, new Use[CI.getNumOperands()],
                 CI.getNumOperands()) {
   setParamAttrs(CI.getParamAttrs());
   SubclassData = CI.SubclassData;
   Use *OL = OperandList;
   Use *InOL = CI.OperandList;
   for (unsigned i = 0, e = CI.getNumOperands(); i != e; ++i)
-    OL[i] = InOL[i];
-}
-
-void CallInst::addParamAttr(unsigned i, ParameterAttributes attr) {
-  PAListPtr PAL = getParamAttrs();
-  PAL = PAL.addAttr(i, attr);
-  setParamAttrs(PAL);
+    OL[i].init(InOL[i], this);
 }
 
 bool CallInst::paramHasAttr(unsigned i, ParameterAttributes attr) const {
@@ -407,13 +384,17 @@ void CallInst::setDoesNotThrow(bool doesNotThrow) {
 //                        InvokeInst Implementation
 //===----------------------------------------------------------------------===//
 
+InvokeInst::~InvokeInst() {
+  delete [] OperandList;
+}
+
 void InvokeInst::init(Value *Fn, BasicBlock *IfNormal, BasicBlock *IfException,
                       Value* const *Args, unsigned NumArgs) {
-  assert(NumOperands == 3+NumArgs && "NumOperands not set up?");
-  Use *OL = OperandList;
-  OL[0] = Fn;
-  OL[1] = IfNormal;
-  OL[2] = IfException;
+  NumOperands = 3+NumArgs;
+  Use *OL = OperandList = new Use[3+NumArgs];
+  OL[0].init(Fn, this);
+  OL[1].init(IfNormal, this);
+  OL[2].init(IfException, this);
   const FunctionType *FTy =
     cast<FunctionType>(cast<PointerType>(Fn->getType())->getElementType());
   FTy = FTy;  // silence warning.
@@ -427,20 +408,18 @@ void InvokeInst::init(Value *Fn, BasicBlock *IfNormal, BasicBlock *IfException,
             FTy->getParamType(i) == Args[i]->getType()) &&
            "Invoking a function with a bad signature!");
     
-    OL[i+3] = Args[i];
+    OL[i+3].init(Args[i], this);
   }
 }
 
 InvokeInst::InvokeInst(const InvokeInst &II)
   : TerminatorInst(II.getType(), Instruction::Invoke,
-                   OperandTraits<InvokeInst>::op_end(this)
-                   - II.getNumOperands(),
-                   II.getNumOperands()) {
+                   new Use[II.getNumOperands()], II.getNumOperands()) {
   setParamAttrs(II.getParamAttrs());
   SubclassData = II.SubclassData;
   Use *OL = OperandList, *InOL = II.OperandList;
   for (unsigned i = 0, e = II.getNumOperands(); i != e; ++i)
-    OL[i] = InOL[i];
+    OL[i].init(InOL[i], this);
 }
 
 BasicBlock *InvokeInst::getSuccessorV(unsigned idx) const {
@@ -461,12 +440,6 @@ bool InvokeInst::paramHasAttr(unsigned i, ParameterAttributes attr) const {
   return false;
 }
 
-void InvokeInst::addParamAttr(unsigned i, ParameterAttributes attr) {
-  PAListPtr PAL = getParamAttrs();
-  PAL = PAL.addAttr(i, attr);
-  setParamAttrs(PAL);
-}
-
 void InvokeInst::setDoesNotThrow(bool doesNotThrow) {
   PAListPtr PAL = getParamAttrs();
   if (doesNotThrow)
@@ -483,52 +456,45 @@ void InvokeInst::setDoesNotThrow(bool doesNotThrow) {
 
 ReturnInst::ReturnInst(const ReturnInst &RI)
   : TerminatorInst(Type::VoidTy, Instruction::Ret,
-                   OperandTraits<ReturnInst>::op_end(this)
-                   - RI.getNumOperands(),
-                   RI.getNumOperands()) {
+                   &RetVal, RI.getNumOperands()) {
   unsigned N = RI.getNumOperands();
-  if (N == 1)
-    Op<0>() = RI.Op<0>();
+  if (N == 1) 
+    RetVal.init(RI.RetVal, this);
   else if (N) {
-    Use *OL = OperandList;
+    Use *OL = OperandList = new Use[N];
     for (unsigned i = 0; i < N; ++i)
-      OL[i] = RI.getOperand(i);
+      OL[i].init(RI.getOperand(i), this);
   }
 }
 
 ReturnInst::ReturnInst(Value *retVal, Instruction *InsertBefore)
-  : TerminatorInst(Type::VoidTy, Instruction::Ret,
-                   OperandTraits<ReturnInst>::op_end(this) - (retVal != 0),
-                   retVal != 0, InsertBefore) {
+  : TerminatorInst(Type::VoidTy, Instruction::Ret, &RetVal, 0, InsertBefore) {
   if (retVal)
     init(&retVal, 1);
 }
 ReturnInst::ReturnInst(Value *retVal, BasicBlock *InsertAtEnd)
-  : TerminatorInst(Type::VoidTy, Instruction::Ret,
-                   OperandTraits<ReturnInst>::op_end(this) - (retVal != 0),
-                   retVal != 0, InsertAtEnd) {
+  : TerminatorInst(Type::VoidTy, Instruction::Ret, &RetVal, 0, InsertAtEnd) {
   if (retVal)
     init(&retVal, 1);
 }
 ReturnInst::ReturnInst(BasicBlock *InsertAtEnd)
-  : TerminatorInst(Type::VoidTy, Instruction::Ret,
-                   OperandTraits<ReturnInst>::op_end(this),
-                   0, InsertAtEnd) {
+  : TerminatorInst(Type::VoidTy, Instruction::Ret, &RetVal, 0, InsertAtEnd) {
 }
 
 ReturnInst::ReturnInst(Value * const* retVals, unsigned N,
                        Instruction *InsertBefore)
-  : TerminatorInst(Type::VoidTy, Instruction::Ret,
-                   OperandTraits<ReturnInst>::op_end(this) - N,
-                   N, InsertBefore) {
+  : TerminatorInst(Type::VoidTy, Instruction::Ret, &RetVal, N, InsertBefore) {
   if (N != 0)
     init(retVals, N);
 }
 ReturnInst::ReturnInst(Value * const* retVals, unsigned N,
                        BasicBlock *InsertAtEnd)
-  : TerminatorInst(Type::VoidTy, Instruction::Ret,
-                   OperandTraits<ReturnInst>::op_end(this) - N,
-                   N, InsertAtEnd) {
+  : TerminatorInst(Type::VoidTy, Instruction::Ret, &RetVal, N, InsertAtEnd) {
+  if (N != 0)
+    init(retVals, N);
+}
+ReturnInst::ReturnInst(Value * const* retVals, unsigned N)
+  : TerminatorInst(Type::VoidTy, Instruction::Ret, &RetVal, N) {
   if (N != 0)
     init(retVals, N);
 }
@@ -541,16 +507,16 @@ void ReturnInst::init(Value * const* retVals, unsigned N) {
     Value *V = *retVals;
     if (V->getType() == Type::VoidTy)
       return;
-    Op<0>() = V;
+    RetVal.init(V, this);
     return;
   }
 
-  Use *OL = OperandList;
+  Use *OL = OperandList = new Use[NumOperands];
   for (unsigned i = 0; i < NumOperands; ++i) {
     Value *V = *retVals++;
     assert(!isa<BasicBlock>(V) &&
            "Cannot return basic block.  Probably using the incorrect ctor");
-    OL[i] = V;
+    OL[i].init(V, this);
   }
 }
 
@@ -571,6 +537,8 @@ BasicBlock *ReturnInst::getSuccessorV(unsigned idx) const {
 }
 
 ReturnInst::~ReturnInst() {
+  if (NumOperands > 1)
+    delete [] OperandList;
 }
 
 //===----------------------------------------------------------------------===//
@@ -635,41 +603,33 @@ void BranchInst::AssertOK() {
 }
 
 BranchInst::BranchInst(BasicBlock *IfTrue, Instruction *InsertBefore)
-  : TerminatorInst(Type::VoidTy, Instruction::Br,
-                   OperandTraits<BranchInst>::op_end(this) - 1,
-                   1, InsertBefore) {
+  : TerminatorInst(Type::VoidTy, Instruction::Br, Ops, 1, InsertBefore) {
   assert(IfTrue != 0 && "Branch destination may not be null!");
-  Op<0>() = IfTrue;
+  Ops[0].init(reinterpret_cast<Value*>(IfTrue), this);
 }
 BranchInst::BranchInst(BasicBlock *IfTrue, BasicBlock *IfFalse, Value *Cond,
                        Instruction *InsertBefore)
-  : TerminatorInst(Type::VoidTy, Instruction::Br,
-                   OperandTraits<BranchInst>::op_end(this) - 3,
-                   3, InsertBefore) {
-  Op<0>() = IfTrue;
-  Op<1>() = IfFalse;
-  Op<2>() = Cond;
+: TerminatorInst(Type::VoidTy, Instruction::Br, Ops, 3, InsertBefore) {
+  Ops[0].init(reinterpret_cast<Value*>(IfTrue), this);
+  Ops[1].init(reinterpret_cast<Value*>(IfFalse), this);
+  Ops[2].init(Cond, this);
 #ifndef NDEBUG
   AssertOK();
 #endif
 }
 
 BranchInst::BranchInst(BasicBlock *IfTrue, BasicBlock *InsertAtEnd)
-  : TerminatorInst(Type::VoidTy, Instruction::Br,
-                   OperandTraits<BranchInst>::op_end(this) - 1,
-                   1, InsertAtEnd) {
+  : TerminatorInst(Type::VoidTy, Instruction::Br, Ops, 1, InsertAtEnd) {
   assert(IfTrue != 0 && "Branch destination may not be null!");
-  Op<0>() = IfTrue;
+  Ops[0].init(reinterpret_cast<Value*>(IfTrue), this);
 }
 
 BranchInst::BranchInst(BasicBlock *IfTrue, BasicBlock *IfFalse, Value *Cond,
            BasicBlock *InsertAtEnd)
-  : TerminatorInst(Type::VoidTy, Instruction::Br,
-                   OperandTraits<BranchInst>::op_end(this) - 3,
-                   3, InsertAtEnd) {
-  Op<0>() = IfTrue;
-  Op<1>() = IfFalse;
-  Op<2>() = Cond;
+  : TerminatorInst(Type::VoidTy, Instruction::Br, Ops, 3, InsertAtEnd) {
+  Ops[0].init(reinterpret_cast<Value*>(IfTrue), this);
+  Ops[1].init(reinterpret_cast<Value*>(IfFalse), this);
+  Ops[2].init(Cond, this);
 #ifndef NDEBUG
   AssertOK();
 #endif
@@ -677,14 +637,12 @@ BranchInst::BranchInst(BasicBlock *IfTrue, BasicBlock *IfFalse, Value *Cond,
 
 
 BranchInst::BranchInst(const BranchInst &BI) :
-  TerminatorInst(Type::VoidTy, Instruction::Br,
-                 OperandTraits<BranchInst>::op_end(this) - BI.getNumOperands(),
-                 BI.getNumOperands()) {
-  OperandList[0] = BI.getOperand(0);
+  TerminatorInst(Type::VoidTy, Instruction::Br, Ops, BI.getNumOperands()) {
+  OperandList[0].init(BI.getOperand(0), this);
   if (BI.getNumOperands() != 1) {
     assert(BI.getNumOperands() == 3 && "BR can have 1 or 3 operands!");
-    OperandList[1] = BI.getOperand(1);
-    OperandList[2] = BI.getOperand(2);
+    OperandList[1].init(BI.getOperand(1), this);
+    OperandList[2].init(BI.getOperand(2), this);
   }
 }
 
@@ -911,24 +869,18 @@ void StoreInst::AssertOK() {
 
 
 StoreInst::StoreInst(Value *val, Value *addr, Instruction *InsertBefore)
-  : Instruction(Type::VoidTy, Store,
-                OperandTraits<StoreInst>::op_begin(this),
-                OperandTraits<StoreInst>::operands(this),
-                InsertBefore) {
-  Op<0>() = val;
-  Op<1>() = addr;
+  : Instruction(Type::VoidTy, Store, Ops, 2, InsertBefore) {
+  Ops[0].init(val, this);
+  Ops[1].init(addr, this);
   setVolatile(false);
   setAlignment(0);
   AssertOK();
 }
 
 StoreInst::StoreInst(Value *val, Value *addr, BasicBlock *InsertAtEnd)
-  : Instruction(Type::VoidTy, Store,
-                OperandTraits<StoreInst>::op_begin(this),
-                OperandTraits<StoreInst>::operands(this),
-                InsertAtEnd) {
-  Op<0>() = val;
-  Op<1>() = addr;
+  : Instruction(Type::VoidTy, Store, Ops, 2, InsertAtEnd) {
+  Ops[0].init(val, this);
+  Ops[1].init(addr, this);
   setVolatile(false);
   setAlignment(0);
   AssertOK();
@@ -936,12 +888,9 @@ StoreInst::StoreInst(Value *val, Value *addr, BasicBlock *InsertAtEnd)
 
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
                      Instruction *InsertBefore)
-  : Instruction(Type::VoidTy, Store,
-                OperandTraits<StoreInst>::op_begin(this),
-                OperandTraits<StoreInst>::operands(this),
-                InsertBefore) {
-  Op<0>() = val;
-  Op<1>() = addr;
+  : Instruction(Type::VoidTy, Store, Ops, 2, InsertBefore) {
+  Ops[0].init(val, this);
+  Ops[1].init(addr, this);
   setVolatile(isVolatile);
   setAlignment(0);
   AssertOK();
@@ -949,12 +898,9 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
 
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
                      unsigned Align, Instruction *InsertBefore)
-  : Instruction(Type::VoidTy, Store,
-                OperandTraits<StoreInst>::op_begin(this),
-                OperandTraits<StoreInst>::operands(this),
-                InsertBefore) {
-  Op<0>() = val;
-  Op<1>() = addr;
+  : Instruction(Type::VoidTy, Store, Ops, 2, InsertBefore) {
+  Ops[0].init(val, this);
+  Ops[1].init(addr, this);
   setVolatile(isVolatile);
   setAlignment(Align);
   AssertOK();
@@ -962,12 +908,9 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
 
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
                      unsigned Align, BasicBlock *InsertAtEnd)
-  : Instruction(Type::VoidTy, Store,
-                OperandTraits<StoreInst>::op_begin(this),
-                OperandTraits<StoreInst>::operands(this),
-                InsertAtEnd) {
-  Op<0>() = val;
-  Op<1>() = addr;
+  : Instruction(Type::VoidTy, Store, Ops, 2, InsertAtEnd) {
+  Ops[0].init(val, this);
+  Ops[1].init(addr, this);
   setVolatile(isVolatile);
   setAlignment(Align);
   AssertOK();
@@ -975,12 +918,9 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
 
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
                      BasicBlock *InsertAtEnd)
-  : Instruction(Type::VoidTy, Store,
-                OperandTraits<StoreInst>::op_begin(this),
-                OperandTraits<StoreInst>::operands(this),
-                InsertAtEnd) {
-  Op<0>() = val;
-  Op<1>() = addr;
+  : Instruction(Type::VoidTy, Store, Ops, 2, InsertAtEnd) {
+  Ops[0].init(val, this);
+  Ops[1].init(addr, this);
   setVolatile(isVolatile);
   setAlignment(0);
   AssertOK();
@@ -999,56 +939,42 @@ static unsigned retrieveAddrSpace(const Value *Val) {
   return cast<PointerType>(Val->getType())->getAddressSpace();
 }
 
-void GetElementPtrInst::init(Value *Ptr, Value* const *Idx, unsigned NumIdx,
-			     const std::string &Name) {
-  assert(NumOperands == 1+NumIdx && "NumOperands not initialized?");
-  Use *OL = OperandList;
-  OL[0] = Ptr;
+void GetElementPtrInst::init(Value *Ptr, Value* const *Idx, unsigned NumIdx) {
+  NumOperands = 1+NumIdx;
+  Use *OL = OperandList = new Use[NumOperands];
+  OL[0].init(Ptr, this);
 
   for (unsigned i = 0; i != NumIdx; ++i)
-    OL[i+1] = Idx[i];
-
-  setName(Name);
+    OL[i+1].init(Idx[i], this);
 }
 
-void GetElementPtrInst::init(Value *Ptr, Value *Idx, const std::string &Name) {
-  assert(NumOperands == 2 && "NumOperands not initialized?");
-  Use *OL = OperandList;
-  OL[0] = Ptr;
-  OL[1] = Idx;
-
-  setName(Name);
-}
-
-GetElementPtrInst::GetElementPtrInst(const GetElementPtrInst &GEPI)
-  : Instruction(GEPI.getType(), GetElementPtr,
-                OperandTraits<GetElementPtrInst>::op_end(this)
-                - GEPI.getNumOperands(),
-                GEPI.getNumOperands()) {
-  Use *OL = OperandList;
-  Use *GEPIOL = GEPI.OperandList;
-  for (unsigned i = 0, E = NumOperands; i != E; ++i)
-    OL[i] = GEPIOL[i];
+void GetElementPtrInst::init(Value *Ptr, Value *Idx) {
+  NumOperands = 2;
+  Use *OL = OperandList = new Use[2];
+  OL[0].init(Ptr, this);
+  OL[1].init(Idx, this);
 }
 
 GetElementPtrInst::GetElementPtrInst(Value *Ptr, Value *Idx,
                                      const std::string &Name, Instruction *InBe)
   : Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),Idx)),
                                  retrieveAddrSpace(Ptr)),
-                GetElementPtr,
-                OperandTraits<GetElementPtrInst>::op_end(this) - 2,
-                2, InBe) {
-  init(Ptr, Idx, Name);
+                GetElementPtr, 0, 0, InBe) {
+  init(Ptr, Idx);
+  setName(Name);
 }
 
 GetElementPtrInst::GetElementPtrInst(Value *Ptr, Value *Idx,
                                      const std::string &Name, BasicBlock *IAE)
   : Instruction(PointerType::get(checkType(getIndexedType(Ptr->getType(),Idx)),
                                  retrieveAddrSpace(Ptr)),
-                GetElementPtr,
-                OperandTraits<GetElementPtrInst>::op_end(this) - 2,
-                2, IAE) {
-  init(Ptr, Idx, Name);
+                GetElementPtr, 0, 0, IAE) {
+  init(Ptr, Idx);
+  setName(Name);
+}
+
+GetElementPtrInst::~GetElementPtrInst() {
+  delete[] OperandList;
 }
 
 // getIndexedType - Returns the type of the element that would be loaded with
@@ -1059,31 +985,41 @@ GetElementPtrInst::GetElementPtrInst(Value *Ptr, Value *Idx,
 //
 const Type* GetElementPtrInst::getIndexedType(const Type *Ptr,
                                               Value* const *Idxs,
-                                              unsigned NumIdx) {
-  const PointerType *PTy = dyn_cast<PointerType>(Ptr);
-  if (!PTy) return 0;   // Type isn't a pointer type!
-  const Type *Agg = PTy->getElementType();
+                                              unsigned NumIdx,
+                                              bool AllowCompositeLeaf) {
+  if (!isa<PointerType>(Ptr)) return 0;   // Type isn't a pointer type!
 
   // Handle the special case of the empty set index set...
-  if (NumIdx == 0)
-    return Agg;
+  if (NumIdx == 0) {
+    if (AllowCompositeLeaf ||
+        cast<PointerType>(Ptr)->getElementType()->isFirstClassType())
+      return cast<PointerType>(Ptr)->getElementType();
+    else
+      return 0;
+  }
 
-  unsigned CurIdx = 1;
-  for (; CurIdx != NumIdx; ++CurIdx) {
-    const CompositeType *CT = dyn_cast<CompositeType>(Agg);
-    if (!CT || isa<PointerType>(CT)) return 0;
-    Value *Index = Idxs[CurIdx];
+  unsigned CurIdx = 0;
+  while (const CompositeType *CT = dyn_cast<CompositeType>(Ptr)) {
+    if (NumIdx == CurIdx) {
+      if (AllowCompositeLeaf || CT->isFirstClassType()) return Ptr;
+      return 0;   // Can't load a whole structure or array!?!?
+    }
+
+    Value *Index = Idxs[CurIdx++];
+    if (isa<PointerType>(CT) && CurIdx != 1)
+      return 0;  // Can only index into pointer types at the first index!
     if (!CT->indexValid(Index)) return 0;
-    Agg = CT->getTypeAtIndex(Index);
+    Ptr = CT->getTypeAtIndex(Index);
 
     // If the new type forwards to another type, then it is in the middle
     // of being refined to another type (and hence, may have dropped all
     // references to what it was using before).  So, use the new forwarded
     // type.
-    if (const Type *Ty = Agg->getForwardedType())
-      Agg = Ty;
+    if (const Type * Ty = Ptr->getForwardedType()) {
+      Ptr = Ty;
+    }
   }
-  return CurIdx == NumIdx ? Agg : 0;
+  return CurIdx == NumIdx ? Ptr : 0;
 }
 
 const Type* GetElementPtrInst::getIndexedType(const Type *Ptr, Value *Idx) {
@@ -1131,13 +1067,11 @@ ExtractElementInst::ExtractElementInst(Value *Val, Value *Index,
                                        const std::string &Name,
                                        Instruction *InsertBef)
   : Instruction(cast<VectorType>(Val->getType())->getElementType(),
-                ExtractElement,
-                OperandTraits<ExtractElementInst>::op_begin(this),
-                2, InsertBef) {
+                ExtractElement, Ops, 2, InsertBef) {
   assert(isValidOperands(Val, Index) &&
          "Invalid extractelement instruction operands!");
-  Op<0>() = Val;
-  Op<1>() = Index;
+  Ops[0].init(Val, this);
+  Ops[1].init(Index, this);
   setName(Name);
 }
 
@@ -1145,14 +1079,12 @@ ExtractElementInst::ExtractElementInst(Value *Val, unsigned IndexV,
                                        const std::string &Name,
                                        Instruction *InsertBef)
   : Instruction(cast<VectorType>(Val->getType())->getElementType(),
-                ExtractElement,
-                OperandTraits<ExtractElementInst>::op_begin(this),
-                2, InsertBef) {
+                ExtractElement, Ops, 2, InsertBef) {
   Constant *Index = ConstantInt::get(Type::Int32Ty, IndexV);
   assert(isValidOperands(Val, Index) &&
          "Invalid extractelement instruction operands!");
-  Op<0>() = Val;
-  Op<1>() = Index;
+  Ops[0].init(Val, this);
+  Ops[1].init(Index, this);
   setName(Name);
 }
 
@@ -1161,14 +1093,12 @@ ExtractElementInst::ExtractElementInst(Value *Val, Value *Index,
                                        const std::string &Name,
                                        BasicBlock *InsertAE)
   : Instruction(cast<VectorType>(Val->getType())->getElementType(),
-                ExtractElement,
-                OperandTraits<ExtractElementInst>::op_begin(this),
-                2, InsertAE) {
+                ExtractElement, Ops, 2, InsertAE) {
   assert(isValidOperands(Val, Index) &&
          "Invalid extractelement instruction operands!");
 
-  Op<0>() = Val;
-  Op<1>() = Index;
+  Ops[0].init(Val, this);
+  Ops[1].init(Index, this);
   setName(Name);
 }
 
@@ -1176,15 +1106,13 @@ ExtractElementInst::ExtractElementInst(Value *Val, unsigned IndexV,
                                        const std::string &Name,
                                        BasicBlock *InsertAE)
   : Instruction(cast<VectorType>(Val->getType())->getElementType(),
-                ExtractElement,
-                OperandTraits<ExtractElementInst>::op_begin(this),
-                2, InsertAE) {
+                ExtractElement, Ops, 2, InsertAE) {
   Constant *Index = ConstantInt::get(Type::Int32Ty, IndexV);
   assert(isValidOperands(Val, Index) &&
          "Invalid extractelement instruction operands!");
   
-  Op<0>() = Val;
-  Op<1>() = Index;
+  Ops[0].init(Val, this);
+  Ops[1].init(Index, this);
   setName(Name);
 }
 
@@ -1201,38 +1129,33 @@ bool ExtractElementInst::isValidOperands(const Value *Val, const Value *Index) {
 //===----------------------------------------------------------------------===//
 
 InsertElementInst::InsertElementInst(const InsertElementInst &IE)
-    : Instruction(IE.getType(), InsertElement,
-                  OperandTraits<InsertElementInst>::op_begin(this), 3) {
-  Op<0>() = IE.Op<0>();
-  Op<1>() = IE.Op<1>();
-  Op<2>() = IE.Op<2>();
+    : Instruction(IE.getType(), InsertElement, Ops, 3) {
+  Ops[0].init(IE.Ops[0], this);
+  Ops[1].init(IE.Ops[1], this);
+  Ops[2].init(IE.Ops[2], this);
 }
 InsertElementInst::InsertElementInst(Value *Vec, Value *Elt, Value *Index,
                                      const std::string &Name,
                                      Instruction *InsertBef)
-  : Instruction(Vec->getType(), InsertElement,
-                OperandTraits<InsertElementInst>::op_begin(this),
-                3, InsertBef) {
+  : Instruction(Vec->getType(), InsertElement, Ops, 3, InsertBef) {
   assert(isValidOperands(Vec, Elt, Index) &&
          "Invalid insertelement instruction operands!");
-  Op<0>() = Vec;
-  Op<1>() = Elt;
-  Op<2>() = Index;
+  Ops[0].init(Vec, this);
+  Ops[1].init(Elt, this);
+  Ops[2].init(Index, this);
   setName(Name);
 }
 
 InsertElementInst::InsertElementInst(Value *Vec, Value *Elt, unsigned IndexV,
                                      const std::string &Name,
                                      Instruction *InsertBef)
-  : Instruction(Vec->getType(), InsertElement,
-                OperandTraits<InsertElementInst>::op_begin(this),
-                3, InsertBef) {
+  : Instruction(Vec->getType(), InsertElement, Ops, 3, InsertBef) {
   Constant *Index = ConstantInt::get(Type::Int32Ty, IndexV);
   assert(isValidOperands(Vec, Elt, Index) &&
          "Invalid insertelement instruction operands!");
-  Op<0>() = Vec;
-  Op<1>() = Elt;
-  Op<2>() = Index;
+  Ops[0].init(Vec, this);
+  Ops[1].init(Elt, this);
+  Ops[2].init(Index, this);
   setName(Name);
 }
 
@@ -1240,31 +1163,27 @@ InsertElementInst::InsertElementInst(Value *Vec, Value *Elt, unsigned IndexV,
 InsertElementInst::InsertElementInst(Value *Vec, Value *Elt, Value *Index,
                                      const std::string &Name,
                                      BasicBlock *InsertAE)
-  : Instruction(Vec->getType(), InsertElement,
-                OperandTraits<InsertElementInst>::op_begin(this),
-                3, InsertAE) {
+  : Instruction(Vec->getType(), InsertElement, Ops, 3, InsertAE) {
   assert(isValidOperands(Vec, Elt, Index) &&
          "Invalid insertelement instruction operands!");
 
-  Op<0>() = Vec;
-  Op<1>() = Elt;
-  Op<2>() = Index;
+  Ops[0].init(Vec, this);
+  Ops[1].init(Elt, this);
+  Ops[2].init(Index, this);
   setName(Name);
 }
 
 InsertElementInst::InsertElementInst(Value *Vec, Value *Elt, unsigned IndexV,
                                      const std::string &Name,
                                      BasicBlock *InsertAE)
-: Instruction(Vec->getType(), InsertElement,
-              OperandTraits<InsertElementInst>::op_begin(this),
-              3, InsertAE) {
+: Instruction(Vec->getType(), InsertElement, Ops, 3, InsertAE) {
   Constant *Index = ConstantInt::get(Type::Int32Ty, IndexV);
   assert(isValidOperands(Vec, Elt, Index) &&
          "Invalid insertelement instruction operands!");
   
-  Op<0>() = Vec;
-  Op<1>() = Elt;
-  Op<2>() = Index;
+  Ops[0].init(Vec, this);
+  Ops[1].init(Elt, this);
+  Ops[2].init(Index, this);
   setName(Name);
 }
 
@@ -1287,42 +1206,34 @@ bool InsertElementInst::isValidOperands(const Value *Vec, const Value *Elt,
 //===----------------------------------------------------------------------===//
 
 ShuffleVectorInst::ShuffleVectorInst(const ShuffleVectorInst &SV) 
-  : Instruction(SV.getType(), ShuffleVector,
-                OperandTraits<ShuffleVectorInst>::op_begin(this),
-                OperandTraits<ShuffleVectorInst>::operands(this)) {
-  Op<0>() = SV.Op<0>();
-  Op<1>() = SV.Op<1>();
-  Op<2>() = SV.Op<2>();
+    : Instruction(SV.getType(), ShuffleVector, Ops, 3) {
+  Ops[0].init(SV.Ops[0], this);
+  Ops[1].init(SV.Ops[1], this);
+  Ops[2].init(SV.Ops[2], this);
 }
 
 ShuffleVectorInst::ShuffleVectorInst(Value *V1, Value *V2, Value *Mask,
                                      const std::string &Name,
                                      Instruction *InsertBefore)
-  : Instruction(V1->getType(), ShuffleVector,
-                OperandTraits<ShuffleVectorInst>::op_begin(this),
-                OperandTraits<ShuffleVectorInst>::operands(this),
-                InsertBefore) {
+  : Instruction(V1->getType(), ShuffleVector, Ops, 3, InsertBefore) {
   assert(isValidOperands(V1, V2, Mask) &&
          "Invalid shuffle vector instruction operands!");
-  Op<0>() = V1;
-  Op<1>() = V2;
-  Op<2>() = Mask;
+  Ops[0].init(V1, this);
+  Ops[1].init(V2, this);
+  Ops[2].init(Mask, this);
   setName(Name);
 }
 
 ShuffleVectorInst::ShuffleVectorInst(Value *V1, Value *V2, Value *Mask,
                                      const std::string &Name, 
                                      BasicBlock *InsertAtEnd)
-  : Instruction(V1->getType(), ShuffleVector,
-                OperandTraits<ShuffleVectorInst>::op_begin(this),
-                OperandTraits<ShuffleVectorInst>::operands(this),
-                InsertAtEnd) {
+  : Instruction(V1->getType(), ShuffleVector, Ops, 3, InsertAtEnd) {
   assert(isValidOperands(V1, V2, Mask) &&
          "Invalid shuffle vector instruction operands!");
 
-  Op<0>() = V1;
-  Op<1>() = V2;
-  Op<2>() = Mask;
+  Ops[0].init(V1, this);
+  Ops[1].init(V2, this);
+  Ops[2].init(Mask, this);
   setName(Name);
 }
 
@@ -1356,126 +1267,6 @@ int ShuffleVectorInst::getMaskValue(unsigned i) const {
   return cast<ConstantInt>(MaskCV->getOperand(i))->getZExtValue();
 }
 
-//===----------------------------------------------------------------------===//
-//                             InsertValueInst Class
-//===----------------------------------------------------------------------===//
-
-void InsertValueInst::init(Value *Agg, Value *Val, const unsigned *Idx, 
-                           unsigned NumIdx, const std::string &Name) {
-  assert(NumOperands == 2 && "NumOperands not initialized?");
-  Op<0>() = Agg;
-  Op<1>() = Val;
-
-  Indices.insert(Indices.end(), Idx, Idx + NumIdx);
-  setName(Name);
-}
-
-void InsertValueInst::init(Value *Agg, Value *Val, unsigned Idx, 
-                           const std::string &Name) {
-  assert(NumOperands == 2 && "NumOperands not initialized?");
-  Op<0>() = Agg;
-  Op<1>() = Val;
-
-  Indices.push_back(Idx);
-  setName(Name);
-}
-
-InsertValueInst::InsertValueInst(const InsertValueInst &IVI)
-  : Instruction(IVI.getType(), InsertValue,
-                OperandTraits<InsertValueInst>::op_begin(this), 2),
-    Indices(IVI.Indices) {
-}
-
-InsertValueInst::InsertValueInst(Value *Agg,
-                                 Value *Val,
-                                 unsigned Idx, 
-                                 const std::string &Name,
-                                 Instruction *InsertBefore)
-  : Instruction(Agg->getType(), InsertValue,
-                OperandTraits<InsertValueInst>::op_begin(this),
-                2, InsertBefore) {
-  init(Agg, Val, Idx, Name);
-}
-
-InsertValueInst::InsertValueInst(Value *Agg,
-                                 Value *Val,
-                                 unsigned Idx, 
-                                 const std::string &Name,
-                                 BasicBlock *InsertAtEnd)
-  : Instruction(Agg->getType(), InsertValue,
-                OperandTraits<InsertValueInst>::op_begin(this),
-                2, InsertAtEnd) {
-  init(Agg, Val, Idx, Name);
-}
-
-//===----------------------------------------------------------------------===//
-//                             ExtractValueInst Class
-//===----------------------------------------------------------------------===//
-
-void ExtractValueInst::init(const unsigned *Idx, unsigned NumIdx,
-			    const std::string &Name) {
-  assert(NumOperands == 1 && "NumOperands not initialized?");
-
-  Indices.insert(Indices.end(), Idx, Idx + NumIdx);
-  setName(Name);
-}
-
-void ExtractValueInst::init(unsigned Idx, const std::string &Name) {
-  assert(NumOperands == 1 && "NumOperands not initialized?");
-
-  Indices.push_back(Idx);
-  setName(Name);
-}
-
-ExtractValueInst::ExtractValueInst(const ExtractValueInst &EVI)
-  : UnaryInstruction(EVI.getType(), ExtractValue, EVI.getOperand(0)),
-    Indices(EVI.Indices) {
-}
-
-// getIndexedType - Returns the type of the element that would be extracted
-// with an extractvalue instruction with the specified parameters.
-//
-// A null type is returned if the indices are invalid for the specified
-// pointer type.
-//
-const Type* ExtractValueInst::getIndexedType(const Type *Agg,
-                                             const unsigned *Idxs,
-                                             unsigned NumIdx) {
-  unsigned CurIdx = 0;
-  for (; CurIdx != NumIdx; ++CurIdx) {
-    const CompositeType *CT = dyn_cast<CompositeType>(Agg);
-    if (!CT || isa<PointerType>(CT) || isa<VectorType>(CT)) return 0;
-    unsigned Index = Idxs[CurIdx];
-    if (!CT->indexValid(Index)) return 0;
-    Agg = CT->getTypeAtIndex(Index);
-
-    // If the new type forwards to another type, then it is in the middle
-    // of being refined to another type (and hence, may have dropped all
-    // references to what it was using before).  So, use the new forwarded
-    // type.
-    if (const Type *Ty = Agg->getForwardedType())
-      Agg = Ty;
-  }
-  return CurIdx == NumIdx ? Agg : 0;
-}
-
-ExtractValueInst::ExtractValueInst(Value *Agg,
-                                   unsigned Idx,
-                                   const std::string &Name,
-                                   BasicBlock *InsertAtEnd)
-  : UnaryInstruction(checkType(getIndexedType(Agg->getType(), &Idx, 1)),
-		     ExtractValue, Agg, InsertAtEnd) {
-  init(Idx, Name);
-}
-
-ExtractValueInst::ExtractValueInst(Value *Agg,
-                                   unsigned Idx,
-                                   const std::string &Name,
-                                   Instruction *InsertBefore)
-  : UnaryInstruction(checkType(getIndexedType(Agg->getType(), &Idx, 1)),
-		     ExtractValue, Agg, InsertBefore) {
-  init(Idx, Name);
-}
 
 //===----------------------------------------------------------------------===//
 //                             BinaryOperator Class
@@ -1484,12 +1275,9 @@ ExtractValueInst::ExtractValueInst(Value *Agg,
 BinaryOperator::BinaryOperator(BinaryOps iType, Value *S1, Value *S2,
                                const Type *Ty, const std::string &Name,
                                Instruction *InsertBefore)
-  : Instruction(Ty, iType,
-                OperandTraits<BinaryOperator>::op_begin(this),
-                OperandTraits<BinaryOperator>::operands(this),
-                InsertBefore) {
-  Op<0>() = S1;
-  Op<1>() = S2;
+  : Instruction(Ty, iType, Ops, 2, InsertBefore) {
+  Ops[0].init(S1, this);
+  Ops[1].init(S2, this);
   init(iType);
   setName(Name);
 }
@@ -1497,12 +1285,9 @@ BinaryOperator::BinaryOperator(BinaryOps iType, Value *S1, Value *S2,
 BinaryOperator::BinaryOperator(BinaryOps iType, Value *S1, Value *S2, 
                                const Type *Ty, const std::string &Name,
                                BasicBlock *InsertAtEnd)
-  : Instruction(Ty, iType,
-                OperandTraits<BinaryOperator>::op_begin(this),
-                OperandTraits<BinaryOperator>::operands(this),
-                InsertAtEnd) {
-  Op<0>() = S1;
-  Op<1>() = S2;
+  : Instruction(Ty, iType, Ops, 2, InsertAtEnd) {
+  Ops[0].init(S1, this);
+  Ops[1].init(S2, this);
   init(iType);
   setName(Name);
 }
@@ -1576,7 +1361,7 @@ void BinaryOperator::init(BinaryOps iType) {
 #endif
 }
 
-BinaryOperator *BinaryOperator::Create(BinaryOps Op, Value *S1, Value *S2,
+BinaryOperator *BinaryOperator::create(BinaryOps Op, Value *S1, Value *S2,
                                        const std::string &Name,
                                        Instruction *InsertBefore) {
   assert(S1->getType() == S2->getType() &&
@@ -1584,15 +1369,15 @@ BinaryOperator *BinaryOperator::Create(BinaryOps Op, Value *S1, Value *S2,
   return new BinaryOperator(Op, S1, S2, S1->getType(), Name, InsertBefore);
 }
 
-BinaryOperator *BinaryOperator::Create(BinaryOps Op, Value *S1, Value *S2,
+BinaryOperator *BinaryOperator::create(BinaryOps Op, Value *S1, Value *S2,
                                        const std::string &Name,
                                        BasicBlock *InsertAtEnd) {
-  BinaryOperator *Res = Create(Op, S1, S2, Name);
+  BinaryOperator *Res = create(Op, S1, S2, Name);
   InsertAtEnd->getInstList().push_back(Res);
   return Res;
 }
 
-BinaryOperator *BinaryOperator::CreateNeg(Value *Op, const std::string &Name,
+BinaryOperator *BinaryOperator::createNeg(Value *Op, const std::string &Name,
                                           Instruction *InsertBefore) {
   Value *zero = ConstantExpr::getZeroValueForNegationExpr(Op->getType());
   return new BinaryOperator(Instruction::Sub,
@@ -1600,7 +1385,7 @@ BinaryOperator *BinaryOperator::CreateNeg(Value *Op, const std::string &Name,
                             Op->getType(), Name, InsertBefore);
 }
 
-BinaryOperator *BinaryOperator::CreateNeg(Value *Op, const std::string &Name,
+BinaryOperator *BinaryOperator::createNeg(Value *Op, const std::string &Name,
                                           BasicBlock *InsertAtEnd) {
   Value *zero = ConstantExpr::getZeroValueForNegationExpr(Op->getType());
   return new BinaryOperator(Instruction::Sub,
@@ -1608,7 +1393,7 @@ BinaryOperator *BinaryOperator::CreateNeg(Value *Op, const std::string &Name,
                             Op->getType(), Name, InsertAtEnd);
 }
 
-BinaryOperator *BinaryOperator::CreateNot(Value *Op, const std::string &Name,
+BinaryOperator *BinaryOperator::createNot(Value *Op, const std::string &Name,
                                           Instruction *InsertBefore) {
   Constant *C;
   if (const VectorType *PTy = dyn_cast<VectorType>(Op->getType())) {
@@ -1622,7 +1407,7 @@ BinaryOperator *BinaryOperator::CreateNot(Value *Op, const std::string &Name,
                             Op->getType(), Name, InsertBefore);
 }
 
-BinaryOperator *BinaryOperator::CreateNot(Value *Op, const std::string &Name,
+BinaryOperator *BinaryOperator::createNot(Value *Op, const std::string &Name,
                                           BasicBlock *InsertAtEnd) {
   Constant *AllOnes;
   if (const VectorType *PTy = dyn_cast<VectorType>(Op->getType())) {
@@ -1697,7 +1482,7 @@ const Value *BinaryOperator::getNotArgument(const Value *BinOp) {
 bool BinaryOperator::swapOperands() {
   if (!isCommutative())
     return true; // Can't commute operands
-  Op<0>().swap(Op<1>());
+  std::swap(Ops[0], Ops[1]);
   return false;
 }
 
@@ -1739,9 +1524,10 @@ bool CastInst::isLosslessCast() const {
 /// changed in order to effect the cast. Essentially, it identifies cases where
 /// no code gen is necessary for the cast, hence the name no-op cast.  For 
 /// example, the following are all no-op casts:
-/// # bitcast i32* %x to i8*
-/// # bitcast <2 x i32> %x to <4 x i16> 
-/// # ptrtoint i32* %x to i32     ; on 32-bit plaforms only
+/// # bitcast uint %X, int
+/// # bitcast uint* %x, sbyte*
+/// # bitcast vector< 2 x int > %x, vector< 4 x short> 
+/// # ptrtoint uint* %x, uint     ; on 32-bit plaforms only
 /// @brief Determine if a cast is a no-op.
 bool CastInst::isNoopCast(const Type *IntPtrTy) const {
   switch (getOpcode()) {
@@ -1927,7 +1713,7 @@ unsigned CastInst::isEliminableCastPair(
   return 0;
 }
 
-CastInst *CastInst::Create(Instruction::CastOps op, Value *S, const Type *Ty, 
+CastInst *CastInst::create(Instruction::CastOps op, Value *S, const Type *Ty, 
   const std::string &Name, Instruction *InsertBefore) {
   // Construct and return the appropriate CastInst subclass
   switch (op) {
@@ -1949,7 +1735,7 @@ CastInst *CastInst::Create(Instruction::CastOps op, Value *S, const Type *Ty,
   return 0;
 }
 
-CastInst *CastInst::Create(Instruction::CastOps op, Value *S, const Type *Ty,
+CastInst *CastInst::create(Instruction::CastOps op, Value *S, const Type *Ty,
   const std::string &Name, BasicBlock *InsertAtEnd) {
   // Construct and return the appropriate CastInst subclass
   switch (op) {
@@ -1971,55 +1757,55 @@ CastInst *CastInst::Create(Instruction::CastOps op, Value *S, const Type *Ty,
   return 0;
 }
 
-CastInst *CastInst::CreateZExtOrBitCast(Value *S, const Type *Ty, 
+CastInst *CastInst::createZExtOrBitCast(Value *S, const Type *Ty, 
                                         const std::string &Name,
                                         Instruction *InsertBefore) {
   if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return Create(Instruction::BitCast, S, Ty, Name, InsertBefore);
-  return Create(Instruction::ZExt, S, Ty, Name, InsertBefore);
+    return create(Instruction::BitCast, S, Ty, Name, InsertBefore);
+  return create(Instruction::ZExt, S, Ty, Name, InsertBefore);
 }
 
-CastInst *CastInst::CreateZExtOrBitCast(Value *S, const Type *Ty, 
+CastInst *CastInst::createZExtOrBitCast(Value *S, const Type *Ty, 
                                         const std::string &Name,
                                         BasicBlock *InsertAtEnd) {
   if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return Create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
-  return Create(Instruction::ZExt, S, Ty, Name, InsertAtEnd);
+    return create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
+  return create(Instruction::ZExt, S, Ty, Name, InsertAtEnd);
 }
 
-CastInst *CastInst::CreateSExtOrBitCast(Value *S, const Type *Ty, 
+CastInst *CastInst::createSExtOrBitCast(Value *S, const Type *Ty, 
                                         const std::string &Name,
                                         Instruction *InsertBefore) {
   if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return Create(Instruction::BitCast, S, Ty, Name, InsertBefore);
-  return Create(Instruction::SExt, S, Ty, Name, InsertBefore);
+    return create(Instruction::BitCast, S, Ty, Name, InsertBefore);
+  return create(Instruction::SExt, S, Ty, Name, InsertBefore);
 }
 
-CastInst *CastInst::CreateSExtOrBitCast(Value *S, const Type *Ty, 
+CastInst *CastInst::createSExtOrBitCast(Value *S, const Type *Ty, 
                                         const std::string &Name,
                                         BasicBlock *InsertAtEnd) {
   if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return Create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
-  return Create(Instruction::SExt, S, Ty, Name, InsertAtEnd);
+    return create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
+  return create(Instruction::SExt, S, Ty, Name, InsertAtEnd);
 }
 
-CastInst *CastInst::CreateTruncOrBitCast(Value *S, const Type *Ty,
+CastInst *CastInst::createTruncOrBitCast(Value *S, const Type *Ty,
                                          const std::string &Name,
                                          Instruction *InsertBefore) {
   if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return Create(Instruction::BitCast, S, Ty, Name, InsertBefore);
-  return Create(Instruction::Trunc, S, Ty, Name, InsertBefore);
+    return create(Instruction::BitCast, S, Ty, Name, InsertBefore);
+  return create(Instruction::Trunc, S, Ty, Name, InsertBefore);
 }
 
-CastInst *CastInst::CreateTruncOrBitCast(Value *S, const Type *Ty,
+CastInst *CastInst::createTruncOrBitCast(Value *S, const Type *Ty,
                                          const std::string &Name, 
                                          BasicBlock *InsertAtEnd) {
   if (S->getType()->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return Create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
-  return Create(Instruction::Trunc, S, Ty, Name, InsertAtEnd);
+    return create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
+  return create(Instruction::Trunc, S, Ty, Name, InsertAtEnd);
 }
 
-CastInst *CastInst::CreatePointerCast(Value *S, const Type *Ty,
+CastInst *CastInst::createPointerCast(Value *S, const Type *Ty,
                                       const std::string &Name,
                                       BasicBlock *InsertAtEnd) {
   assert(isa<PointerType>(S->getType()) && "Invalid cast");
@@ -2027,12 +1813,12 @@ CastInst *CastInst::CreatePointerCast(Value *S, const Type *Ty,
          "Invalid cast");
 
   if (Ty->isInteger())
-    return Create(Instruction::PtrToInt, S, Ty, Name, InsertAtEnd);
-  return Create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
+    return create(Instruction::PtrToInt, S, Ty, Name, InsertAtEnd);
+  return create(Instruction::BitCast, S, Ty, Name, InsertAtEnd);
 }
 
 /// @brief Create a BitCast or a PtrToInt cast instruction
-CastInst *CastInst::CreatePointerCast(Value *S, const Type *Ty, 
+CastInst *CastInst::createPointerCast(Value *S, const Type *Ty, 
                                       const std::string &Name, 
                                       Instruction *InsertBefore) {
   assert(isa<PointerType>(S->getType()) && "Invalid cast");
@@ -2040,11 +1826,11 @@ CastInst *CastInst::CreatePointerCast(Value *S, const Type *Ty,
          "Invalid cast");
 
   if (Ty->isInteger())
-    return Create(Instruction::PtrToInt, S, Ty, Name, InsertBefore);
-  return Create(Instruction::BitCast, S, Ty, Name, InsertBefore);
+    return create(Instruction::PtrToInt, S, Ty, Name, InsertBefore);
+  return create(Instruction::BitCast, S, Ty, Name, InsertBefore);
 }
 
-CastInst *CastInst::CreateIntegerCast(Value *C, const Type *Ty, 
+CastInst *CastInst::createIntegerCast(Value *C, const Type *Ty, 
                                       bool isSigned, const std::string &Name,
                                       Instruction *InsertBefore) {
   assert(C->getType()->isInteger() && Ty->isInteger() && "Invalid cast");
@@ -2054,10 +1840,10 @@ CastInst *CastInst::CreateIntegerCast(Value *C, const Type *Ty,
     (SrcBits == DstBits ? Instruction::BitCast :
      (SrcBits > DstBits ? Instruction::Trunc :
       (isSigned ? Instruction::SExt : Instruction::ZExt)));
-  return Create(opcode, C, Ty, Name, InsertBefore);
+  return create(opcode, C, Ty, Name, InsertBefore);
 }
 
-CastInst *CastInst::CreateIntegerCast(Value *C, const Type *Ty, 
+CastInst *CastInst::createIntegerCast(Value *C, const Type *Ty, 
                                       bool isSigned, const std::string &Name,
                                       BasicBlock *InsertAtEnd) {
   assert(C->getType()->isInteger() && Ty->isInteger() && "Invalid cast");
@@ -2067,10 +1853,10 @@ CastInst *CastInst::CreateIntegerCast(Value *C, const Type *Ty,
     (SrcBits == DstBits ? Instruction::BitCast :
      (SrcBits > DstBits ? Instruction::Trunc :
       (isSigned ? Instruction::SExt : Instruction::ZExt)));
-  return Create(opcode, C, Ty, Name, InsertAtEnd);
+  return create(opcode, C, Ty, Name, InsertAtEnd);
 }
 
-CastInst *CastInst::CreateFPCast(Value *C, const Type *Ty, 
+CastInst *CastInst::createFPCast(Value *C, const Type *Ty, 
                                  const std::string &Name, 
                                  Instruction *InsertBefore) {
   assert(C->getType()->isFloatingPoint() && Ty->isFloatingPoint() && 
@@ -2080,10 +1866,10 @@ CastInst *CastInst::CreateFPCast(Value *C, const Type *Ty,
   Instruction::CastOps opcode =
     (SrcBits == DstBits ? Instruction::BitCast :
      (SrcBits > DstBits ? Instruction::FPTrunc : Instruction::FPExt));
-  return Create(opcode, C, Ty, Name, InsertBefore);
+  return create(opcode, C, Ty, Name, InsertBefore);
 }
 
-CastInst *CastInst::CreateFPCast(Value *C, const Type *Ty, 
+CastInst *CastInst::createFPCast(Value *C, const Type *Ty, 
                                  const std::string &Name, 
                                  BasicBlock *InsertAtEnd) {
   assert(C->getType()->isFloatingPoint() && Ty->isFloatingPoint() && 
@@ -2093,7 +1879,7 @@ CastInst *CastInst::CreateFPCast(Value *C, const Type *Ty,
   Instruction::CastOps opcode =
     (SrcBits == DstBits ? Instruction::BitCast :
      (SrcBits > DstBits ? Instruction::FPTrunc : Instruction::FPExt));
-  return Create(opcode, C, Ty, Name, InsertAtEnd);
+  return create(opcode, C, Ty, Name, InsertAtEnd);
 }
 
 // Check whether it is valid to call getCastOpcode for these types.
@@ -2110,45 +1896,45 @@ bool CastInst::isCastable(const Type *SrcTy, const Type *DestTy) {
   unsigned DestBits = DestTy->getPrimitiveSizeInBits(); // 0 for ptr/vector
 
   // Run through the possibilities ...
-  if (DestTy->isInteger()) {                   // Casting to integral
-    if (SrcTy->isInteger()) {                  // Casting from integral
+  if (DestTy->isInteger()) {                      // Casting to integral
+    if (SrcTy->isInteger()) {                     // Casting from integral
         return true;
-    } else if (SrcTy->isFloatingPoint()) {     // Casting from floating pt
+    } else if (SrcTy->isFloatingPoint()) {        // Casting from floating pt
       return true;
     } else if (const VectorType *PTy = dyn_cast<VectorType>(SrcTy)) {
-                                               // Casting from vector
+                                                  // Casting from vector
       return DestBits == PTy->getBitWidth();
-    } else {                                   // Casting from something else
+    } else {                                      // Casting from something else
       return isa<PointerType>(SrcTy);
     }
-  } else if (DestTy->isFloatingPoint()) {      // Casting to floating pt
-    if (SrcTy->isInteger()) {                  // Casting from integral
+  } else if (DestTy->isFloatingPoint()) {         // Casting to floating pt
+    if (SrcTy->isInteger()) {                     // Casting from integral
       return true;
-    } else if (SrcTy->isFloatingPoint()) {     // Casting from floating pt
+    } else if (SrcTy->isFloatingPoint()) {        // Casting from floating pt
       return true;
     } else if (const VectorType *PTy = dyn_cast<VectorType>(SrcTy)) {
-                                               // Casting from vector
+                                                  // Casting from vector
       return DestBits == PTy->getBitWidth();
-    } else {                                   // Casting from something else
+    } else {                                      // Casting from something else
       return false;
     }
   } else if (const VectorType *DestPTy = dyn_cast<VectorType>(DestTy)) {
-                                                // Casting to vector
+                                                   // Casting to vector
     if (const VectorType *SrcPTy = dyn_cast<VectorType>(SrcTy)) {
-                                                // Casting from vector
+                                                   // Casting from vector
       return DestPTy->getBitWidth() == SrcPTy->getBitWidth();
-    } else {                                    // Casting from something else
+    } else {                                       // Casting from something else
       return DestPTy->getBitWidth() == SrcBits;
     }
-  } else if (isa<PointerType>(DestTy)) {        // Casting to pointer
-    if (isa<PointerType>(SrcTy)) {              // Casting from pointer
+  } else if (isa<PointerType>(DestTy)) {           // Casting to pointer
+    if (isa<PointerType>(SrcTy)) {                 // Casting from pointer
       return true;
-    } else if (SrcTy->isInteger()) {            // Casting from integral
+    } else if (SrcTy->isInteger()) {               // Casting from integral
       return true;
-    } else {                                    // Casting from something else
+    } else {                                       // Casting from something else
       return false;
     }
-  } else {                                      // Casting to something else
+  } else {                                         // Casting to something else
     return false;
   }
 }
@@ -2466,68 +2252,91 @@ BitCastInst::BitCastInst(
 //                               CmpInst Classes
 //===----------------------------------------------------------------------===//
 
-CmpInst::CmpInst(const Type *ty, OtherOps op, unsigned short predicate,
-                 Value *LHS, Value *RHS, const std::string &Name,
-                 Instruction *InsertBefore)
-  : Instruction(ty, op,
-                OperandTraits<CmpInst>::op_begin(this),
-                OperandTraits<CmpInst>::operands(this),
-                InsertBefore) {
-    Op<0>() = LHS;
-    Op<1>() = RHS;
+CmpInst::CmpInst(OtherOps op, unsigned short predicate, Value *LHS, Value *RHS,
+                 const std::string &Name, Instruction *InsertBefore)
+  : Instruction(Type::Int1Ty, op, Ops, 2, InsertBefore) {
+    Ops[0].init(LHS, this);
+    Ops[1].init(RHS, this);
   SubclassData = predicate;
   setName(Name);
+  if (op == Instruction::ICmp) {
+    assert(predicate >= ICmpInst::FIRST_ICMP_PREDICATE &&
+           predicate <= ICmpInst::LAST_ICMP_PREDICATE &&
+           "Invalid ICmp predicate value");
+    const Type* Op0Ty = getOperand(0)->getType();
+    const Type* Op1Ty = getOperand(1)->getType();
+    assert(Op0Ty == Op1Ty &&
+           "Both operands to ICmp instruction are not of the same type!");
+    // Check that the operands are the right type
+    assert((Op0Ty->isInteger() || isa<PointerType>(Op0Ty)) &&
+           "Invalid operand types for ICmp instruction");
+    return;
+  }
+  assert(op == Instruction::FCmp && "Invalid CmpInst opcode");
+  assert(predicate <= FCmpInst::LAST_FCMP_PREDICATE &&
+         "Invalid FCmp predicate value");
+  const Type* Op0Ty = getOperand(0)->getType();
+  const Type* Op1Ty = getOperand(1)->getType();
+  assert(Op0Ty == Op1Ty &&
+         "Both operands to FCmp instruction are not of the same type!");
+  // Check that the operands are the right type
+  assert(Op0Ty->isFloatingPoint() &&
+         "Invalid operand types for FCmp instruction");
 }
-
-CmpInst::CmpInst(const Type *ty, OtherOps op, unsigned short predicate,
-                 Value *LHS, Value *RHS, const std::string &Name,
-                 BasicBlock *InsertAtEnd)
-  : Instruction(ty, op,
-                OperandTraits<CmpInst>::op_begin(this),
-                OperandTraits<CmpInst>::operands(this),
-                InsertAtEnd) {
-  Op<0>() = LHS;
-  Op<1>() = RHS;
+  
+CmpInst::CmpInst(OtherOps op, unsigned short predicate, Value *LHS, Value *RHS,
+                 const std::string &Name, BasicBlock *InsertAtEnd)
+  : Instruction(Type::Int1Ty, op, Ops, 2, InsertAtEnd) {
+  Ops[0].init(LHS, this);
+  Ops[1].init(RHS, this);
   SubclassData = predicate;
   setName(Name);
+  if (op == Instruction::ICmp) {
+    assert(predicate >= ICmpInst::FIRST_ICMP_PREDICATE &&
+           predicate <= ICmpInst::LAST_ICMP_PREDICATE &&
+           "Invalid ICmp predicate value");
+
+    const Type* Op0Ty = getOperand(0)->getType();
+    const Type* Op1Ty = getOperand(1)->getType();
+    assert(Op0Ty == Op1Ty &&
+          "Both operands to ICmp instruction are not of the same type!");
+    // Check that the operands are the right type
+    assert((Op0Ty->isInteger() || isa<PointerType>(Op0Ty)) &&
+           "Invalid operand types for ICmp instruction");
+    return;
+  }
+  assert(op == Instruction::FCmp && "Invalid CmpInst opcode");
+  assert(predicate <= FCmpInst::LAST_FCMP_PREDICATE &&
+         "Invalid FCmp predicate value");
+  const Type* Op0Ty = getOperand(0)->getType();
+  const Type* Op1Ty = getOperand(1)->getType();
+  assert(Op0Ty == Op1Ty &&
+          "Both operands to FCmp instruction are not of the same type!");
+  // Check that the operands are the right type
+  assert(Op0Ty->isFloatingPoint() &&
+        "Invalid operand types for FCmp instruction");
 }
 
 CmpInst *
-CmpInst::Create(OtherOps Op, unsigned short predicate, Value *S1, Value *S2, 
+CmpInst::create(OtherOps Op, unsigned short predicate, Value *S1, Value *S2, 
                 const std::string &Name, Instruction *InsertBefore) {
   if (Op == Instruction::ICmp) {
-    return new ICmpInst(CmpInst::Predicate(predicate), S1, S2, Name, 
+    return new ICmpInst(ICmpInst::Predicate(predicate), S1, S2, Name, 
                         InsertBefore);
   }
-  if (Op == Instruction::FCmp) {
-    return new FCmpInst(CmpInst::Predicate(predicate), S1, S2, Name, 
-                        InsertBefore);
-  }
-  if (Op == Instruction::VICmp) {
-    return new VICmpInst(CmpInst::Predicate(predicate), S1, S2, Name, 
-                         InsertBefore);
-  }
-  return new VFCmpInst(CmpInst::Predicate(predicate), S1, S2, Name, 
-                       InsertBefore);
+  return new FCmpInst(FCmpInst::Predicate(predicate), S1, S2, Name, 
+                      InsertBefore);
 }
 
 CmpInst *
-CmpInst::Create(OtherOps Op, unsigned short predicate, Value *S1, Value *S2, 
+CmpInst::create(OtherOps Op, unsigned short predicate, Value *S1, Value *S2, 
                 const std::string &Name, BasicBlock *InsertAtEnd) {
   if (Op == Instruction::ICmp) {
-    return new ICmpInst(CmpInst::Predicate(predicate), S1, S2, Name, 
+    return new ICmpInst(ICmpInst::Predicate(predicate), S1, S2, Name, 
                         InsertAtEnd);
   }
-  if (Op == Instruction::FCmp) {
-    return new FCmpInst(CmpInst::Predicate(predicate), S1, S2, Name, 
-                        InsertAtEnd);
-  }
-  if (Op == Instruction::VICmp) {
-    return new VICmpInst(CmpInst::Predicate(predicate), S1, S2, Name, 
-                         InsertAtEnd);
-  }
-  return new VFCmpInst(CmpInst::Predicate(predicate), S1, S2, Name, 
-                       InsertAtEnd);
+  return new FCmpInst(FCmpInst::Predicate(predicate), S1, S2, Name, 
+                      InsertAtEnd);
 }
 
 void CmpInst::swapOperands() {
@@ -2550,9 +2359,10 @@ bool CmpInst::isEquality() {
 }
 
 
-CmpInst::Predicate CmpInst::getInversePredicate(Predicate pred) {
+ICmpInst::Predicate ICmpInst::getInversePredicate(Predicate pred) {
   switch (pred) {
-    default: assert(!"Unknown cmp predicate!");
+    default:
+      assert(!"Unknown icmp predicate!");
     case ICMP_EQ: return ICMP_NE;
     case ICMP_NE: return ICMP_EQ;
     case ICMP_UGT: return ICMP_ULE;
@@ -2563,23 +2373,22 @@ CmpInst::Predicate CmpInst::getInversePredicate(Predicate pred) {
     case ICMP_SLT: return ICMP_SGE;
     case ICMP_SGE: return ICMP_SLT;
     case ICMP_SLE: return ICMP_SGT;
+  }
+}
 
-    case FCMP_OEQ: return FCMP_UNE;
-    case FCMP_ONE: return FCMP_UEQ;
-    case FCMP_OGT: return FCMP_ULE;
-    case FCMP_OLT: return FCMP_UGE;
-    case FCMP_OGE: return FCMP_ULT;
-    case FCMP_OLE: return FCMP_UGT;
-    case FCMP_UEQ: return FCMP_ONE;
-    case FCMP_UNE: return FCMP_OEQ;
-    case FCMP_UGT: return FCMP_OLE;
-    case FCMP_ULT: return FCMP_OGE;
-    case FCMP_UGE: return FCMP_OLT;
-    case FCMP_ULE: return FCMP_OGT;
-    case FCMP_ORD: return FCMP_UNO;
-    case FCMP_UNO: return FCMP_ORD;
-    case FCMP_TRUE: return FCMP_FALSE;
-    case FCMP_FALSE: return FCMP_TRUE;
+ICmpInst::Predicate ICmpInst::getSwappedPredicate(Predicate pred) {
+  switch (pred) {
+    default: assert(! "Unknown icmp predicate!");
+    case ICMP_EQ: case ICMP_NE:
+      return pred;
+    case ICMP_SGT: return ICMP_SLT;
+    case ICMP_SLT: return ICMP_SGT;
+    case ICMP_SGE: return ICMP_SLE;
+    case ICMP_SLE: return ICMP_SGE;
+    case ICMP_UGT: return ICMP_ULT;
+    case ICMP_ULT: return ICMP_UGT;
+    case ICMP_UGE: return ICMP_ULE;
+    case ICMP_ULE: return ICMP_UGE;
   }
 }
 
@@ -2655,20 +2464,32 @@ ICmpInst::makeConstantRange(Predicate pred, const APInt &C) {
   return ConstantRange(Lower, Upper);
 }
 
-CmpInst::Predicate CmpInst::getSwappedPredicate(Predicate pred) {
+FCmpInst::Predicate FCmpInst::getInversePredicate(Predicate pred) {
   switch (pred) {
-    default: assert(!"Unknown cmp predicate!");
-    case ICMP_EQ: case ICMP_NE:
-      return pred;
-    case ICMP_SGT: return ICMP_SLT;
-    case ICMP_SLT: return ICMP_SGT;
-    case ICMP_SGE: return ICMP_SLE;
-    case ICMP_SLE: return ICMP_SGE;
-    case ICMP_UGT: return ICMP_ULT;
-    case ICMP_ULT: return ICMP_UGT;
-    case ICMP_UGE: return ICMP_ULE;
-    case ICMP_ULE: return ICMP_UGE;
-  
+    default:
+      assert(!"Unknown icmp predicate!");
+    case FCMP_OEQ: return FCMP_UNE;
+    case FCMP_ONE: return FCMP_UEQ;
+    case FCMP_OGT: return FCMP_ULE;
+    case FCMP_OLT: return FCMP_UGE;
+    case FCMP_OGE: return FCMP_ULT;
+    case FCMP_OLE: return FCMP_UGT;
+    case FCMP_UEQ: return FCMP_ONE;
+    case FCMP_UNE: return FCMP_OEQ;
+    case FCMP_UGT: return FCMP_OLE;
+    case FCMP_ULT: return FCMP_OGE;
+    case FCMP_UGE: return FCMP_OLT;
+    case FCMP_ULE: return FCMP_OGT;
+    case FCMP_ORD: return FCMP_UNO;
+    case FCMP_UNO: return FCMP_ORD;
+    case FCMP_TRUE: return FCMP_FALSE;
+    case FCMP_FALSE: return FCMP_TRUE;
+  }
+}
+
+FCmpInst::Predicate FCmpInst::getSwappedPredicate(Predicate pred) {
+  switch (pred) {
+    default: assert(!"Unknown fcmp predicate!");
     case FCMP_FALSE: case FCMP_TRUE:
     case FCMP_OEQ: case FCMP_ONE:
     case FCMP_UEQ: case FCMP_UNE:
@@ -2727,10 +2548,10 @@ void SwitchInst::init(Value *Value, BasicBlock *Default, unsigned NumCases) {
   assert(Value && Default);
   ReservedSpace = 2+NumCases*2;
   NumOperands = 2;
-  OperandList = allocHungoffUses(ReservedSpace);
+  OperandList = new Use[ReservedSpace];
 
-  OperandList[0] = Value;
-  OperandList[1] = Default;
+  OperandList[0].init(Value, this);
+  OperandList[1].init(Default, this);
 }
 
 /// SwitchInst ctor - Create a new switch instruction, specifying a value to
@@ -2755,16 +2576,16 @@ SwitchInst::SwitchInst(Value *Value, BasicBlock *Default, unsigned NumCases,
 
 SwitchInst::SwitchInst(const SwitchInst &SI)
   : TerminatorInst(Type::VoidTy, Instruction::Switch,
-                   allocHungoffUses(SI.getNumOperands()), SI.getNumOperands()) {
+                   new Use[SI.getNumOperands()], SI.getNumOperands()) {
   Use *OL = OperandList, *InOL = SI.OperandList;
   for (unsigned i = 0, E = SI.getNumOperands(); i != E; i+=2) {
-    OL[i] = InOL[i];
-    OL[i+1] = InOL[i+1];
+    OL[i].init(InOL[i], this);
+    OL[i+1].init(InOL[i+1], this);
   }
 }
 
 SwitchInst::~SwitchInst() {
-  dropHungoffUses(OperandList);
+  delete [] OperandList;
 }
 
 
@@ -2777,8 +2598,8 @@ void SwitchInst::addCase(ConstantInt *OnVal, BasicBlock *Dest) {
   // Initialize some new operands.
   assert(OpNo+1 < ReservedSpace && "Growing didn't work!");
   NumOperands = OpNo+2;
-  OperandList[OpNo] = OnVal;
-  OperandList[OpNo+1] = Dest;
+  OperandList[OpNo].init(OnVal, this);
+  OperandList[OpNo+1].init(Dest, this);
 }
 
 /// removeCase - This method removes the specified successor from the switch
@@ -2811,14 +2632,13 @@ void SwitchInst::removeCase(unsigned idx) {
 /// resizeOperands - resize operands - This adjusts the length of the operands
 /// list according to the following behavior:
 ///   1. If NumOps == 0, grow the operand list in response to a push_back style
-///      of operation.  This grows the number of ops by 3 times.
+///      of operation.  This grows the number of ops by 1.5 times.
 ///   2. If NumOps > NumOperands, reserve space for NumOps operands.
 ///   3. If NumOps == NumOperands, trim the reserved space.
 ///
 void SwitchInst::resizeOperands(unsigned NumOps) {
-  unsigned e = getNumOperands();
   if (NumOps == 0) {
-    NumOps = e*3;
+    NumOps = getNumOperands()/2*6;
   } else if (NumOps*2 > NumOperands) {
     // No resize needed.
     if (ReservedSpace >= NumOps) return;
@@ -2829,13 +2649,14 @@ void SwitchInst::resizeOperands(unsigned NumOps) {
   }
 
   ReservedSpace = NumOps;
-  Use *NewOps = allocHungoffUses(NumOps);
+  Use *NewOps = new Use[NumOps];
   Use *OldOps = OperandList;
-  for (unsigned i = 0; i != e; ++i) {
-      NewOps[i] = OldOps[i];
+  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
+      NewOps[i].init(OldOps[i], this);
+      OldOps[i].set(0);
   }
+  delete [] OldOps;
   OperandList = NewOps;
-  if (OldOps) Use::zap(OldOps, OldOps + e, true);
 }
 
 
@@ -2856,12 +2677,11 @@ void SwitchInst::setSuccessorV(unsigned idx, BasicBlock *B) {
 GetResultInst::GetResultInst(Value *Aggregate, unsigned Index,
                              const std::string &Name,
                              Instruction *InsertBef)
-  : UnaryInstruction(cast<StructType>(Aggregate->getType())
-                       ->getElementType(Index),
-                     GetResult, Aggregate, InsertBef),
-    Idx(Index) {
-  assert(isValidOperands(Aggregate, Index)
-         && "Invalid GetResultInst operands!");
+  : Instruction(cast<StructType>(Aggregate->getType())->getElementType(Index),
+                GetResult, &Aggr, 1, InsertBef) {
+  assert(isValidOperands(Aggregate, Index) && "Invalid GetResultInst operands!");
+  Aggr.init(Aggregate, this);
+  Idx = Index;
   setName(Name);
 }
 
@@ -2894,30 +2714,15 @@ GetElementPtrInst *GetElementPtrInst::clone() const {
 }
 
 BinaryOperator *BinaryOperator::clone() const {
-  return Create(getOpcode(), Op<0>(), Op<1>());
+  return create(getOpcode(), Ops[0], Ops[1]);
 }
 
 FCmpInst* FCmpInst::clone() const {
-  return new FCmpInst(getPredicate(), Op<0>(), Op<1>());
+  return new FCmpInst(getPredicate(), Ops[0], Ops[1]);
 }
 ICmpInst* ICmpInst::clone() const {
-  return new ICmpInst(getPredicate(), Op<0>(), Op<1>());
+  return new ICmpInst(getPredicate(), Ops[0], Ops[1]);
 }
-
-VFCmpInst* VFCmpInst::clone() const {
-  return new VFCmpInst(getPredicate(), Op<0>(), Op<1>());
-}
-VICmpInst* VICmpInst::clone() const {
-  return new VICmpInst(getPredicate(), Op<0>(), Op<1>());
-}
-
-ExtractValueInst *ExtractValueInst::clone() const {
-  return new ExtractValueInst(*this);
-}
-InsertValueInst *InsertValueInst::clone() const {
-  return new InsertValueInst(*this);
-}
-
 
 MallocInst *MallocInst::clone()   const { return new MallocInst(*this); }
 AllocaInst *AllocaInst::clone()   const { return new AllocaInst(*this); }
@@ -2936,12 +2741,8 @@ CastInst   *FPToSIInst::clone()   const { return new FPToSIInst(*this); }
 CastInst   *PtrToIntInst::clone() const { return new PtrToIntInst(*this); }
 CastInst   *IntToPtrInst::clone() const { return new IntToPtrInst(*this); }
 CastInst   *BitCastInst::clone()  const { return new BitCastInst(*this); }
-CallInst   *CallInst::clone()     const {
-  return new(getNumOperands()) CallInst(*this);
-}
-SelectInst *SelectInst::clone()   const {
-  return new(getNumOperands()) SelectInst(*this);
-}
+CallInst   *CallInst::clone()     const { return new(getNumOperands()) CallInst(*this); }
+SelectInst *SelectInst::clone()   const { return new(getNumOperands()) SelectInst(*this); }
 VAArgInst  *VAArgInst::clone()    const { return new VAArgInst(*this); }
 
 ExtractElementInst *ExtractElementInst::clone() const {
@@ -2954,16 +2755,10 @@ ShuffleVectorInst *ShuffleVectorInst::clone() const {
   return new ShuffleVectorInst(*this);
 }
 PHINode    *PHINode::clone()    const { return new PHINode(*this); }
-ReturnInst *ReturnInst::clone() const {
-  return new(getNumOperands()) ReturnInst(*this);
-}
-BranchInst *BranchInst::clone() const {
-  return new(getNumOperands()) BranchInst(*this);
-}
-SwitchInst *SwitchInst::clone() const { return new SwitchInst(*this); }
-InvokeInst *InvokeInst::clone() const {
-  return new(getNumOperands()) InvokeInst(*this);
-}
+ReturnInst *ReturnInst::clone() const { return new(getNumOperands()) ReturnInst(*this); }
+BranchInst *BranchInst::clone() const { return new(getNumOperands()) BranchInst(*this); }
+SwitchInst *SwitchInst::clone() const { return new(getNumOperands()) SwitchInst(*this); }
+InvokeInst *InvokeInst::clone() const { return new(getNumOperands()) InvokeInst(*this); }
 UnwindInst *UnwindInst::clone() const { return new UnwindInst(); }
 UnreachableInst *UnreachableInst::clone() const { return new UnreachableInst();}
 GetResultInst *GetResultInst::clone() const { return new GetResultInst(*this); }

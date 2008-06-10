@@ -95,8 +95,7 @@ namespace TID {
     Commutable,
     ConvertibleTo3Addr,
     UsesCustomDAGSchedInserter,
-    Rematerializable,
-    CheapAsAMove
+    Rematerializable
   };
 }
 
@@ -387,15 +386,6 @@ public:
   /// verify the instruction is really rematable.
   bool isRematerializable() const {
     return Flags & (1 << TID::Rematerializable);
-  }
-
-  /// isAsCheapAsAMove - Returns true if this instruction has the same cost (or
-  /// less) than a move instruction. This is useful during certain types of
-  /// rematerializations (e.g., during two-address conversion) where we would
-  /// like to remat the instruction, but not if it costs more than moving the
-  /// instruction into the appropriate register.
-  bool isAsCheapAsAMove() const {
-    return Flags & (1 << TID::CheapAsAMove);
   }
 };
 

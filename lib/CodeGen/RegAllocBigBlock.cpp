@@ -52,11 +52,11 @@ STATISTIC(NumStores, "Number of stores added");
 STATISTIC(NumLoads , "Number of loads added");
 STATISTIC(NumFolded, "Number of loads/stores folded into instructions");
 
-static RegisterRegAlloc
-  bigBlockRegAlloc("bigblock", "  Big-block register allocator",
-                createBigBlockRegisterAllocator);
-
 namespace {
+  static RegisterRegAlloc
+    bigBlockRegAlloc("bigblock", "  Big-block register allocator",
+                  createBigBlockRegisterAllocator);
+
 /// VRegKeyInfo - Defines magic values required to use VirtRegs as DenseMap
 /// keys.
   struct VRegKeyInfo {

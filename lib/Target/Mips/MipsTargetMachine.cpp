@@ -19,9 +19,10 @@
 #include "llvm/Target/TargetMachineRegistry.h"
 using namespace llvm;
 
-// Register the target.
-static RegisterTarget<MipsTargetMachine>    X("mips", "  Mips");
-static RegisterTarget<MipselTargetMachine>  Y("mipsel", "  Mipsel");
+namespace {
+  // Register the target.
+  RegisterTarget<MipsTargetMachine> X("mips", "  Mips");
+}
 
 const TargetAsmInfo *MipsTargetMachine::
 createTargetAsmInfo() const 
@@ -36,13 +37,11 @@ createTargetAsmInfo() const
 // offset from the stack/frame pointer, so StackGrowsUp is used.
 // When using CodeModel::Large the behaviour 
 //
+// 
 MipsTargetMachine::
-MipsTargetMachine(const Module &M, const std::string &FS, bool isLittle=false):
-  Subtarget(*this, M, FS, isLittle), 
-  DataLayout(isLittle ? std::string("e-p:32:32:32") :
-                        std::string("E-p:32:32:32")), 
-  InstrInfo(*this), 
-  FrameInfo(TargetFrameInfo::StackGrowsUp, 8, 0),
+MipsTargetMachine(const Module &M, const std::string &FS): 
+  Subtarget(*this, M, FS), DataLayout("E-p:32:32:32"), 
+  InstrInfo(*this), FrameInfo(TargetFrameInfo::StackGrowsUp, 8, 0),
   TLInfo(*this) 
 {
   if (getRelocationModel() != Reloc::Static)
@@ -51,10 +50,6 @@ MipsTargetMachine(const Module &M, const std::string &FS, bool isLittle=false):
     setCodeModel(CodeModel::Small);
 }
 
-MipselTargetMachine::
-MipselTargetMachine(const Module &M, const std::string &FS) :
-  MipsTargetMachine(M, FS, true) {}
-
 // return 0 and must specify -march to gen MIPS code.
 unsigned MipsTargetMachine::
 getModuleMatchQuality(const Module &M) 
@@ -62,18 +57,6 @@ getModuleMatchQuality(const Module &M)
   // We strongly match "mips-*".
   std::string TT = M.getTargetTriple();
   if (TT.size() >= 5 && std::string(TT.begin(), TT.begin()+5) == "mips-")
-    return 20;
-  
-  return 0;
-}
-
-// return 0 and must specify -march to gen MIPSel code.
-unsigned MipselTargetMachine::
-getModuleMatchQuality(const Module &M) 
-{
-  // We strongly match "mipsel-*".
-  std::string TT = M.getTargetTriple();
-  if (TT.size() >= 7 && std::string(TT.begin(), TT.begin()+7) == "mipsel-")
     return 20;
   
   return 0;

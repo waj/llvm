@@ -48,7 +48,8 @@ namespace {
 /// register of the given type. If type is MVT::Other, then just return any
 /// register class the register belongs to.
 const TargetRegisterClass *
-TargetRegisterInfo::getPhysicalRegisterRegClass(unsigned reg, MVT VT) const {
+TargetRegisterInfo::getPhysicalRegisterRegClass(unsigned reg,
+                                                MVT::ValueType VT) const {
   assert(isPhysicalRegister(reg) && "reg must be a physical register");
 
   // Pick the register class of the right type that contains this physreg.

@@ -660,7 +660,7 @@ SDNode *ARMDAGToDAGISel::Select(SDOperand Op) {
   case ISD::LOAD: {
     LoadSDNode *LD = cast<LoadSDNode>(Op);
     ISD::MemIndexedMode AM = LD->getAddressingMode();
-    MVT LoadedVT = LD->getMemoryVT();
+    MVT::ValueType LoadedVT = LD->getMemoryVT();
     if (AM != ISD::UNINDEXED) {
       SDOperand Offset, AMOpc;
       bool isPre = (AM == ISD::PRE_INC) || (AM == ISD::PRE_DEC);
@@ -741,7 +741,7 @@ SDNode *ARMDAGToDAGISel::Select(SDOperand Op) {
   }
   case ARMISD::CMOV: {
     bool isThumb = Subtarget->isThumb();
-    MVT VT = Op.getValueType();
+    MVT::ValueType VT = Op.getValueType();
     SDOperand N0 = Op.getOperand(0);
     SDOperand N1 = Op.getOperand(1);
     SDOperand N2 = Op.getOperand(2);
@@ -805,7 +805,7 @@ SDNode *ARMDAGToDAGISel::Select(SDOperand Op) {
                                cast<ConstantSDNode>(N2)->getValue()), MVT::i32);
     SDOperand Ops[] = { N0, N1, Tmp2, N3, InFlag };
     unsigned Opc = 0;
-    switch (VT.getSimpleVT()) {
+    switch (VT) {
     default: assert(false && "Illegal conditional move type!");
       break;
     case MVT::i32:
@@ -821,7 +821,7 @@ SDNode *ARMDAGToDAGISel::Select(SDOperand Op) {
     return CurDAG->SelectNodeTo(Op.Val, Opc, VT, Ops, 5);
   }
   case ARMISD::CNEG: {
-    MVT VT = Op.getValueType();
+    MVT::ValueType VT = Op.getValueType();
     SDOperand N0 = Op.getOperand(0);
     SDOperand N1 = Op.getOperand(1);
     SDOperand N2 = Op.getOperand(2);
@@ -837,7 +837,7 @@ SDNode *ARMDAGToDAGISel::Select(SDOperand Op) {
                                cast<ConstantSDNode>(N2)->getValue()), MVT::i32);
     SDOperand Ops[] = { N0, N1, Tmp2, N3, InFlag };
     unsigned Opc = 0;
-    switch (VT.getSimpleVT()) {
+    switch (VT) {
     default: assert(false && "Illegal conditional move type!");
       break;
     case MVT::f32:

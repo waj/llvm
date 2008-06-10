@@ -31,7 +31,7 @@ dnl===
 dnl===-----------------------------------------------------------------------===
 dnl Initialize autoconf and define the package name, version number and
 dnl email address for reporting bugs.
-AC_INIT([[llvm]],[[2.4svn]],[llvmbugs@cs.uiuc.edu])
+AC_INIT([[llvm]],[[2.3]],[llvmbugs@cs.uiuc.edu])
 
 dnl Provide a copyright substitution and ensure the copyright notice is included
 dnl in the output of --version option of the generated configure script.
@@ -216,7 +216,6 @@ AC_CACHE_CHECK([target architecture],[llvm_cv_target_arch],
   ia64-*)                 llvm_cv_target_arch="IA64" ;;
   arm-*)                  llvm_cv_target_arch="ARM" ;;
   mips-*)                 llvm_cv_target_arch="Mips" ;;
-  pic16-*)                llvm_cv_target_arch="PIC16" ;;
   *)                      llvm_cv_target_arch="Unknown" ;;
 esac])
 
@@ -315,7 +314,6 @@ else
     IA64)    AC_SUBST(TARGET_HAS_JIT,0) ;;
     ARM)     AC_SUBST(TARGET_HAS_JIT,0) ;;
     Mips)    AC_SUBST(TARGET_HAS_JIT,0) ;;
-    PIC16)   AC_SUBST(TARGET_HAS_JIT,0) ;;
     *)       AC_SUBST(TARGET_HAS_JIT,0) ;;
   esac
 fi
@@ -365,7 +363,7 @@ AC_ARG_ENABLE([targets],AS_HELP_STRING([--enable-targets],
     [Build specific host targets: all,host-only,{target-name} (default=all)]),,
     enableval=all)
 case "$enableval" in
-  all) TARGETS_TO_BUILD="X86 Sparc PowerPC Alpha IA64 ARM Mips CellSPU PIC16 CBackend MSIL CppBackend" ;;
+  all) TARGETS_TO_BUILD="X86 Sparc PowerPC Alpha IA64 ARM Mips CellSPU CBackend MSIL CppBackend" ;;
   host-only)
     case "$llvm_cv_target_arch" in
       x86)     TARGETS_TO_BUILD="X86" ;;
@@ -377,7 +375,6 @@ case "$enableval" in
       ARM)     TARGETS_TO_BUILD="ARM" ;;
       Mips)    TARGETS_TO_BUILD="Mips" ;;
       CellSPU|SPU) TARGETS_TO_BUILD="CellSPU" ;;
-      PIC16)   TARGETS_TO_BUILD="PIC16" ;;
       *)       AC_MSG_ERROR([Can not set target to build]) ;;
     esac
     ;;
@@ -392,7 +389,6 @@ case "$enableval" in
         arm)     TARGETS_TO_BUILD="ARM $TARGETS_TO_BUILD" ;;
         mips)    TARGETS_TO_BUILD="Mips $TARGETS_TO_BUILD" ;;
         spu)     TARGETS_TO_BUILD="CellSPU $TARGETS_TO_BUILD" ;;
-        pic16)   TARGETS_TO_BUILD="PIC16 $TARGETS_TO_BUILD" ;;
         cbe)     TARGETS_TO_BUILD="CBackend $TARGETS_TO_BUILD" ;;
         msil)    TARGETS_TO_BUILD="MSIL $TARGETS_TO_BUILD" ;;
         cpp)     TARGETS_TO_BUILD="CppBackend $TARGETS_TO_BUILD" ;;
@@ -981,9 +977,9 @@ dnl contains the same list of files as AC_CONFIG_HEADERS below. This ensures the
 dnl files can be updated automatically when their *.in sources change.
 AC_CONFIG_HEADERS([include/llvm/Config/config.h])
 AC_CONFIG_HEADERS([include/llvm/Support/DataTypes.h])
-AC_CONFIG_HEADERS([include/llvm/ADT/hash_map.h])
-AC_CONFIG_HEADERS([include/llvm/ADT/hash_set.h])
-AC_CONFIG_HEADERS([include/llvm/ADT/iterator.h])
+AC_CONFIG_HEADERS([include/llvm/ADT/hash_map])
+AC_CONFIG_HEADERS([include/llvm/ADT/hash_set])
+AC_CONFIG_HEADERS([include/llvm/ADT/iterator])
 
 dnl Configure the makefile's configuration data
 AC_CONFIG_FILES([Makefile.config])

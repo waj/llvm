@@ -15,6 +15,7 @@
 #define LLVM_SYSTEM_PROGRAM_H
 
 #include "llvm/System/Path.h"
+#include <vector>
 
 namespace llvm {
 namespace sys {

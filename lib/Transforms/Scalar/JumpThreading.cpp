@@ -63,11 +63,9 @@ namespace {
     bool ProcessBranchOnLogical(Value *V, BasicBlock *BB, bool isAnd);
     bool ProcessBranchOnCompare(CmpInst *Cmp, BasicBlock *BB);
   };
+  char JumpThreading::ID = 0;
+  RegisterPass<JumpThreading> X("jump-threading", "Jump Threading");
 }
-
-char JumpThreading::ID = 0;
-static RegisterPass<JumpThreading>
-X("jump-threading", "Jump Threading");
 
 // Public interface to the Jump Threading pass
 FunctionPass *llvm::createJumpThreadingPass() { return new JumpThreading(); }
@@ -116,8 +114,9 @@ BasicBlock *JumpThreading::FactorCommonPHIPreds(PHINode *PN, Constant *CstVal) {
 /// getJumpThreadDuplicationCost - Return the cost of duplicating this block to
 /// thread across it.
 static unsigned getJumpThreadDuplicationCost(const BasicBlock *BB) {
+  BasicBlock::const_iterator I = BB->begin();
   /// Ignore PHI nodes, these will be flattened when duplication happens.
-  BasicBlock::const_iterator I = BB->getFirstNonPHI();
+  while (isa<PHINode>(*I)) ++I;
 
   // Sum up the cost of each instruction until we get to the terminator.  Don't
   // include the terminator because the copy won't include it.
@@ -157,7 +156,7 @@ static unsigned getJumpThreadDuplicationCost(const BasicBlock *BB) {
 /// ThreadBlock - If there are any predecessors whose control can be threaded
 /// through to a successor, transform them now.
 bool JumpThreading::ThreadBlock(BasicBlock *BB) {
-  // See if this block ends with a branch or switch.  If so, see if the
+  // See if this block ends with a branch of switch.  If so, see if the
   // condition is a phi node.  If so, and if an entry of the phi node is a
   // constant, we can thread the block.
   Value *Condition;
@@ -282,8 +281,8 @@ bool JumpThreading::ProcessBranchOnLogical(Value *V, BasicBlock *BB,
   // If this is a binary operator tree of the same AND/OR opcode, check the
   // LHS/RHS.
   if (BinaryOperator *BO = dyn_cast<BinaryOperator>(V))
-    if ((isAnd && BO->getOpcode() == Instruction::And) ||
-        (!isAnd && BO->getOpcode() == Instruction::Or)) {
+    if (isAnd && BO->getOpcode() == Instruction::And ||
+        !isAnd && BO->getOpcode() == Instruction::Or) {
       if (ProcessBranchOnLogical(BO->getOperand(0), BB, isAnd))
         return true;
       if (ProcessBranchOnLogical(BO->getOperand(1), BB, isAnd))

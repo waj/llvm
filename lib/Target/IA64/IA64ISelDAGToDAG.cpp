@@ -119,7 +119,7 @@ SDNode *IA64DAGToDAGISel::SelectDIV(SDOperand Op) {
 
   bool isFP=false;
 
-  if(Tmp1.getValueType().isFloatingPoint())
+  if(MVT::isFloatingPoint(Tmp1.getValueType()))
     isFP=true;
     
   bool isModulus=false; // is it a division or a modulus?
@@ -348,8 +348,7 @@ SDNode *IA64DAGToDAGISel::Select(SDOperand Op) {
     // load the branch target's entry point [mem] and 
     // GP value [mem+8]
     SDOperand targetEntryPoint=
-      SDOperand(CurDAG->getTargetNode(IA64::LD8, MVT::i64, MVT::Other,
-                                      FnDescriptor, CurDAG->getEntryNode()), 0);
+      SDOperand(CurDAG->getTargetNode(IA64::LD8, MVT::i64, FnDescriptor), 0);
     Chain = targetEntryPoint.getValue(1);
     SDOperand targetGPAddr=
       SDOperand(CurDAG->getTargetNode(IA64::ADDS, MVT::i64, 
@@ -357,8 +356,7 @@ SDNode *IA64DAGToDAGISel::Select(SDOperand Op) {
                                       CurDAG->getConstant(8, MVT::i64)), 0);
     Chain = targetGPAddr.getValue(1);
     SDOperand targetGP =
-      SDOperand(CurDAG->getTargetNode(IA64::LD8, MVT::i64,MVT::Other,
-                                      targetGPAddr, CurDAG->getEntryNode()), 0);
+      SDOperand(CurDAG->getTargetNode(IA64::LD8, MVT::i64, targetGPAddr), 0);
     Chain = targetGP.getValue(1);
 
     Chain = CurDAG->getCopyToReg(Chain, IA64::r1, targetGP, InFlag);
@@ -446,7 +444,7 @@ SDNode *IA64DAGToDAGISel::Select(SDOperand Op) {
       SDOperand(CurDAG->getTargetNode(IA64::ADDL_GA, MVT::i64, 
                                       CurDAG->getRegister(IA64::r1,
                                                           MVT::i64), GA), 0);
-    return CurDAG->getTargetNode(IA64::LD8, MVT::i64, MVT::Other, Tmp);
+    return CurDAG->getTargetNode(IA64::LD8, MVT::i64, Tmp);
   }
   
 /* XXX
@@ -469,9 +467,9 @@ SDNode *IA64DAGToDAGISel::Select(SDOperand Op) {
     AddToISelQueue(Chain);
     AddToISelQueue(Address);
 
-    MVT TypeBeingLoaded = LD->getMemoryVT();
+    MVT::ValueType TypeBeingLoaded = LD->getMemoryVT();
     unsigned Opc;
-    switch (TypeBeingLoaded.getSimpleVT()) {
+    switch (TypeBeingLoaded) {
     default:
 #ifndef NDEBUG
       N->dump(CurDAG);
@@ -511,7 +509,7 @@ SDNode *IA64DAGToDAGISel::Select(SDOperand Op) {
    
     unsigned Opc;
     if (ISD::isNON_TRUNCStore(N)) {
-      switch (N->getOperand(1).getValueType().getSimpleVT()) {
+      switch (N->getOperand(1).getValueType()) {
       default: assert(0 && "unknown type in store");
       case MVT::i1: { // this is a bool
         Opc = IA64::ST1; // we store either 0 or 1 as a byte 
@@ -531,7 +529,7 @@ SDNode *IA64DAGToDAGISel::Select(SDOperand Op) {
       case MVT::f64: Opc = IA64::STF8; break;
       }
     } else { // Truncating store
-      switch(ST->getMemoryVT().getSimpleVT()) {
+      switch(ST->getMemoryVT()) {
       default: assert(0 && "unknown type in truncstore");
       case MVT::i8:  Opc = IA64::ST1;  break;
       case MVT::i16: Opc = IA64::ST2;  break;

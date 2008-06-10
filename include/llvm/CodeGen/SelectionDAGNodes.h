@@ -22,7 +22,7 @@
 #include "llvm/Value.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/GraphTraits.h"
-#include "llvm/ADT/iterator.h"
+#include "llvm/ADT/iterator"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/CodeGen/ValueTypes.h"
@@ -48,7 +48,7 @@ template<typename NodeTy> class ilist_iterator;
 /// SelectionDAG::getVTList(...).
 ///
 struct SDVTList {
-  const MVT *VTs;
+  const MVT::ValueType *VTs;
   unsigned short NumVTs;
 };
 
@@ -331,14 +331,6 @@ namespace ISD {
     // to compare (ops #0, and #1) and the condition code to compare them with
     // (op #2) as a CondCodeSDNode.
     SETCC,
-
-    // Vector SetCC operator - This evaluates to a vector of integer elements
-    // with the high bit in each element set to true if the comparison is true
-    // and false if the comparison is false.  All other bits in each element 
-    // are undefined.  The operands to this are the left and right operands
-    // to compare (ops #0, and #1) and the condition code to compare them with
-    // (op #2) as a CondCodeSDNode.
-    VSETCC,
 
     // SHL_PARTS/SRA_PARTS/SRL_PARTS - These operators are used for expanded
     // integer shift operations, just like ADD/SUB_PARTS.  The operation
@@ -834,12 +826,12 @@ public:
 
   /// getValueType - Return the ValueType of the referenced return value.
   ///
-  inline MVT getValueType() const;
+  inline MVT::ValueType getValueType() const;
 
-  /// getValueSizeInBits - Returns the size of the value in bits.
+  /// getValueSizeInBits - Returns MVT::getSizeInBits(getValueType()).
   ///
   unsigned getValueSizeInBits() const {
-    return getValueType().getSizeInBits();
+    return MVT::getSizeInBits(getValueType());
   }
 
   // Forwarding methods - These forward to the corresponding methods in SDNode.
@@ -1045,7 +1037,7 @@ private:
   
   /// ValueList - The types of the values this node defines.  SDNode's may
   /// define multiple values simultaneously.
-  const MVT *ValueList;
+  const MVT::ValueType *ValueList;
 
   /// NumOperands/NumValues - The number of entries in the Operand/Value list.
   unsigned short NumOperands, NumValues;
@@ -1216,7 +1208,7 @@ public:
 
   /// getValueType - Return the type of a specified result.
   ///
-  MVT getValueType(unsigned ResNo) const {
+  MVT::ValueType getValueType(unsigned ResNo) const {
     assert(ResNo < NumValues && "Illegal result number!");
     return ValueList[ResNo];
   }
@@ -1224,10 +1216,10 @@ public:
   /// getValueSizeInBits - Returns MVT::getSizeInBits(getValueType(ResNo)).
   ///
   unsigned getValueSizeInBits(unsigned ResNo) const {
-    return getValueType(ResNo).getSizeInBits();
+    return MVT::getSizeInBits(getValueType(ResNo));
   }
 
-  typedef const MVT* value_iterator;
+  typedef const MVT::ValueType* value_iterator;
   value_iterator value_begin() const { return ValueList; }
   value_iterator value_end() const { return ValueList+NumValues; }
 
@@ -1249,8 +1241,8 @@ protected:
   
   /// getValueTypeList - Return a pointer to the specified value type.
   ///
-  static const MVT *getValueTypeList(MVT VT);
-  static SDVTList getSDVTList(MVT VT) {
+  static const MVT::ValueType *getValueTypeList(MVT::ValueType VT);
+  static SDVTList getSDVTList(MVT::ValueType VT) {
     SDVTList Ret = { getValueTypeList(VT), 1 };
     return Ret;
   }
@@ -1344,7 +1336,7 @@ protected:
 inline unsigned SDOperand::getOpcode() const {
   return Val->getOpcode();
 }
-inline MVT SDOperand::getValueType() const {
+inline MVT::ValueType SDOperand::getValueType() const {
   return Val->getValueType(ResNo);
 }
 inline unsigned SDOperand::getNumOperands() const {
@@ -1439,10 +1431,10 @@ public:
 class AtomicSDNode : public SDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
   SDUse Ops[4];
-  MVT OrigVT;
+  MVT::ValueType OrigVT;
 public:
   AtomicSDNode(unsigned Opc, SDVTList VTL, SDOperand Chain, SDOperand Ptr, 
-               SDOperand Cmp, SDOperand Swp, MVT VT)
+               SDOperand Cmp, SDOperand Swp, MVT::ValueType VT)
     : SDNode(Opc, VTL) {
     Ops[0] = Chain;
     Ops[1] = Ptr;
@@ -1452,7 +1444,7 @@ public:
     OrigVT=VT;
   }
   AtomicSDNode(unsigned Opc, SDVTList VTL, SDOperand Chain, SDOperand Ptr, 
-               SDOperand Val, MVT VT)
+               SDOperand Val, MVT::ValueType VT)
     : SDNode(Opc, VTL) {
     Ops[0] = Chain;
     Ops[1] = Ptr;
@@ -1460,7 +1452,7 @@ public:
     InitOperands(Ops, 3);
     OrigVT=VT;
   }
-  MVT getVT() const { return OrigVT; }
+  MVT::ValueType getVT() const { return OrigVT; }
   bool isCompareAndSwap() const { return getOpcode() == ISD::ATOMIC_LCS; }
 };
 
@@ -1485,7 +1477,7 @@ class ConstantSDNode : public SDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  ConstantSDNode(bool isTarget, const APInt &val, MVT VT)
+  ConstantSDNode(bool isTarget, const APInt &val, MVT::ValueType VT)
     : SDNode(isTarget ? ISD::TargetConstant : ISD::Constant, getSDVTList(VT)),
       Value(val) {
   }
@@ -1495,13 +1487,13 @@ public:
   uint64_t getValue() const { return Value.getZExtValue(); }
 
   int64_t getSignExtended() const {
-    unsigned Bits = getValueType(0).getSizeInBits();
+    unsigned Bits = MVT::getSizeInBits(getValueType(0));
     return ((int64_t)Value.getZExtValue() << (64-Bits)) >> (64-Bits);
   }
 
   bool isNullValue() const { return Value == 0; }
   bool isAllOnesValue() const {
-    return Value == getValueType(0).getIntegerVTBitMask();
+    return Value == MVT::getIntVTBitMask(getValueType(0));
   }
 
   static bool classof(const ConstantSDNode *) { return true; }
@@ -1516,7 +1508,7 @@ class ConstantFPSDNode : public SDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  ConstantFPSDNode(bool isTarget, const APFloat& val, MVT VT)
+  ConstantFPSDNode(bool isTarget, const APFloat& val, MVT::ValueType VT)
     : SDNode(isTarget ? ISD::TargetConstantFP : ISD::ConstantFP,
              getSDVTList(VT)), Value(val) {
   }
@@ -1542,7 +1534,7 @@ public:
   }
   bool isExactlyValue(const APFloat& V) const;
 
-  bool isValueValidForType(MVT VT, const APFloat& Val);
+  bool isValueValidForType(MVT::ValueType VT, const APFloat& Val);
 
   static bool classof(const ConstantFPSDNode *) { return true; }
   static bool classof(const SDNode *N) {
@@ -1557,7 +1549,8 @@ class GlobalAddressSDNode : public SDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  GlobalAddressSDNode(bool isTarget, const GlobalValue *GA, MVT VT, int o = 0);
+  GlobalAddressSDNode(bool isTarget, const GlobalValue *GA, MVT::ValueType VT,
+                      int o = 0);
 public:
 
   GlobalValue *getGlobal() const { return TheGlobal; }
@@ -1577,7 +1570,7 @@ class FrameIndexSDNode : public SDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  FrameIndexSDNode(int fi, MVT VT, bool isTarg)
+  FrameIndexSDNode(int fi, MVT::ValueType VT, bool isTarg)
     : SDNode(isTarg ? ISD::TargetFrameIndex : ISD::FrameIndex, getSDVTList(VT)),
       FI(fi) {
   }
@@ -1597,7 +1590,7 @@ class JumpTableSDNode : public SDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  JumpTableSDNode(int jti, MVT VT, bool isTarg)
+  JumpTableSDNode(int jti, MVT::ValueType VT, bool isTarg)
     : SDNode(isTarg ? ISD::TargetJumpTable : ISD::JumpTable, getSDVTList(VT)),
       JTI(jti) {
   }
@@ -1622,20 +1615,22 @@ class ConstantPoolSDNode : public SDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  ConstantPoolSDNode(bool isTarget, Constant *c, MVT VT, int o=0)
+  ConstantPoolSDNode(bool isTarget, Constant *c, MVT::ValueType VT,
+                     int o=0)
     : SDNode(isTarget ? ISD::TargetConstantPool : ISD::ConstantPool,
              getSDVTList(VT)), Offset(o), Alignment(0) {
     assert((int)Offset >= 0 && "Offset is too large");
     Val.ConstVal = c;
   }
-  ConstantPoolSDNode(bool isTarget, Constant *c, MVT VT, int o, unsigned Align)
+  ConstantPoolSDNode(bool isTarget, Constant *c, MVT::ValueType VT, int o,
+                     unsigned Align)
     : SDNode(isTarget ? ISD::TargetConstantPool : ISD::ConstantPool, 
              getSDVTList(VT)), Offset(o), Alignment(Align) {
     assert((int)Offset >= 0 && "Offset is too large");
     Val.ConstVal = c;
   }
   ConstantPoolSDNode(bool isTarget, MachineConstantPoolValue *v,
-                     MVT VT, int o=0)
+                     MVT::ValueType VT, int o=0)
     : SDNode(isTarget ? ISD::TargetConstantPool : ISD::ConstantPool, 
              getSDVTList(VT)), Offset(o), Alignment(0) {
     assert((int)Offset >= 0 && "Offset is too large");
@@ -1643,7 +1638,7 @@ protected:
     Offset |= 1 << (sizeof(unsigned)*8-1);
   }
   ConstantPoolSDNode(bool isTarget, MachineConstantPoolValue *v,
-                     MVT VT, int o, unsigned Align)
+                     MVT::ValueType VT, int o, unsigned Align)
     : SDNode(isTarget ? ISD::TargetConstantPool : ISD::ConstantPool,
              getSDVTList(VT)), Offset(o), Alignment(Align) {
     assert((int)Offset >= 0 && "Offset is too large");
@@ -1757,7 +1752,7 @@ class RegisterSDNode : public SDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  RegisterSDNode(unsigned reg, MVT VT)
+  RegisterSDNode(unsigned reg, MVT::ValueType VT)
     : SDNode(ISD::Register, getSDVTList(VT)), Reg(reg) {
   }
 public:
@@ -1775,7 +1770,7 @@ class ExternalSymbolSDNode : public SDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  ExternalSymbolSDNode(bool isTarget, const char *Sym, MVT VT)
+  ExternalSymbolSDNode(bool isTarget, const char *Sym, MVT::ValueType VT)
     : SDNode(isTarget ? ISD::TargetExternalSymbol : ISD::ExternalSymbol,
              getSDVTList(VT)), Symbol(Sym) {
   }
@@ -1911,19 +1906,19 @@ public:
   }
 };
 
-/// VTSDNode - This class is used to represent MVT's, which are used
+/// VTSDNode - This class is used to represent MVT::ValueType's, which are used
 /// to parameterize some operations.
 class VTSDNode : public SDNode {
-  MVT ValueType;
+  MVT::ValueType ValueType;
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  explicit VTSDNode(MVT VT)
+  explicit VTSDNode(MVT::ValueType VT)
     : SDNode(ISD::VALUETYPE, getSDVTList(MVT::Other)), ValueType(VT) {
   }
 public:
 
-  MVT getVT() const { return ValueType; }
+  MVT::ValueType getVT() const { return ValueType; }
 
   static bool classof(const VTSDNode *) { return true; }
   static bool classof(const SDNode *N) {
@@ -1939,7 +1934,7 @@ private:
   ISD::MemIndexedMode AddrMode;
 
   // MemoryVT - VT of in-memory value.
-  MVT MemoryVT;
+  MVT::ValueType MemoryVT;
 
   //! SrcValue - Memory location for alias analysis.
   const Value *SrcValue;
@@ -1961,15 +1956,15 @@ protected:
    */
   SDUse Ops[4];
 public:
-  LSBaseSDNode(ISD::NodeType NodeTy, SDOperand *Operands, unsigned numOperands,
-               SDVTList VTs, ISD::MemIndexedMode AM, MVT VT,
+  LSBaseSDNode(ISD::NodeType NodeTy, SDOperand *Operands, unsigned NumOperands,
+               SDVTList VTs, ISD::MemIndexedMode AM, MVT::ValueType VT, 
                const Value *SV, int SVO, unsigned Align, bool Vol)
     : SDNode(NodeTy, VTs),
       AddrMode(AM), MemoryVT(VT),
       SrcValue(SV), SVOffset(SVO), Alignment(Align), IsVolatile(Vol) {
-    for (unsigned i = 0; i != numOperands; ++i)
+    for (unsigned i = 0; i != NumOperands; ++i)
       Ops[i] = Operands[i];
-    InitOperands(Ops, numOperands);
+    InitOperands(Ops, NumOperands);
     assert(Align != 0 && "Loads and stores should have non-zero aligment");
     assert((getOffset().getOpcode() == ISD::UNDEF || isIndexed()) &&
            "Only indexed loads and stores have a non-undef offset operand");
@@ -1986,7 +1981,7 @@ public:
   const Value *getSrcValue() const { return SrcValue; }
   int getSrcValueOffset() const { return SVOffset; }
   unsigned getAlignment() const { return Alignment; }
-  MVT getMemoryVT() const { return MemoryVT; }
+  MVT::ValueType getMemoryVT() const { return MemoryVT; }
   bool isVolatile() const { return IsVolatile; }
 
   ISD::MemIndexedMode getAddressingMode() const { return AddrMode; }
@@ -2001,7 +1996,7 @@ public:
   /// reference performed by this load or store.
   MachineMemOperand getMemOperand() const;
 
-  static bool classof(const LSBaseSDNode *) { return true; }
+  static bool classof(const LSBaseSDNode *N) { return true; }
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::LOAD ||
            N->getOpcode() == ISD::STORE;
@@ -2019,7 +2014,7 @@ class LoadSDNode : public LSBaseSDNode {
 protected:
   friend class SelectionDAG;
   LoadSDNode(SDOperand *ChainPtrOff, SDVTList VTs,
-             ISD::MemIndexedMode AM, ISD::LoadExtType ETy, MVT LVT,
+             ISD::MemIndexedMode AM, ISD::LoadExtType ETy, MVT::ValueType LVT,
              const Value *SV, int O=0, unsigned Align=0, bool Vol=false)
     : LSBaseSDNode(ISD::LOAD, ChainPtrOff, 3,
                    VTs, AM, LVT, SV, O, Align, Vol),
@@ -2046,7 +2041,7 @@ class StoreSDNode : public LSBaseSDNode {
 protected:
   friend class SelectionDAG;
   StoreSDNode(SDOperand *ChainValuePtrOff, SDVTList VTs,
-              ISD::MemIndexedMode AM, bool isTrunc, MVT SVT,
+              ISD::MemIndexedMode AM, bool isTrunc, MVT::ValueType SVT,
               const Value *SV, int O=0, unsigned Align=0, bool Vol=false)
     : LSBaseSDNode(ISD::STORE, ChainValuePtrOff, 4,
                    VTs, AM, SVT, SV, O, Align, Vol),
@@ -2131,11 +2126,11 @@ struct ilist_traits<SDNode> {
   //static SDNode *createNode(const SDNode &V) { return new SDNode(V); }
   
   
-  void addNodeToList(SDNode *) {}
-  void removeNodeFromList(SDNode *) {}
-  void transferNodesFromList(iplist<SDNode, ilist_traits> &,
-                             const ilist_iterator<SDNode> &,
-                             const ilist_iterator<SDNode> &) {}
+  void addNodeToList(SDNode *NTy) {}
+  void removeNodeFromList(SDNode *NTy) {}
+  void transferNodesFromList(iplist<SDNode, ilist_traits> &L2,
+                             const ilist_iterator<SDNode> &X,
+                             const ilist_iterator<SDNode> &Y) {}
 };
 
 namespace ISD {

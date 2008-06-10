@@ -62,7 +62,6 @@ struct PostDominatorTree : public FunctionPass {
   }
 };
 
-FunctionPass* createPostDomTree();
 
 /// PostDominanceFrontier Class - Concrete subclass of DominanceFrontier that is
 /// used to compute the a post-dominance frontier.
@@ -90,8 +89,6 @@ private:
   const DomSetType &calculate(const PostDominatorTree &DT,
                               const DomTreeNode *Node);
 };
-
-FunctionPass* createPostDomFrontier();
 
 } // End llvm namespace
 

@@ -1,4 +1,4 @@
-//===- Graph.td - LLVMCC toolchain descriptions ------------*- tablegen -*-===//
+//===- Example.td - LLVMCC toolchain descriptions  ---------*- tablegen -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -26,24 +26,22 @@ def CompilationGraph : CompilationGraph<[
     Edge<llvm_gcc_cpp, llc>,
     Edge<llvm_as, llc>,
 
-    OptionalEdge<llvm_gcc_c, opt, (case (switch_on "opt"), (inc_weight))>,
-    OptionalEdge<llvm_gcc_cpp, opt, (case (switch_on "opt"), (inc_weight))>,
-    OptionalEdge<llvm_as, opt, (case (switch_on "opt"), (inc_weight))>,
+    OptionalEdge<llvm_gcc_c, opt, [(switch_on "opt")]>,
+    OptionalEdge<llvm_gcc_cpp, opt, [(switch_on "opt")]>,
+    OptionalEdge<llvm_as, opt, [(switch_on "opt")]>,
     Edge<opt, llc>,
 
     Edge<llc, llvm_gcc_assembler>,
     Edge<llvm_gcc_assembler, llvm_gcc_linker>,
     OptionalEdge<llvm_gcc_assembler, llvm_gcc_cpp_linker,
-                 (case
-                     (input_languages_contain "c++"), (inc_weight),
-                     (or (parameter_equals "linker", "g++"),
-                         (parameter_equals "linker", "c++")), (inc_weight))>,
+                 [(if_input_languages_contain "c++"),
+                  (or (parameter_equals "linker", "g++"),
+                      (parameter_equals "linker", "c++"))]>,
 
 
     Edge<root, llvm_gcc_linker>,
     OptionalEdge<root, llvm_gcc_cpp_linker,
-                 (case
-                     (input_languages_contain "c++"), (inc_weight),
-                     (or (parameter_equals "linker", "g++"),
-                         (parameter_equals "linker", "c++")), (inc_weight))>
+                 [(if_input_languages_contain "c++"),
+                  (or (parameter_equals "linker", "g++"),
+                      (parameter_equals "linker", "c++"))]>
     ]>;

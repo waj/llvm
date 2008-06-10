@@ -102,10 +102,7 @@ namespace llvm {
     bool hasCtrlDep;
     bool isNotDuplicable;
     bool hasOptionalDef;
-    bool hasSideEffects;
-    bool mayHaveSideEffects;
-    bool neverHasSideEffects;
-    bool isAsCheapAsAMove;
+    bool hasSideEffects, mayHaveSideEffects, neverHasSideEffects;
     
     /// ParseOperandName - Parse an operand name like "$foo" or "$foo.bar",
     /// where $foo is a whole operand and $foo.bar refers to a suboperand.

@@ -70,10 +70,10 @@ static cl::opt<std::string> NameToGenerate("cppfor", cl::Optional,
   cl::desc("Specify the name of the thing to generate"),
   cl::init("!bad!"));
 
-// Register the target.
-static RegisterTarget<CPPTargetMachine> X("cpp", "  C++ backend");
-
 namespace {
+  // Register the target.
+  RegisterTarget<CPPTargetMachine> X("cpp", "  C++ backend");
+
   typedef std::vector<const Type*> TypeList;
   typedef std::map<const Type*,std::string> TypeMap;
   typedef std::map<const Value*,std::string> ValueMap;
@@ -221,6 +221,10 @@ namespace {
     if (CFP->getType() == Type::FloatTy)
       APF.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven);
     Out << "ConstantFP::get(";
+    if (CFP->getType() == Type::DoubleTy)
+      Out << "Type::DoubleTy, ";
+    else
+      Out << "Type::FloatTy, ";
     Out << "APFloat(";
 #if HAVE_PRINTF_A
     char Buffer[100];
@@ -297,8 +301,6 @@ namespace {
       Out << "GlobalValue::ExternalWeakLinkage"; break;
     case GlobalValue::GhostLinkage:
       Out << "GlobalValue::GhostLinkage"; break;
-    case GlobalValue::CommonLinkage:
-      Out << "GlobalValue::CommonLinkage"; break;
     }
   }
 
@@ -429,7 +431,7 @@ namespace {
 
   void CppWriter::printParamAttrs(const PAListPtr &PAL,
                                   const std::string &name) {
-    Out << "PAListPtr " << name << "_PAL;";
+    Out << "PAListPtr " << name << "_PAL = 0;";
     nl(Out);
     if (!PAL.isEmpty()) {
       Out << '{'; in(); nl(Out);
@@ -438,7 +440,7 @@ namespace {
       for (unsigned i = 0; i < PAL.getNumSlots(); ++i) {
         uint16_t index = PAL.getSlot(i).Index;
         ParameterAttributes attrs = PAL.getSlot(i).Attrs;
-        Out << "PAWI.Index = " << index << "; PAWI.Attrs = 0 ";
+        Out << "PAWI.index = " << index << "; PAWI.attrs = 0 ";
         if (attrs & ParamAttr::SExt)
           Out << " | ParamAttr::SExt";
         if (attrs & ParamAttr::ZExt)
@@ -1065,10 +1067,6 @@ namespace {
     }
 
     switch (I->getOpcode()) {
-    default:
-      error("Invalid instruction");
-      break;
-
     case Instruction::Ret: {
       const ReturnInst* ret =  cast<ReturnInst>(I);
       Out << "ReturnInst::Create("
@@ -1155,7 +1153,7 @@ namespace {
     case Instruction::Shl:
     case Instruction::LShr:
     case Instruction::AShr:{
-      Out << "BinaryOperator* " << iName << " = BinaryOperator::Create(";
+      Out << "BinaryOperator* " << iName << " = BinaryOperator::create(";
       switch (I->getOpcode()) {
       case Instruction::Add: Out << "Instruction::Add"; break;
       case Instruction::Sub: Out << "Instruction::Sub"; break;
@@ -1439,40 +1437,6 @@ namespace {
           << " = new ShuffleVectorInst(" << opNames[0]
           << ", " << opNames[1] << ", " << opNames[2] << ", \"";
       printEscapedString(svi->getName());
-      Out << "\", " << bbname << ");";
-      break;
-    }
-    case Instruction::ExtractValue: {
-      const ExtractValueInst *evi = cast<ExtractValueInst>(I);
-      Out << "std::vector<unsigned> " << iName << "_indices;";
-      nl(Out);
-      for (unsigned i = 0; i < evi->getNumIndices(); ++i) {
-        Out << iName << "_indices.push_back("
-            << evi->idx_begin()[i] << ");";
-        nl(Out);
-      }
-      Out << "ExtractValueInst* " << getCppName(evi)
-          << " = ExtractValueInst::Create(" << opNames[0]
-          << ", "
-          << iName << "_indices.begin(), " << iName << "_indices.end(), \"";
-      printEscapedString(evi->getName());
-      Out << "\", " << bbname << ");";
-      break;
-    }
-    case Instruction::InsertValue: {
-      const InsertValueInst *ivi = cast<InsertValueInst>(I);
-      Out << "std::vector<unsigned> " << iName << "_indices;";
-      nl(Out);
-      for (unsigned i = 0; i < ivi->getNumIndices(); ++i) {
-        Out << iName << "_indices.push_back("
-            << ivi->idx_begin()[i] << ");";
-        nl(Out);
-      }
-      Out << "InsertValueInst* " << getCppName(ivi)
-          << " = InsertValueInst::Create(" << opNames[0]
-          << ", " << opNames[1] << ", "
-          << iName << "_indices.begin(), " << iName << "_indices.end(), \"";
-      printEscapedString(ivi->getName());
       Out << "\", " << bbname << ");";
       break;
     }
@@ -1781,7 +1745,6 @@ namespace {
     Out << "#include <llvm/Support/MathExtras.h>\n";
     Out << "#include <llvm/Pass.h>\n";
     Out << "#include <llvm/PassManager.h>\n";
-    Out << "#include <llvm/ADT/SmallVector.h>\n";
     Out << "#include <llvm/Analysis/Verifier.h>\n";
     Out << "#include <llvm/Assembly/PrintModulePass.h>\n";
     Out << "#include <algorithm>\n";

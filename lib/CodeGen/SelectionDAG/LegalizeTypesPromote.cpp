@@ -91,10 +91,10 @@ SDOperand DAGTypeLegalizer::PromoteResult_UNDEF(SDNode *N) {
 }
 
 SDOperand DAGTypeLegalizer::PromoteResult_Constant(SDNode *N) {
-  MVT VT = N->getValueType(0);
+  MVT::ValueType VT = N->getValueType(0);
   // Zero extend things like i1, sign extend everything else.  It shouldn't
   // matter in theory which one we pick, but this tends to give better code?
-  unsigned Opc = VT.isByteSized() ? ISD::SIGN_EXTEND : ISD::ZERO_EXTEND;
+  unsigned Opc = VT != MVT::i1 ? ISD::SIGN_EXTEND : ISD::ZERO_EXTEND;
   SDOperand Result = DAG.getNode(Opc, TLI.getTypeToTransformTo(VT),
                                  SDOperand(N, 0));
   assert(isa<ConstantSDNode>(Result) && "Didn't constant fold ext?");
@@ -115,8 +115,8 @@ SDOperand DAGTypeLegalizer::PromoteResult_TRUNCATE(SDNode *N) {
     break;
   }
 
-  MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
-  assert(Res.getValueType().getSizeInBits() >= NVT.getSizeInBits() &&
+  MVT::ValueType NVT = TLI.getTypeToTransformTo(N->getValueType(0));
+  assert(MVT::getSizeInBits(Res.getValueType()) >= MVT::getSizeInBits(NVT) &&
          "Truncation doesn't make sense!");
   if (Res.getValueType() == NVT)
     return Res;
@@ -126,11 +126,11 @@ SDOperand DAGTypeLegalizer::PromoteResult_TRUNCATE(SDNode *N) {
 }
 
 SDOperand DAGTypeLegalizer::PromoteResult_INT_EXTEND(SDNode *N) {
-  MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
+  MVT::ValueType NVT = TLI.getTypeToTransformTo(N->getValueType(0));
 
   if (getTypeAction(N->getOperand(0).getValueType()) == Promote) {
     SDOperand Res = GetPromotedOp(N->getOperand(0));
-    assert(Res.getValueType().getSizeInBits() <= NVT.getSizeInBits() &&
+    assert(MVT::getSizeInBits(Res.getValueType()) <= MVT::getSizeInBits(NVT) &&
            "Extension doesn't make sense!");
 
     // If the result and operand types are the same after promotion, simplify
@@ -168,7 +168,7 @@ SDOperand DAGTypeLegalizer::PromoteResult_FP_TO_XINT(SDNode *N) {
     Op = GetPromotedOp(Op);
   
   unsigned NewOpc = N->getOpcode();
-  MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
+  MVT::ValueType NVT = TLI.getTypeToTransformTo(N->getValueType(0));
   
   // If we're promoting a UINT to a larger size, check to see if the new node
   // will be legal.  If it isn't, check to see if FP_TO_SINT is legal, since
@@ -194,7 +194,7 @@ SDOperand DAGTypeLegalizer::PromoteResult_SETCC(SDNode *N) {
 
 SDOperand DAGTypeLegalizer::PromoteResult_LOAD(LoadSDNode *N) {
   // FIXME: Add support for indexed loads.
-  MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
+  MVT::ValueType NVT = TLI.getTypeToTransformTo(N->getValueType(0));
   ISD::LoadExtType ExtType =
     ISD::isNON_EXTLoad(N) ? ISD::EXTLOAD : N->getExtensionType();
   SDOperand Res = DAG.getExtLoad(ExtType, NVT, N->getChain(), N->getBasePtr(),
@@ -218,9 +218,9 @@ SDOperand DAGTypeLegalizer::PromoteResult_BUILD_PAIR(SDNode *N) {
 
 SDOperand DAGTypeLegalizer::PromoteResult_BIT_CONVERT(SDNode *N) {
   SDOperand InOp = N->getOperand(0);
-  MVT InVT = InOp.getValueType();
-  MVT NInVT = TLI.getTypeToTransformTo(InVT);
-  MVT OutVT = TLI.getTypeToTransformTo(N->getValueType(0));
+  MVT::ValueType InVT = InOp.getValueType();
+  MVT::ValueType NInVT = TLI.getTypeToTransformTo(InVT);
+  MVT::ValueType OutVT = TLI.getTypeToTransformTo(N->getValueType(0));
 
   switch (getTypeAction(InVT)) {
   default:
@@ -229,7 +229,7 @@ SDOperand DAGTypeLegalizer::PromoteResult_BIT_CONVERT(SDNode *N) {
   case Legal:
     break;
   case Promote:
-    if (OutVT.getSizeInBits() == NInVT.getSizeInBits())
+    if (MVT::getSizeInBits(OutVT) == MVT::getSizeInBits(NInVT))
       // The input promotes to the same size.  Convert the promoted value.
       return DAG.getNode(ISD::BIT_CONVERT, OutVT, GetPromotedOp(InOp));
     break;
@@ -254,7 +254,7 @@ SDOperand DAGTypeLegalizer::PromoteResult_BIT_CONVERT(SDNode *N) {
       std::swap(Lo, Hi);
 
     InOp = DAG.getNode(ISD::ANY_EXTEND,
-                       MVT::getIntegerVT(OutVT.getSizeInBits()),
+                       MVT::getIntegerType(MVT::getSizeInBits(OutVT)),
                        JoinIntegers(Lo, Hi));
     return DAG.getNode(ISD::BIT_CONVERT, OutVT, InOp);
   }
@@ -278,7 +278,7 @@ SDOperand DAGTypeLegalizer::PromoteResult_SDIV(SDNode *N) {
   // Sign extend the input.
   SDOperand LHS = GetPromotedOp(N->getOperand(0));
   SDOperand RHS = GetPromotedOp(N->getOperand(1));
-  MVT VT = N->getValueType(0);
+  MVT::ValueType VT = N->getValueType(0);
   LHS = DAG.getNode(ISD::SIGN_EXTEND_INREG, LHS.getValueType(), LHS,
                     DAG.getValueType(VT));
   RHS = DAG.getNode(ISD::SIGN_EXTEND_INREG, RHS.getValueType(), RHS,
@@ -291,7 +291,7 @@ SDOperand DAGTypeLegalizer::PromoteResult_UDIV(SDNode *N) {
   // Zero extend the input.
   SDOperand LHS = GetPromotedOp(N->getOperand(0));
   SDOperand RHS = GetPromotedOp(N->getOperand(1));
-  MVT VT = N->getValueType(0);
+  MVT::ValueType VT = N->getValueType(0);
   LHS = DAG.getZeroExtendInReg(LHS, VT);
   RHS = DAG.getZeroExtendInReg(RHS, VT);
 
@@ -305,8 +305,8 @@ SDOperand DAGTypeLegalizer::PromoteResult_SHL(SDNode *N) {
 
 SDOperand DAGTypeLegalizer::PromoteResult_SRA(SDNode *N) {
   // The input value must be properly sign extended.
-  MVT VT = N->getValueType(0);
-  MVT NVT = TLI.getTypeToTransformTo(VT);
+  MVT::ValueType VT = N->getValueType(0);
+  MVT::ValueType NVT = TLI.getTypeToTransformTo(VT);
   SDOperand Res = GetPromotedOp(N->getOperand(0));
   Res = DAG.getNode(ISD::SIGN_EXTEND_INREG, NVT, Res, DAG.getValueType(VT));
   return DAG.getNode(ISD::SRA, NVT, Res, N->getOperand(1));
@@ -314,8 +314,8 @@ SDOperand DAGTypeLegalizer::PromoteResult_SRA(SDNode *N) {
 
 SDOperand DAGTypeLegalizer::PromoteResult_SRL(SDNode *N) {
   // The input value must be properly zero extended.
-  MVT VT = N->getValueType(0);
-  MVT NVT = TLI.getTypeToTransformTo(VT);
+  MVT::ValueType VT = N->getValueType(0);
+  MVT::ValueType NVT = TLI.getTypeToTransformTo(VT);
   SDOperand Res = GetPromotedZExtOp(N->getOperand(0));
   return DAG.getNode(ISD::SRL, NVT, Res, N->getOperand(1));
 }
@@ -335,41 +335,41 @@ SDOperand DAGTypeLegalizer::PromoteResult_SELECT_CC(SDNode *N) {
 
 SDOperand DAGTypeLegalizer::PromoteResult_CTLZ(SDNode *N) {
   SDOperand Op = GetPromotedOp(N->getOperand(0));
-  MVT OVT = N->getValueType(0);
-  MVT NVT = Op.getValueType();
+  MVT::ValueType OVT = N->getValueType(0);
+  MVT::ValueType NVT = Op.getValueType();
   // Zero extend to the promoted type and do the count there.
   Op = DAG.getNode(ISD::CTLZ, NVT, DAG.getZeroExtendInReg(Op, OVT));
   // Subtract off the extra leading bits in the bigger type.
   return DAG.getNode(ISD::SUB, NVT, Op,
-                     DAG.getConstant(NVT.getSizeInBits() -
-                                     OVT.getSizeInBits(), NVT));
+                     DAG.getConstant(MVT::getSizeInBits(NVT) -
+                                     MVT::getSizeInBits(OVT), NVT));
 }
 
 SDOperand DAGTypeLegalizer::PromoteResult_CTPOP(SDNode *N) {
   SDOperand Op = GetPromotedOp(N->getOperand(0));
-  MVT OVT = N->getValueType(0);
-  MVT NVT = Op.getValueType();
+  MVT::ValueType OVT = N->getValueType(0);
+  MVT::ValueType NVT = Op.getValueType();
   // Zero extend to the promoted type and do the count there.
   return DAG.getNode(ISD::CTPOP, NVT, DAG.getZeroExtendInReg(Op, OVT));
 }
 
 SDOperand DAGTypeLegalizer::PromoteResult_CTTZ(SDNode *N) {
   SDOperand Op = GetPromotedOp(N->getOperand(0));
-  MVT OVT = N->getValueType(0);
-  MVT NVT = Op.getValueType();
+  MVT::ValueType OVT = N->getValueType(0);
+  MVT::ValueType NVT = Op.getValueType();
   // The count is the same in the promoted type except if the original
   // value was zero.  This can be handled by setting the bit just off
   // the top of the original type.
   Op = DAG.getNode(ISD::OR, NVT, Op,
                    // FIXME: Do this using an APINT constant.
-                   DAG.getConstant(1UL << OVT.getSizeInBits(), NVT));
+                   DAG.getConstant(1UL << MVT::getSizeInBits(OVT), NVT));
   return DAG.getNode(ISD::CTTZ, NVT, Op);
 }
 
 SDOperand DAGTypeLegalizer::PromoteResult_EXTRACT_VECTOR_ELT(SDNode *N) {
-  MVT OldVT = N->getValueType(0);
+  MVT::ValueType OldVT = N->getValueType(0);
   SDOperand OldVec = N->getOperand(0);
-  unsigned OldElts = OldVec.getValueType().getVectorNumElements();
+  unsigned OldElts = MVT::getVectorNumElements(OldVec.getValueType());
 
   if (OldElts == 1) {
     assert(!isTypeLegal(OldVec.getValueType()) &&
@@ -384,11 +384,11 @@ SDOperand DAGTypeLegalizer::PromoteResult_EXTRACT_VECTOR_ELT(SDNode *N) {
   // Convert to a vector half as long with an element type of twice the width,
   // for example <4 x i16> -> <2 x i32>.
   assert(!(OldElts & 1) && "Odd length vectors not supported!");
-  MVT NewVT = MVT::getIntegerVT(2 * OldVT.getSizeInBits());
-  assert(OldVT.isSimple() && NewVT.isSimple());
+  MVT::ValueType NewVT = MVT::getIntegerType(2 * MVT::getSizeInBits(OldVT));
+  assert(!MVT::isExtendedVT(OldVT) && !MVT::isExtendedVT(NewVT));
 
   SDOperand NewVec = DAG.getNode(ISD::BIT_CONVERT,
-                                 MVT::getVectorVT(NewVT, OldElts / 2),
+                                 MVT::getVectorType(NewVT, OldElts / 2),
                                  OldVec);
 
   // Extract the element at OldIdx / 2 from the new vector.
@@ -401,7 +401,7 @@ SDOperand DAGTypeLegalizer::PromoteResult_EXTRACT_VECTOR_ELT(SDNode *N) {
   // Hi if it was odd.
   SDOperand Lo = Elt;
   SDOperand Hi = DAG.getNode(ISD::SRL, NewVT, Elt,
-                             DAG.getConstant(OldVT.getSizeInBits(),
+                             DAG.getConstant(MVT::getSizeInBits(OldVT),
                                              TLI.getShiftAmountTy()));
   if (TLI.isBigEndian())
     std::swap(Lo, Hi);
@@ -513,7 +513,7 @@ SDOperand DAGTypeLegalizer::PromoteOperand_FP_ROUND(SDNode *N) {
 
 SDOperand DAGTypeLegalizer::PromoteOperand_INT_TO_FP(SDNode *N) {
   SDOperand In = GetPromotedOp(N->getOperand(0));
-  MVT OpVT = N->getOperand(0).getValueType();
+  MVT::ValueType OpVT = N->getOperand(0).getValueType();
   if (N->getOpcode() == ISD::UINT_TO_FP)
     In = DAG.getZeroExtendInReg(In, OpVT);
   else
@@ -525,14 +525,14 @@ SDOperand DAGTypeLegalizer::PromoteOperand_INT_TO_FP(SDNode *N) {
 
 SDOperand DAGTypeLegalizer::PromoteOperand_BUILD_PAIR(SDNode *N) {
   // Since the result type is legal, the operands must promote to it.
-  MVT OVT = N->getOperand(0).getValueType();
+  MVT::ValueType OVT = N->getOperand(0).getValueType();
   SDOperand Lo = GetPromotedOp(N->getOperand(0));
   SDOperand Hi = GetPromotedOp(N->getOperand(1));
   assert(Lo.getValueType() == N->getValueType(0) && "Operand over promoted?");
 
   Lo = DAG.getZeroExtendInReg(Lo, OVT);
   Hi = DAG.getNode(ISD::SHL, N->getValueType(0), Hi,
-                   DAG.getConstant(OVT.getSizeInBits(),
+                   DAG.getConstant(MVT::getSizeInBits(OVT),
                                    TLI.getShiftAmountTy()));
   return DAG.getNode(ISD::OR, N->getValueType(0), Lo, Hi);
 }
@@ -597,14 +597,14 @@ SDOperand DAGTypeLegalizer::PromoteOperand_SETCC(SDNode *N, unsigned OpNo) {
 /// shared among BR_CC, SELECT_CC, and SETCC handlers.
 void DAGTypeLegalizer::PromoteSetCCOperands(SDOperand &NewLHS,SDOperand &NewRHS,
                                             ISD::CondCode CCCode) {
-  MVT VT = NewLHS.getValueType();
+  MVT::ValueType VT = NewLHS.getValueType();
   
   // Get the promoted values.
   NewLHS = GetPromotedOp(NewLHS);
   NewRHS = GetPromotedOp(NewRHS);
   
   // If this is an FP compare, the operands have already been extended.
-  if (!NewLHS.getValueType().isInteger())
+  if (!MVT::isInteger(NewLHS.getValueType()))
     return;
   
   // Otherwise, we have to insert explicit sign or zero extends.  Note
@@ -658,15 +658,15 @@ SDOperand DAGTypeLegalizer::PromoteOperand_BUILD_VECTOR(SDNode *N) {
   // The vector type is legal but the element type is not.  This implies
   // that the vector is a power-of-two in length and that the element
   // type does not have a strange size (eg: it is not i1).
-  MVT VecVT = N->getValueType(0);
-  unsigned NumElts = VecVT.getVectorNumElements();
+  MVT::ValueType VecVT = N->getValueType(0);
+  unsigned NumElts = MVT::getVectorNumElements(VecVT);
   assert(!(NumElts & 1) && "Legal vector of one illegal element?");
 
   // Build a vector of half the length out of elements of twice the bitwidth.
   // For example <4 x i16> -> <2 x i32>.
-  MVT OldVT = N->getOperand(0).getValueType();
-  MVT NewVT = MVT::getIntegerVT(2 * OldVT.getSizeInBits());
-  assert(OldVT.isSimple() && NewVT.isSimple());
+  MVT::ValueType OldVT = N->getOperand(0).getValueType();
+  MVT::ValueType NewVT = MVT::getIntegerType(2 * MVT::getSizeInBits(OldVT));
+  assert(!MVT::isExtendedVT(OldVT) && !MVT::isExtendedVT(NewVT));
 
   std::vector<SDOperand> NewElts;
   NewElts.reserve(NumElts/2);
@@ -681,7 +681,7 @@ SDOperand DAGTypeLegalizer::PromoteOperand_BUILD_VECTOR(SDNode *N) {
   }
 
   SDOperand NewVec = DAG.getNode(ISD::BUILD_VECTOR,
-                                 MVT::getVectorVT(NewVT, NewElts.size()),
+                                 MVT::getVectorType(NewVT, NewElts.size()),
                                  &NewElts[0], NewElts.size());
 
   // Convert the new vector to the old vector type.
@@ -695,8 +695,8 @@ SDOperand DAGTypeLegalizer::PromoteOperand_INSERT_VECTOR_ELT(SDNode *N,
     // have to match the vector element type.
 
     // Check that any extra bits introduced will be truncated away.
-    assert(N->getOperand(1).getValueType().getSizeInBits() >=
-           N->getValueType(0).getVectorElementType().getSizeInBits() &&
+    assert(MVT::getSizeInBits(N->getOperand(1).getValueType()) >=
+           MVT::getSizeInBits(MVT::getVectorElementType(N->getValueType(0))) &&
            "Type of inserted value narrower than vector element type!");
     return DAG.UpdateNodeOperands(SDOperand(N, 0), N->getOperand(0),
                                   GetPromotedOp(N->getOperand(1)),

@@ -191,7 +191,7 @@ void ScheduleDAG::BuildSchedUnits() {
         assert(OpSU && "Node has no SUnit!");
         if (OpSU == SU) continue;           // In the same group.
 
-        MVT OpVT = N->getOperand(i).getValueType();
+        MVT::ValueType OpVT = N->getOperand(i).getValueType();
         assert(OpVT != MVT::Flag && "Flagged nodes should be in same sunit!");
         bool isChain = OpVT == MVT::Other;
 
@@ -407,7 +407,6 @@ void ScheduleDAG::EmitCopyFromReg(SDNode *Node, unsigned ResNo,
     if (InstanceNo > 0)
       VRBaseMap.erase(SDOperand(Node, ResNo));
     bool isNew = VRBaseMap.insert(std::make_pair(SDOperand(Node,ResNo),SrcReg));
-    isNew = isNew; // Silence compiler warning.
     assert(isNew && "Node emitted out of order - early");
     return;
   }
@@ -433,7 +432,7 @@ void ScheduleDAG::EmitCopyFromReg(SDNode *Node, unsigned ResNo,
         SDOperand Op = Use->getOperand(i);
         if (Op.Val != Node || Op.ResNo != ResNo)
           continue;
-        MVT VT = Node->getValueType(Op.ResNo);
+        MVT::ValueType VT = Node->getValueType(Op.ResNo);
         if (VT != MVT::Other && VT != MVT::Flag)
           Match = false;
       }
@@ -466,7 +465,6 @@ void ScheduleDAG::EmitCopyFromReg(SDNode *Node, unsigned ResNo,
   if (InstanceNo > 0)
     VRBaseMap.erase(SDOperand(Node, ResNo));
   bool isNew = VRBaseMap.insert(std::make_pair(SDOperand(Node,ResNo), VRBase));
-  isNew = isNew; // Silence compiler warning.
   assert(isNew && "Node emitted out of order - early");
 }
 
@@ -524,7 +522,6 @@ void ScheduleDAG::CreateVirtualRegisters(SDNode *Node, MachineInstr *MI,
     }
 
     bool isNew = VRBaseMap.insert(std::make_pair(SDOperand(Node,i), VRBase));
-    isNew = isNew; // Silence compiler warning.
     assert(isNew && "Node emitted out of order - early");
   }
 }
@@ -677,7 +674,7 @@ static const TargetRegisterClass *getSubRegisterRegClass(
 static const TargetRegisterClass *getSuperregRegisterClass(
         const TargetRegisterClass *TRC,
         unsigned SubIdx,
-        MVT VT) {
+        MVT::ValueType VT) {
   // Pick the register class of the superegister for this type
   for (TargetRegisterInfo::regclass_iterator I = TRC->superregclasses_begin(),
          E = TRC->superregclasses_end(); I != E; ++I)
@@ -722,11 +719,9 @@ void ScheduleDAG::EmitSubregNode(SDNode *Node,
 
     if (VRBase) {
       // Grab the destination register
-#ifndef NDEBUG
       const TargetRegisterClass *DRC = MRI.getRegClass(VRBase);
       assert(SRC && DRC && SRC == DRC && 
              "Source subregister and destination must have the same class");
-#endif
     } else {
       // Create the reg
       assert(SRC && "Couldn't find source register class");
@@ -777,7 +772,6 @@ void ScheduleDAG::EmitSubregNode(SDNode *Node,
     assert(0 && "Node is not insert_subreg, extract_subreg, or subreg_to_reg");
      
   bool isNew = VRBaseMap.insert(std::make_pair(SDOperand(Node,0), VRBase));
-  isNew = isNew; // Silence compiler warning.
   assert(isNew && "Node emitted out of order - early");
 }
 
@@ -805,10 +799,10 @@ void ScheduleDAG::EmitNode(SDNode *Node, unsigned InstanceNo,
     unsigned NumResults = CountResults(Node);
     unsigned NodeOperands = CountOperands(Node);
     unsigned MemOperandsEnd = ComputeMemOperandsEnd(Node);
+    unsigned NumMIOperands = NodeOperands + NumResults;
     bool HasPhysRegOuts = (NumResults > II.getNumDefs()) &&
                           II.getImplicitDefs() != 0;
 #ifndef NDEBUG
-    unsigned NumMIOperands = NodeOperands + NumResults;
     assert((II.getNumOperands() == NumMIOperands ||
             HasPhysRegOuts || II.isVariadic()) &&
            "#operands for dag node doesn't match .td file!"); 
@@ -1005,7 +999,6 @@ void ScheduleDAG::EmitCrossRCCopy(SUnit *SU,
       assert(I->Reg && "Unknown physical register!");
       unsigned VRBase = MRI.createVirtualRegister(SU->CopyDstRC);
       bool isNew = VRBaseMap.insert(std::make_pair(SU, VRBase));
-      isNew = isNew; // Silence compiler warning.
       assert(isNew && "Node emitted out of order - early");
       TII->copyRegToReg(*BB, BB->end(), VRBase, I->Reg,
                         SU->CopyDstRC, SU->CopySrcRC);

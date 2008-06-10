@@ -314,7 +314,8 @@ namespace llvm {
     void EmitConstantValueOnly(const Constant *CV);
 
     /// EmitGlobalConstant - Print a general LLVM constant to the .s file.
-    void EmitGlobalConstant(const Constant* CV);
+    /// If Packed is false, pad to the ABI size.
+    void EmitGlobalConstant(const Constant* CV, bool Packed = false);
 
     virtual void EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV);
     
@@ -346,11 +347,6 @@ namespace llvm {
     /// printDataDirective - This method prints the asm directive for the
     /// specified type.
     void printDataDirective(const Type *type);
-
-    /// printSuffixedName - This prints a name with preceding 
-    /// getPrivateGlobalPrefix and the specified suffix, handling quoted names
-    /// correctly.
-    void printSuffixedName(std::string &Name, const char* Suffix);
 
   private:
     void EmitLLVMUsedList(Constant *List);

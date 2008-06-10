@@ -21,7 +21,6 @@
 #define LLVM_GLOBAL_VARIABLE_H
 
 #include "llvm/GlobalValue.h"
-#include "llvm/OperandTraits.h"
 
 namespace llvm {
 
@@ -45,32 +44,26 @@ class GlobalVariable : public GlobalValue {
 
   bool isConstantGlobal : 1;           // Is this a global constant?
   bool isThreadLocalSymbol : 1;        // Is this symbol "Thread Local"?
+  Use Initializer;
 
 public:
-  // allocate space for exactly one operand
+  // allocate space for exactly zero operands
   void *operator new(size_t s) {
-    return User::operator new(s, 1);
+    return User::operator new(s, 0);
   }
   /// GlobalVariable ctor - If a parent module is specified, the global is
   /// automatically inserted into the end of the specified modules global list.
   GlobalVariable(const Type *Ty, bool isConstant, LinkageTypes Linkage,
                  Constant *Initializer = 0, const std::string &Name = "",
-                 Module *Parent = 0, bool ThreadLocal = false,
+                 Module *Parent = 0, bool ThreadLocal = false, 
                  unsigned AddressSpace = 0);
   /// GlobalVariable ctor - This creates a global and inserts it before the
   /// specified other global.
   GlobalVariable(const Type *Ty, bool isConstant, LinkageTypes Linkage,
                  Constant *Initializer, const std::string &Name,
-                 GlobalVariable *InsertBefore, bool ThreadLocal = false,
+                 GlobalVariable *InsertBefore, bool ThreadLocal = false, 
                  unsigned AddressSpace = 0);
-
-  ~GlobalVariable() {
-    NumOperands = 1; // FIXME: needed by operator delete
-  }
-
-  /// Provide fast operand accessors
-  DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
-
+  
   /// isDeclaration - Is this global variable lacking an initializer?  If so, 
   /// the global variable is defined in some other translation unit, and is thus
   /// only a declaration here.
@@ -86,24 +79,24 @@ public:
   /// illegal to call this method if the global is external, because we cannot
   /// tell what the value is initialized to!
   ///
-  inline /*const FIXME*/ Constant *getInitializer() const {
+  inline Constant *getInitializer() const {
     assert(hasInitializer() && "GV doesn't have initializer!");
-    return static_cast<Constant*>(Op<0>().get());
+    return reinterpret_cast<Constant*>(Initializer.get());
   }
   inline Constant *getInitializer() {
     assert(hasInitializer() && "GV doesn't have initializer!");
-    return static_cast<Constant*>(Op<0>().get());
+    return reinterpret_cast<Constant*>(Initializer.get());
   }
   inline void setInitializer(Constant *CPV) {
     if (CPV == 0) {
       if (hasInitializer()) {
-        Op<0>().set(0);
+        Initializer.set(0);
         NumOperands = 0;
       }
     } else {
       if (!hasInitializer())
         NumOperands = 1;
-      Op<0>().set(CPV);
+      Initializer.set(CPV);
     }
   }
 
@@ -112,15 +105,11 @@ public:
   /// leads to undefined behavior.
   ///
   bool isConstant() const { return isConstantGlobal; }
-  void setConstant(bool Val) { isConstantGlobal = Val; }
+  void setConstant(bool Value) { isConstantGlobal = Value; }
 
   /// If the value is "Thread Local", its value isn't shared by the threads.
   bool isThreadLocal() const { return isThreadLocalSymbol; }
-  void setThreadLocal(bool Val) { isThreadLocalSymbol = Val; }
-
-  /// copyAttributesFrom - copy all additional attributes (those not needed to
-  /// create a GlobalVariable) from the GlobalVariable Src to this one.
-  void copyAttributesFrom(const GlobalValue *Src);
+  void setThreadLocal(bool Value) { isThreadLocalSymbol = Value; }
 
   /// removeFromParent - This method unlinks 'this' from the containing module,
   /// but does not delete it.
@@ -151,12 +140,6 @@ private:
         GlobalVariable *getPrev()       { return Prev; }
   const GlobalVariable *getPrev() const { return Prev; }
 };
-
-template <>
-struct OperandTraits<GlobalVariable> : OptionalOperandTraits<> {
-};
-
-DEFINE_TRANSPARENT_OPERAND_ACCESSORS(GlobalVariable, Value)
 
 } // End llvm namespace
 

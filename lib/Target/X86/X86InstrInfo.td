@@ -45,7 +45,7 @@ def SDT_X86CallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
 def SDT_X86CallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>,
                                          SDTCisVT<1, i32> ]>;
 
-def SDT_X86Call   : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
+def SDT_X86Call   : SDTypeProfile<0, 1, [SDTCisVT<0, iPTR>]>;
 
 def SDTX86RepStr  : SDTypeProfile<0, 1, [SDTCisVT<0, OtherVT>]>;
 
@@ -229,35 +229,9 @@ def i32immSExt8  : PatLeaf<(i32 imm), [{
 }]>;
 
 // Helper fragments for loads.
-// It's always safe to treat a anyext i16 load as a i32 load if the i16 is
-// known to be 32-bit aligned or better. Ditto for i8 to i16.
-def loadi16 : PatFrag<(ops node:$ptr), (i16 (ld node:$ptr)), [{
-  if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N)) {
-    if (LD->getAddressingMode() != ISD::UNINDEXED)
-      return false;
-    ISD::LoadExtType ExtType = LD->getExtensionType();
-    if (ExtType == ISD::NON_EXTLOAD)
-      return true;
-    if (ExtType == ISD::EXTLOAD)
-      return LD->getAlignment() >= 2 && !LD->isVolatile();
-  }
-  return false;
-}]>;
-
-def loadi32 : PatFrag<(ops node:$ptr), (i32 (ld node:$ptr)), [{
-  if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N)) {
-    if (LD->getAddressingMode() != ISD::UNINDEXED)
-      return false;
-    ISD::LoadExtType ExtType = LD->getExtensionType();
-    if (ExtType == ISD::NON_EXTLOAD)
-      return true;
-    if (ExtType == ISD::EXTLOAD)
-      return LD->getAlignment() >= 4 && !LD->isVolatile();
-  }
-  return false;
-}]>;
-
 def loadi8  : PatFrag<(ops node:$ptr), (i8  (load node:$ptr))>;
+def loadi16 : PatFrag<(ops node:$ptr), (i16 (load node:$ptr))>;
+def loadi32 : PatFrag<(ops node:$ptr), (i32 (load node:$ptr))>;
 def loadi64 : PatFrag<(ops node:$ptr), (i64 (load node:$ptr))>;
 
 def loadf32 : PatFrag<(ops node:$ptr), (f32 (load node:$ptr))>;
@@ -324,7 +298,7 @@ let isTerminator = 1, isReturn = 1, isBarrier = 1,
     hasCtrlDep = 1, FPForm = SpecialFP, FPFormBits = SpecialFP.Value in {
   def RET    : I   <0xC3, RawFrm, (outs), (ins variable_ops),
                     "ret",
-                    [(X86retflag 0)]>;
+                    [/*(X86retflag 0)*/ /*FIXME: Disabled: rdar://5791600*/]>;
   def RETI   : Ii16<0xC2, RawFrm, (outs), (ins i16imm:$amt, variable_ops),
                     "ret\t$amt",
                     [(X86retflag imm:$amt)]>;
@@ -397,7 +371,7 @@ let isCall = 1 in
     def CALL32r     : I<0xFF, MRM2r, (outs), (ins GR32:$dst, variable_ops),
                         "call\t{*}$dst", [(X86call GR32:$dst)]>;
     def CALL32m     : I<0xFF, MRM2m, (outs), (ins i32mem:$dst, variable_ops),
-                        "call\t{*}$dst", [(X86call (loadi32 addr:$dst))]>;
+                        "call\t{*}$dst", []>;
   }
 
 // Tail call stuff.
@@ -1309,24 +1283,23 @@ let isTwoAddress = 0 in {
   def OR32mi8  : Ii8<0x83, MRM1m, (outs), (ins i32mem:$dst, i32i8imm:$src),
                  "or{l}\t{$src, $dst|$dst, $src}",
                  [(store (or (load addr:$dst), i32immSExt8:$src), addr:$dst)]>;
-} // isTwoAddress = 0
+}
 
 
-let isAsCheapAsAMove = 1,
-    isCommutable = 1 in { // X = XOR Y, Z --> X = XOR Z, Y
-  def XOR8rr   : I<0x30, MRMDestReg,
-                   (outs GR8 :$dst), (ins GR8 :$src1, GR8 :$src2),
-                   "xor{b}\t{$src2, $dst|$dst, $src2}",
-                   [(set GR8:$dst, (xor GR8:$src1, GR8:$src2))]>;
-  def XOR16rr  : I<0x31, MRMDestReg, 
-                   (outs GR16:$dst), (ins GR16:$src1, GR16:$src2), 
-                   "xor{w}\t{$src2, $dst|$dst, $src2}",
-                   [(set GR16:$dst, (xor GR16:$src1, GR16:$src2))]>, OpSize;
-  def XOR32rr  : I<0x31, MRMDestReg, 
-                   (outs GR32:$dst), (ins GR32:$src1, GR32:$src2), 
-                   "xor{l}\t{$src2, $dst|$dst, $src2}",
-                   [(set GR32:$dst, (xor GR32:$src1, GR32:$src2))]>;
-} // isAsCheapAsAMove = 1, isCommutable = 1
+let isCommutable = 1 in {   // X = XOR Y, Z   --> X = XOR Z, Y
+def XOR8rr   : I<0x30, MRMDestReg,
+                 (outs GR8 :$dst), (ins GR8 :$src1, GR8 :$src2),
+                 "xor{b}\t{$src2, $dst|$dst, $src2}",
+                 [(set GR8:$dst, (xor GR8:$src1, GR8:$src2))]>;
+def XOR16rr  : I<0x31, MRMDestReg, 
+                 (outs GR16:$dst), (ins GR16:$src1, GR16:$src2), 
+                 "xor{w}\t{$src2, $dst|$dst, $src2}",
+                 [(set GR16:$dst, (xor GR16:$src1, GR16:$src2))]>, OpSize;
+def XOR32rr  : I<0x31, MRMDestReg, 
+                 (outs GR32:$dst), (ins GR32:$src1, GR32:$src2), 
+                 "xor{l}\t{$src2, $dst|$dst, $src2}",
+                 [(set GR32:$dst, (xor GR32:$src1, GR32:$src2))]>;
+}
 
 def XOR8rm   : I<0x32, MRMSrcMem , 
                  (outs GR8 :$dst), (ins GR8:$src1, i8mem :$src2), 
@@ -1335,8 +1308,7 @@ def XOR8rm   : I<0x32, MRMSrcMem ,
 def XOR16rm  : I<0x33, MRMSrcMem , 
                  (outs GR16:$dst), (ins GR16:$src1, i16mem:$src2), 
                  "xor{w}\t{$src2, $dst|$dst, $src2}",
-                 [(set GR16:$dst, (xor GR16:$src1, (load addr:$src2)))]>,
-                 OpSize;
+                 [(set GR16:$dst, (xor GR16:$src1, (load addr:$src2)))]>, OpSize;
 def XOR32rm  : I<0x33, MRMSrcMem , 
                  (outs GR32:$dst), (ins GR32:$src1, i32mem:$src2), 
                  "xor{l}\t{$src2, $dst|$dst, $src2}",
@@ -1363,7 +1335,6 @@ def XOR32ri8 : Ii8<0x83, MRM6r,
                    (outs GR32:$dst), (ins GR32:$src1, i32i8imm:$src2),
                    "xor{l}\t{$src2, $dst|$dst, $src2}",
                    [(set GR32:$dst, (xor GR32:$src1, i32immSExt8:$src2))]>;
-
 let isTwoAddress = 0 in {
   def XOR8mr   : I<0x30, MRMDestMem,
                    (outs), (ins i8mem :$dst, GR8 :$src),
@@ -1400,7 +1371,7 @@ let isTwoAddress = 0 in {
                      (outs), (ins i32mem:$dst, i32i8imm :$src),
                      "xor{l}\t{$src, $dst|$dst, $src}",
                  [(store (xor (load addr:$dst), i32immSExt8:$src), addr:$dst)]>;
-} // isTwoAddress = 0
+}
 } // Defs = [EFLAGS]
 
 // Shift instructions
@@ -1415,7 +1386,7 @@ def SHL16rCL : I<0xD3, MRM4r, (outs GR16:$dst), (ins GR16:$src),
 def SHL32rCL : I<0xD3, MRM4r, (outs GR32:$dst), (ins GR32:$src),
                  "shl{l}\t{%cl, $dst|$dst, %CL}",
                  [(set GR32:$dst, (shl GR32:$src, CL))]>;
-} // Uses = [CL]
+}
 
 def SHL8ri   : Ii8<0xC0, MRM4r, (outs GR8 :$dst), (ins GR8 :$src1, i8imm:$src2),
                    "shl{b}\t{$src2, $dst|$dst, $src2}",
@@ -1429,7 +1400,7 @@ def SHL32ri  : Ii8<0xC1, MRM4r, (outs GR32:$dst), (ins GR32:$src1, i8imm:$src2),
                    [(set GR32:$dst, (shl GR32:$src1, (i8 imm:$src2)))]>;
 // NOTE: We don't use shifts of a register by one, because 'add reg,reg' is
 // cheaper.
-} // isConvertibleToThreeAddress = 1
+}
 
 let isTwoAddress = 0 in {
   let Uses = [CL] in {
@@ -2485,7 +2456,7 @@ let neverHasSideEffects = 1 in {
 
 // Alias instructions that map movr0 to xor.
 // FIXME: remove when we can teach regalloc that xor reg, reg is ok.
-let Defs = [EFLAGS], isReMaterializable = 1, isAsCheapAsAMove = 1 in {
+let Defs = [EFLAGS], isReMaterializable = 1 in {
 def MOV8r0   : I<0x30, MRMInitReg, (outs GR8 :$dst), (ins),
                  "xor{b}\t$dst, $dst",
                  [(set GR8:$dst, 0)]>;
@@ -2630,51 +2601,58 @@ def LXADD8  : I<0xC0, MRMSrcMem, (outs GR8:$dst), (ins i8mem:$ptr, GR8:$val),
 // Atomic exchange and and, or, xor
 let Constraints = "$val = $dst", Defs = [EFLAGS],
                   usesCustomDAGSchedInserter = 1 in {
-def ATOMAND32 : I<0, Pseudo, (outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
+def ATOMAND32 : I<0xC1, MRMSrcMem,(outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
                "#ATOMAND32 PSUEDO!", 
-               [(set GR32:$dst, (atomic_load_and addr:$ptr, GR32:$val))]>;
+               [(set GR32:$dst, (atomic_load_and addr:$ptr, GR32:$val))]>,
+                TB, LOCK;
 }
 
 let Constraints = "$val = $dst", Defs = [EFLAGS],
                   usesCustomDAGSchedInserter = 1 in {
-def ATOMOR32 : I<0, Pseudo, (outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
+def ATOMOR32 : I<0xC1, MRMSrcMem, (outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
                "#ATOMOR32 PSUEDO!", 
-               [(set GR32:$dst, (atomic_load_or addr:$ptr, GR32:$val))]>;
+               [(set GR32:$dst, (atomic_load_or addr:$ptr, GR32:$val))]>,
+                TB, LOCK;
 }
 
 let Constraints = "$val = $dst", Defs = [EFLAGS],
                   usesCustomDAGSchedInserter = 1 in {
-def ATOMXOR32 : I<0, Pseudo,(outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
+def ATOMXOR32 : I<0xC1, MRMSrcMem,(outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
                "#ATOMXOR32 PSUEDO!", 
-               [(set GR32:$dst, (atomic_load_xor addr:$ptr, GR32:$val))]>;
+               [(set GR32:$dst, (atomic_load_xor addr:$ptr, GR32:$val))]>,
+                TB, LOCK;
 }
 
 let Constraints = "$val = $dst", Defs = [EFLAGS],
                   usesCustomDAGSchedInserter = 1 in {
-def ATOMMIN32: I<0, Pseudo, (outs GR32:$dst), (ins i32mem:$ptr, GR32:$val),
+def ATOMMIN32: I<0xC1, MRMSrcMem, (outs GR32:$dst), (ins i32mem:$ptr, GR32:$val),
                "#ATOMMIN32 PSUEDO!", 
-               [(set GR32:$dst, (atomic_load_min addr:$ptr, GR32:$val))]>;
+               [(set GR32:$dst, (atomic_load_min addr:$ptr, GR32:$val))]>,
+                TB, LOCK;
 }
 
 let Constraints = "$val = $dst", Defs = [EFLAGS],
                   usesCustomDAGSchedInserter = 1 in {
-def ATOMMAX32: I<0, Pseudo, (outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
+def ATOMMAX32: I<0xC1, MRMSrcMem, (outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
                "#ATOMMAX32 PSUEDO!", 
-               [(set GR32:$dst, (atomic_load_max addr:$ptr, GR32:$val))]>;
+               [(set GR32:$dst, (atomic_load_max addr:$ptr, GR32:$val))]>,
+                TB, LOCK;
 }
 
 let Constraints = "$val = $dst", Defs = [EFLAGS],
                   usesCustomDAGSchedInserter = 1 in {
-def ATOMUMIN32: I<0, Pseudo, (outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
+def ATOMUMIN32: I<0xC1, MRMSrcMem,(outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
                "#ATOMUMIN32 PSUEDO!", 
-               [(set GR32:$dst, (atomic_load_umin addr:$ptr, GR32:$val))]>;
+               [(set GR32:$dst, (atomic_load_umin addr:$ptr, GR32:$val))]>,
+                TB, LOCK;
 }
 
 let Constraints = "$val = $dst", Defs = [EFLAGS],
                   usesCustomDAGSchedInserter = 1 in {
-def ATOMUMAX32: I<0, Pseudo, (outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
+def ATOMUMAX32: I<0xC1, MRMSrcMem,(outs GR32:$dst),(ins i32mem:$ptr, GR32:$val),
                "#ATOMUMAX32 PSUEDO!", 
-               [(set GR32:$dst, (atomic_load_umax addr:$ptr, GR32:$val))]>;
+               [(set GR32:$dst, (atomic_load_umax addr:$ptr, GR32:$val))]>,
+                TB, LOCK;
 }
 
 //===----------------------------------------------------------------------===//

@@ -95,14 +95,16 @@ STATISTIC(NumTripCountsNotComputed,
 STATISTIC(NumBruteForceTripCountsComputed,
           "Number of loops with trip counts computed by force");
 
-static cl::opt<unsigned>
+cl::opt<unsigned>
 MaxBruteForceIterations("scalar-evolution-max-iterations", cl::ReallyHidden,
                         cl::desc("Maximum number of iterations SCEV will "
                                  "symbolically execute a constant derived loop"),
                         cl::init(100));
 
-static RegisterPass<ScalarEvolution>
-R("scalar-evolution", "Scalar Evolution Analysis", false, true);
+namespace {
+  RegisterPass<ScalarEvolution>
+  R("scalar-evolution", "Scalar Evolution Analysis", false, true);
+}
 char ScalarEvolution::ID = 0;
 
 //===----------------------------------------------------------------------===//
@@ -2548,9 +2550,9 @@ SCEVHandle ScalarEvolutionsImpl::HowFarToZero(SCEV *V, const Loop *L) {
       if (SCEVConstant *StartC = dyn_cast<SCEVConstant>(Start)) {
         ConstantInt *StartCC = StartC->getValue();
         Constant *StartNegC = ConstantExpr::getNeg(StartCC);
-        Constant *Rem = ConstantExpr::getURem(StartNegC, StepC->getValue());
+        Constant *Rem = ConstantExpr::getSRem(StartNegC, StepC->getValue());
         if (Rem->isNullValue()) {
-          Constant *Result = ConstantExpr::getUDiv(StartNegC,StepC->getValue());
+          Constant *Result =ConstantExpr::getSDiv(StartNegC,StepC->getValue());
           return SE.getUnknown(Result);
         }
       }

@@ -42,15 +42,15 @@ public:
 
   virtual const AlphaInstrInfo *getInstrInfo() const { return &InstrInfo; }
   virtual const TargetFrameInfo  *getFrameInfo() const { return &FrameInfo; }
-  virtual const AlphaSubtarget   *getSubtargetImpl() const{ return &Subtarget; }
-  virtual const AlphaRegisterInfo *getRegisterInfo() const {
+  virtual const TargetSubtarget  *getSubtargetImpl() const{ return &Subtarget; }
+  virtual const TargetRegisterInfo *getRegisterInfo() const {
     return &InstrInfo.getRegisterInfo();
   }
-  virtual AlphaTargetLowering* getTargetLowering() const { 
+  virtual TargetLowering* getTargetLowering() const { 
     return const_cast<AlphaTargetLowering*>(&TLInfo);
   }
   virtual const TargetData       *getTargetData() const { return &DataLayout; }
-  virtual AlphaJITInfo* getJITInfo() {
+  virtual TargetJITInfo* getJITInfo() {
     return &JITInfo;
   }
 

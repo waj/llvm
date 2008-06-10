@@ -45,11 +45,9 @@ namespace {
     }
     virtual bool doInitialization(CallGraph &CG);
   };
+  char SimpleInliner::ID = 0;
+  RegisterPass<SimpleInliner> X("inline", "Function Integration/Inlining");
 }
-
-char SimpleInliner::ID = 0;
-static RegisterPass<SimpleInliner>
-X("inline", "Function Integration/Inlining");
 
 Pass *llvm::createFunctionInliningPass() { return new SimpleInliner(); }
 

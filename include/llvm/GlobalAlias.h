@@ -16,7 +16,6 @@
 #define LLVM_GLOBAL_ALIAS_H
 
 #include "llvm/GlobalValue.h"
-#include "llvm/OperandTraits.h"
 
 namespace llvm {
 
@@ -43,18 +42,16 @@ class GlobalAlias : public GlobalValue {
         GlobalAlias *getPrev()       { return Prev; }
   const GlobalAlias *getPrev() const { return Prev; }
 
+  Use Aliasee;
 public:
-  // allocate space for exactly one operand
+  // allocate space for exactly zero operands
   void *operator new(size_t s) {
-    return User::operator new(s, 1);
+    return User::operator new(s, 0);
   }
   /// GlobalAlias ctor - If a parent module is specified, the alias is
   /// automatically inserted into the end of the specified module's alias list.
   GlobalAlias(const Type *Ty, LinkageTypes Linkage, const std::string &Name = "",
               Constant* Aliasee = 0, Module *Parent = 0);
-
-  /// Provide fast operand accessors
-  DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
   /// isDeclaration - Is this global variable lacking an initializer?  If so, 
   /// the global variable is defined in some other translation unit, and is thus
@@ -97,12 +94,6 @@ public:
     return V->getValueID() == Value::GlobalAliasVal;
   }
 };
-
-template <>
-struct OperandTraits<GlobalAlias> : FixedNumOperandTraits<1> {
-};
-
-DEFINE_TRANSPARENT_OPERAND_ACCESSORS(GlobalAlias, Value)
 
 } // End llvm namespace
 

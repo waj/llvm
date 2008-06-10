@@ -340,11 +340,6 @@ bool LTOCodeGenerator::generateAssemblyCode(std::ostream& out, std::string& errM
     // Add an appropriate TargetData instance for this module...
     passes.add(new TargetData(*_target->getTargetData()));
     
-    // Propagate constants at call sites into the functions they call.  This
-    // opens opportunities for globalopt (and inlining) by substituting function
-    // pointers passed as arguments to direct uses of functions.  
-    passes.add(createIPSCCPPass());
-
     // Now that we internalized some globals, see if we can hack on them!
     passes.add(createGlobalOptimizerPass());
 
@@ -352,14 +347,16 @@ bool LTOCodeGenerator::generateAssemblyCode(std::ostream& out, std::string& errM
     // keep one copy of each constant...
     passes.add(createConstantMergePass());
 
+    // If the -s command line option was specified, strip the symbols out of the
+    // resulting program to make it smaller.  -s is a GLD option that we are
+    // supporting.
+    passes.add(createStripSymbolsPass());
+    
+    // Propagate constants at call sites into the functions they call.
+    passes.add(createIPConstantPropagationPass());
+
     // Remove unused arguments from functions...
     passes.add(createDeadArgEliminationPass());
-
-    // Reduce the code after globalopt and ipsccp.  Both can open up significant
-    // simplification opportunities, and both can propagate functions through
-    // function pointers.  When this happens, we often have to resolve varargs
-    // calls, etc, so let instcombine do this.
-    passes.add(createInstructionCombiningPass());
 
     passes.add(createFunctionInliningPass()); // Inline small functions
 

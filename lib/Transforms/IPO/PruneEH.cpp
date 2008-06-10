@@ -43,11 +43,10 @@ namespace {
     bool SimplifyFunction(Function *F);
     void DeleteBasicBlock(BasicBlock *BB);
   };
-}
 
-char PruneEH::ID = 0;
-static RegisterPass<PruneEH>
-X("prune-eh", "Remove unused exception handling info");
+  char PruneEH::ID = 0;
+  RegisterPass<PruneEH> X("prune-eh", "Remove unused exception handling info");
+}
 
 Pass *llvm::createPruneEHPass() { return new PruneEH(); }
 
@@ -64,8 +63,6 @@ bool PruneEH::runOnSCC(const std::vector<CallGraphNode *> &SCC) {
 
   // Next, check to see if any callees might throw or if there are any external
   // functions in this SCC: if so, we cannot prune any functions in this SCC.
-  // Definitions that are weak and not declared non-throwing might be 
-  // overridden at linktime with something that throws, so assume that.
   // If this SCC includes the unwind instruction, we KNOW it throws, so
   // obviously the SCC might throw.
   //
@@ -76,7 +73,7 @@ bool PruneEH::runOnSCC(const std::vector<CallGraphNode *> &SCC) {
     if (F == 0) {
       SCCMightUnwind = true;
       SCCMightReturn = true;
-    } else if (F->isDeclaration() || F->hasWeakLinkage()) {
+    } else if (F->isDeclaration()) {
       SCCMightUnwind |= !F->doesNotThrow();
       SCCMightReturn |= !F->doesNotReturn();
     } else {

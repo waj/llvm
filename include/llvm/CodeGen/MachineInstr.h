@@ -18,7 +18,6 @@
 
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
-#include <vector>
 
 namespace llvm {
 

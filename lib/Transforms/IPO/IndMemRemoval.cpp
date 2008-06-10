@@ -37,11 +37,10 @@ namespace {
 
     virtual bool runOnModule(Module &M);
   };
+  char IndMemRemPass::ID = 0;
+  RegisterPass<IndMemRemPass> X("indmemrem","Indirect Malloc and Free Removal");
 } // end anonymous namespace
 
-char IndMemRemPass::ID = 0;
-static RegisterPass<IndMemRemPass>
-X("indmemrem","Indirect Malloc and Free Removal");
 
 bool IndMemRemPass::runOnModule(Module &M) {
   //in Theory, all direct calls of malloc and free should be promoted
@@ -72,7 +71,7 @@ bool IndMemRemPass::runOnModule(Module &M) {
                                       GlobalValue::LinkOnceLinkage, 
                                       "malloc_llvm_bounce", &M);
       BasicBlock* bb = BasicBlock::Create("entry",FN);
-      Instruction* c = CastInst::CreateIntegerCast(
+      Instruction* c = CastInst::createIntegerCast(
           FN->arg_begin(), Type::Int32Ty, false, "c", bb);
       Instruction* a = new MallocInst(Type::Int8Ty, c, "m", bb);
       ReturnInst::Create(a, bb);

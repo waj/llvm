@@ -226,7 +226,7 @@ else
 
     # Darwin requires -fstrict-aliasing to be explicitly enabled.
     ifeq ($(OS),Darwin)
-      EXTRA_OPTIONS += -fstrict-aliasing -Wstrict-aliasing
+      EXTRA_OPTIONS += -fstrict-aliasing
     endif
 
     CXX.Flags += $(OPTIMIZE_OPTION) $(OmitFramePointer)
@@ -1738,17 +1738,10 @@ endif
 endif
 
 check-line-length:
-	@echo searching for overlength lines in files: $(Sources)
-	@echo
-	@echo
-	@egrep -n '.{81}' $(Sources) /dev/null
+	@egrep -n '.{81}' $(Sources)
 
 check-for-tabs:
-	@echo searching for tabs in files: $(Sources)
-	@echo
-	@echo
-	@egrep -n '	' $(Sources) /dev/null
-
+	@egrep -n '	' $(Sources)
 check-footprint:
 	@ls -l $(LibDir) | awk '\
 	  BEGIN { sum = 0; } \

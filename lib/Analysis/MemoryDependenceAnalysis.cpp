@@ -28,12 +28,14 @@
 
 using namespace llvm;
 
-// Control the calculation of non-local dependencies by only examining the
-// predecessors if the basic block has less than X amount (50 by default).
-static cl::opt<int> 
-PredLimit("nonlocaldep-threshold", cl::Hidden, cl::init(50),
-          cl::desc("Control the calculation of non-local"
-                   "dependencies (default = 50)"));           
+namespace {
+  // Control the calculation of non-local dependencies by only examining the
+  // predecessors if the basic block has less than X amount (50 by default).
+  static cl::opt<int> 
+  PredLimit("nonlocaldep-threshold", cl::Hidden, cl::init(50),
+            cl::desc("Control the calculation of non-local"
+                     "dependencies (default = 50)"));           
+}
 
 STATISTIC(NumCacheNonlocal, "Number of cached non-local responses");
 STATISTIC(NumUncacheNonlocal, "Number of uncached non-local responses");
@@ -58,9 +60,6 @@ void MemoryDependenceAnalysis::ping(Instruction *D) {
   for (nonLocalDepMapType::iterator I = depGraphNonLocal.begin(), E = depGraphNonLocal.end();
        I != E; ++I) {
     assert(I->first != D);
-    for (DenseMap<BasicBlock*, Value*>::iterator II = I->second.begin(),
-         EE = I->second.end(); II  != EE; ++II)
-      assert(II->second != D);
   }
 
   for (reverseDepMapType::iterator I = reverseDep.begin(), E = reverseDep.end();
@@ -132,7 +131,7 @@ Instruction* MemoryDependenceAnalysis::getCallSiteDependency(CallSite C,
       
       // FreeInsts erase the entire structure
       pointerSize = ~0UL;
-    } else if (CallSite::get(QI).getInstruction() != 0) {
+    } else if (isa<CallInst>(QI)) {
       AliasAnalysis::ModRefBehavior result =
                    AA.getModRefBehavior(CallSite::get(QI));
       if (result != AliasAnalysis::DoesNotAccessMemory) {
@@ -281,11 +280,6 @@ void MemoryDependenceAnalysis::getNonLocalDependency(Instruction* query,
     }
     
     resp = cached;
-    
-    // Update the reverse non-local dependency cache
-    for (DenseMap<BasicBlock*, Value*>::iterator I = resp.begin(), E = resp.end();
-         I != E; ++I)
-      reverseDepNonLocal[I->second].insert(query);
     
     return;
   } else

@@ -39,12 +39,11 @@ getTargetNodeName(unsigned Opcode) const
 {
   switch (Opcode) 
   {
-    case MipsISD::JmpLink   : return "MipsISD::JmpLink";
-    case MipsISD::Hi        : return "MipsISD::Hi";
-    case MipsISD::Lo        : return "MipsISD::Lo";
-    case MipsISD::Ret       : return "MipsISD::Ret";
-    case MipsISD::SelectCC  : return "MipsISD::SelectCC";
-    default                 : return NULL;
+    case MipsISD::JmpLink : return "MipsISD::JmpLink";
+    case MipsISD::Hi      : return "MipsISD::Hi";
+    case MipsISD::Lo      : return "MipsISD::Lo";
+    case MipsISD::Ret     : return "MipsISD::Ret";
+    default               : return NULL;
   }
 }
 
@@ -66,7 +65,6 @@ MipsTargetLowering(MipsTargetMachine &TM): TargetLowering(TM)
   setOperationAction(ISD::GlobalTLSAddress, MVT::i32, Custom);
   setOperationAction(ISD::RET, MVT::Other, Custom);
   setOperationAction(ISD::JumpTable, MVT::i32, Custom);
-  setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
 
   // Load extented operations for i1 types must be promoted 
   setLoadXAction(ISD::EXTLOAD,  MVT::i1,  Promote);
@@ -77,6 +75,7 @@ MipsTargetLowering(MipsTargetMachine &TM): TargetLowering(TM)
   setOperationAction(ISD::BR_JT,     MVT::Other, Expand);
   setOperationAction(ISD::BR_CC,     MVT::Other, Expand);
   setOperationAction(ISD::SELECT_CC, MVT::Other, Expand);
+  setOperationAction(ISD::SELECT_CC, MVT::i32,   Expand);
   setOperationAction(ISD::SELECT,    MVT::i32,   Expand);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
 
@@ -108,7 +107,8 @@ MipsTargetLowering(MipsTargetMachine &TM): TargetLowering(TM)
 }
 
 
-MVT MipsTargetLowering::getSetCCResultType(const SDOperand &) const {
+MVT::ValueType
+MipsTargetLowering::getSetCCResultType(const SDOperand &) const {
   return MVT::i32;
 }
 
@@ -124,73 +124,8 @@ LowerOperation(SDOperand Op, SelectionDAG &DAG)
     case ISD::GlobalAddress:    return LowerGlobalAddress(Op, DAG);
     case ISD::GlobalTLSAddress: return LowerGlobalTLSAddress(Op, DAG);
     case ISD::JumpTable:        return LowerJumpTable(Op, DAG);
-    case ISD::SELECT_CC:        return LowerSELECT_CC(Op, DAG);
   }
   return SDOperand();
-}
-
-MachineBasicBlock *
-MipsTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                MachineBasicBlock *BB) 
-{
-  const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
-  switch (MI->getOpcode()) {
-  default: assert(false && "Unexpected instr type to insert");
-  case Mips::Select_CC: {
-    // To "insert" a SELECT_CC instruction, we actually have to insert the
-    // diamond control-flow pattern.  The incoming instruction knows the
-    // destination vreg to set, the condition code register to branch on, the
-    // true/false values to select between, and a branch opcode to use.
-    const BasicBlock *LLVM_BB = BB->getBasicBlock();
-    ilist<MachineBasicBlock>::iterator It = BB;
-    ++It;
-
-    //  thisMBB:
-    //  ...
-    //   TrueVal = ...
-    //   setcc r1, r2, r3
-    //   bNE   r1, r0, copy1MBB
-    //   fallthrough --> copy0MBB
-    MachineBasicBlock *thisMBB  = BB;
-    MachineBasicBlock *copy0MBB = new MachineBasicBlock(LLVM_BB);
-    MachineBasicBlock *sinkMBB  = new MachineBasicBlock(LLVM_BB);
-    BuildMI(BB, TII->get(Mips::BNE)).addReg(MI->getOperand(1).getReg())
-      .addReg(Mips::ZERO).addMBB(sinkMBB);
-    MachineFunction *F = BB->getParent();
-    F->getBasicBlockList().insert(It, copy0MBB);
-    F->getBasicBlockList().insert(It, sinkMBB);
-    // Update machine-CFG edges by first adding all successors of the current
-    // block to the new block which will contain the Phi node for the select.
-    for(MachineBasicBlock::succ_iterator i = BB->succ_begin(),
-        e = BB->succ_end(); i != e; ++i)
-      sinkMBB->addSuccessor(*i);
-    // Next, remove all successors of the current block, and add the true
-    // and fallthrough blocks as its successors.
-    while(!BB->succ_empty())
-      BB->removeSuccessor(BB->succ_begin());
-    BB->addSuccessor(copy0MBB);
-    BB->addSuccessor(sinkMBB);
-
-    //  copy0MBB:
-    //   %FalseValue = ...
-    //   # fallthrough to sinkMBB
-    BB = copy0MBB;
-
-    // Update machine-CFG edges
-    BB->addSuccessor(sinkMBB);
-
-    //  sinkMBB:
-    //   %Result = phi [ %FalseValue, copy0MBB ], [ %TrueValue, thisMBB ]
-    //  ...
-    BB = sinkMBB;
-    BuildMI(BB, TII->get(Mips::PHI), MI->getOperand(0).getReg())
-      .addReg(MI->getOperand(2).getReg()).addMBB(copy0MBB)
-      .addReg(MI->getOperand(3).getReg()).addMBB(thisMBB);
-
-    delete MI;   // The pseudo instruction is gone now.
-    return BB;
-  }
-  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -222,7 +157,7 @@ LowerGlobalAddress(SDOperand Op, SelectionDAG &DAG)
 
   SDOperand HiPart; 
   if (!isPIC) {
-    const MVT *VTs = DAG.getNodeValueTypes(MVT::i32);
+    const MVT::ValueType *VTs = DAG.getNodeValueTypes(MVT::i32);
     SDOperand Ops[] = { GA };
     HiPart = DAG.getNode(MipsISD::Hi, VTs, 1, Ops, 1);
   } else // Emit Load from Global Pointer
@@ -247,34 +182,17 @@ LowerGlobalTLSAddress(SDOperand Op, SelectionDAG &DAG)
 }
 
 SDOperand MipsTargetLowering::
-LowerSELECT_CC(SDOperand Op, SelectionDAG &DAG) 
-{
-  SDOperand LHS   = Op.getOperand(0); 
-  SDOperand RHS   = Op.getOperand(1); 
-  SDOperand True  = Op.getOperand(2);
-  SDOperand False = Op.getOperand(3);
-  SDOperand CC    = Op.getOperand(4);
-
-  const MVT *VTs = DAG.getNodeValueTypes(MVT::i32);
-  SDOperand Ops[] = { LHS, RHS, CC };
-  SDOperand SetCCRes = DAG.getNode(ISD::SETCC, VTs, 1, Ops, 3); 
-
-  return DAG.getNode(MipsISD::SelectCC, True.getValueType(), 
-                     SetCCRes, True, False);
-}
-
-SDOperand MipsTargetLowering::
 LowerJumpTable(SDOperand Op, SelectionDAG &DAG) 
 {
   SDOperand ResNode;
   SDOperand HiPart; 
 
-  MVT PtrVT = Op.getValueType();
+  MVT::ValueType PtrVT = Op.getValueType();
   JumpTableSDNode *JT  = cast<JumpTableSDNode>(Op);
   SDOperand JTI = DAG.getTargetJumpTable(JT->getIndex(), PtrVT);
 
   if (getTargetMachine().getRelocationModel() != Reloc::PIC_) {
-    const MVT *VTs = DAG.getNodeValueTypes(MVT::i32);
+    const MVT::ValueType *VTs = DAG.getNodeValueTypes(MVT::i32);
     SDOperand Ops[] = { JTI };
     HiPart = DAG.getNode(MipsISD::Hi, VTs, 1, Ops, 1);
   } else // Emit Load from Global Pointer
@@ -340,7 +258,7 @@ LowerCCCCallTo(SDOperand Op, SelectionDAG &DAG, unsigned CC)
 
   // To meet ABI, Mips must always allocate 16 bytes on
   // the stack (even if less than 4 are used as arguments)
-  int VTsize = MVT(MVT::i32).getSizeInBits()/8;
+  int VTsize = MVT::getSizeInBits(MVT::i32)/8;
   MFI->CreateFixedObject(VTsize, (VTsize*3));
 
   CCInfo.AnalyzeCallOperands(Op.Val, CC_Mips);
@@ -390,7 +308,7 @@ LowerCCCCallTo(SDOperand Op, SelectionDAG &DAG, unsigned CC)
     // This guarantees that when allocating Local Area the firsts
     // 16 bytes which are alwayes reserved won't be overwritten.
     LastStackLoc = (16 + VA.getLocMemOffset());
-    int FI = MFI->CreateFixedObject(VA.getValVT().getSizeInBits()/8,
+    int FI = MFI->CreateFixedObject(MVT::getSizeInBits(VA.getValVT())/8,
                                     LastStackLoc);
 
     SDOperand PtrOff = DAG.getFrameIndex(FI,getPointerTy());
@@ -447,13 +365,6 @@ LowerCCCCallTo(SDOperand Op, SelectionDAG &DAG, unsigned CC)
   Chain  = DAG.getNode(MipsISD::JmpLink, NodeTys, &Ops[0], Ops.size());
   InFlag = Chain.getValue(1);
 
-  // Create the CALLSEQ_END node.
-  Chain = DAG.getCALLSEQ_END(Chain,
-                             DAG.getConstant(NumBytes, getPointerTy()),
-                             DAG.getConstant(0, getPointerTy()),
-                             InFlag);
-  InFlag = Chain.getValue(1);
-
   // Create a stack location to hold GP when PIC is used. This stack 
   // location is used on function prologue to save GP and also after all 
   // emited CALL's to restore GP. 
@@ -480,8 +391,14 @@ LowerCCCCallTo(SDOperand Op, SelectionDAG &DAG, unsigned CC)
       Chain = GPLoad.getValue(1);
       Chain = DAG.getCopyToReg(Chain, DAG.getRegister(Mips::GP, MVT::i32), 
                                GPLoad, SDOperand(0,0));
-      InFlag = Chain.getValue(1);
   }      
+
+  // Create the CALLSEQ_END node.
+  Chain = DAG.getCALLSEQ_END(Chain,
+                             DAG.getConstant(NumBytes, getPointerTy()),
+                             DAG.getConstant(0, getPointerTy()),
+                             InFlag);
+  InFlag = Chain.getValue(1);
 
   // Handle result values, copying them out of physregs into vregs that we
   // return.
@@ -574,7 +491,7 @@ LowerCCCArguments(SDOperand Op, SelectionDAG &DAG)
 
     // Arguments stored on registers
     if (VA.isRegLoc()) {
-      MVT RegVT = VA.getLocVT();
+      MVT::ValueType RegVT = VA.getLocVT();
       TargetRegisterClass *RC;
             
       if (RegVT == MVT::i32)
@@ -737,7 +654,8 @@ getConstraintType(const std::string &Constraint) const
 }
 
 std::pair<unsigned, const TargetRegisterClass*> MipsTargetLowering::
-getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const
+getRegForInlineAsmConstraint(const std::string &Constraint,
+                             MVT::ValueType VT) const 
 {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
@@ -751,7 +669,7 @@ getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const
 
 std::vector<unsigned> MipsTargetLowering::
 getRegClassForInlineAsmConstraint(const std::string &Constraint,
-                                  MVT VT) const
+                                  MVT::ValueType VT) const 
 {
   if (Constraint.size() != 1)
     return std::vector<unsigned>();

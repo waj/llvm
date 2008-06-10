@@ -169,8 +169,6 @@ public:
   RetTy visitUnreachableInst(UnreachableInst &I)    { DELEGATE(TerminatorInst);}
   RetTy visitICmpInst(ICmpInst &I)                  { DELEGATE(CmpInst);}
   RetTy visitFCmpInst(FCmpInst &I)                  { DELEGATE(CmpInst);}
-  RetTy visitVICmpInst(VICmpInst &I)                { DELEGATE(CmpInst);}
-  RetTy visitVFCmpInst(VFCmpInst &I)                { DELEGATE(CmpInst);}
   RetTy visitMallocInst(MallocInst &I)              { DELEGATE(AllocationInst);}
   RetTy visitAllocaInst(AllocaInst &I)              { DELEGATE(AllocationInst);}
   RetTy visitFreeInst(FreeInst     &I)              { DELEGATE(Instruction); }
@@ -197,8 +195,6 @@ public:
   RetTy visitInsertElementInst(InsertElementInst &I) { DELEGATE(Instruction); }
   RetTy visitShuffleVectorInst(ShuffleVectorInst &I) { DELEGATE(Instruction); }
   RetTy visitGetResultInst(GetResultInst &I) { DELEGATE(Instruction); }
-  RetTy visitExtractValueInst(ExtractValueInst &I)  { DELEGATE(Instruction);}
-  RetTy visitInsertValueInst(InsertValueInst &I)    { DELEGATE(Instruction); }
 
   // Next level propagators... if the user does not overload a specific
   // instruction type, they can overload one of these to get the whole class

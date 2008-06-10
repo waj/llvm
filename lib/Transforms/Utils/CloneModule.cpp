@@ -65,7 +65,10 @@ Module *llvm::CloneModule(const Module *M,
     Function *NF =
       Function::Create(cast<FunctionType>(I->getType()->getElementType()),
                        GlobalValue::ExternalLinkage, I->getName(), New);
-    NF->copyAttributesFrom(I);
+    NF->setCallingConv(I->getCallingConv());
+    NF->setParamAttrs(I->getParamAttrs());
+    if (I->hasCollector())
+      NF->setCollector(I->getCollector());
     ValueMap[I]= NF;
   }
 

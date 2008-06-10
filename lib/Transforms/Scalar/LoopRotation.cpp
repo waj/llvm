@@ -102,10 +102,10 @@ namespace {
     LPPassManager *LPM_Ptr;
     SmallVector<RenameData, MAX_HEADER_SIZE> LoopHeaderInfo;
   };
-}
   
-char LoopRotate::ID = 0;
-static RegisterPass<LoopRotate> X("loop-rotate", "Rotate Loops");
+  char LoopRotate::ID = 0;
+  RegisterPass<LoopRotate> X ("loop-rotate", "Rotate Loops");
+}
 
 LoopPass *llvm::createLoopRotatePass() { return new LoopRotate(); }
 
@@ -256,7 +256,9 @@ bool LoopRotate::rotateLoop(Loop *Lp, LPPassManager &LPM) {
         // nodes will be created for all getResults later.
         BasicBlock::iterator InsertPoint;
         if (InvokeInst *II = dyn_cast<InvokeInst>(In)) {
-          InsertPoint = II->getNormalDest()->getFirstNonPHI();
+          InsertPoint = II->getNormalDest()->begin();
+          while (isa<PHINode>(InsertPoint)) 
+            ++InsertPoint;
         } else {
           InsertPoint = I;  // call
           ++InsertPoint;
@@ -469,8 +471,7 @@ void LoopRotate::preserveCanonicalLoopForm(LPPassManager &LPM) {
   // Right now original pre-header has two successors, new header and
   // exit block. Insert new block between original pre-header and
   // new header such that loop's new pre-header has only one successor.
-  BasicBlock *NewPreHeader = BasicBlock::Create("bb.nph",
-                                                OrigHeader->getParent(), 
+  BasicBlock *NewPreHeader = BasicBlock::Create("bb.nph", OrigHeader->getParent(), 
                                                 NewHeader);
   LoopInfo &LI = LPM.getAnalysis<LoopInfo>();
   if (Loop *PL = LI.getLoopFor(OrigPreHeader))

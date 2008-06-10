@@ -45,8 +45,7 @@ namespace llvm {
     LTOExternalLinkage, // Externally visible function
     LTOLinkOnceLinkage, // Keep one copy of named function when linking (inline)
     LTOWeakLinkage,     // Keep one copy of named function when linking (weak)
-    LTOInternalLinkage, // Rename collisions when linking (static functions)
-    LTOCommonLinkage    // tentative definitions (usually equivalent to weak)
+    LTOInternalLinkage  // Rename collisions when linking (static functions)
   };
 
   enum LTOVisibilityTypes {

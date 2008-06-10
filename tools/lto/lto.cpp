@@ -65,7 +65,7 @@ void LLVMSymbol::mayBeNotUsed() {
   gv->setLinkage(GlobalValue::InternalLinkage); 
 }
 
-// Map LLVM LinkageType to LTO LinkageType
+// Map LLVM LinkageType to LTO LinakgeType
 static LTOLinkageTypes
 getLTOLinkageType(GlobalValue *v)
 {
@@ -76,8 +76,6 @@ getLTOLinkageType(GlobalValue *v)
     lt = LTOLinkOnceLinkage;
   else if (v->hasWeakLinkage())
     lt = LTOWeakLinkage;
-  else if (v->hasCommonLinkage())
-    lt = LTOCommonLinkage;
   else
     // Otherwise it is internal linkage for link time optimizer
     lt = LTOInternalLinkage;

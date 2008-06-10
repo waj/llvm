@@ -197,16 +197,11 @@ bool X86ATTAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   return false;
 }
 
-static inline bool shouldPrintGOT(TargetMachine &TM, const X86Subtarget* ST) {
+static inline bool printGOT(TargetMachine &TM, const X86Subtarget* ST) {
   return ST->isPICStyleGOT() && TM.getRelocationModel() == Reloc::PIC_;
 }
 
-static inline bool shouldPrintPLT(TargetMachine &TM, const X86Subtarget* ST) {
-  return ST->isTargetELF() && TM.getRelocationModel() == Reloc::PIC_ &&
-      (ST->isPICStyleRIPRel() || ST->isPICStyleGOT());
-}
-
-static inline bool shouldPrintStub(TargetMachine &TM, const X86Subtarget* ST) {
+static inline bool printStub(TargetMachine &TM, const X86Subtarget* ST) {
   return ST->isPICStyleStub() && TM.getRelocationModel() != Reloc::Static;
 }
 
@@ -220,7 +215,7 @@ void X86ATTAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
     O << '%';
     unsigned Reg = MO.getReg();
     if (Modifier && strncmp(Modifier, "subreg", strlen("subreg")) == 0) {
-      MVT VT = (strcmp(Modifier+6,"64") == 0) ?
+      MVT::ValueType VT = (strcmp(Modifier+6,"64") == 0) ?
         MVT::i64 : ((strcmp(Modifier+6, "32") == 0) ? MVT::i32 :
                     ((strcmp(Modifier+6,"16") == 0) ? MVT::i16 : MVT::i8));
       Reg = getX86SubSuperRegister(Reg, VT);
@@ -309,20 +304,19 @@ void X86ATTAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
       needCloseParen = true;
     }
 
-    if (shouldPrintStub(TM, Subtarget)) {
+    if (printStub(TM, Subtarget)) {
       // Link-once, declaration, or Weakly-linked global variables need
       // non-lazily-resolved stubs
       if (GV->isDeclaration() ||
           GV->hasWeakLinkage() ||
-          GV->hasLinkOnceLinkage() ||
-          GV->hasCommonLinkage()) {
+          GV->hasLinkOnceLinkage()) {
         // Dynamically-resolved functions need a stub for the function.
         if (isCallOp && isa<Function>(GV)) {
           FnStubs.insert(Name);
-          printSuffixedName(Name, "$stub");
+          O << TAI->getPrivateGlobalPrefix() << Name << "$stub";
         } else {
           GVStubs.insert(Name);
-          printSuffixedName(Name, "$non_lazy_ptr");
+          O << TAI->getPrivateGlobalPrefix() << Name << "$non_lazy_ptr";
         }
       } else {
         if (GV->hasDLLImportLinkage())
@@ -338,11 +332,11 @@ void X86ATTAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
       }       
       O << Name;
 
-      if (isCallOp) {
-        if (shouldPrintPLT(TM, Subtarget)) {
-          // Assemble call via PLT for externally visible symbols
-          if (!GV->hasHiddenVisibility() && !GV->hasProtectedVisibility() &&
-              !GV->hasInternalLinkage())
+      if (isCallOp && isa<Function>(GV)) {
+        if (printGOT(TM, Subtarget)) {
+          // Assemble call via PLT for non-local symbols
+          if (!(GV->hasHiddenVisibility() || GV->hasProtectedVisibility()) ||
+              GV->isDeclaration())
             O << "@PLT";
         }
         if (Subtarget->isTargetCygMing() && GV->isDeclaration())
@@ -369,7 +363,7 @@ void X86ATTAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
         else
           O << "@NTPOFF"; // local exec TLS model
     } else if (isMemOp) {
-      if (shouldPrintGOT(TM, Subtarget)) {
+      if (printGOT(TM, Subtarget)) {
         if (Subtarget->GVRequiresExtraLoad(GV, TM, false))
           O << "@GOT";
         else
@@ -401,9 +395,9 @@ void X86ATTAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
     bool needCloseParen = false;
     std::string Name(TAI->getGlobalPrefix());
     Name += MO.getSymbolName();
-    if (isCallOp && shouldPrintStub(TM, Subtarget)) {
+    if (isCallOp && printStub(TM, Subtarget)) {
       FnStubs.insert(Name);
-      printSuffixedName(Name, "$stub");
+      O << TAI->getPrivateGlobalPrefix() << Name << "$stub";
       return;
     }
     if (!isCallOp)
@@ -417,7 +411,7 @@ void X86ATTAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
 
     O << Name;
 
-    if (shouldPrintPLT(TM, Subtarget)) {
+    if (printGOT(TM, Subtarget)) {
       std::string GOTName(TAI->getGlobalPrefix());
       GOTName+="_GLOBAL_OFFSET_TABLE_";
       if (Name == GOTName)
@@ -651,3 +645,4 @@ void X86ATTAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
 
 // Include the auto-generated portion of the assembly writer.
 #include "X86GenAsmWriter.inc"
+

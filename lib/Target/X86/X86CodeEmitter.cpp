@@ -38,18 +38,18 @@ namespace {
   class VISIBILITY_HIDDEN Emitter : public MachineFunctionPass {
     const X86InstrInfo  *II;
     const TargetData    *TD;
-    X86TargetMachine    &TM;
+    TargetMachine       &TM;
     MachineCodeEmitter  &MCE;
     intptr_t PICBaseOffset;
     bool Is64BitMode;
     bool IsPIC;
   public:
     static char ID;
-    explicit Emitter(X86TargetMachine &tm, MachineCodeEmitter &mce)
+    explicit Emitter(TargetMachine &tm, MachineCodeEmitter &mce)
       : MachineFunctionPass((intptr_t)&ID), II(0), TD(0), TM(tm), 
       MCE(mce), PICBaseOffset(0), Is64BitMode(false),
       IsPIC(TM.getRelocationModel() == Reloc::PIC_) {}
-    Emitter(X86TargetMachine &tm, MachineCodeEmitter &mce,
+    Emitter(TargetMachine &tm, MachineCodeEmitter &mce,
             const X86InstrInfo &ii, const TargetData &td, bool is64)
       : MachineFunctionPass((intptr_t)&ID), II(&ii), TD(&td), TM(tm), 
       MCE(mce), PICBaseOffset(0), Is64BitMode(is64),
@@ -112,10 +112,9 @@ bool Emitter::runOnMachineFunction(MachineFunction &MF) {
   
   MCE.setModuleInfo(&getAnalysis<MachineModuleInfo>());
   
-  II = TM.getInstrInfo();
-  TD = TM.getTargetData();
+  II = ((X86TargetMachine&)TM).getInstrInfo();
+  TD = ((X86TargetMachine&)TM).getTargetData();
   Is64BitMode = TM.getSubtarget<X86Subtarget>().is64Bit();
-  IsPIC = TM.getRelocationModel() == Reloc::PIC_;
   
   do {
     DOUT << "JITTing function '" << MF.getFunction()->getName() << "'\n";
@@ -221,7 +220,7 @@ void Emitter::emitJumpTableAddress(unsigned JTI, unsigned Reloc,
 }
 
 unsigned Emitter::getX86RegNum(unsigned RegNo) const {
-  return II->getRegisterInfo().getX86RegNum(RegNo);
+  return ((const X86RegisterInfo&)II->getRegisterInfo()).getX86RegNum(RegNo);
 }
 
 inline static unsigned char ModRMByte(unsigned Mod, unsigned RegOpcode,
@@ -504,7 +503,7 @@ void Emitter::emitInstruction(const MachineInstr &MI,
       emitConstant(0, X86InstrInfo::sizeOfImm(Desc));
       // Remember PIC base.
       PICBaseOffset = MCE.getCurrentPCOffset();
-      X86JITInfo *JTI = TM.getJITInfo();
+      X86JITInfo *JTI = dynamic_cast<X86JITInfo*>(TM.getJITInfo());
       JTI->setPICBase(MCE.getCurrentPCValue());
       break;
     }

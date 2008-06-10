@@ -308,7 +308,7 @@ void *JITResolver::JITCompilerFn(void *Stub) {
 // have useful answers.  However, we don't go crazy with atomic operations, we
 // just do a "reasonable effort".
 #ifdef __APPLE__ 
-#define ENABLE_JIT_SYMBOL_TABLE 0
+#define ENABLE_JIT_SYMBOL_TABLE 1
 #endif
 
 /// JitSymbolEntry - Each function that is JIT compiled results in one of these
@@ -421,7 +421,7 @@ static void RemoveFunctionFromSymbolTable(void *FnStart) {
   --SymTabPtr->NumSymbols;
 
   // Finally, if we deleted the final symbol, deallocate the table itself.
-  if (SymTabPtr->NumSymbols != 0) 
+  if (SymTabPtr->NumSymbols == 0) 
     return;
   
   *SymTabPtrPtr = 0;

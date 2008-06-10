@@ -170,9 +170,6 @@ public:
   bool paramHasAttr(unsigned i, ParameterAttributes attr) const {
     return ParamAttrs.paramHasAttr(i, attr);
   }
-
-  /// addParamAttr - adds the attribute to the list of attributes.
-  void addParamAttr(unsigned i, ParameterAttributes attr);
   
   /// @brief Extract the alignment for a call or parameter (0=unknown).
   unsigned getParamAlignment(unsigned i) const {
@@ -203,10 +200,6 @@ public:
   bool hasStructRetAttr() const {
     return paramHasAttr(1, ParamAttr::StructRet);
   }
-
-  /// copyAttributesFrom - copy all additional attributes (those not needed to
-  /// create a Function) from the Function Src to this one.
-  void copyAttributesFrom(const GlobalValue *Src);
 
   /// deleteBody - This method deletes the body of the function, and converts
   /// the linkage to external.

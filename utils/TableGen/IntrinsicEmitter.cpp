@@ -114,9 +114,9 @@ EmitIntrinsicToNameTable(const std::vector<CodeGenIntrinsic> &Ints,
   OS << "#endif\n\n";
 }
 
-static void EmitTypeForValueType(std::ostream &OS, MVT::SimpleValueType VT) {
-  if (MVT(VT).isInteger()) {
-    unsigned BitWidth = MVT(VT).getSizeInBits();
+static void EmitTypeForValueType(std::ostream &OS, MVT::ValueType VT) {
+  if (MVT::isInteger(VT)) {
+    unsigned BitWidth = MVT::getSizeInBits(VT);
     OS << "IntegerType::get(" << BitWidth << ")";
   } else if (VT == MVT::Other) {
     // MVT::OtherVT is used to mean the empty struct type here.
@@ -140,7 +140,7 @@ static void EmitTypeForValueType(std::ostream &OS, MVT::SimpleValueType VT) {
 
 static void EmitTypeGenerate(std::ostream &OS, Record *ArgType, 
                              unsigned &ArgNo) {
-  MVT::SimpleValueType VT = getValueType(ArgType->getValueAsDef("VT"));
+  MVT::ValueType VT = getValueType(ArgType->getValueAsDef("VT"));
 
   if (ArgType->isSubClassOf("LLVMMatchType")) {
     unsigned Number = ArgType->getValueAsInt("Number");
@@ -153,11 +153,10 @@ static void EmitTypeGenerate(std::ostream &OS, Record *ArgType,
     // increment it when we actually hit an overloaded type. Getting this wrong
     // leads to very subtle bugs!
     OS << "Tys[" << ArgNo++ << "]";
-  } else if (MVT(VT).isVector()) {
-    MVT VVT = VT;
+  } else if (MVT::isVector(VT)) {
     OS << "VectorType::get(";
-    EmitTypeForValueType(OS, VVT.getVectorElementType().getSimpleVT());
-    OS << ", " << VVT.getVectorNumElements() << ")";
+    EmitTypeForValueType(OS, MVT::getVectorElementType(VT));
+    OS << ", " << MVT::getVectorNumElements(VT) << ")";
   } else if (VT == MVT::iPTR) {
     OS << "PointerType::getUnqual(";
     EmitTypeGenerate(OS, ArgType->getValueAsDef("ElTy"), ArgNo);
@@ -226,7 +225,7 @@ void IntrinsicEmitter::EmitVerifier(const std::vector<CodeGenIntrinsic> &Ints,
         assert(Number < j && "Invalid matching number!");
         OS << "~" << Number;
       } else {
-        MVT::SimpleValueType VT = getValueType(ArgType->getValueAsDef("VT"));
+        MVT::ValueType VT = getValueType(ArgType->getValueAsDef("VT"));
         OS << getEnumName(VT);
         if (VT == MVT::isVoid && j != 0 && j != ArgTypes.size()-1)
           throw "Var arg type not last argument";

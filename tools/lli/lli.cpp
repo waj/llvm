@@ -54,7 +54,7 @@ namespace {
                    cl::desc("Disable emission of core files if possible"));
 
   cl::opt<bool>
-  NoLazyCompilation("disable-lazy-compilation",
+  NoLazyCompilation("no-lazy",
                   cl::desc("Disable JIT lazy compilation"),
                   cl::init(false));
 }

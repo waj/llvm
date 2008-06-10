@@ -12,11 +12,10 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "regalloc"
+#include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "PhysRegTracker.h"
 #include "VirtRegMap.h"
 #include "llvm/Function.h"
-#include "llvm/CodeGen/LiveIntervalAnalysis.h"
-#include "llvm/CodeGen/LiveStackAnalysis.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
@@ -68,7 +67,6 @@ namespace {
     MachineRegisterInfo *reginfo_;
     BitVector allocatableRegs_;
     LiveIntervals* li_;
-    LiveStacks* ls_;
     const MachineLoopInfo *loopInfo;
 
     /// handled_ - Intervals are added to the handled_ set in the order of their
@@ -105,8 +103,6 @@ namespace {
       // Make sure PassManager knows which analyses to make available
       // to coalescing and which analyses coalescing invalidates.
       AU.addRequiredTransitive<RegisterCoalescer>();
-      AU.addRequired<LiveStacks>();
-      AU.addPreserved<LiveStacks>();
       AU.addRequired<MachineLoopInfo>();
       AU.addPreserved<MachineLoopInfo>();
       AU.addPreservedID(MachineDominatorsID);
@@ -174,9 +170,6 @@ namespace {
   };
   char RALinScan::ID = 0;
 }
-
-static RegisterPass<RALinScan>
-X("linearscan-regalloc", "Linear Scan Register Allocator");
 
 void RALinScan::ComputeRelatedRegClasses() {
   const TargetRegisterInfo &TRI = *tri_;
@@ -265,7 +258,6 @@ bool RALinScan::runOnMachineFunction(MachineFunction &fn) {
   reginfo_ = &mf_->getRegInfo();
   allocatableRegs_ = tri_->getAllocatableSet(fn);
   li_ = &getAnalysis<LiveIntervals>();
-  ls_ = &getAnalysis<LiveStacks>();
   loopInfo = &getAnalysis<MachineLoopInfo>();
 
   // We don't run the coalescer here because we have no reason to
@@ -512,28 +504,6 @@ static void RevertVectorIteratorsTo(RALinScan::IntervalPtrs &V, unsigned Point){
   }
 }
 
-/// addStackInterval - Create a LiveInterval for stack if the specified live
-/// interval has been spilled.
-static void addStackInterval(LiveInterval *cur, LiveStacks *ls_,
-                             LiveIntervals *li_, float &Weight,
-                             VirtRegMap &vrm_) {
-  int SS = vrm_.getStackSlot(cur->reg);
-  if (SS == VirtRegMap::NO_STACK_SLOT)
-    return;
-  LiveInterval &SI = ls_->getOrCreateInterval(SS);
-  SI.weight += Weight;
-
-  VNInfo *VNI;
-  if (SI.getNumValNums())
-    VNI = SI.getValNumInfo(0);
-  else
-    VNI = SI.getNextValue(~0U, 0, ls_->getVNInfoAllocator());
-
-  LiveInterval &RI = li_->getInterval(cur->reg);
-  // FIXME: This may be overly conservative.
-  SI.MergeRangesInAsValue(RI, VNI);
-}
-
 /// assignRegOrStackSlotAtInterval - assign a register if one is available, or
 /// spill.
 void RALinScan::assignRegOrStackSlotAtInterval(LiveInterval* cur)
@@ -745,10 +715,8 @@ void RALinScan::assignRegOrStackSlotAtInterval(LiveInterval* cur)
   // linearscan.
   if (cur->weight != HUGE_VALF && cur->weight <= minWeight) {
     DOUT << "\t\t\tspilling(c): " << *cur << '\n';
-    float SSWeight;
     std::vector<LiveInterval*> added =
-      li_->addIntervalsForSpills(*cur, loopInfo, *vrm_, SSWeight);
-    addStackInterval(cur, ls_, li_, SSWeight, *vrm_);
+      li_->addIntervalsForSpills(*cur, loopInfo, *vrm_);
     if (added.empty())
       return;  // Early exit if all spills were folded.
 
@@ -799,10 +767,8 @@ void RALinScan::assignRegOrStackSlotAtInterval(LiveInterval* cur)
         cur->overlapsFrom(*i->first, i->second)) {
       DOUT << "\t\t\tspilling(a): " << *i->first << '\n';
       earliestStart = std::min(earliestStart, i->first->beginNumber());
-      float SSWeight;
       std::vector<LiveInterval*> newIs =
-        li_->addIntervalsForSpills(*i->first, loopInfo, *vrm_, SSWeight);
-      addStackInterval(i->first, ls_, li_, SSWeight, *vrm_);
+        li_->addIntervalsForSpills(*i->first, loopInfo, *vrm_);
       std::copy(newIs.begin(), newIs.end(), std::back_inserter(added));
       spilled.insert(reg);
     }
@@ -814,10 +780,8 @@ void RALinScan::assignRegOrStackSlotAtInterval(LiveInterval* cur)
         cur->overlapsFrom(*i->first, i->second-1)) {
       DOUT << "\t\t\tspilling(i): " << *i->first << '\n';
       earliestStart = std::min(earliestStart, i->first->beginNumber());
-      float SSWeight;
       std::vector<LiveInterval*> newIs =
-        li_->addIntervalsForSpills(*i->first, loopInfo, *vrm_, SSWeight);
-      addStackInterval(i->first, ls_, li_, SSWeight, *vrm_);
+        li_->addIntervalsForSpills(*i->first, loopInfo, *vrm_);
       std::copy(newIs.begin(), newIs.end(), std::back_inserter(added));
       spilled.insert(reg);
     }

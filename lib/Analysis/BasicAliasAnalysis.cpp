@@ -79,15 +79,15 @@ namespace {
     virtual void deleteValue(Value *V) {}
     virtual void copyValue(Value *From, Value *To) {}
   };
+
+  // Register this pass...
+  char NoAA::ID = 0;
+  RegisterPass<NoAA>
+  U("no-aa", "No Alias Analysis (always returns 'may' alias)", true, true);
+
+  // Declare that we implement the AliasAnalysis interface
+  RegisterAnalysisGroup<AliasAnalysis> V(U);
 }  // End of anonymous namespace
-
-// Register this pass...
-char NoAA::ID = 0;
-static RegisterPass<NoAA>
-U("no-aa", "No Alias Analysis (always returns 'may' alias)", true, true);
-
-// Declare that we implement the AliasAnalysis interface
-static RegisterAnalysisGroup<AliasAnalysis> V(U);
 
 ImmutablePass *llvm::createNoAAPass() { return new NoAA(); }
 
@@ -124,15 +124,15 @@ namespace {
                          const Type *BasePtr2Ty,
                          Value **GEP2Ops, unsigned NumGEP2Ops, unsigned G2Size);
   };
+
+  // Register this pass...
+  char BasicAliasAnalysis::ID = 0;
+  RegisterPass<BasicAliasAnalysis>
+  X("basicaa", "Basic Alias Analysis (default AA impl)", false, true);
+
+  // Declare that we implement the AliasAnalysis interface
+  RegisterAnalysisGroup<AliasAnalysis, true> Y(X);
 }  // End of anonymous namespace
-
-// Register this pass...
-char BasicAliasAnalysis::ID = 0;
-static RegisterPass<BasicAliasAnalysis>
-X("basicaa", "Basic Alias Analysis (default AA impl)", false, true);
-
-// Declare that we implement the AliasAnalysis interface
-static RegisterAnalysisGroup<AliasAnalysis, true> Y(X);
 
 ImmutablePass *llvm::createBasicAliasAnalysisPass() {
   return new BasicAliasAnalysis();
@@ -687,7 +687,7 @@ BasicAliasAnalysis::CheckGEPInstructions(
         if (isa<ConstantInt>(GEP1Ops[i]) && 
             !cast<ConstantInt>(GEP1Ops[i])->isZero()) {
           // Yup, there's a constant in the tail.  Set all variables to
-          // constants in the GEP instruction to make it suitable for
+          // constants in the GEP instruction to make it suiteable for
           // TargetData::getIndexedOffset.
           for (i = 0; i != MaxOperands; ++i)
             if (!isa<ConstantInt>(GEP1Ops[i]))
@@ -702,15 +702,9 @@ BasicAliasAnalysis::CheckGEPInstructions(
           int64_t Offset2 = TD.getIndexedOffset(GEPPointerTy, GEP1Ops,
                                                 MinOperands);
 
-          // Make sure we compare the absolute difference.
-          if (Offset1 > Offset2)
-            std::swap(Offset1, Offset2);
-
           // If the tail provided a bit enough offset, return noalias!
           if ((uint64_t)(Offset2-Offset1) >= SizeMax)
             return NoAlias;
-          // Otherwise break - we don't look for another constant in the tail.
-          break;
         }
     }
 

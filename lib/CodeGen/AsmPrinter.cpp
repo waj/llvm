@@ -889,9 +889,11 @@ void AsmPrinter::EmitString(const ConstantArray *CVA) const {
 }
 
 /// EmitGlobalConstant - Print a general LLVM constant to the .s file.
-void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
+/// If Packed is false, pad to the ABI size.
+void AsmPrinter::EmitGlobalConstant(const Constant *CV, bool Packed) {
   const TargetData *TD = TM.getTargetData();
-  unsigned Size = TD->getABITypeSize(CV->getType());
+  unsigned Size = Packed ?
+    TD->getTypeStoreSize(CV->getType()) : TD->getABITypeSize(CV->getType());
 
   if (CV->isNullValue() || isa<UndefValue>(CV)) {
     EmitZeros(Size);
@@ -901,7 +903,7 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
       EmitString(CVA);
     } else { // Not a string.  Print the values in successive locations
       for (unsigned i = 0, e = CVA->getNumOperands(); i != e; ++i)
-        EmitGlobalConstant(CVA->getOperand(i));
+        EmitGlobalConstant(CVA->getOperand(i), false);
     }
     return;
   } else if (const ConstantStruct *CVS = dyn_cast<ConstantStruct>(CV)) {
@@ -912,13 +914,13 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
       const Constant* field = CVS->getOperand(i);
 
       // Check if padding is needed and insert one or more 0s.
-      uint64_t fieldSize = TD->getABITypeSize(field->getType());
+      uint64_t fieldSize = TD->getTypeStoreSize(field->getType());
       uint64_t padSize = ((i == e-1 ? Size : cvsLayout->getElementOffset(i+1))
                           - cvsLayout->getElementOffset(i)) - fieldSize;
       sizeSoFar += fieldSize + padSize;
 
-      // Now print the actual field value.
-      EmitGlobalConstant(field);
+      // Now print the actual field value without ABI size padding.
+      EmitGlobalConstant(field, true);
 
       // Insert padding - this may include padding to increase the size of the
       // current field up to the ABI size (if the struct is not packed) as well
@@ -1064,7 +1066,7 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
     const VectorType *PTy = CP->getType();
     
     for (unsigned I = 0, E = PTy->getNumElements(); I < E; ++I)
-      EmitGlobalConstant(CP->getOperand(I));
+      EmitGlobalConstant(CP->getOperand(I), false);
     
     return;
   }
@@ -1072,11 +1074,6 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
   const Type *type = CV->getType();
   printDataDirective(type);
   EmitConstantValueOnly(CV);
-  if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
-    O << "\t\t\t"
-      << TAI->getCommentString()
-      << " 0x" << CI->getValue().toStringUnsigned(16);
-  }
   O << "\n";
 }
 
@@ -1438,10 +1435,3 @@ void AsmPrinter::printDataDirective(const Type *type) {
   }
 }
 
-void AsmPrinter::printSuffixedName(std::string &Name, const char* Suffix) {
-  if (Name[0]=='\"')
-    O << "\"" << TAI->getPrivateGlobalPrefix() << 
-         Name.substr(1, Name.length()-2) << Suffix << "\"";
-  else
-    O << TAI->getPrivateGlobalPrefix() << Name << Suffix;
-}

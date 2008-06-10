@@ -1,8 +1,7 @@
-; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse > %t
-; RUN: grep prefetchnta %t
-; RUN: grep prefetcht0 %t
-; RUN: grep prefetcht1 %t
-; RUN: grep prefetcht2 %t
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse | grep prefetchnta
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse | grep prefetcht0
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse | grep prefetcht1
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse | grep prefetcht2
 
 define void @t(i8* %ptr) nounwind  {
 entry:

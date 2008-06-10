@@ -353,10 +353,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\lib\CodeGen\LiveStackAnalysis.cpp"
-				>
-			</File>
-			<File
 				RelativePath="..\..\lib\CodeGen\LiveVariables.cpp"
 				>
 			</File>
@@ -474,10 +470,6 @@
 			</File>
 			<File
 				RelativePath="..\..\lib\CodeGen\SimpleRegisterCoalescing.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\..\lib\CodeGen\StackSlotColoring.cpp"
 				>
 			</File>
 			<File

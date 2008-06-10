@@ -40,18 +40,18 @@ namespace llvm {
 
   /// MachineLoopInfo pass - This pass is a loop analysis pass.
   /// 
-  extern const PassInfo *const MachineLoopInfoID;
+  extern const PassInfo *MachineLoopInfoID;
 
   /// MachineDominators pass - This pass is a machine dominators analysis pass.
   /// 
-  extern const PassInfo *const MachineDominatorsID;
+  extern const PassInfo *MachineDominatorsID;
 
   /// PHIElimination pass - This pass eliminates machine instruction PHI nodes
   /// by inserting copy instructions.  This destroys SSA information, but is the
   /// desired input for some register allocators.  This pass is "required" by
   /// these register allocator like this: AU.addRequiredID(PHIEliminationID);
   ///
-  extern const PassInfo *const PHIEliminationID;
+  extern const PassInfo *PHIEliminationID;
   
   /// StrongPHIElimination pass - This pass eliminates machine instruction PHI
   /// nodes by inserting copy instructions.  This destroys SSA information, but
@@ -59,17 +59,17 @@ namespace llvm {
   /// "required" by these register allocator like this:
   ///    AU.addRequiredID(PHIEliminationID);
   ///  This pass is still in development
-  extern const PassInfo *const StrongPHIEliminationID;
+  extern const PassInfo *StrongPHIEliminationID;
 
   /// SimpleRegisterCoalescing pass.  Aggressively coalesces every register
   /// copy it can.
   ///
-  extern const PassInfo *const SimpleRegisterCoalescingID;
+  extern const PassInfo *SimpleRegisterCoalescingID;
 
   /// TwoAddressInstruction pass - This pass reduces two-address instructions to
   /// use two operands. This destroys SSA information but it is desired by
   /// register allocators.
-  extern const PassInfo *const TwoAddressInstructionPassID;
+  extern const PassInfo *TwoAddressInstructionPassID;
 
   /// Creates a register allocator as the user specified on the command line.
   ///
@@ -172,9 +172,6 @@ namespace llvm {
   /// createMachineSinkingPass - This pass performs sinking on machine
   /// instructions.
   FunctionPass *createMachineSinkingPass();
-
-  /// createStackSlotColoringPass - This pass performs stack slot coloring.
-  FunctionPass *createStackSlotColoringPass();
   
 } // End llvm namespace
 

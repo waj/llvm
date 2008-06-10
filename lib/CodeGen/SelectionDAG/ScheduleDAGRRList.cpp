@@ -646,7 +646,7 @@ SUnit *ScheduleDAGRRList::CopyAndMoveSuccessors(SUnit *SU) {
   SUnit *NewSU;
   bool TryUnfold = false;
   for (unsigned i = 0, e = N->getNumValues(); i != e; ++i) {
-    MVT VT = N->getValueType(i);
+    MVT::ValueType VT = N->getValueType(i);
     if (VT == MVT::Flag)
       return NULL;
     else if (VT == MVT::Other)
@@ -654,7 +654,7 @@ SUnit *ScheduleDAGRRList::CopyAndMoveSuccessors(SUnit *SU) {
   }
   for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i) {
     const SDOperand &Op = N->getOperand(i);
-    MVT VT = Op.Val->getValueType(Op.ResNo);
+    MVT::ValueType VT = Op.Val->getValueType(Op.ResNo);
     if (VT == MVT::Flag)
       return NULL;
   }
@@ -872,8 +872,8 @@ void ScheduleDAGRRList::InsertCCCopiesAndMoveSuccs(SUnit *SU, unsigned Reg,
 /// getPhysicalRegisterVT - Returns the ValueType of the physical register
 /// definition of the specified node.
 /// FIXME: Move to SelectionDAG?
-static MVT getPhysicalRegisterVT(SDNode *N, unsigned Reg,
-                                 const TargetInstrInfo *TII) {
+static MVT::ValueType getPhysicalRegisterVT(SDNode *N, unsigned Reg,
+                                            const TargetInstrInfo *TII) {
   const TargetInstrDesc &TID = TII->get(N->getTargetOpcode());
   assert(TID.ImplicitDefs && "Physical reg def must be in implicit def list!");
   unsigned NumRes = TID.getNumDefs();
@@ -1022,7 +1022,7 @@ void ScheduleDAGRRList::ListScheduleBottomUp() {
         SUnit *NewDef = CopyAndMoveSuccessors(LRDef);
         if (!NewDef) {
           // Issue expensive cross register class copies.
-          MVT VT = getPhysicalRegisterVT(LRDef->Node, Reg, TII);
+          MVT::ValueType VT = getPhysicalRegisterVT(LRDef->Node, Reg, TII);
           const TargetRegisterClass *RC =
             TRI->getPhysicalRegisterRegClass(Reg, VT);
           const TargetRegisterClass *DestRC = TRI->getCrossCopyRegClass(RC);
@@ -1317,7 +1317,6 @@ namespace {
     void remove(SUnit *SU) {
       assert(!Queue.empty() && "Queue is empty!");
       size_t RemovedNum = Queue.erase(SU);
-      RemovedNum = RemovedNum; // Silence compiler warning.
       assert(RemovedNum > 0 && "Not in queue!");
       assert(RemovedNum == 1 && "Multiple times in the queue!");
       SU->NodeQueueId = 0;
@@ -1599,7 +1598,7 @@ static bool canClobberPhysRegDefs(SUnit *SuccSU, SUnit *SU,
   if (!SUImpDefs)
     return false;
   for (unsigned i = NumDefs, e = N->getNumValues(); i != e; ++i) {
-    MVT VT = N->getValueType(i);
+    MVT::ValueType VT = N->getValueType(i);
     if (VT == MVT::Flag || VT == MVT::Other)
       continue;
     unsigned Reg = ImpDefs[i - NumDefs];

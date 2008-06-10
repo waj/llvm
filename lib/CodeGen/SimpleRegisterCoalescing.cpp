@@ -17,6 +17,7 @@
 #include "VirtRegMap.h"
 #include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/Value.h"
+#include "llvm/CodeGen/LiveVariables.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
@@ -41,23 +42,25 @@ STATISTIC(numPeep     , "Number of identity moves eliminated after coalescing");
 STATISTIC(numAborts   , "Number of times interval joining aborted");
 
 char SimpleRegisterCoalescing::ID = 0;
-static cl::opt<bool>
-EnableJoining("join-liveintervals",
-              cl::desc("Coalesce copies (default=true)"),
-              cl::init(true));
+namespace {
+  static cl::opt<bool>
+  EnableJoining("join-liveintervals",
+                cl::desc("Coalesce copies (default=true)"),
+                cl::init(true));
 
-static cl::opt<bool>
-NewHeuristic("new-coalescer-heuristic",
-              cl::desc("Use new coalescer heuristic"),
-              cl::init(false));
+  static cl::opt<bool>
+  NewHeuristic("new-coalescer-heuristic",
+                cl::desc("Use new coalescer heuristic"),
+                cl::init(false));
 
-static RegisterPass<SimpleRegisterCoalescing> 
-X("simple-register-coalescing", "Simple Register Coalescing");
+  RegisterPass<SimpleRegisterCoalescing> 
+  X("simple-register-coalescing", "Simple Register Coalescing");
 
-// Declare that we implement the RegisterCoalescer interface
-static RegisterAnalysisGroup<RegisterCoalescer, true/*The Default*/> V(X);
+  // Declare that we implement the RegisterCoalescer interface
+  RegisterAnalysisGroup<RegisterCoalescer, true/*The Default*/> V(X);
+}
 
-const PassInfo *const llvm::SimpleRegisterCoalescingID = &X;
+const PassInfo *llvm::SimpleRegisterCoalescingID = X.getPassInfo();
 
 void SimpleRegisterCoalescing::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addPreserved<LiveIntervals>();
@@ -65,6 +68,7 @@ void SimpleRegisterCoalescing::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addPreservedID(MachineDominatorsID);
   AU.addPreservedID(PHIEliminationID);
   AU.addPreservedID(TwoAddressInstructionPassID);
+  AU.addRequired<LiveVariables>();
   AU.addRequired<LiveIntervals>();
   AU.addRequired<MachineLoopInfo>();
   MachineFunctionPass::getAnalysisUsage(AU);
@@ -749,7 +753,7 @@ bool SimpleRegisterCoalescing::CanCoalesceWithImpDef(MachineInstr *CopyMI,
 /// identity copies so they will be removed.
 void SimpleRegisterCoalescing::RemoveCopiesFromValNo(LiveInterval &li,
                                                      VNInfo *VNI) {
-  SmallVector<MachineInstr*, 4> ImpDefs;
+  MachineInstr *ImpDef = NULL;
   MachineOperand *LastUse = NULL;
   unsigned LastUseIdx = li_->getUseIndex(VNI->def);
   for (MachineRegisterInfo::reg_iterator RI = mri_->reg_begin(li.reg),
@@ -759,7 +763,8 @@ void SimpleRegisterCoalescing::RemoveCopiesFromValNo(LiveInterval &li,
     ++RI;
     if (MO->isDef()) {
       if (MI->getOpcode() == TargetInstrInfo::IMPLICIT_DEF) {
-        ImpDefs.push_back(MI);
+        assert(!ImpDef && "Multiple implicit_def defining same register?");
+        ImpDef = MI;
       }
       continue;
     }
@@ -787,13 +792,9 @@ void SimpleRegisterCoalescing::RemoveCopiesFromValNo(LiveInterval &li,
   if (LastUse)
     LastUse->setIsKill();
   else {
-    // Remove dead implicit_def's.
-    while (!ImpDefs.empty()) {
-      MachineInstr *ImpDef = ImpDefs.back();
-      ImpDefs.pop_back();
-      li_->RemoveMachineInstrFromMaps(ImpDef);
-      ImpDef->eraseFromParent();
-    }
+    // Remove dead implicit_def.
+    li_->RemoveMachineInstrFromMaps(ImpDef);
+    ImpDef->eraseFromParent();
   }
 }
 
@@ -965,10 +966,10 @@ bool SimpleRegisterCoalescing::JoinCopy(CopyRec &TheCopy, bool &Again) {
         // if this will cause a high use density interval to target a smaller
         // set of registers.
         if (SmallRegSize > Threshold || LargeRegSize > Threshold) {
-          if ((float)std::distance(mri_->use_begin(SmallReg),
-                                   mri_->use_end()) / SmallRegSize <
-              (float)std::distance(mri_->use_begin(LargeReg),
-                                   mri_->use_end()) / LargeRegSize) {
+          LiveVariables::VarInfo &svi = lv_->getVarInfo(LargeReg);
+          LiveVariables::VarInfo &dvi = lv_->getVarInfo(SmallReg);
+          if ((float)dvi.NumUses / SmallRegSize <
+              (float)svi.NumUses / LargeRegSize) {
             Again = true;  // May be possible to coalesce later.
             return false;
           }
@@ -1024,9 +1025,9 @@ bool SimpleRegisterCoalescing::JoinCopy(CopyRec &TheCopy, bool &Again) {
       // do not join them, instead mark the physical register as its allocation
       // preference.
       unsigned Length = JoinVInt.getSize() / InstrSlots::NUM;
+      LiveVariables::VarInfo &vi = lv_->getVarInfo(JoinVReg);
       if (Length > Threshold &&
-          (((float)std::distance(mri_->use_begin(JoinVReg),
-                              mri_->use_end()) / Length) < (1.0 / Threshold))) {
+          (((float)vi.NumUses / Length) < (1.0 / Threshold))) {
         JoinVInt.preference = JoinPReg;
         ++numAborts;
         DOUT << "\tMay tie down a physical register, abort!\n";
@@ -1109,6 +1110,11 @@ bool SimpleRegisterCoalescing::JoinCopy(CopyRec &TheCopy, bool &Again) {
     for (const unsigned *AS = tri_->getSubRegisters(DstReg); *AS; ++AS)
       li_->getOrCreateInterval(*AS).MergeInClobberRanges(*ResSrcInt,
                                                  li_->getVNInfoAllocator());
+  } else {
+    // Merge use info if the destination is a virtual register.
+    LiveVariables::VarInfo& dVI = lv_->getVarInfo(DstReg);
+    LiveVariables::VarInfo& sVI = lv_->getVarInfo(SrcReg);
+    dVI.NumUses += sVI.NumUses;
   }
 
   // If this is a EXTRACT_SUBREG, make sure the result of coalescing is the
@@ -1318,20 +1324,7 @@ bool SimpleRegisterCoalescing::SimpleJoin(LiveInterval &LHS, LiveInterval &RHS){
         // Copy from the RHS?
         if (!RangeIsDefinedByCopyFromReg(LHS, LHSIt, RHS.reg))
           return false;    // Nope, bail out.
-
-        if (LHSIt->contains(RHSIt->valno->def))
-          // Here is an interesting situation:
-          // BB1:
-          //   vr1025 = copy vr1024
-          //   ..
-          // BB2:
-          //   vr1024 = op 
-          //          = vr1025
-          // Even though vr1025 is copied from vr1024, it's not safe to
-          // coalesced them since live range of vr1025 intersects the
-          // def of vr1024. This happens because vr1025 is assigned the
-          // value of the previous iteration of vr1024.
-          return false;
+        
         EliminatedLHSVals.push_back(LHSIt->valno);
       }
       
@@ -1357,19 +1350,6 @@ bool SimpleRegisterCoalescing::SimpleJoin(LiveInterval &LHS, LiveInterval &RHS){
           // Otherwise, if this is a copy from the RHS, mark it as being merged
           // in.
           if (RangeIsDefinedByCopyFromReg(LHS, LHSIt, RHS.reg)) {
-            if (LHSIt->contains(RHSIt->valno->def))
-              // Here is an interesting situation:
-              // BB1:
-              //   vr1025 = copy vr1024
-              //   ..
-              // BB2:
-              //   vr1024 = op 
-              //          = vr1025
-              // Even though vr1025 is copied from vr1024, it's not safe to
-              // coalesced them since live range of vr1025 intersects the
-              // def of vr1024. This happens because vr1025 is assigned the
-              // value of the previous iteration of vr1024.
-              return false;
             EliminatedLHSVals.push_back(LHSIt->valno);
 
             // We know this entire LHS live range is okay, so skip it now.
@@ -2004,6 +1984,7 @@ bool SimpleRegisterCoalescing::runOnMachineFunction(MachineFunction &fn) {
   tri_ = tm_->getRegisterInfo();
   tii_ = tm_->getInstrInfo();
   li_ = &getAnalysis<LiveIntervals>();
+  lv_ = &getAnalysis<LiveVariables>();
   loopInfo = &getAnalysis<MachineLoopInfo>();
 
   DOUT << "********** SIMPLE REGISTER COALESCING **********\n"

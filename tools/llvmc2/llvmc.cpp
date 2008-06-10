@@ -1,4 +1,4 @@
-//===--- llvmc.cpp - The LLVM Compiler Driver -------------------*- C++ -*-===//
+//===--- llvmc.cpp - The LLVM Compiler Driver ------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -15,7 +15,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "CompilationGraph.h"
-#include "Error.h"
 #include "Tool.h"
 
 #include "llvm/System/Path.h"
@@ -39,8 +38,6 @@ cl::opt<std::string> OutputFilename("o", cl::desc("Output file name"),
 cl::list<std::string> Languages("x",
           cl::desc("Specify the language of the following input files"),
           cl::ZeroOrMore);
-cl::opt<bool> DryRun("dry-run",
-                     cl::desc("Only pretend to run commands"));
 cl::opt<bool> VerboseMode("v",
                           cl::desc("Enable verbose mode"));
 cl::opt<bool> WriteGraph("write-graph",
@@ -49,17 +46,12 @@ cl::opt<bool> WriteGraph("write-graph",
 cl::opt<bool> ViewGraph("view-graph",
                          cl::desc("Show compilation graph in GhostView"),
                          cl::Hidden);
-cl::opt<bool> SaveTemps("save-temps",
-                         cl::desc("Keep temporary files"),
-                         cl::Hidden);
 
 namespace {
   /// BuildTargets - A small wrapper for CompilationGraph::Build.
   int BuildTargets(CompilationGraph& graph) {
     int ret;
-    const sys::Path& tempDir = SaveTemps
-      ? sys::Path("")
-      : sys::Path(sys::Path::GetTemporaryDirectory());
+    sys::Path tempDir(sys::Path::GetTemporaryDirectory());
 
     try {
       ret = graph.Build(tempDir);
@@ -69,8 +61,7 @@ namespace {
       throw;
     }
 
-    if (!SaveTemps)
-      tempDir.eraseFromDisk(true);
+    tempDir.eraseFromDisk(true);
     return ret;
   }
 }
@@ -79,8 +70,8 @@ int main(int argc, char** argv) {
   try {
     CompilationGraph graph;
 
-    cl::ParseCommandLineOptions
-      (argc, argv, "LLVM Compiler Driver (Work In Progress)", true);
+    cl::ParseCommandLineOptions(argc, argv,
+                                "LLVM Compiler Driver (Work In Progress)");
     PopulateCompilationGraph(graph);
 
     if (WriteGraph) {
@@ -95,19 +86,17 @@ int main(int argc, char** argv) {
     }
 
     if (InputFilenames.empty()) {
-      throw std::runtime_error("no input files");
+      std::cerr << "No input files.\n";
+      return 1;
     }
 
     return BuildTargets(graph);
   }
-  catch(llvmc::error_code& ec) {
-    return ec.code();
-  }
   catch(const std::exception& ex) {
-    std::cerr << argv[0] << ": " << ex.what() << '\n';
+    std::cerr << ex.what() << '\n';
   }
   catch(...) {
-    std::cerr << argv[0] << ": unknown error!\n";
+    std::cerr << "Unknown error!\n";
   }
   return 1;
 }

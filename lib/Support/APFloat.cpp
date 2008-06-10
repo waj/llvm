@@ -438,8 +438,8 @@ namespace {
   static unsigned int
   powerOf5(integerPart *dst, unsigned int power)
   {
-    static const integerPart firstEightPowers[] = { 1, 5, 25, 125, 625, 3125,
-                                                    15625, 78125 };
+    static integerPart firstEightPowers[] = { 1, 5, 25, 125, 625, 3125,
+                                              15625, 78125 };
     static integerPart pow5s[maxPowerOfFiveParts * 2 + 5] = { 78125 * 5 };
     static unsigned int partsCount[16] = { 1 };
 
@@ -2003,7 +2003,7 @@ APFloat::convertFromHexadecimalString(const char *p,
   firstSignificantDigit = p;
 
   for(;;) {
-    integerPart hex_value;
+    unsigned int hex_value;
 
     if(*p == '.') {
       assert(dot == 0);

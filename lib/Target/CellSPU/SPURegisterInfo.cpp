@@ -40,6 +40,7 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdlib>
+#include <iostream>
 
 using namespace llvm;
 
@@ -177,7 +178,7 @@ unsigned SPURegisterInfo::getRegisterNumbering(unsigned RegEnum) {
   case SPU::R126: return 126;
   case SPU::R127: return 127;
   default:
-    cerr << "Unhandled reg in SPURegisterInfo::getRegisterNumbering!\n";
+    std::cerr << "Unhandled reg in SPURegisterInfo::getRegisterNumbering!\n";
     abort();
   }
 }

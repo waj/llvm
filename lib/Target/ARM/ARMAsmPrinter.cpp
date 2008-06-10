@@ -127,10 +127,10 @@ namespace {
         Name += ACPV->getSymbol();
       if (ACPV->isNonLazyPointer()) {
         GVNonLazyPtrs.insert(Name);
-        printSuffixedName(Name, "$non_lazy_ptr");
+        O << TAI->getPrivateGlobalPrefix() << Name << "$non_lazy_ptr";
       } else if (ACPV->isStub()) {
         FnStubs.insert(Name);
-        printSuffixedName(Name, "$stub");
+        O << TAI->getPrivateGlobalPrefix() << Name << "$stub";
       } else
         O << Name;
       if (ACPV->hasModifier()) O << "(" << ACPV->getModifier() << ")";
@@ -295,7 +295,7 @@ void ARMAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
                   GV->hasLinkOnceLinkage());
     if (isExt && isCallOp && Subtarget->isTargetDarwin() &&
         TM.getRelocationModel() != Reloc::Static) {
-      printSuffixedName(Name, "$stub");
+      O << TAI->getPrivateGlobalPrefix() << Name << "$stub";
       FnStubs.insert(Name);
     } else
       O << Name;
@@ -318,7 +318,7 @@ void ARMAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
     Name += MO.getSymbolName();
     if (isCallOp && Subtarget->isTargetDarwin() &&
         TM.getRelocationModel() != Reloc::Static) {
-      printSuffixedName(Name, "$stub");
+      O << TAI->getPrivateGlobalPrefix() << Name << "$stub";
       FnStubs.insert(Name);
     } else
       O << Name;
@@ -1004,32 +1004,21 @@ bool ARMAsmPrinter::doFinalization(Module &M) {
       EmitAlignment(2);
       O << "\t.code\t32\n";
 
-      std::string p = *i;
-      printSuffixedName(p, "$stub");
-      O << ":\n";
+      O << "L" << *i << "$stub:\n";
       O << "\t.indirect_symbol " << *i << "\n";
-      O << "\tldr ip, ";
-      printSuffixedName(p, "$slp");
-      O << "\n";
+      O << "\tldr ip, L" << *i << "$slp\n";
       if (TM.getRelocationModel() == Reloc::PIC_) {
-        printSuffixedName(p, "$scv");
-        O << ":\n";
+        O << "L" << *i << "$scv:\n";
         O << "\tadd ip, pc, ip\n";
       }
       O << "\tldr pc, [ip, #0]\n";
-      printSuffixedName(p, "$slp");
-      O << ":\n";
-      O << "\t.long\t";
-      printSuffixedName(p, "$lazy_ptr");
-      if (TM.getRelocationModel() == Reloc::PIC_) {
-        O << "-(";
-        printSuffixedName(p, "$scv");
-        O << "+8)\n";
-      } else
-        O << "\n";
+      O << "L" << *i << "$slp:\n";
+      if (TM.getRelocationModel() == Reloc::PIC_)
+        O << "\t.long\tL" << *i << "$lazy_ptr-(L" << *i << "$scv+8)\n";
+      else
+        O << "\t.long\tL" << *i << "$lazy_ptr\n";
       SwitchToDataSection(".lazy_symbol_pointer", 0);
-      printSuffixedName(p, "$lazy_ptr");
-      O << ":\n";
+      O << "L" << *i << "$lazy_ptr:\n";
       O << "\t.indirect_symbol " << *i << "\n";
       O << "\t.long\tdyld_stub_binding_helper\n";
     }
@@ -1040,9 +1029,7 @@ bool ARMAsmPrinter::doFinalization(Module &M) {
       SwitchToDataSection(".non_lazy_symbol_pointer", 0);
     for (std::set<std::string>::iterator i = GVNonLazyPtrs.begin(),
            e = GVNonLazyPtrs.end(); i != e; ++i) {
-      std::string p = *i;
-      printSuffixedName(p, "$non_lazy_ptr");
-      O << ":\n";
+      O << "L" << *i << "$non_lazy_ptr:\n";
       O << "\t.indirect_symbol " << *i << "\n";
       O << "\t.long\t0\n";
     }

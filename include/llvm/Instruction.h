@@ -20,6 +20,7 @@
 namespace llvm {
 
 struct AssemblyAnnotationWriter;
+class BinaryOperator;
 
 template<typename ValueSubClass, typename ItemParentClass>
   class SymbolTableListTraits;

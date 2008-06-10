@@ -284,7 +284,11 @@ bool AliasSetTracker::add(StoreInst *SI) {
 
 bool AliasSetTracker::add(FreeInst *FI) {
   bool NewPtr;
-  addPointer(FI->getOperand(0), ~0, AliasSet::Mods, NewPtr);
+  AliasSet &AS = addPointer(FI->getOperand(0), ~0,
+                            AliasSet::Mods, NewPtr);
+
+  // Free operations are volatile ops (cannot be moved).
+  AS.setVolatile();
   return NewPtr;
 }
 
@@ -581,8 +585,6 @@ namespace {
       return false;
     }
   };
+  char AliasSetPrinter::ID = 0;
+  RegisterPass<AliasSetPrinter> X("print-alias-sets", "Alias Set Printer", false, true);
 }
-
-char AliasSetPrinter::ID = 0;
-static RegisterPass<AliasSetPrinter>
-X("print-alias-sets", "Alias Set Printer", false, true);

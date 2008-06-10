@@ -194,11 +194,9 @@ private:
                                       Loop *L, bool isOnlyStride);
     void DeleteTriviallyDeadInstructions(SmallPtrSet<Instruction*,16> &Insts);
   };
+  char LoopStrengthReduce::ID = 0;
+  RegisterPass<LoopStrengthReduce> X("loop-reduce", "Loop Strength Reduction");
 }
-
-char LoopStrengthReduce::ID = 0;
-static RegisterPass<LoopStrengthReduce>
-X("loop-reduce", "Loop Strength Reduction");
 
 LoopPass *llvm::createLoopStrengthReducePass(const TargetLowering *TLI) {
   return new LoopStrengthReduce(TLI);
@@ -237,8 +235,8 @@ DeleteTriviallyDeadInstructions(SmallPtrSet<Instruction*,16> &Insts) {
       if (Value *PNV = PN->hasConstantValue()) {
         if (Instruction *U = dyn_cast<Instruction>(PNV))
           Insts.insert(U);
-        SE->deleteValueFromRecords(PN);
         PN->replaceAllUsesWith(PNV);
+        SE->deleteValueFromRecords(PN);
         PN->eraseFromParent();
         Changed = true;
         continue;
@@ -543,7 +541,6 @@ namespace {
     // operands of Inst to use the new expression 'NewBase', with 'Imm' added
     // to it.
     void RewriteInstructionToUseNewBase(const SCEVHandle &NewBase,
-                                        Instruction *InsertPt,
                                        SCEVExpander &Rewriter, Loop *L, Pass *P,
                                        SmallPtrSet<Instruction*,16> &DeadInsts);
     
@@ -604,12 +601,8 @@ Value *BasedUser::InsertCodeForBaseAtPosition(const SCEVHandle &NewBase,
 
 // Once we rewrite the code to insert the new IVs we want, update the
 // operands of Inst to use the new expression 'NewBase', with 'Imm' added
-// to it. NewBasePt is the last instruction which contributes to the
-// value of NewBase in the case that it's a diffferent instruction from
-// the PHI that NewBase is computed from, or null otherwise.
-//
+// to it.
 void BasedUser::RewriteInstructionToUseNewBase(const SCEVHandle &NewBase,
-                                               Instruction *NewBasePt,
                                       SCEVExpander &Rewriter, Loop *L, Pass *P,
                                       SmallPtrSet<Instruction*,16> &DeadInsts) {
   if (!isa<PHINode>(Inst)) {
@@ -625,10 +618,7 @@ void BasedUser::RewriteInstructionToUseNewBase(const SCEVHandle &NewBase,
     // value will be pinned to live somewhere after the original computation.
     // In this case, we have to back off.
     if (!isUseOfPostIncrementedValue) {
-      if (NewBasePt && isa<PHINode>(OperandValToReplace)) {
-        InsertPt = NewBasePt;
-        ++InsertPt;
-      } else if (Instruction *OpInst = dyn_cast<Instruction>(OperandValToReplace)) { 
+      if (Instruction *OpInst = dyn_cast<Instruction>(OperandValToReplace)) { 
         InsertPt = OpInst;
         while (isa<PHINode>(InsertPt)) ++InsertPt;
       }
@@ -1119,6 +1109,11 @@ static bool isAddressUse(Instruction *Inst, Value *OperandVal) {
         if (II->getOperand(1) == OperandVal)
           isAddress = true;
         break;
+      case Intrinsic::x86_sse2_loadh_pd:
+      case Intrinsic::x86_sse2_loadl_pd:
+        if (II->getOperand(2) == OperandVal)
+          isAddress = true;
+        break;
     }
   }
   return isAddress;
@@ -1403,16 +1398,6 @@ void LoopStrengthReduce::StrengthReduceStridedIVUsers(const SCEVHandle &Stride,
 
       SCEVHandle RewriteExpr = SE->getUnknown(RewriteOp);
 
-      // If we had to insert new instrutions for RewriteOp, we have to
-      // consider that they may not have been able to end up immediately
-      // next to RewriteOp, because non-PHI instructions may never precede
-      // PHI instructions in a block. In this case, remember where the last
-      // instruction was inserted so that if we're replacing a different
-      // PHI node, we can use the later point to expand the final
-      // RewriteExpr.
-      Instruction *NewBasePt = dyn_cast<Instruction>(RewriteOp);
-      if (RewriteOp == NewPHI) NewBasePt = 0;
-
       // Clear the SCEVExpander's expression map so that we are guaranteed
       // to have the code emitted where we expect it.
       Rewriter.clear();
@@ -1439,8 +1424,7 @@ void LoopStrengthReduce::StrengthReduceStridedIVUsers(const SCEVHandle &Stride,
         // Add BaseV to the PHI value if needed.
         RewriteExpr = SE->getAddExpr(RewriteExpr, SE->getUnknown(BaseV));
 
-      User.RewriteInstructionToUseNewBase(RewriteExpr, NewBasePt,
-                                          Rewriter, L, this,
+      User.RewriteInstructionToUseNewBase(RewriteExpr, Rewriter, L, this,
                                           DeadInsts);
 
       // Mark old value we replaced as possibly dead, so that it is elminated
@@ -1658,8 +1642,8 @@ ICmpInst *LoopStrengthReduce::ChangeCompareStride(Loop *L, ICmpInst *Cond,
 
     // Remove the old compare instruction. The old indvar is probably dead too.
     DeadInsts.insert(cast<Instruction>(CondUse->OperandValToReplace));
-    SE->deleteValueFromRecords(OldCond);
     OldCond->replaceAllUsesWith(Cond);
+    SE->deleteValueFromRecords(OldCond);
     OldCond->eraseFromParent();
 
     IVUsesByStride[*CondStride].Users.pop_back();
@@ -1777,7 +1761,7 @@ bool LoopStrengthReduce::runOnLoop(Loop *L, LPPassManager &LPM) {
 #endif
 
   // IVsByStride keeps IVs for one particular loop.
-  assert(IVsByStride.empty() && "Stale entries in IVsByStride?");
+  IVsByStride.clear();
 
   // Sort the StrideOrder so we process larger strides first.
   std::stable_sort(StrideOrder.begin(), StrideOrder.end(), StrideCompare());
@@ -1793,12 +1777,6 @@ bool LoopStrengthReduce::runOnLoop(Loop *L, LPPassManager &LPM) {
     assert(SI != IVUsesByStride.end() && "Stride doesn't exist!");
     StrengthReduceStridedIVUsers(SI->first, SI->second, L, HasOneStride);
   }
-
-  // We're done analyzing this loop; release all the state we built up for it.
-  CastedPointers.clear();
-  IVUsesByStride.clear();
-  IVsByStride.clear();
-  StrideOrder.clear();
 
   // Clean up after ourselves
   if (!DeadInsts.empty()) {
@@ -1827,8 +1805,8 @@ bool LoopStrengthReduce::runOnLoop(Loop *L, LPPassManager &LPM) {
           if (BO->hasOneUse() && PN == *(BO->use_begin())) {
             DeadInsts.insert(BO);
             // Break the cycle, then delete the PHI.
-            SE->deleteValueFromRecords(PN);
             PN->replaceAllUsesWith(UndefValue::get(PN->getType()));
+            SE->deleteValueFromRecords(PN);
             PN->eraseFromParent();
           }
         }
@@ -1837,5 +1815,8 @@ bool LoopStrengthReduce::runOnLoop(Loop *L, LPPassManager &LPM) {
     DeleteTriviallyDeadInstructions(DeadInsts);
   }
 
+  CastedPointers.clear();
+  IVUsesByStride.clear();
+  StrideOrder.clear();
   return false;
 }

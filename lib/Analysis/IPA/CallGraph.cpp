@@ -26,7 +26,9 @@ using namespace llvm;
 /// takes the address of the function.
 static bool isOnlyADirectCall(Function *F, CallSite CS) {
   if (!CS.getInstruction()) return false;
-  return !CS.hasArgument(F);
+  for (CallSite::arg_iterator I = CS.arg_begin(), E = CS.arg_end(); I != E; ++I)
+    if (*I == F) return false;
+  return true;
 }
 
 namespace {
@@ -188,12 +190,11 @@ private:
   }
 };
 
-} //End anonymous namespace
+RegisterAnalysisGroup<CallGraph> X("Call Graph");
+RegisterPass<BasicCallGraph> Y("basiccg", "Basic CallGraph Construction", false, true);
+RegisterAnalysisGroup<CallGraph, true> Z(Y);
 
-static RegisterAnalysisGroup<CallGraph> X("Call Graph");
-static RegisterPass<BasicCallGraph>
-Y("basiccg", "Basic CallGraph Construction", false, true);
-static RegisterAnalysisGroup<CallGraph, true> Z(Y);
+} //End anonymous namespace
 
 char CallGraph::ID = 0;
 char BasicCallGraph::ID = 0;

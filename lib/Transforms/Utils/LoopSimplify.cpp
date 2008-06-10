@@ -73,7 +73,6 @@ namespace {
       AU.addPreserved<LoopInfo>();
       AU.addPreserved<DominatorTree>();
       AU.addPreserved<DominanceFrontier>();
-      AU.addPreserved<AliasAnalysis>();
       AU.addPreservedID(BreakCriticalEdgesID);  // No critical edges added.
     }
 
@@ -96,14 +95,14 @@ namespace {
                                   SmallVectorImpl<BasicBlock*> &SplitPreds,
                                   Loop *L);
   };
+
+  char LoopSimplify::ID = 0;
+  RegisterPass<LoopSimplify>
+  X("loopsimplify", "Canonicalize natural loops", true);
 }
 
-char LoopSimplify::ID = 0;
-static RegisterPass<LoopSimplify>
-X("loopsimplify", "Canonicalize natural loops", true);
-
 // Publically exposed interface to pass...
-const PassInfo *const llvm::LoopSimplifyID = &X;
+const PassInfo *llvm::LoopSimplifyID = X.getPassInfo();
 FunctionPass *llvm::createLoopSimplifyPass() { return new LoopSimplify(); }
 
 /// runOnFunction - Run down all loops in the CFG (recursively, but we could do
@@ -253,10 +252,9 @@ ReprocessLoop:
   for (BasicBlock::iterator I = L->getHeader()->begin();
        (PN = dyn_cast<PHINode>(I++)); )
     if (Value *V = PN->hasConstantValue()) {
-      if (AA) AA->deleteValue(PN);
-      PN->replaceAllUsesWith(V);
-      PN->eraseFromParent();
-    }
+        PN->replaceAllUsesWith(V);
+        PN->eraseFromParent();
+      }
 
   return Changed;
 }

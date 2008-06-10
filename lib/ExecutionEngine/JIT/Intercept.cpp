@@ -16,7 +16,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "JIT.h"
-#include "llvm/Support/Streams.h"
 #include "llvm/System/DynamicLibrary.h"
 #include "llvm/Config/config.h"
 using namespace llvm;

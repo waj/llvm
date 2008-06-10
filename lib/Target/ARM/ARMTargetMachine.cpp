@@ -27,9 +27,11 @@ static cl::opt<bool> DisableLdStOpti("disable-arm-loadstore-opti", cl::Hidden,
 static cl::opt<bool> DisableIfConversion("disable-arm-if-conversion",cl::Hidden,
                               cl::desc("Disable if-conversion pass"));
 
-// Register the target.
-static RegisterTarget<ARMTargetMachine>   X("arm",   "  ARM");
-static RegisterTarget<ThumbTargetMachine> Y("thumb", "  Thumb");
+namespace {
+  // Register the target.
+  RegisterTarget<ARMTargetMachine>   X("arm",   "  ARM");
+  RegisterTarget<ThumbTargetMachine> Y("thumb", "  Thumb");
+}
 
 /// ThumbTargetMachine - Create an Thumb architecture model.
 ///

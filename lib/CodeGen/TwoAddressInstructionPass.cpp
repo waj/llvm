@@ -37,10 +37,8 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
 using namespace llvm;
@@ -49,10 +47,6 @@ STATISTIC(NumTwoAddressInstrs, "Number of two-address instructions");
 STATISTIC(NumCommuted        , "Number of instructions commuted to coalesce");
 STATISTIC(NumConvertedTo3Addr, "Number of instructions promoted to 3-address");
 STATISTIC(Num3AddrSunk,        "Number of 3-address instructions sunk");
-
-static cl::opt<bool>
-EnableReMat("2-addr-remat", cl::init(false), cl::Hidden,
-            cl::desc("Two-addr conversion should remat when possible."));
 
 namespace {
   class VISIBILITY_HIDDEN TwoAddressInstructionPass
@@ -81,13 +75,13 @@ namespace {
     /// runOnMachineFunction - Pass entry point.
     bool runOnMachineFunction(MachineFunction&);
   };
+
+  char TwoAddressInstructionPass::ID = 0;
+  RegisterPass<TwoAddressInstructionPass>
+  X("twoaddressinstruction", "Two-Address instruction pass");
 }
 
-char TwoAddressInstructionPass::ID = 0;
-static RegisterPass<TwoAddressInstructionPass>
-X("twoaddressinstruction", "Two-Address instruction pass");
-
-const PassInfo *const llvm::TwoAddressInstructionPassID = &X;
+const PassInfo *llvm::TwoAddressInstructionPassID = X.getPassInfo();
 
 /// Sink3AddrInstruction - A two-address instruction has been converted to a
 /// three-address instruction to avoid clobbering a register. Try to sink it
@@ -205,8 +199,6 @@ bool TwoAddressInstructionPass::runOnMachineFunction(MachineFunction &MF) {
 
   DOUT << "********** REWRITING TWO-ADDR INSTRS **********\n";
   DOUT << "********** Function: " << MF.getFunction()->getName() << '\n';
-
-  SmallPtrSet<MachineInstr*, 8> ReMattedInstrs;
 
   for (MachineFunction::iterator mbbi = MF.begin(), mbbe = MF.end();
        mbbi != mbbe; ++mbbi) {
@@ -329,19 +321,7 @@ bool TwoAddressInstructionPass::runOnMachineFunction(MachineFunction &MF) {
 
         InstructionRearranged:
           const TargetRegisterClass* rc = MF.getRegInfo().getRegClass(regA);
-          MachineInstr *Orig = MRI->getVRegDef(regB);
-          const TargetInstrDesc &OrigTID = Orig->getDesc();
-          bool SawStore = false;
-
-          if (EnableReMat && Orig && Orig->isSafeToMove(TII, SawStore) &&
-              OrigTID.isAsCheapAsAMove() && !OrigTID.mayLoad() &&
-              !OrigTID.isSimpleLoad()) {
-            DEBUG(cerr << "2addr: REMATTING : " << *Orig << "\n");
-            TII->reMaterialize(*mbbi, mi, regA, Orig);
-            ReMattedInstrs.insert(Orig);
-          } else {
-            TII->copyRegToReg(*mbbi, mi, regA, regB, rc, rc);
-          }
+          TII->copyRegToReg(*mbbi, mi, regA, regB, rc, rc);
 
           MachineBasicBlock::iterator prevMi = prior(mi);
           DOUT << "\t\tprepend:\t"; DEBUG(prevMi->print(*cerr.stream(), &TM));
@@ -374,36 +354,6 @@ bool TwoAddressInstructionPass::runOnMachineFunction(MachineFunction &MF) {
       }
 
       mi = nmi;
-    }
-  }
-
-  if (EnableReMat) {
-    // Check to see if the instructions that we rematerialized are now dead. If
-    // they are, expunge them here.
-    SmallPtrSet<MachineInstr*, 8>::iterator I = ReMattedInstrs.begin();
-    SmallPtrSet<MachineInstr*, 8>::iterator E = ReMattedInstrs.end();
-
-    for (; I != E; ++I) {
-      MachineInstr *MI = *I;
-      bool InstrDead = true;
-      
-      for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
-        const MachineOperand &MO = MI->getOperand(i);
-        if (!MO.isRegister())
-          continue;
-        unsigned MOReg = MO.getReg();
-
-        if (!MOReg || !MO.isDef() || (MO.isImplicit() && MO.isDead()))
-          continue;
-
-        if (MRI->use_begin(MOReg) != MRI->use_end()) {
-          InstrDead = false;
-          break;
-        }
-      }
-
-      if (InstrDead)
-        MI->eraseFromParent();
     }
   }
 

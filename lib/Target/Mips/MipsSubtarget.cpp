@@ -17,9 +17,8 @@
 using namespace llvm;
 
 MipsSubtarget::MipsSubtarget(const TargetMachine &TM, const Module &M, 
-                             const std::string &FS, bool little) : 
-  IsMipsIII(false),
-  IsLittle(little)
+                             const std::string &FS) : 
+  IsMipsIII(false)
 {
   std::string CPU = "mips1";
 

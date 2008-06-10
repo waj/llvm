@@ -946,8 +946,8 @@ unsigned X86RegisterInfo::getEHHandlerRegister() const {
 }
 
 namespace llvm {
-unsigned getX86SubSuperRegister(unsigned Reg, MVT VT, bool High) {
-  switch (VT.getSimpleVT()) {
+unsigned getX86SubSuperRegister(unsigned Reg, MVT::ValueType VT, bool High) {
+  switch (VT) {
   default: return Reg;
   case MVT::i8:
     if (High) {

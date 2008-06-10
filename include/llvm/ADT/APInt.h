@@ -130,7 +130,7 @@ class APInt {
       // the word size (64).
       return *this;
 
-    // Mask out the high bits.
+    // Mask out the hight bits.
     uint64_t mask = ~uint64_t(0ULL) >> (APINT_BITS_PER_WORD - wordBits);
     if (isSingleWord())
       VAL &= mask;
@@ -898,7 +898,7 @@ public:
 
   /// Computes the minimum bit width for this APInt while considering it to be
   /// a signed (and probably negative) value. If the value is not negative, 
-  /// this function returns the same value as getActiveBits()+1. Otherwise, it
+  /// this function returns the same value as getActiveBits(). Otherwise, it
   /// returns the smallest bit width that will retain the negative value. For
   /// example, -1 can be written as 0b1 or 0xFFFFFFFFFF. 0b1 is shorter and so
   /// for -1, this function will always return 1.
@@ -1108,6 +1108,8 @@ public:
   }
 
   /// @}
+
+  /// @}
   /// @name Building-block Operations for APInt and APFloat
   /// @{
 
@@ -1280,8 +1282,7 @@ inline bool isSignedIntN(uint32_t N, const APInt& APIVal) {
 /// @returns true if the argument APInt value is a sequence of ones
 /// starting at the least significant bit with the remainder zero.
 inline bool isMask(uint32_t numBits, const APInt& APIVal) {
-  return numBits <= APIVal.getBitWidth() &&
-    APIVal == APInt::getLowBitsSet(APIVal.getBitWidth(), numBits);
+  return APIVal.getBoolValue() && ((APIVal + APInt(numBits,1)) & APIVal) == 0;
 }
 
 /// @returns true if the argument APInt value contains a sequence of ones

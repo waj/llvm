@@ -27,13 +27,13 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/RegisterCoalescer.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/Compiler.h"
 using namespace llvm;
+
 
 namespace {
   struct VISIBILITY_HIDDEN StrongPHIElimination : public MachineFunctionPass {
@@ -52,9 +52,8 @@ namespace {
     // used as operands to another another PHI node
     std::set<unsigned> UsedByAnother;
     
-    // RenameSets are the is a map from a PHI-defined register
-    // to the input registers to be coalesced along with the index
-    // of the input registers.
+    // RenameSets are the sets of operands (and their VNInfo IDs) to a PHI
+    // (the defining instruction of the key) that can be renamed without copies.
     std::map<unsigned, std::map<unsigned, unsigned> > RenameSets;
     
     // PhiValueNumber holds the ID numbers of the VNs for each phi that we're
@@ -75,7 +74,6 @@ namespace {
       
       // TODO: Actually make this true.
       AU.addPreserved<LiveIntervals>();
-      AU.addPreserved<RegisterCoalescer>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
     
@@ -142,14 +140,13 @@ namespace {
                       SmallPtrSet<MachineBasicBlock*, 16>& v);
     void mergeLiveIntervals(unsigned primary, unsigned secondary, unsigned VN);
   };
+
+  char StrongPHIElimination::ID = 0;
+  RegisterPass<StrongPHIElimination> X("strong-phi-node-elimination",
+                  "Eliminate PHI nodes for register allocation, intelligently");
 }
 
-char StrongPHIElimination::ID = 0;
-static RegisterPass<StrongPHIElimination>
-X("strong-phi-node-elimination",
-  "Eliminate PHI nodes for register allocation, intelligently");
-
-const PassInfo *const llvm::StrongPHIEliminationID = &X;
+const PassInfo *llvm::StrongPHIEliminationID = X.getPassInfo();
 
 /// computeDFS - Computes the DFS-in and DFS-out numbers of the dominator tree
 /// of the given MachineFunction.  These numbers are then used in other parts
@@ -195,8 +192,6 @@ void StrongPHIElimination::computeDFS(MachineFunction& MF) {
   }
 }
 
-namespace {
-
 /// PreorderSorter - a helper class that is used to sort registers
 /// according to the preorder number of their defining blocks
 class PreorderSorter {
@@ -223,8 +218,6 @@ public:
     return false;
   }
 };
-
-}
 
 /// computeDomForest - compute the subforest of the DomTree corresponding
 /// to the defining blocks of the registers in question
@@ -467,11 +460,13 @@ void StrongPHIElimination::processBlock(MachineBasicBlock* MBB) {
         UsedByAnother.insert(SrcReg);
       } else {
         // Otherwise, add it to the renaming set
-        // We need to subtract one from the index because live ranges are open
-        // at the end.
-        unsigned idx = LI.getMBBEndIdx(P->getOperand(i).getMBB()) - 1;
+        LiveInterval& I = LI.getOrCreateInterval(SrcReg);
+        unsigned idx = LI.getMBBEndIdx(P->getOperand(i).getMBB());
+        VNInfo* VN = I.getLiveRangeContaining(idx)->valno;
         
-        PHIUnion.insert(std::make_pair(SrcReg, idx));
+        assert(VN && "No VNInfo for register?");
+        
+        PHIUnion.insert(std::make_pair(SrcReg, VN->id));
         UnionedBlocks.insert(MRI.getVRegDef(SrcReg)->getParent());
       }
     }
@@ -631,7 +626,7 @@ void StrongPHIElimination::processPHIUnion(MachineInstr* Inst,
 /// of Static Single Assignment Form" by Briggs, et al.
 void StrongPHIElimination::ScheduleCopies(MachineBasicBlock* MBB,
                                           std::set<unsigned>& pushed) {
-  // FIXME: This function needs to update LiveIntervals
+  // FIXME: This function needs to update LiveVariables
   std::map<unsigned, unsigned>& copy_set= Waiting[MBB];
   
   std::map<unsigned, unsigned> worklist;
@@ -659,8 +654,6 @@ void StrongPHIElimination::ScheduleCopies(MachineBasicBlock* MBB,
   MachineFunction* MF = MBB->getParent();
   MachineRegisterInfo& MRI = MF->getRegInfo();
   const TargetInstrInfo *TII = MF->getTarget().getInstrInfo();
-  
-  SmallVector<std::pair<unsigned, MachineInstr*>, 4> InsertedPHIDests;
   
   // Iterate over the worklist, inserting copies
   while (!worklist.empty() || !copy_set.empty()) {
@@ -691,11 +684,6 @@ void StrongPHIElimination::ScheduleCopies(MachineBasicBlock* MBB,
       TII->copyRegToReg(*MBB, MBB->getFirstTerminator(), curr.second,
                         map[curr.first], RC, RC);
       map[curr.first] = curr.second;
-      
-      // Push this copy onto InsertedPHICopies so we can
-      // update LiveIntervals with it.
-      MachineBasicBlock::iterator MI = MBB->getFirstTerminator();
-      InsertedPHIDests.push_back(std::make_pair(curr.second, --MI));
       
       // If curr.first is a destination in copy_set...
       for (std::map<unsigned, unsigned>::iterator I = copy_set.begin(),
@@ -729,21 +717,6 @@ void StrongPHIElimination::ScheduleCopies(MachineBasicBlock* MBB,
       worklist.insert(curr);
     }
   }
-  
-  // Renumber the instructions so that we can perform the index computations
-  // needed to create new live intervals.
-  LI.computeNumbering();
-  
-  // For copies that we inserted at the ends of predecessors, we construct
-  // live intervals.  This is pretty easy, since we know that the destination
-  // register cannot have be in live at that point previously.  We just have
-  // to make sure that, for registers that serve as inputs to more than one
-  // PHI, we don't create multiple overlapping live intervals.
-  std::set<unsigned> RegHandled;
-  for (SmallVector<std::pair<unsigned, MachineInstr*>, 4>::iterator I =
-       InsertedPHIDests.begin(), E = InsertedPHIDests.end(); I != E; ++I)
-    if (!RegHandled.count(I->first))
-      LI.addLiveRangeToEndOfBlock(I->first, I->second);
 }
 
 /// InsertCopies - insert copies into MBB and all of its successors
@@ -778,23 +751,106 @@ void StrongPHIElimination::InsertCopies(MachineBasicBlock* MBB,
     Stacks[*I].pop_back();
 }
 
+/// ComputeUltimateVN - Assuming we are going to join two live intervals,
+/// compute what the resultant value numbers for each value in the input two
+/// ranges will be.  This is complicated by copies between the two which can
+/// and will commonly cause multiple value numbers to be merged into one.
+///
+/// VN is the value number that we're trying to resolve.  InstDefiningValue
+/// keeps track of the new InstDefiningValue assignment for the result
+/// LiveInterval.  ThisFromOther/OtherFromThis are sets that keep track of
+/// whether a value in this or other is a copy from the opposite set.
+/// ThisValNoAssignments/OtherValNoAssignments keep track of value #'s that have
+/// already been assigned.
+///
+/// ThisFromOther[x] - If x is defined as a copy from the other interval, this
+/// contains the value number the copy is from.
+///
+static unsigned ComputeUltimateVN(VNInfo *VNI,
+                                  SmallVector<VNInfo*, 16> &NewVNInfo,
+                                  DenseMap<VNInfo*, VNInfo*> &ThisFromOther,
+                                  DenseMap<VNInfo*, VNInfo*> &OtherFromThis,
+                                  SmallVector<int, 16> &ThisValNoAssignments,
+                                  SmallVector<int, 16> &OtherValNoAssignments) {
+  unsigned VN = VNI->id;
+
+  // If the VN has already been computed, just return it.
+  if (ThisValNoAssignments[VN] >= 0)
+    return ThisValNoAssignments[VN];
+//  assert(ThisValNoAssignments[VN] != -2 && "Cyclic case?");
+
+  // If this val is not a copy from the other val, then it must be a new value
+  // number in the destination.
+  DenseMap<VNInfo*, VNInfo*>::iterator I = ThisFromOther.find(VNI);
+  if (I == ThisFromOther.end()) {
+    NewVNInfo.push_back(VNI);
+    return ThisValNoAssignments[VN] = NewVNInfo.size()-1;
+  }
+  VNInfo *OtherValNo = I->second;
+
+  // Otherwise, this *is* a copy from the RHS.  If the other side has already
+  // been computed, return it.
+  if (OtherValNoAssignments[OtherValNo->id] >= 0)
+    return ThisValNoAssignments[VN] = OtherValNoAssignments[OtherValNo->id];
+  
+  // Mark this value number as currently being computed, then ask what the
+  // ultimate value # of the other value is.
+  ThisValNoAssignments[VN] = -2;
+  unsigned UltimateVN =
+    ComputeUltimateVN(OtherValNo, NewVNInfo, OtherFromThis, ThisFromOther,
+                      OtherValNoAssignments, ThisValNoAssignments);
+  return ThisValNoAssignments[VN] = UltimateVN;
+}
+
 void StrongPHIElimination::mergeLiveIntervals(unsigned primary,
                                               unsigned secondary,
-                                              unsigned secondaryIdx) {
+                                              unsigned secondaryVN) {
   
   LiveIntervals& LI = getAnalysis<LiveIntervals>();
   LiveInterval& LHS = LI.getOrCreateInterval(primary);
   LiveInterval& RHS = LI.getOrCreateInterval(secondary);
   
-  LI.computeNumbering();
+  // Compute the final value assignment, assuming that the live ranges can be
+  // coalesced.
+  SmallVector<int, 16> LHSValNoAssignments;
+  SmallVector<int, 16> RHSValNoAssignments;
+  SmallVector<VNInfo*, 16> NewVNInfo;
   
-  const LiveRange* RangeMergingIn = RHS.getLiveRangeContaining(secondaryIdx);
-  VNInfo* NewVN = LHS.getNextValue(secondaryIdx, RangeMergingIn->valno->copy,
-                  LI.getVNInfoAllocator());
-  NewVN->hasPHIKill = true;
-  LiveRange NewRange(RangeMergingIn->start, RangeMergingIn->end, NewVN);
-  LHS.addRange(NewRange);
-  RHS.removeRange(RangeMergingIn->start, RangeMergingIn->end, true);
+  LHSValNoAssignments.resize(LHS.getNumValNums(), -1);
+  RHSValNoAssignments.resize(RHS.getNumValNums(), -1);
+  NewVNInfo.reserve(LHS.getNumValNums() + RHS.getNumValNums());
+  
+  for (LiveInterval::vni_iterator I = LHS.vni_begin(), E = LHS.vni_end();
+       I != E; ++I) {
+    VNInfo *VNI = *I;
+    unsigned VN = VNI->id;
+    if (LHSValNoAssignments[VN] >= 0 || VNI->def == ~1U) 
+      continue;
+    
+    NewVNInfo.push_back(VNI);
+    LHSValNoAssignments[VN] = NewVNInfo.size()-1;
+  }
+  
+  for (LiveInterval::vni_iterator I = RHS.vni_begin(), E = RHS.vni_end();
+       I != E; ++I) {
+    VNInfo *VNI = *I;
+    unsigned VN = VNI->id;
+    if (RHSValNoAssignments[VN] >= 0 || VNI->def == ~1U)
+      continue;
+      
+    NewVNInfo.push_back(VNI);
+    RHSValNoAssignments[VN] = NewVNInfo.size()-1;
+  }
+
+  // If we get here, we know that we can coalesce the live ranges.  Ask the
+  // intervals to coalesce themselves now.
+
+  LHS.join(RHS, &LHSValNoAssignments[0], &RHSValNoAssignments[0], NewVNInfo);
+  LI.removeInterval(secondary);
+  
+  // The valno that was previously the input to the PHI node
+  // now has a PHIKill.
+  LHS.getValNumInfo(RHSValNoAssignments[secondaryVN])->hasPHIKill = true;
 }
 
 bool StrongPHIElimination::runOnMachineFunction(MachineFunction &Fn) {
@@ -810,7 +866,7 @@ bool StrongPHIElimination::runOnMachineFunction(MachineFunction &Fn) {
       processBlock(I);
   
   // Insert copies
-  // FIXME: This process should probably preserve LiveIntervals
+  // FIXME: This process should probably preserve LiveVariables
   SmallPtrSet<MachineBasicBlock*, 16> visited;
   InsertCopies(Fn.begin(), visited);
   
@@ -859,8 +915,6 @@ bool StrongPHIElimination::runOnMachineFunction(MachineFunction &Fn) {
     LI.RemoveMachineInstrFromMaps(PInstr);
     PInstr->eraseFromParent();
   }
-  
-  LI.computeNumbering();
   
   return true;
 }

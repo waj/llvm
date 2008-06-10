@@ -17,46 +17,12 @@
 #define LLVM_USE_H
 
 #include "llvm/Support/Casting.h"
-#include "llvm/ADT/iterator.h"
+#include "llvm/ADT/iterator"
 
 namespace llvm {
 
 class Value;
 class User;
-
-
-//===----------------------------------------------------------------------===//
-//                          Generic Tagging Functions
-//===----------------------------------------------------------------------===//
-
-/// Tag - generic tag type for (at least 32 bit) pointers
-enum Tag { noTag, tagOne, tagTwo, tagThree };
-
-/// addTag - insert tag bits into an (untagged) pointer
-template <typename T, typename TAG>
-inline T *addTag(const T *P, TAG Tag) {
-    return reinterpret_cast<T*>(ptrdiff_t(P) | Tag);
-}
-
-/// stripTag - remove tag bits from a pointer,
-/// making it dereferencable
-template <ptrdiff_t MASK, typename T>
-inline T *stripTag(const T *P) {
-  return reinterpret_cast<T*>(ptrdiff_t(P) & ~MASK);
-}
-
-/// extractTag - extract tag bits from a pointer
-template <typename TAG, TAG MASK, typename T>
-inline TAG extractTag(const T *P) {
-  return TAG(ptrdiff_t(P) & MASK);
-}
-
-/// transferTag - transfer tag bits from a pointer,
-/// to an untagged pointer
-template <ptrdiff_t MASK, typename T>
-inline T *transferTag(const T *From, const T *To) {
-  return reinterpret_cast<T*>((ptrdiff_t(From) & MASK) | ptrdiff_t(To));
-}
 
 
 //===----------------------------------------------------------------------===//
@@ -66,40 +32,23 @@ inline T *transferTag(const T *From, const T *To) {
 // Use is here to make keeping the "use" list of a Value up-to-date really easy.
 //
 class Use {
-private:
-  /// init - specify Value and User
-  /// @deprecated in 2.4, will be removed soon
-  inline void init(Value *V, User *U);
 public:
-  /// swap - provide a fast substitute to std::swap<Use>
-  /// that also works with less standard-compliant compilers
-  void swap(Use &RHS);
+  inline void init(Value *V, User *U);
 
-private:
-  /// Copy ctor - do not implement
-  Use(const Use &U);
-
-  /// Destructor - Only for zap()
+  Use(Value *V, User *U) { init(V, U); }
+  Use(const Use &U) { init(U.Val, U.U); }
   inline ~Use() {
     if (Val) removeFromList();
   }
 
-  /// Default ctor - This leaves the Use completely uninitialized.  The only thing
+  /// Default ctor - This leaves the Use completely unitialized.  The only thing
   /// that is valid to do with this use is to call the "init" method.
+  inline Use() : Val(0) {}
 
-  inline Use() {}
-  enum PrevPtrTag { zeroDigitTag = noTag
-                  , oneDigitTag = tagOne
-                  , stopTag = tagTwo
-                  , fullStopTag = tagThree };
 
-public:
   operator Value*() const { return Val; }
   Value *get() const { return Val; }
-  User *getUser() const;
-  const Use* getImpliedUser() const;
-  static Use *initTags(Use *Start, Use *Stop, ptrdiff_t Done = 0);
-  static void zap(Use *Start, const Use *Stop, bool del = false);
+  User *getUser() const { return U; }
 
   inline void set(Value *Val);
 
@@ -117,22 +66,19 @@ public:
 
   Use *getNext() const { return Next; }
 private:
-  Value *Val;
   Use *Next, **Prev;
+  Value *Val;
+  User *U;
 
-  void setPrev(Use **NewPrev) {
-    Prev = transferTag<fullStopTag>(Prev, NewPrev);
-  }
   void addToList(Use **List) {
     Next = *List;
-    if (Next) Next->setPrev(&Next);
-    setPrev(List);
+    if (Next) Next->Prev = &Next;
+    Prev = List;
     *List = this;
   }
   void removeFromList() {
-    Use **StrippedPrev = stripTag<fullStopTag>(Prev);
-    *StrippedPrev = Next;
-    if (Next) Next->setPrev(StrippedPrev);
+    *Prev = Next;
+    if (Next) Next->Prev = Prev;
   }
 
   friend class Value;
@@ -192,7 +138,7 @@ public:
 
   // Retrieve a reference to the current User
   UserTy *operator*() const {
-    assert(U && "Cannot dereference end iterator!");
+    assert(U && "Cannot increment end iterator!");
     return U->getUser();
   }
 

@@ -17,8 +17,8 @@
 //   else                     else
 //     X2 = ...                 X2 = ...
 //   X3 = phi(X1, X2)         X3 = phi(X1, X2)
-// ... = X3 + 4             X4 = phi(X3)
-//                          ... = X4 + 4
+// ... = X3 + 4              X4 = phi(X3)
+//                           ... = X4 + 4
 //
 // This is still valid LLVM; the extra phi nodes are purely redundant, and will
 // be trivially eliminated by InstCombine.  The major benefit of this 
@@ -87,20 +87,20 @@ namespace {
                                       SetVector<Instruction*> &AffectedValues);
 
     Value *GetValueForBlock(DomTreeNode *BB, Instruction *OrigInst,
-                            DenseMap<DomTreeNode*, Value*> &Phis);
+                            std::map<DomTreeNode*, Value*> &Phis);
 
     /// inLoop - returns true if the given block is within the current loop
     bool inLoop(BasicBlock* B) {
       return std::binary_search(LoopBlocks.begin(), LoopBlocks.end(), B);
     }
   };
-}
   
-char LCSSA::ID = 0;
-static RegisterPass<LCSSA> X("lcssa", "Loop-Closed SSA Form Pass");
+  char LCSSA::ID = 0;
+  RegisterPass<LCSSA> X("lcssa", "Loop-Closed SSA Form Pass");
+}
 
 LoopPass *llvm::createLCSSAPass() { return new LCSSA(); }
-const PassInfo *const llvm::LCSSAID = &X;
+const PassInfo *llvm::LCSSAID = X.getPassInfo();
 
 /// runOnFunction - Process all loops in the function, inner-most out.
 bool LCSSA::runOnLoop(Loop *L, LPPassManager &LPM) {
@@ -143,7 +143,7 @@ void LCSSA::ProcessInstruction(Instruction *Instr,
   ++NumLCSSA; // We are applying the transformation
 
   // Keep track of the blocks that have the value available already.
-  DenseMap<DomTreeNode*, Value*> Phis;
+  std::map<DomTreeNode*, Value*> Phis;
 
   DomTreeNode *InstrNode = DT->getNode(Instr->getParent());
 
@@ -225,7 +225,9 @@ void LCSSA::getLoopValuesUsedOutsideLoop(Loop *L,
             // immediately here. It will be processed in next iteration.
             BasicBlock::iterator InsertPoint;
             if (InvokeInst *II = dyn_cast<InvokeInst>(I)) {
-              InsertPoint = II->getNormalDest()->getFirstNonPHI();
+              InsertPoint = II->getNormalDest()->begin();
+              while (isa<PHINode>(InsertPoint))
+                ++InsertPoint;
             } else {
               InsertPoint = I;
               InsertPoint++;
@@ -247,13 +249,14 @@ void LCSSA::getLoopValuesUsedOutsideLoop(Loop *L,
 /// GetValueForBlock - Get the value to use within the specified basic block.
 /// available values are in Phis.
 Value *LCSSA::GetValueForBlock(DomTreeNode *BB, Instruction *OrigInst,
-                               DenseMap<DomTreeNode*, Value*> &Phis) {
+                               std::map<DomTreeNode*, Value*> &Phis) {
   // If there is no dominator info for this BB, it is unreachable.
   if (BB == 0)
     return UndefValue::get(OrigInst->getType());
                                  
   // If we have already computed this value, return the previously computed val.
-  if (Phis.count(BB)) return Phis[BB];
+  Value *&V = Phis[BB];
+  if (V) return V;
 
   DomTreeNode *IDom = BB->getIDom();
 
@@ -271,19 +274,17 @@ Value *LCSSA::GetValueForBlock(DomTreeNode *BB, Instruction *OrigInst,
   if (!inLoop(IDom->getBlock())) {
     // Idom is not in the loop, we must still be "below" the exit block and must
     // be fully dominated by the value live in the idom.
-    Value* val = GetValueForBlock(IDom, OrigInst, Phis);
-    Phis.insert(std::make_pair(BB, val));
-    return val;
+    return V = GetValueForBlock(IDom, OrigInst, Phis);
   }
   
   BasicBlock *BBN = BB->getBlock();
   
   // Otherwise, the idom is the loop, so we need to insert a PHI node.  Do so
   // now, then get values to fill in the incoming values for the PHI.
-  PHINode *PN = PHINode::Create(OrigInst->getType(),
-                                OrigInst->getName() + ".lcssa", BBN->begin());
+  PHINode *PN = PHINode::Create(OrigInst->getType(), OrigInst->getName()+".lcssa",
+                                BBN->begin());
   PN->reserveOperandSpace(std::distance(pred_begin(BBN), pred_end(BBN)));
-  Phis.insert(std::make_pair(BB, PN));
+  V = PN;
                                  
   // Fill in the incoming values for the block.
   for (pred_iterator PI = pred_begin(BBN), E = pred_end(BBN); PI != E; ++PI)

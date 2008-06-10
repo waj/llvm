@@ -66,7 +66,6 @@ X86TargetAsmInfo::X86TargetAsmInfo(const X86TargetMachine &TM) {
     ReadOnlySection = "\t.const\n";
     LCOMMDirective = "\t.lcomm\t";
     SwitchToSectionDirective = "\t.section ";
-    StringConstantPrefix = "\1LC";
     COMMDirectiveTakesAlignment = false;
     HasDotTypeDotSizeDirective = false;
     if (TM.getRelocationModel() == Reloc::Static) {

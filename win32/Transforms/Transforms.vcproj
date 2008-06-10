@@ -352,6 +352,10 @@
 					>
 				</File>
 				<File
+					RelativePath="..\..\lib\Transforms\IPO\ExtractGV.cpp"
+					>
+				</File>
+				<File
 					RelativePath="..\..\lib\Transforms\Ipo\GlobalDCE.cpp"
 					>
 				</File>
@@ -520,7 +524,7 @@
 					>
 				</File>
 				<File
-					RelativePath="..\..\lib\Transforms\Scalar\SimplifyCFGPass.cpp"
+					RelativePath="..\..\lib\Transforms\Scalar\SimplifyCFG.cpp"
 					>
 				</File>
 				<File
@@ -678,10 +682,6 @@
 					>
 				</File>
 				<File
-					RelativePath="..\..\lib\Transforms\Utils\UnrollLoop.cpp"
-					>
-				</File>
-				<File
 					RelativePath="..\..\lib\Transforms\Utils\ValueMapper.cpp"
 					>
 				</File>
@@ -718,6 +718,10 @@
 			</File>
 			<File
 				RelativePath="..\..\include\llvm\Transforms\Utils\PromoteMemToReg.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\include\llvm\Transforms\RSProfiling.h"
 				>
 			</File>
 			<File

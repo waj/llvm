@@ -25,14 +25,7 @@ def llvm_gcc_c : Tool<
 [(in_language "c"),
  (out_language "llvm-bitcode"),
  (output_suffix "bc"),
- (cmd_line (case
-            (switch_on "E"),
-              (case (not_empty "o"),
-                    "llvm-gcc -E -x c++ $INFILE -o $OUTFILE",
-                    (default),
-                    "llvm-gcc -E -x c++ $INFILE"),
-            (default),
-              "llvm-gcc -c -x c $INFILE -o $OUTFILE -emit-llvm")),
+ (cmd_line "llvm-gcc -c -x c $INFILE -o $OUTFILE -emit-llvm"),
  (switch_option "E", (stop_compilation),
    (help "Stop after the preprocessing stage, do not run the compiler")),
  (sink)
@@ -42,14 +35,7 @@ def llvm_gcc_cpp : Tool<
 [(in_language "c++"),
  (out_language "llvm-bitcode"),
  (output_suffix "bc"),
- (cmd_line (case
-            (switch_on "E"),
-              (case (not_empty "o"),
-                    "llvm-g++ -E -x c++ $INFILE -o $OUTFILE",
-                    (default),
-                    "llvm-g++ -E -x c++ $INFILE"),
-            (default),
-              "llvm-g++ -c -x c++ $INFILE -o $OUTFILE -emit-llvm")),
+ (cmd_line "llvm-g++ -c -x c++ $INFILE -o $OUTFILE -emit-llvm"),
  (switch_option "E", (stop_compilation)),
  (sink)
 ]>;
@@ -59,7 +45,7 @@ def opt : Tool<
  (out_language "llvm-bitcode"),
  (switch_option "opt", (help "Enable opt")),
  (output_suffix "bc"),
- (cmd_line "opt -f $INFILE -o $OUTFILE")
+ (cmd_line "opt $INFILE -o $OUTFILE")
 ]>;
 
 def llvm_as : Tool<
@@ -85,7 +71,7 @@ def llvm_gcc_assembler : Tool<
  (cmd_line "llvm-gcc -c -x assembler $INFILE -o $OUTFILE"),
  (switch_option "c", (stop_compilation),
                 (help "Compile and assemble, but do not link")),
- (prefix_list_option "Wa,", (unpack_values), (help "Pass options to assembler"))
+ (prefix_list_option "Wa", (unpack_values), (help "pass options to assembler"))
 ]>;
 
 // Default linker
@@ -95,9 +81,9 @@ def llvm_gcc_linker : Tool<
  (output_suffix "out"),
  (cmd_line "llvm-gcc $INFILE -o $OUTFILE"),
  (join),
- (prefix_list_option "L", (forward), (help "Add a directory to link path")),
- (prefix_list_option "l", (forward), (help "Search a library when linking")),
- (prefix_list_option "Wl,", (unpack_values), (help "Pass options to linker"))
+ (prefix_list_option "L", (forward), (help "add a directory to link path")),
+ (prefix_list_option "l", (forward), (help "search a library when linking")),
+ (prefix_list_option "Wl", (unpack_values), (help "pass options to linker"))
 ]>;
 
 // Alternative linker for C++
@@ -111,7 +97,7 @@ def llvm_gcc_cpp_linker : Tool<
                    (help "Choose linker (possible values: gcc, g++)")),
  (prefix_list_option "L", (forward)),
  (prefix_list_option "l", (forward)),
- (prefix_list_option "Wl,", (unpack_values))
+ (prefix_list_option "Wl", (unpack_values))
 ]>;
 
 // Language map

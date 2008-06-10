@@ -49,7 +49,7 @@ public:
   virtual const SPUInstrInfo     *getInstrInfo() const {
     return &InstrInfo;
   }
-  virtual const SPUFrameInfo     *getFrameInfo() const {
+  virtual const TargetFrameInfo  *getFrameInfo() const {
     return &FrameInfo;
   }
   /*!
@@ -70,7 +70,7 @@ public:
    return const_cast<SPUTargetLowering*>(&TLInfo); 
   }
 
-  virtual const SPURegisterInfo *getRegisterInfo() const {
+  virtual const TargetRegisterInfo *getRegisterInfo() const {
     return &InstrInfo.getRegisterInfo();
   }
   

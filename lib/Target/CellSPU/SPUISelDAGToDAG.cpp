@@ -31,6 +31,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Compiler.h"
+#include <iostream>
 #include <queue>
 #include <set>
 
@@ -110,9 +111,9 @@ namespace {
   bool
   isIntS16Immediate(ConstantSDNode *CN, short &Imm)
   {
-    MVT vt = CN->getValueType(0);
+    MVT::ValueType vt = CN->getValueType(0);
     Imm = (short) CN->getValue();
-    if (vt.getSimpleVT() >= MVT::i1 && vt.getSimpleVT() <= MVT::i16) {
+    if (vt >= MVT::i1 && vt <= MVT::i16) {
       return true;
     } else if (vt == MVT::i32) {
       int32_t i_val = (int32_t) CN->getValue();
@@ -139,7 +140,7 @@ namespace {
   static bool
   isFPS16Immediate(ConstantFPSDNode *FPN, short &Imm)
   {
-    MVT vt = FPN->getValueType(0);
+    MVT::ValueType vt = FPN->getValueType(0);
     if (vt == MVT::f32) {
       int val = FloatToBits(FPN->getValueAPF().convertToFloat());
       int sval = (int) ((val << 16) >> 16);
@@ -161,10 +162,10 @@ namespace {
   }
 
   //===------------------------------------------------------------------===//
-  //! MVT to "useful stuff" mapping structure:
+  //! MVT::ValueType to "useful stuff" mapping structure:
 
   struct valtype_map_s {
-    MVT VT;
+    MVT::ValueType VT;
     unsigned ldresult_ins;      /// LDRESULT instruction (0 = undefined)
     bool ldresult_imm;          /// LDRESULT instruction requires immediate?
     int prefslot_byte;          /// Byte offset of the "preferred" slot
@@ -189,7 +190,7 @@ namespace {
 
   const size_t n_valtype_map = sizeof(valtype_map) / sizeof(valtype_map[0]);
 
-  const valtype_map_s *getValueTypeMapEntry(MVT VT)
+  const valtype_map_s *getValueTypeMapEntry(MVT::ValueType VT)
   {
     const valtype_map_s *retval = 0;
     for (size_t i = 0; i < n_valtype_map; ++i) {
@@ -203,7 +204,7 @@ namespace {
 #ifndef NDEBUG
     if (retval == 0) {
       cerr << "SPUISelDAGToDAG.cpp: getValueTypeMapEntry returns NULL for "
-           << VT.getMVTString()
+           << MVT::getValueTypeString(VT)
            << "\n";
       abort();
     }
@@ -212,8 +213,6 @@ namespace {
     return retval;
   }
 }
-
-namespace {
 
 //===--------------------------------------------------------------------===//
 /// SPUDAGToDAGISel - Cell SPU-specific code to select SPU machine
@@ -337,8 +336,6 @@ public:
 #include "SPUGenDAGISel.inc"
 };
 
-}
-
 /// InstructionSelectBasicBlock - This callback is invoked by
 /// SelectionDAGISel when it has created a SelectionDAG for us to codegen.
 void
@@ -364,7 +361,7 @@ bool
 SPUDAGToDAGISel::SelectAFormAddr(SDOperand Op, SDOperand N, SDOperand &Base,
                     SDOperand &Index) {
   // These match the addr256k operand type:
-  MVT OffsVT = MVT::i16;
+  MVT::ValueType OffsVT = MVT::i16;
   SDOperand Zero = CurDAG->getTargetConstant(0, OffsVT);
 
   switch (N.getOpcode()) {
@@ -446,7 +443,7 @@ SPUDAGToDAGISel::DFormAddressPredicate(SDOperand Op, SDOperand N, SDOperand &Bas
                                       SDOperand &Index, int minOffset,
                                       int maxOffset) {
   unsigned Opc = N.getOpcode();
-  MVT PtrTy = SPUtli.getPointerTy();
+  unsigned PtrTy = SPUtli.getPointerTy();
 
   if (Opc == ISD::FrameIndex) {
     // Stack frame index must be less than 512 (divided by 16):
@@ -587,7 +584,7 @@ SPUDAGToDAGISel::Select(SDOperand Op) {
   unsigned Opc = N->getOpcode();
   int n_ops = -1;
   unsigned NewOpc;
-  MVT OpVT = Op.getValueType();
+  MVT::ValueType OpVT = Op.getValueType();
   SDOperand Ops[8];
 
   if (Opc >= ISD::BUILTIN_OP_END && Opc < SPUISD::FIRST_NUMBER) {
@@ -596,7 +593,7 @@ SPUDAGToDAGISel::Select(SDOperand Op) {
     // Selects to (add $sp, FI * stackSlotSize)
     int FI =
       SPUFrameInfo::FItoStackOffset(cast<FrameIndexSDNode>(N)->getIndex());
-    MVT PtrVT = SPUtli.getPointerTy();
+    MVT::ValueType PtrVT = SPUtli.getPointerTy();
 
     // Adjust stack slot to actual offset in frame:
     if (isS10Constant(FI)) {
@@ -636,7 +633,7 @@ SPUDAGToDAGISel::Select(SDOperand Op) {
     }
   } else if (Opc == SPUISD::LDRESULT) {
     // Custom select instructions for LDRESULT
-    MVT VT = N->getValueType(0);
+    unsigned VT = N->getValueType(0);
     SDOperand Arg = N->getOperand(0);
     SDOperand Chain = N->getOperand(1);
     SDNode *Result;
@@ -644,7 +641,7 @@ SPUDAGToDAGISel::Select(SDOperand Op) {
 
     if (vtm->ldresult_ins == 0) {
       cerr << "LDRESULT for unsupported type: "
-           << VT.getMVTString()
+           << MVT::getValueTypeString(VT)
            << "\n";
       abort();
     }
@@ -670,7 +667,7 @@ SPUDAGToDAGISel::Select(SDOperand Op) {
         /* || Op0.getOpcode() == SPUISD::AFormAddr) */
       // (IndirectAddr (LDRESULT, imm))
       SDOperand Op1 = Op.getOperand(1);
-      MVT VT = Op.getValueType();
+      MVT::ValueType VT = Op.getValueType();
 
       DEBUG(cerr << "CellSPU: IndirectAddr(LDRESULT, imm):\nOp0 = ");
       DEBUG(Op.getOperand(0).Val->dump(CurDAG));

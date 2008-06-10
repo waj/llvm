@@ -70,7 +70,7 @@
 /// string and the Unix error number given by \p errnum. If errnum is -1, the
 /// default then the value of errno is used.
 /// @brief Make an error message
-static inline bool MakeErrMsg(
+inline bool MakeErrMsg(
   std::string* ErrMsg, const std::string& prefix, int errnum = -1) {
   if (!ErrMsg)
     return true;

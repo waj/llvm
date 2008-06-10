@@ -54,11 +54,11 @@ STATISTIC(NumSelects , "Number of selects unswitched");
 STATISTIC(NumTrivial , "Number of unswitches that are trivial");
 STATISTIC(NumSimplify, "Number of simplifications of unswitched code");
 
-static cl::opt<unsigned>
-Threshold("loop-unswitch-threshold", cl::desc("Max loop size to unswitch"),
-          cl::init(10), cl::Hidden);
-  
 namespace {
+  static cl::opt<unsigned>
+  Threshold("loop-unswitch-threshold", cl::desc("Max loop size to unswitch"),
+            cl::init(10), cl::Hidden);
+  
   class VISIBILITY_HIDDEN LoopUnswitch : public LoopPass {
     LoopInfo *LI;  // Loop information
     LPPassManager *LPM;
@@ -144,9 +144,9 @@ namespace {
                            std::vector<Instruction*> &Worklist, Loop *l);
     void RemoveLoopFromHierarchy(Loop *L);
   };
+  char LoopUnswitch::ID = 0;
+  RegisterPass<LoopUnswitch> X("loop-unswitch", "Unswitch loops");
 }
-char LoopUnswitch::ID = 0;
-static RegisterPass<LoopUnswitch> X("loop-unswitch", "Unswitch loops");
 
 LoopPass *llvm::createLoopUnswitchPass(bool Os) { 
   return new LoopUnswitch(Os); 
@@ -459,11 +459,11 @@ static inline void RemapInstruction(Instruction *I,
 // OrigPreheader is loop pre-header before this pass started
 // updating CFG. NewPrehader is loops new pre-header. However, after CFG
 // manipulation, loop L may not exist. So rely on input parameter NewPreheader.
-static void CloneDomInfo(BasicBlock *NewBB, BasicBlock *Orig,
-                         BasicBlock *NewPreheader, BasicBlock *OrigPreheader,
-                         BasicBlock *OrigHeader,
-                         DominatorTree *DT, DominanceFrontier *DF,
-                         DenseMap<const Value*, Value*> &VM) {
+void CloneDomInfo(BasicBlock *NewBB, BasicBlock *Orig, 
+                  BasicBlock *NewPreheader, BasicBlock *OrigPreheader, 
+                  BasicBlock *OrigHeader,
+                  DominatorTree *DT, DominanceFrontier *DF,
+                  DenseMap<const Value*, Value*> &VM) {
 
   // If NewBB alreay has found its place in domiantor tree then no need to do
   // anything.
@@ -569,6 +569,7 @@ void LoopUnswitch::EmitPreheaderBranchOnCondition(Value *LIC, Constant *Val,
 
   // Insert the new branch.
   BranchInst::Create(TrueDest, FalseDest, BranchVal, InsertPt);
+
 }
 
 
@@ -606,10 +607,6 @@ void LoopUnswitch::UnswitchTrivialCondition(Loop *L, Value *Cond,
   // insert the new conditional branch.
   EmitPreheaderBranchOnCondition(Cond, Val, NewExit, NewPH, 
                                  OrigPH->getTerminator());
-  if (DT) {
-    DT->changeImmediateDominator(NewExit, OrigPH);
-    DT->changeImmediateDominator(NewPH, OrigPH);
-  }
   LPM->deleteSimpleAnalysisValue(OrigPH->getTerminator(), L);
   OrigPH->getTerminator()->eraseFromParent();
 
@@ -685,7 +682,8 @@ void LoopUnswitch::SplitExitEdges(Loop *L,
         InsertedPHIs.insert(NewLCSSA);
       }
 
-      BasicBlock::iterator InsertPt = EndBlock->getFirstNonPHI();
+      BasicBlock::iterator InsertPt = EndBlock->begin();
+      while (dyn_cast<PHINode>(InsertPt)) ++InsertPt;
       for (BasicBlock::iterator I = MiddleBlock->begin();
          (OldLCSSA = dyn_cast<PHINode>(I)) && InsertedPHIs.count(OldLCSSA) == 0;
          ++I) {

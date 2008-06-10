@@ -77,7 +77,7 @@ private:
   /// we need to expand it into multiple registers of a smaller integer type, or
   /// we need to scalarize a one-element vector type into the element type, or
   /// we need to split a vector type into smaller vector types.
-  LegalizeAction getTypeAction(MVT VT) const {
+  LegalizeAction getTypeAction(MVT::ValueType VT) const {
     switch (ValueTypeActions.getTypeAction(VT)) {
     default:
       assert(false && "Unknown legalize action!");
@@ -89,12 +89,13 @@ private:
       // Expand can mean
       // 1) split scalar in half, 2) convert a float to an integer,
       // 3) scalarize a single-element vector, 4) split a vector in two.
-      if (!VT.isVector()) {
-        if (VT.getSizeInBits() == TLI.getTypeToTransformTo(VT).getSizeInBits())
+      if (!MVT::isVector(VT)) {
+        if (MVT::getSizeInBits(VT) ==
+            MVT::getSizeInBits(TLI.getTypeToTransformTo(VT)))
           return FloatToInt;
         else
           return Expand;
-      } else if (VT.getVectorNumElements() == 1) {
+      } else if (MVT::getVectorNumElements(VT) == 1) {
         return Scalarize;
       } else {
         return Split;
@@ -103,7 +104,7 @@ private:
   }
 
   /// isTypeLegal - Return true if this type is legal on this target.
-  bool isTypeLegal(MVT VT) const {
+  bool isTypeLegal(MVT::ValueType VT) const {
     return ValueTypeActions.getTypeAction(VT) == TargetLowering::Legal;
   }
 
@@ -163,12 +164,12 @@ private:
 
   // Common routines.
   SDOperand BitConvertToInteger(SDOperand Op);
-  SDOperand CreateStackStoreLoad(SDOperand Op, MVT DestVT);
+  SDOperand CreateStackStoreLoad(SDOperand Op, MVT::ValueType DestVT);
   SDOperand JoinIntegers(SDOperand Lo, SDOperand Hi);
   void SplitInteger(SDOperand Op, SDOperand &Lo, SDOperand &Hi);
-  void SplitInteger(SDOperand Op, MVT LoVT, MVT HiVT,
+  void SplitInteger(SDOperand Op, MVT::ValueType LoVT, MVT::ValueType HiVT,
                     SDOperand &Lo, SDOperand &Hi);
-  SDOperand MakeLibCall(RTLIB::Libcall LC, MVT RetVT,
+  SDOperand MakeLibCall(RTLIB::Libcall LC, MVT::ValueType RetVT,
                         const SDOperand *Ops, unsigned NumOps, bool isSigned);
 
   //===--------------------------------------------------------------------===//
@@ -186,7 +187,7 @@ private:
   /// GetPromotedZExtOp - Get a promoted operand and zero extend it to the final
   /// size.
   SDOperand GetPromotedZExtOp(SDOperand Op) {
-    MVT OldVT = Op.getValueType();
+    MVT::ValueType OldVT = Op.getValueType();
     Op = GetPromotedOp(Op);
     return DAG.getZeroExtendInReg(Op, OldVT);
   }    
@@ -291,10 +292,10 @@ private:
   SDOperand ExpandOperand_BUILD_VECTOR(SDNode *N);
   SDOperand ExpandOperand_EXTRACT_ELEMENT(SDNode *N);
   SDOperand ExpandOperand_SETCC(SDNode *N);
-  SDOperand ExpandOperand_SINT_TO_FP(SDOperand Source, MVT DestTy);
+  SDOperand ExpandOperand_SINT_TO_FP(SDOperand Source, MVT::ValueType DestTy);
   SDOperand ExpandOperand_STORE(StoreSDNode *N, unsigned OpNo);
   SDOperand ExpandOperand_TRUNCATE(SDNode *N);
-  SDOperand ExpandOperand_UINT_TO_FP(SDOperand Source, MVT DestTy);
+  SDOperand ExpandOperand_UINT_TO_FP(SDOperand Source, MVT::ValueType DestTy);
 
   void ExpandSetCCOperands(SDOperand &NewLHS, SDOperand &NewRHS,
                            ISD::CondCode &CCCode);

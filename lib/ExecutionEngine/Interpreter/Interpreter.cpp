@@ -21,13 +21,9 @@
 #include <cstring>
 using namespace llvm;
 
-namespace {
-
 static struct RegisterInterp {
   RegisterInterp() { Interpreter::Register(); }
 } InterpRegistrator;
-
-}
 
 namespace llvm {
   void LinkInInterpreter() {

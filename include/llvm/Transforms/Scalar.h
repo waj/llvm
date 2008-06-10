@@ -15,6 +15,8 @@
 #ifndef LLVM_TRANSFORMS_SCALAR_H
 #define LLVM_TRANSFORMS_SCALAR_H
 
+#include <cstdlib>
+
 namespace llvm {
 
 class FunctionPass;
@@ -160,7 +162,7 @@ LoopPass *createLoopIndexSplitPass();
 //   ret int %Y
 //
 FunctionPass *createPromoteMemoryToRegisterPass();
-extern const PassInfo *const PromoteMemoryToRegisterID;
+extern const PassInfo *PromoteMemoryToRegisterID;
 
 //===----------------------------------------------------------------------===//
 //
@@ -169,7 +171,7 @@ extern const PassInfo *const PromoteMemoryToRegisterID;
 // hacking easier.
 //
 FunctionPass *createDemoteRegisterToMemoryPass();
-extern const PassInfo *const DemoteRegisterToMemoryID;
+extern const PassInfo *DemoteRegisterToMemoryID;
 
 //===----------------------------------------------------------------------===//
 //
@@ -202,7 +204,7 @@ FunctionPass *createTailDuplicationPass();
 //
 FunctionPass *createJumpThreadingPass();
   
-//===----------------------------------------------------------------------===//
+  //===----------------------------------------------------------------------===//
 //
 // CFGSimplification - Merge basic blocks, eliminate unreachable blocks,
 // simplify terminator instructions, etc...
@@ -221,7 +223,7 @@ FunctionPass *createCFGSimplificationPass();
 // (set, immediate dominators, tree, and frontier) information.
 //
 FunctionPass *createBreakCriticalEdgesPass();
-extern const PassInfo *const BreakCriticalEdgesID;
+extern const PassInfo *BreakCriticalEdgesID;
 
 //===----------------------------------------------------------------------===//
 //
@@ -232,7 +234,7 @@ extern const PassInfo *const BreakCriticalEdgesID;
 //   AU.addRequiredID(LoopSimplifyID);
 //
 FunctionPass *createLoopSimplifyPass();
-extern const PassInfo *const LoopSimplifyID;
+extern const PassInfo *LoopSimplifyID;
 
 //===----------------------------------------------------------------------===//
 //
@@ -242,7 +244,7 @@ extern const PassInfo *const LoopSimplifyID;
 //   AU.addRequiredID(LowerAllocationsID);
 //
 Pass *createLowerAllocationsPass(bool LowerMallocArgToInteger = false);
-extern const PassInfo *const LowerAllocationsID;
+extern const PassInfo *LowerAllocationsID;
 
 //===----------------------------------------------------------------------===//
 //
@@ -257,7 +259,7 @@ FunctionPass *createTailCallEliminationPass();
 // chained binary branch instructions.
 //
 FunctionPass *createLowerSwitchPass();
-extern const PassInfo *const LowerSwitchID;
+extern const PassInfo *LowerSwitchID;
 
 //===----------------------------------------------------------------------===//
 //
@@ -269,8 +271,8 @@ extern const PassInfo *const LowerSwitchID;
 // purpose "my LLVM-to-LLVM pass doesn't support the invoke instruction yet"
 // lowering pass.
 //
-FunctionPass *createLowerInvokePass(const TargetLowering *TLI = 0);
-extern const PassInfo *const LowerInvokePassID;
+FunctionPass *createLowerInvokePass(const TargetLowering *TLI = NULL);
+extern const PassInfo *LowerInvokePassID;
 
 //===----------------------------------------------------------------------===//
 //
@@ -285,7 +287,7 @@ FunctionPass *createBlockPlacementPass();
 // optimizations.
 //
 LoopPass *createLCSSAPass();
-extern const PassInfo *const LCSSAID;
+extern const PassInfo *LCSSAID;
 
 //===----------------------------------------------------------------------===//
 //

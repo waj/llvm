@@ -30,11 +30,13 @@ using namespace llvm;
 extern "C" int X86TargetMachineModule;
 int X86TargetMachineModule = 0;
 
-// Register the target.
-static RegisterTarget<X86_32TargetMachine>
-X("x86",    "  32-bit X86: Pentium-Pro and above");
-static RegisterTarget<X86_64TargetMachine>
-Y("x86-64", "  64-bit X86: EM64T and AMD64");
+namespace {
+  // Register the target.
+  RegisterTarget<X86_32TargetMachine>
+  X("x86",    "  32-bit X86: Pentium-Pro and above");
+  RegisterTarget<X86_64TargetMachine>
+  Y("x86-64", "  64-bit X86: EM64T and AMD64");
+}
 
 const TargetAsmInfo *X86TargetMachine::createTargetAsmInfo() const {
   return new X86TargetAsmInfo(*this);
@@ -180,8 +182,10 @@ bool X86TargetMachine::addAssemblyEmitter(PassManagerBase &PM, bool Fast,
 bool X86TargetMachine::addCodeEmitter(PassManagerBase &PM, bool Fast,
                                       bool DumpAsm, MachineCodeEmitter &MCE) {
   // FIXME: Move this to TargetJITInfo!
-  if (DefRelocModel == Reloc::Default)
+  if (DefRelocModel == Reloc::Default) {
     setRelocationModel(Reloc::Static);
+    Subtarget.setPICStyle(PICStyle::None);
+  }
   
   // JIT cannot ensure globals are placed in the lower 4G of address.
   if (Subtarget.is64Bit())

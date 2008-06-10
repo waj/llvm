@@ -34,43 +34,30 @@ class TargetMachine;
 /// template, defined below.
 ///
 class PassInfo {
-public:
-  typedef Pass* (*NormalCtor_t)();
-
-private:
-  const char      *const PassName;     // Nice name for Pass
-  const char      *const PassArgument; // Command Line argument to run this pass
-  const intptr_t  PassID;      
-  const bool IsCFGOnlyPass;            // Pass only looks at the CFG.
-  const bool IsAnalysis;               // True if an analysis pass.
-  const bool IsAnalysisGroup;          // True if an analysis group.
+  const char           *PassName;      // Nice name for Pass
+  const char           *PassArgument;  // Command Line argument to run this pass
+  intptr_t             PassID;      
+  bool IsCFGOnlyPass;                  // Pass only looks at the CFG.
+  bool IsAnalysis;                     // True if an analysis pass.
+  bool IsAnalysisGroup;                // True if an analysis group.
   std::vector<const PassInfo*> ItfImpl;// Interfaces implemented by this pass
 
-  NormalCtor_t NormalCtor;
+  Pass *(*NormalCtor)();
 
 public:
   /// PassInfo ctor - Do not call this directly, this should only be invoked
   /// through RegisterPass.
   PassInfo(const char *name, const char *arg, intptr_t pi,
-           NormalCtor_t normal = 0,
-           bool isCFGOnly = false, bool is_analysis = false)
+           Pass *(*normal)() = 0, bool isCFGOnly = false, bool isAnalysis = false)
     : PassName(name), PassArgument(arg), PassID(pi), 
       IsCFGOnlyPass(isCFGOnly), 
-      IsAnalysis(is_analysis), IsAnalysisGroup(false), NormalCtor(normal) {
-    registerPass();
-  }
-  /// PassInfo ctor - Do not call this directly, this should only be invoked
-  /// through RegisterPass. This version is for use by analysis groups; it
-  /// does not auto-register the pass.
-  PassInfo(const char *name, intptr_t pi)
-    : PassName(name), PassArgument(""), PassID(pi), 
-      IsCFGOnlyPass(false), 
-      IsAnalysis(false), IsAnalysisGroup(true), NormalCtor(0) {
+      IsAnalysis(isAnalysis), IsAnalysisGroup(false), NormalCtor(normal) {
   }
 
   /// getPassName - Return the friendly name for the pass, never returns null
   ///
   const char *getPassName() const { return PassName; }
+  void setPassName(const char *Name) { PassName = Name; }
 
   /// getPassArgument - Return the command line option that may be passed to
   /// 'opt' that will cause this pass to be run.  This will return null if there
@@ -87,6 +74,7 @@ public:
   ///
   bool isAnalysisGroup() const { return IsAnalysisGroup; }
   bool isAnalysis() const { return IsAnalysis; }
+  void SetIsAnalysisGroup() { IsAnalysisGroup = true; }
 
   /// isCFGOnlyPass - return true if this pass only looks at the CFG for the
   /// function.
@@ -96,10 +84,10 @@ public:
   /// an instance of the pass and returns it.  This pointer may be null if there
   /// is no default constructor for the pass.
   ///
-  NormalCtor_t getNormalCtor() const {
+  Pass *(*getNormalCtor() const)() {
     return NormalCtor;
   }
-  void setNormalCtor(NormalCtor_t Ctor) {
+  void setNormalCtor(Pass *(*Ctor)()) {
     NormalCtor = Ctor;
   }
 
@@ -126,26 +114,8 @@ public:
   const std::vector<const PassInfo*> &getInterfacesImplemented() const {
     return ItfImpl;
   }
-
-  /// getPassInfo - Deprecated API compaatibility function. This function
-  /// just returns 'this'.
-  ///
-  const PassInfo *getPassInfo() const {
-    return this;
-  }
-
-protected:
-  void registerPass();
-  void unregisterPass();
-
-private:
-  void operator=(const PassInfo &); // do not implement
-  PassInfo(const PassInfo &);       // do not implement
 };
 
-
-template<typename PassName>
-Pass *callDefaultCtor() { return new PassName(); }
 
 //===---------------------------------------------------------------------------
 /// RegisterPass<t> template - This template class is used to notify the system
@@ -164,15 +134,44 @@ Pass *callDefaultCtor() { return new PassName(); }
 ///
 /// static RegisterPass<PassClassName> tmp("passopt", "My Name");
 ///
-template<typename passName>
-struct RegisterPass : public PassInfo {
+struct RegisterPassBase {
+  /// getPassInfo - Get the pass info for the registered class...
+  ///
+  const PassInfo *getPassInfo() const { return &PIObj; }
+
+  typedef Pass* (*NormalCtor_t)();
+  
+  RegisterPassBase(const char *Name, const char *Arg, intptr_t TI,
+                   NormalCtor_t NormalCtor = 0, bool CFGOnly = false, 
+                   bool IsAnalysis = false)
+    : PIObj(Name, Arg, TI, NormalCtor, CFGOnly, IsAnalysis) {
+    registerPass();
+  }
+  explicit RegisterPassBase(intptr_t TI)
+    : PIObj("", "", TI) {
+    // This ctor may only be used for analysis groups: it does not auto-register
+    // the pass.
+    PIObj.SetIsAnalysisGroup();
+  }
+
+protected:
+  PassInfo PIObj;       // The PassInfo object for this pass
+  void registerPass();
+  void unregisterPass();
+};
+
+template<typename PassName>
+Pass *callDefaultCtor() { return new PassName(); }
+
+template<typename PassName>
+struct RegisterPass : public RegisterPassBase {
 
   // Register Pass using default constructor...
   RegisterPass(const char *PassArg, const char *Name, bool CFGOnly = false,
-               bool is_analysis = false)
-    : PassInfo(Name, PassArg, intptr_t(&passName::ID),
-               PassInfo::NormalCtor_t(callDefaultCtor<passName>),
-               CFGOnly, is_analysis) {
+               bool IsAnalysis = false)
+    : RegisterPassBase(Name, PassArg, intptr_t(&PassName::ID),
+                      RegisterPassBase::NormalCtor_t(callDefaultCtor<PassName>),
+                      CFGOnly, IsAnalysis) {
   }
 };
 
@@ -196,27 +195,27 @@ struct RegisterPass : public PassInfo {
 /// second template argument).  The interface should be registered to associate
 /// a nice name with the interface.
 ///
-class RegisterAGBase : public PassInfo {
+class RegisterAGBase : public RegisterPassBase {
   PassInfo *InterfaceInfo;
   const PassInfo *ImplementationInfo;
   bool isDefaultImplementation;
 protected:
-  explicit RegisterAGBase(const char *Name,
-                          intptr_t InterfaceID,
+  explicit RegisterAGBase(intptr_t InterfaceID,
                           intptr_t PassID = 0,
                           bool isDefault = false);
+  void setGroupName(const char *Name);
 };
 
 template<typename Interface, bool Default = false>
 struct RegisterAnalysisGroup : public RegisterAGBase {
-  explicit RegisterAnalysisGroup(PassInfo &RPB)
-    : RegisterAGBase(RPB.getPassName(),
-                     intptr_t(&Interface::ID), RPB.getTypeInfo(),
+  explicit RegisterAnalysisGroup(RegisterPassBase &RPB)
+    : RegisterAGBase(intptr_t(&Interface::ID), RPB.getPassInfo()->getTypeInfo(),
                      Default) {
   }
 
   explicit RegisterAnalysisGroup(const char *Name)
-    : RegisterAGBase(Name, intptr_t(&Interface::ID)) {
+    : RegisterAGBase(intptr_t(&Interface::ID)) {
+    setGroupName(Name);
   }
 };
 
@@ -244,7 +243,7 @@ struct PassRegistrationListener {
   /// Callback functions - These functions are invoked whenever a pass is loaded
   /// or removed from the current executable.
   ///
-  virtual void passRegistered(const PassInfo *) {}
+  virtual void passRegistered(const PassInfo *P) {}
 
   /// enumeratePasses - Iterate over the registered passes, calling the
   /// passEnumerate callback on each PassInfo object.
@@ -254,7 +253,7 @@ struct PassRegistrationListener {
   /// passEnumerate - Callback function invoked when someone calls
   /// enumeratePasses on this PassRegistrationListener object.
   ///
-  virtual void passEnumerate(const PassInfo *) {}
+  virtual void passEnumerate(const PassInfo *P) {}
 };
 
 

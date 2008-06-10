@@ -179,7 +179,7 @@ public:
   /// MarkBlockExecutable - This method can be used by clients to mark all of
   /// the blocks that are known to be intrinsically live in the processed unit.
   void MarkBlockExecutable(BasicBlock *BB) {
-    DOUT << "Marking Block Executable: " << BB->getNameStart() << "\n";
+    DOUT << "Marking Block Executable: " << BB->getName() << "\n";
     BBExecutable.insert(BB);   // Basic block is executable!
     BBWorkList.push_back(BB);  // Add the block to the work list!
   }
@@ -334,8 +334,8 @@ private:
       return;  // This edge is already known to be executable!
 
     if (BBExecutable.count(Dest)) {
-      DOUT << "Marking Edge Executable: " << Source->getNameStart()
-           << " -> " << Dest->getNameStart() << "\n";
+      DOUT << "Marking Edge Executable: " << Source->getName()
+           << " -> " << Dest->getName() << "\n";
 
       // The destination is already executable, but we just made an edge
       // feasible that wasn't before.  Revisit the PHI nodes in the block
@@ -448,8 +448,20 @@ void SCCPSolver::getFeasibleSuccessors(TerminatorInst &TI,
         (SCValue.isConstant() && !isa<ConstantInt>(SCValue.getConstant()))) {
       // All destinations are executable!
       Succs.assign(TI.getNumSuccessors(), true);
-    } else if (SCValue.isConstant())
-      Succs[SI->findCaseValue(cast<ConstantInt>(SCValue.getConstant()))] = true;
+    } else if (SCValue.isConstant()) {
+      Constant *CPV = SCValue.getConstant();
+      // Make sure to skip the "default value" which isn't a value
+      for (unsigned i = 1, E = SI->getNumSuccessors(); i != E; ++i) {
+        if (SI->getSuccessorValue(i) == CPV) {// Found the right branch...
+          Succs[i] = true;
+          return;
+        }
+      }
+
+      // Constant value not equal to any of the branches... must execute
+      // default branch then...
+      Succs[0] = true;
+    }
   } else {
     assert(0 && "SCCP: Don't know how to handle this terminator!");
   }
@@ -1370,12 +1382,6 @@ bool SCCPSolver::ResolvedUndefsIn(Function &F) {
         else
           markOverdefined(LV, I);
         return true;
-      case Instruction::Call:
-        // If a call has an undef result, it is because it is constant foldable
-        // but one of the inputs was undef.  Just force the result to
-        // overdefined.
-        markOverdefined(LV, I);
-        return true;
       }
     }
   
@@ -1385,8 +1391,6 @@ bool SCCPSolver::ResolvedUndefsIn(Function &F) {
       if (!getValueState(BI->getCondition()).isUndefined())
         continue;
     } else if (SwitchInst *SI = dyn_cast<SwitchInst>(TI)) {
-      if (SI->getNumSuccessors()<2)   // no cases
-        continue;
       if (!getValueState(SI->getCondition()).isUndefined())
         continue;
     } else {
@@ -1443,11 +1447,11 @@ namespace {
       AU.setPreservesCFG();
     }
   };
+
+  char SCCP::ID = 0;
+  RegisterPass<SCCP> X("sccp", "Sparse Conditional Constant Propagation");
 } // end anonymous namespace
 
-char SCCP::ID = 0;
-static RegisterPass<SCCP>
-X("sccp", "Sparse Conditional Constant Propagation");
 
 // createSCCPPass - This is the public interface to this file...
 FunctionPass *llvm::createSCCPPass() {
@@ -1459,7 +1463,7 @@ FunctionPass *llvm::createSCCPPass() {
 // and return true if the function was modified.
 //
 bool SCCP::runOnFunction(Function &F) {
-  DOUT << "SCCP on function '" << F.getNameStart() << "'\n";
+  DOUT << "SCCP on function '" << F.getName() << "'\n";
   SCCPSolver Solver;
 
   // Mark the first block of the function as being executable.
@@ -1551,11 +1555,11 @@ namespace {
     IPSCCP() : ModulePass((intptr_t)&ID) {}
     bool runOnModule(Module &M);
   };
-} // end anonymous namespace
 
-char IPSCCP::ID = 0;
-static RegisterPass<IPSCCP>
-Y("ipsccp", "Interprocedural Sparse Conditional Constant Propagation");
+  char IPSCCP::ID = 0;
+  RegisterPass<IPSCCP>
+  Y("ipsccp", "Interprocedural Sparse Conditional Constant Propagation");
+} // end anonymous namespace
 
 // createIPSCCPPass - This is the public interface to this file...
 ModulePass *llvm::createIPSCCPPass() {
@@ -1782,7 +1786,7 @@ bool IPSCCP::runOnModule(Module &M) {
     GlobalVariable *GV = I->first;
     assert(!I->second.isOverdefined() &&
            "Overdefined values should have been taken out of the map!");
-    DOUT << "Found that GV '" << GV->getNameStart() << "' is constant!\n";
+    DOUT << "Found that GV '" << GV->getName()<< "' is constant!\n";
     while (!GV->use_empty()) {
       StoreInst *SI = cast<StoreInst>(GV->use_back());
       SI->eraseFromParent();

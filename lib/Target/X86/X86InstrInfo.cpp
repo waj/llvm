@@ -569,12 +569,8 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::PMAXUBrr,        X86::PMAXUBrm },
     { X86::PMINSWrr,        X86::PMINSWrm },
     { X86::PMINUBrr,        X86::PMINUBrm },
-    { X86::PMULDQrr,        X86::PMULDQrm },
-    { X86::PMULDQrr_int,    X86::PMULDQrm_int },
     { X86::PMULHUWrr,       X86::PMULHUWrm },
     { X86::PMULHWrr,        X86::PMULHWrm },
-    { X86::PMULLDrr,        X86::PMULLDrm },
-    { X86::PMULLDrr_int,    X86::PMULLDrm_int },
     { X86::PMULLWrr,        X86::PMULLWrm },
     { X86::PMULUDQrr,       X86::PMULUDQrm },
     { X86::PORrr,           X86::PORrm },
@@ -764,8 +760,7 @@ static inline bool isGVStub(GlobalValue *GV, X86TargetMachine &TM) {
   return TM.getSubtarget<X86Subtarget>().GVRequiresExtraLoad(GV, TM, false);
 }
  
-bool
-X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr *MI) const {
+bool X86InstrInfo::isReallyTriviallyReMaterializable(MachineInstr *MI) const {
   switch (MI->getOpcode()) {
   default: break;
     case X86::MOV8rm:
@@ -2193,14 +2188,14 @@ X86InstrInfo::unfoldMemoryOperand(SelectionDAG &DAG, SDNode *N,
   // Emit the load instruction.
   SDNode *Load = 0;
   if (FoldedLoad) {
-    MVT VT = *RC->vt_begin();
+    MVT::ValueType VT = *RC->vt_begin();
     Load = DAG.getTargetNode(getLoadRegOpcode(RC, RI.getStackAlignment()), VT,
                              MVT::Other, &AddrOps[0], AddrOps.size());
     NewNodes.push_back(Load);
   }
 
   // Emit the data processing instruction.
-  std::vector<MVT> VTs;
+  std::vector<MVT::ValueType> VTs;
   const TargetRegisterClass *DstRC = 0;
   if (TID.getNumDefs() > 0) {
     const TargetOperandInfo &DstTOI = TID.OpInfo[0];
@@ -2209,7 +2204,7 @@ X86InstrInfo::unfoldMemoryOperand(SelectionDAG &DAG, SDNode *N,
     VTs.push_back(*DstRC->vt_begin());
   }
   for (unsigned i = 0, e = N->getNumValues(); i != e; ++i) {
-    MVT VT = N->getValueType(i);
+    MVT::ValueType VT = N->getValueType(i);
     if (VT != MVT::Other && i >= (unsigned)TID.getNumDefs())
       VTs.push_back(VT);
   }
@@ -2824,7 +2819,7 @@ static unsigned GetInstSizeWithDesc(const MachineInstr &MI,
 unsigned X86InstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
   const TargetInstrDesc &Desc = MI->getDesc();
   bool IsPIC = (TM.getRelocationModel() == Reloc::PIC_);
-  bool Is64BitMode = TM.getSubtargetImpl()->is64Bit();
+  bool Is64BitMode = ((X86Subtarget*)TM.getSubtargetImpl())->is64Bit();
   unsigned Size = GetInstSizeWithDesc(*MI, &Desc, IsPIC, Is64BitMode);
   if (Desc.getOpcode() == X86::MOVPC32r) {
     Size += GetInstSizeWithDesc(*MI, &get(X86::POP32r), IsPIC, Is64BitMode);

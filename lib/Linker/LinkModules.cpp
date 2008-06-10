@@ -351,10 +351,20 @@ static void ForceRenaming(GlobalValue *GV, const std::string &Name) {
 /// CopyGVAttributes - copy additional attributes (those not needed to construct
 /// a GlobalValue) from the SrcGV to the DestGV. 
 static void CopyGVAttributes(GlobalValue *DestGV, const GlobalValue *SrcGV) {
-  // Use the maximum alignment, rather than just copying the alignment of SrcGV.
-  unsigned Alignment = std::max(DestGV->getAlignment(), SrcGV->getAlignment());
-  DestGV->copyAttributesFrom(SrcGV);
-  DestGV->setAlignment(Alignment);
+  // Propagate alignment, visibility and section info.
+  DestGV->setAlignment(std::max(DestGV->getAlignment(), SrcGV->getAlignment()));
+  DestGV->setSection(SrcGV->getSection());
+  DestGV->setVisibility(SrcGV->getVisibility());
+  if (const Function *SrcF = dyn_cast<Function>(SrcGV)) {
+    Function *DestF = cast<Function>(DestGV);
+    DestF->setCallingConv(SrcF->getCallingConv());
+    DestF->setParamAttrs(SrcF->getParamAttrs());
+    if (SrcF->hasCollector())
+      DestF->setCollector(SrcF->getCollector());
+  } else if (const GlobalVariable *SrcVar = dyn_cast<GlobalVariable>(SrcGV)) {
+    GlobalVariable *DestVar = cast<GlobalVariable>(DestGV);
+    DestVar->setThreadLocal(SrcVar->isThreadLocal());
+  }
 }
 
 /// GetLinkageResult - This analyzes the two global values and determines what
@@ -400,12 +410,10 @@ static bool GetLinkageResult(GlobalValue *Dest, const GlobalValue *Src,
             "': can only link appending global with another appending global!");
     LinkFromSrc = true; // Special cased.
     LT = Src->getLinkage();
-  } else if (Src->hasWeakLinkage() || Src->hasLinkOnceLinkage() ||
-             Src->hasCommonLinkage()) {
-    // At this point we know that Dest has LinkOnce, External*, Weak, Common,
-    // or DLL* linkage.
-    if ((Dest->hasLinkOnceLinkage() && 
-          (Src->hasWeakLinkage() || Src->hasCommonLinkage())) ||
+  } else if (Src->hasWeakLinkage() || Src->hasLinkOnceLinkage()) {
+    // At this point we know that Dest has LinkOnce, External*, Weak, or
+    // DLL* linkage.
+    if ((Dest->hasLinkOnceLinkage() && Src->hasWeakLinkage()) ||
         Dest->hasExternalWeakLinkage()) {
       LinkFromSrc = true;
       LT = Src->getLinkage();
@@ -413,8 +421,7 @@ static bool GetLinkageResult(GlobalValue *Dest, const GlobalValue *Src,
       LinkFromSrc = false;
       LT = Dest->getLinkage();
     }
-  } else if (Dest->hasWeakLinkage() || Dest->hasLinkOnceLinkage() ||
-             Dest->hasCommonLinkage()) {
+  } else if (Dest->hasWeakLinkage() || Dest->hasLinkOnceLinkage()) {
     // At this point we know that Src has External* or DLL* linkage.
     if (Src->hasExternalWeakLinkage()) {
       LinkFromSrc = false;
@@ -620,52 +627,20 @@ static bool LinkAlias(Module *Dest, const Module *Src,
     GlobalAlias *NewGA = NULL;
 
     // Globals were already linked, thus we can just query ValueMap for variant
-    // of SAliasee in Dest.
+    // of SAliasee in Dest
     std::map<const Value*,Value*>::const_iterator VMI = ValueMap.find(SAliasee);
     assert(VMI != ValueMap.end() && "Aliasee not linked");
     GlobalValue* DAliasee = cast<GlobalValue>(VMI->second);
-    GlobalValue* DGV = NULL;
 
     // Try to find something 'similar' to SGA in destination module.
-    if (!DGV && !SGA->hasInternalLinkage()) {
-      DGV = Dest->getNamedAlias(SGA->getName());
-
+    if (GlobalAlias *DGA = Dest->getNamedAlias(SGA->getName())) {
       // If types don't agree due to opaque types, try to resolve them.
-      if (DGV && DGV->getType() != SGA->getType())
-        if (RecursiveResolveTypes(SGA->getType(), DGV->getType(),
-                                  &Dest->getTypeSymbolTable(), ""))
-          return Error(Err, "Alias Collision on '" + SGA->getName()+
-                       "': aliases have different types");
-    }
+      if (RecursiveResolveTypes(SGA->getType(), DGA->getType(),
+                                &Dest->getTypeSymbolTable(), ""))
+        return Error(Err, "Alias Collision on '" + SGA->getName()+
+                     "': aliases have different types");
 
-    if (!DGV && !SGA->hasInternalLinkage()) {
-      DGV = Dest->getGlobalVariable(SGA->getName());
-
-      // If types don't agree due to opaque types, try to resolve them.
-      if (DGV && DGV->getType() != SGA->getType())
-        if (RecursiveResolveTypes(SGA->getType(), DGV->getType(),
-                                  &Dest->getTypeSymbolTable(), ""))
-          return Error(Err, "Alias Collision on '" + SGA->getName()+
-                       "': aliases have different types");
-    }
-
-    if (!DGV && !SGA->hasInternalLinkage()) {
-      DGV = Dest->getFunction(SGA->getName());
-
-      // If types don't agree due to opaque types, try to resolve them.
-      if (DGV && DGV->getType() != SGA->getType())
-        if (RecursiveResolveTypes(SGA->getType(), DGV->getType(),
-                                  &Dest->getTypeSymbolTable(), ""))
-          return Error(Err, "Alias Collision on '" + SGA->getName()+
-                       "': aliases have different types");
-    }
-
-    // No linking to be performed on internal stuff.
-    if (DGV && DGV->hasInternalLinkage())
-      DGV = NULL;
-
-    if (GlobalAlias *DGA = dyn_cast_or_null<GlobalAlias>(DGV)) {
-      // Types are known to be the same, check whether aliasees equal. As
+      // Now types are known to be the same, check whether aliasees equal. As
       // globals are already linked we just need query ValueMap to find the
       // mapping.
       if (DAliasee == DGA->getAliasedGlobal()) {
@@ -678,41 +653,47 @@ static bool LinkAlias(Module *Dest, const Module *Src,
       } else
         return Error(Err, "Alias Collision on '"  + SGA->getName()+
                      "': aliases have different aliasees");
-    } else if (GlobalVariable *DGVar = dyn_cast_or_null<GlobalVariable>(DGV)) {
+    } else if (GlobalVariable *DGV = Dest->getGlobalVariable(SGA->getName())) {
+      RecursiveResolveTypes(SGA->getType(), DGV->getType(),
+                            &Dest->getTypeSymbolTable(), "");
+
       // The only allowed way is to link alias with external declaration.
-      if (DGVar->isDeclaration()) {
+      if (DGV->isDeclaration()) {
         // But only if aliasee is global too...
         if (!isa<GlobalVariable>(DAliasee))
-          return Error(Err, "Global-Alias Collision on '" + SGA->getName() +
-                       "': aliasee is not global variable");
+            return Error(Err, "Global-Alias Collision on '" + SGA->getName() +
+                         "': aliasee is not global variable");
 
         NewGA = new GlobalAlias(SGA->getType(), SGA->getLinkage(),
                                 SGA->getName(), DAliasee, Dest);
         CopyGVAttributes(NewGA, SGA);
 
         // Any uses of DGV need to change to NewGA, with cast, if needed.
-        if (SGA->getType() != DGVar->getType())
-          DGVar->replaceAllUsesWith(ConstantExpr::getBitCast(NewGA,
-                                                             DGVar->getType()));
+        if (SGA->getType() != DGV->getType())
+          DGV->replaceAllUsesWith(ConstantExpr::getBitCast(NewGA,
+                                                           DGV->getType()));
         else
-          DGVar->replaceAllUsesWith(NewGA);
+          DGV->replaceAllUsesWith(NewGA);
 
-        // DGVar will conflict with NewGA because they both had the same
+        // DGV will conflict with NewGA because they both had the same
         // name. We must erase this now so ForceRenaming doesn't assert
         // because DGV might not have internal linkage.
-        DGVar->eraseFromParent();
+        DGV->eraseFromParent();
 
         // Proceed to 'common' steps
       } else
         return Error(Err, "Global-Alias Collision on '" + SGA->getName() +
                      "': symbol multiple defined");
-    } else if (Function *DF = dyn_cast_or_null<Function>(DGV)) {
+    } else if (Function *DF = Dest->getFunction(SGA->getName())) {
+      RecursiveResolveTypes(SGA->getType(), DF->getType(),
+                            &Dest->getTypeSymbolTable(), "");
+
       // The only allowed way is to link alias with external declaration.
       if (DF->isDeclaration()) {
         // But only if aliasee is function too...
         if (!isa<Function>(DAliasee))
-          return Error(Err, "Function-Alias Collision on '" + SGA->getName() +
-                       "': aliasee is not function");
+            return Error(Err, "Function-Alias Collision on '" + SGA->getName() +
+                         "': aliasee is not function");
 
         NewGA = new GlobalAlias(SGA->getType(), SGA->getLinkage(),
                                 SGA->getName(), DAliasee, Dest);
@@ -735,8 +716,7 @@ static bool LinkAlias(Module *Dest, const Module *Src,
         return Error(Err, "Function-Alias Collision on '" + SGA->getName() +
                      "': symbol multiple defined");
     } else {
-      // No linking to be performed, simply create an identical version of the
-      // alias over in the dest module...
+      // Nothing similar found, just copy alias into destination module.
 
       NewGA = new GlobalAlias(SGA->getType(), SGA->getLinkage(),
                               SGA->getName(), DAliasee, Dest);
@@ -748,7 +728,7 @@ static bool LinkAlias(Module *Dest, const Module *Src,
     assert(NewGA && "No alias was created in destination module!");
 
     // If the symbol table renamed the alias, but it is an externally visible
-    // symbol, DGA must be an global value with internal linkage. Rename it.
+    // symbol, DGV must be an global value with internal linkage. Rename it.
     if (NewGA->getName() != SGA->getName() &&
         !NewGA->hasInternalLinkage())
       ForceRenaming(NewGA, SGA->getName());
@@ -785,12 +765,10 @@ static bool LinkGlobalInits(Module *Dest, const Module *Src,
           if (DGV->getInitializer() != SInit)
             return Error(Err, "Global Variable Collision on '" + SGV->getName() +
                          "': global variables have different initializers");
-        } else if (DGV->hasLinkOnceLinkage() || DGV->hasWeakLinkage() ||
-                   DGV->hasCommonLinkage()) {
+        } else if (DGV->hasLinkOnceLinkage() || DGV->hasWeakLinkage()) {
           // Nothing is required, mapped values will take the new global
           // automatically.
-        } else if (SGV->hasLinkOnceLinkage() || SGV->hasWeakLinkage() ||
-                   SGV->hasCommonLinkage()) {
+        } else if (SGV->hasLinkOnceLinkage() || SGV->hasWeakLinkage()) {
           // Nothing is required, mapped values will take the new global
           // automatically.
         } else if (DGV->hasAppendingLinkage()) {
@@ -817,65 +795,35 @@ static bool LinkFunctionProtos(Module *Dest, const Module *Src,
   // Loop over all of the functions in the src module, mapping them over
   for (Module::const_iterator I = Src->begin(), E = Src->end(); I != E; ++I) {
     const Function *SF = I;   // SrcFunction
-    
     Function *DF = 0;
-    
-    // If this function is internal or has no name, it doesn't participate in
-    // linkage.
     if (SF->hasName() && !SF->hasInternalLinkage()) {
       // Check to see if may have to link the function.
       DF = Dest->getFunction(SF->getName());
-      if (DF && DF->hasInternalLinkage())
-        DF = 0;
+      if (DF && SF->getType() != DF->getType())
+        // If types don't agree because of opaque, try to resolve them
+        RecursiveResolveTypes(SF->getType(), DF->getType(), 
+                              &Dest->getTypeSymbolTable(), "");
     }
-    
-    // If there is no linkage to be performed, just bring over SF without
-    // modifying it.
-    if (DF == 0) {
-      // Function does not already exist, simply insert an function signature
-      // identical to SF into the dest module.
-      Function *NewDF = Function::Create(SF->getFunctionType(),
-                                         SF->getLinkage(),
-                                         SF->getName(), Dest);
-      CopyGVAttributes(NewDF, SF);
-      
-      // If the LLVM runtime renamed the function, but it is an externally
-      // visible symbol, DF must be an existing function with internal linkage.
-      // Rename it.
-      if (!NewDF->hasInternalLinkage() && NewDF->getName() != SF->getName())
-        ForceRenaming(NewDF, SF->getName());
-      
-      // ... and remember this mapping...
-      ValueMap[SF] = NewDF;
-      continue;
-    }
-    
-    
-    // If types don't agree because of opaque, try to resolve them.
-    if (SF->getType() != DF->getType())
-      RecursiveResolveTypes(SF->getType(), DF->getType(), 
-                            &Dest->getTypeSymbolTable(), "");
-    
-    // Check visibility, merging if a definition overrides a prototype.
-    if (SF->getVisibility() != DF->getVisibility()) {
+
+    // Check visibility
+    if (DF && !DF->hasInternalLinkage() &&
+        SF->getVisibility() != DF->getVisibility()) {
       // If one is a prototype, ignore its visibility.  Prototypes are always
       // overridden by the definition.
       if (!SF->isDeclaration() && !DF->isDeclaration())
         return Error(Err, "Linking functions named '" + SF->getName() +
                      "': symbols have different visibilities!");
-      
-      // Otherwise, replace the visibility of DF if DF is a prototype.
-      if (DF->isDeclaration())
-        DF->setVisibility(SF->getVisibility());
     }
     
-    if (DF->getType() != SF->getType()) {
+    if (DF && DF->hasInternalLinkage())
+      DF = NULL;
+
+    if (DF && DF->getType() != SF->getType()) {
       if (DF->isDeclaration() && !SF->isDeclaration()) {
         // We have a definition of the same name but different type in the
         // source module. Copy the prototype to the destination and replace
         // uses of the destination's prototype with the new prototype.
-        Function *NewDF = Function::Create(SF->getFunctionType(),
-                                           SF->getLinkage(),
+        Function *NewDF = Function::Create(SF->getFunctionType(), SF->getLinkage(),
                                            SF->getName(), Dest);
         CopyGVAttributes(NewDF, SF);
 
@@ -908,70 +856,65 @@ static bool LinkFunctionProtos(Module *Dest, const Module *Src,
                      ToStr(SF->getFunctionType(), Src) + "' and '" +
                      ToStr(DF->getFunctionType(), Dest) + "'");
       }
-      continue;
-    }
-    
-    if (SF->isDeclaration()) {
+    } else if (!DF || SF->hasInternalLinkage() || DF->hasInternalLinkage()) {
+      // Function does not already exist, simply insert an function signature
+      // identical to SF into the dest module.
+      Function *NewDF = Function::Create(SF->getFunctionType(), SF->getLinkage(),
+                                         SF->getName(), Dest);
+      CopyGVAttributes(NewDF, SF);
+
+      // If the LLVM runtime renamed the function, but it is an externally
+      // visible symbol, DF must be an existing function with internal linkage.
+      // Rename it.
+      if (NewDF->getName() != SF->getName() && !NewDF->hasInternalLinkage())
+        ForceRenaming(NewDF, SF->getName());
+
+      // ... and remember this mapping...
+      ValueMap[SF] = NewDF;
+    } else if (SF->isDeclaration()) {
       // If SF is a declaration or if both SF & DF are declarations, just link 
       // the declarations, we aren't adding anything.
       if (SF->hasDLLImportLinkage()) {
         if (DF->isDeclaration()) {
-          ValueMap[SF] = DF;
+          ValueMap.insert(std::make_pair(SF, DF));
           DF->setLinkage(SF->getLinkage());          
-        }
+        }        
       } else {
         ValueMap[SF] = DF;
-      }
-      continue;
-    }
-    
-    // If DF is external but SF is not, link the external functions, update
-    // linkage qualifiers.
-    if (DF->isDeclaration() && !DF->hasDLLImportLinkage()) {
+      }      
+    } else if (DF->isDeclaration() && !DF->hasDLLImportLinkage()) {
+      // If DF is external but SF is not...
+      // Link the external functions, update linkage qualifiers
       ValueMap.insert(std::make_pair(SF, DF));
       DF->setLinkage(SF->getLinkage());
-      continue;
-    }
-    
-    // At this point we know that DF has LinkOnce, Weak, or External* linkage.
-    if (SF->hasWeakLinkage() || SF->hasLinkOnceLinkage() ||
-        SF->hasCommonLinkage()) {
+      // Visibility of prototype is overridden by vis of definition.
+      DF->setVisibility(SF->getVisibility());
+    } else if (SF->hasWeakLinkage() || SF->hasLinkOnceLinkage()) {
+      // At this point we know that DF has LinkOnce, Weak, or External* linkage.
       ValueMap[SF] = DF;
 
       // Linkonce+Weak = Weak
       // *+External Weak = *
-      if ((DF->hasLinkOnceLinkage() && 
-              (SF->hasWeakLinkage() || SF->hasCommonLinkage())) ||
+      if ((DF->hasLinkOnceLinkage() && SF->hasWeakLinkage()) ||
           DF->hasExternalWeakLinkage())
         DF->setLinkage(SF->getLinkage());
-      continue;
-    }
-    
-    if (DF->hasWeakLinkage() || DF->hasLinkOnceLinkage() ||
-        DF->hasCommonLinkage()) {
+    } else if (DF->hasWeakLinkage() || DF->hasLinkOnceLinkage()) {
       // At this point we know that SF has LinkOnce or External* linkage.
       ValueMap[SF] = DF;
-      
-      // If the source function has stronger linkage than the destination, 
-      // its body and linkage should override ours.
-      if (!SF->hasLinkOnceLinkage() && !SF->hasExternalWeakLinkage()) {
-        // Don't inherit linkonce & external weak linkage.
+      if (!SF->hasLinkOnceLinkage() && !SF->hasExternalWeakLinkage())
+        // Don't inherit linkonce & external weak linkage
         DF->setLinkage(SF->getLinkage());
-        DF->deleteBody();
-      }
-      continue;
-    }
-    
-    if (SF->getLinkage() != DF->getLinkage())
-      return Error(Err, "Functions named '" + SF->getName() +
-                   "' have different linkage specifiers!");
-
-    // The function is defined identically in both modules!
-    if (SF->hasExternalLinkage())
+    } else if (SF->getLinkage() != DF->getLinkage()) {
+        return Error(Err, "Functions named '" + SF->getName() +
+                     "' have different linkage specifiers!");
+    } else if (SF->hasExternalLinkage()) {
+      // The function is defined identically in both modules!!
       return Error(Err, "Function '" +
                    ToStr(SF->getFunctionType(), Src) + "':\"" +
                    SF->getName() + "\" - Function is already defined!");
-    assert(0 && "Unknown linkage configuration found!");
+    } else {
+      assert(0 && "Unknown linkage configuration found!");
+    }
   }
   return false;
 }

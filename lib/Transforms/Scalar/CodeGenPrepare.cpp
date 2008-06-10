@@ -333,16 +333,16 @@ static void SplitEdgeNicely(TerminatorInst *TI, unsigned SuccNum, Pass *P) {
 /// Return true if any changes are made.
 static bool OptimizeNoopCopyExpression(CastInst *CI, const TargetLowering &TLI){
   // If this is a noop copy, 
-  MVT SrcVT = TLI.getValueType(CI->getOperand(0)->getType());
-  MVT DstVT = TLI.getValueType(CI->getType());
+  MVT::ValueType SrcVT = TLI.getValueType(CI->getOperand(0)->getType());
+  MVT::ValueType DstVT = TLI.getValueType(CI->getType());
   
   // This is an fp<->int conversion?
-  if (SrcVT.isInteger() != DstVT.isInteger())
+  if (MVT::isInteger(SrcVT) != MVT::isInteger(DstVT))
     return false;
-
+  
   // If this is an extension, it will be a zero or sign extension, which
   // isn't a noop.
-  if (SrcVT.bitsLT(DstVT)) return false;
+  if (SrcVT < DstVT) return false;
   
   // If these values will be promoted, find out what they will be promoted
   // to.  This helps us consider truncates on PPC as noop copies when they
@@ -385,10 +385,11 @@ static bool OptimizeNoopCopyExpression(CastInst *CI, const TargetLowering &TLI){
     CastInst *&InsertedCast = InsertedCasts[UserBB];
 
     if (!InsertedCast) {
-      BasicBlock::iterator InsertPt = UserBB->getFirstNonPHI();
+      BasicBlock::iterator InsertPt = UserBB->begin();
+      while (isa<PHINode>(InsertPt)) ++InsertPt;
       
       InsertedCast = 
-        CastInst::Create(CI->getOpcode(), CI->getOperand(0), CI->getType(), "", 
+        CastInst::create(CI->getOpcode(), CI->getOperand(0), CI->getType(), "", 
                          InsertPt);
       MadeChange = true;
     }
@@ -442,10 +443,11 @@ static bool OptimizeCmpExpression(CmpInst *CI){
     CmpInst *&InsertedCmp = InsertedCmps[UserBB];
 
     if (!InsertedCmp) {
-      BasicBlock::iterator InsertPt = UserBB->getFirstNonPHI();
+      BasicBlock::iterator InsertPt = UserBB->begin();
+      while (isa<PHINode>(InsertPt)) ++InsertPt;
       
       InsertedCmp = 
-        CmpInst::Create(CI->getOpcode(), CI->getPredicate(), CI->getOperand(0), 
+        CmpInst::create(CI->getOpcode(), CI->getPredicate(), CI->getOperand(0), 
                         CI->getOperand(1), "", InsertPt);
       MadeChange = true;
     }
@@ -481,7 +483,6 @@ static void EraseDeadInstructions(Value *V) {
   }
 }
 
-namespace {
 
 /// ExtAddrMode - This is an extended version of TargetLowering::AddrMode which
 /// holds actual Value*'s for register values.
@@ -514,8 +515,6 @@ static std::ostream &operator<<(std::ostream &OS, const ExtAddrMode &AM) {
 
 void ExtAddrMode::dump() const {
   cerr << *this << "\n";
-}
-
 }
 
 static bool TryMatchingScaledValue(Value *ScaleReg, int64_t Scale,
@@ -878,7 +877,7 @@ bool CodeGenPrepare::OptimizeLoadStoreInst(Instruction *LdStInst, Value *Addr,
         V = new SExtInst(V, IntPtrTy, "sunkaddr", InsertPt);
       }
       if (AddrMode.Scale != 1)
-        V = BinaryOperator::CreateMul(V, ConstantInt::get(IntPtrTy,
+        V = BinaryOperator::createMul(V, ConstantInt::get(IntPtrTy,
                                                           AddrMode.Scale),
                                       "sunkaddr", InsertPt);
       Result = V;
@@ -890,7 +889,7 @@ bool CodeGenPrepare::OptimizeLoadStoreInst(Instruction *LdStInst, Value *Addr,
       if (V->getType() != IntPtrTy)
         V = new PtrToIntInst(V, IntPtrTy, "sunkaddr", InsertPt);
       if (Result)
-        Result = BinaryOperator::CreateAdd(Result, V, "sunkaddr", InsertPt);
+        Result = BinaryOperator::createAdd(Result, V, "sunkaddr", InsertPt);
       else
         Result = V;
     }
@@ -900,7 +899,7 @@ bool CodeGenPrepare::OptimizeLoadStoreInst(Instruction *LdStInst, Value *Addr,
       Value *V = new PtrToIntInst(AddrMode.BaseGV, IntPtrTy, "sunkaddr",
                                   InsertPt);
       if (Result)
-        Result = BinaryOperator::CreateAdd(Result, V, "sunkaddr", InsertPt);
+        Result = BinaryOperator::createAdd(Result, V, "sunkaddr", InsertPt);
       else
         Result = V;
     }
@@ -909,7 +908,7 @@ bool CodeGenPrepare::OptimizeLoadStoreInst(Instruction *LdStInst, Value *Addr,
     if (AddrMode.BaseOffs) {
       Value *V = ConstantInt::get(IntPtrTy, AddrMode.BaseOffs);
       if (Result)
-        Result = BinaryOperator::CreateAdd(Result, V, "sunkaddr", InsertPt);
+        Result = BinaryOperator::createAdd(Result, V, "sunkaddr", InsertPt);
       else
         Result = V;
     }
@@ -1037,7 +1036,8 @@ bool CodeGenPrepare::OptimizeExtUses(Instruction *I) {
     Instruction *&InsertedTrunc = InsertedTruncs[UserBB];
 
     if (!InsertedTrunc) {
-      BasicBlock::iterator InsertPt = UserBB->getFirstNonPHI();
+      BasicBlock::iterator InsertPt = UserBB->begin();
+      while (isa<PHINode>(InsertPt)) ++InsertPt;
       
       InsertedTrunc = new TruncInst(I, Src->getType(), "", InsertPt);
     }

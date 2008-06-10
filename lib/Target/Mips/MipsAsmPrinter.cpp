@@ -461,8 +461,7 @@ doFinalization(Module &M)
 
       // Is this correct ?
       if (C->isNullValue() && (I->hasLinkOnceLinkage() || 
-          I->hasInternalLinkage() || I->hasWeakLinkage() ||
-          I->hasCommonLinkage()))
+          I->hasInternalLinkage() || I->hasWeakLinkage())) 
       {
         if (Size == 0) Size = 1;   // .comm Foo, 0 is undefined, avoid it.
 
@@ -488,8 +487,7 @@ doFinalization(Module &M)
         switch (I->getLinkage()) 
         {
           case GlobalValue::LinkOnceLinkage:
-          case GlobalValue::CommonLinkage:
-          case GlobalValue::WeakLinkage:
+          case GlobalValue::WeakLinkage:   
             // FIXME: Verify correct for weak.
             // Nonnull linkonce -> weak
             O << "\t.weak " << name << "\n";
@@ -546,8 +544,6 @@ doFinalization(Module &M)
         EmitGlobalConstant(C);
     }
   }
-
-  O << "\n";
 
   return AsmPrinter::doFinalization(M);
 }

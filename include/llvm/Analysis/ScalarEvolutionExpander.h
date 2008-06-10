@@ -14,10 +14,13 @@
 #ifndef LLVM_ANALYSIS_SCALAREVOLUTION_EXPANDER_H
 #define LLVM_ANALYSIS_SCALAREVOLUTION_EXPANDER_H
 
+#include "llvm/BasicBlock.h"
+#include "llvm/Constants.h"
 #include "llvm/Instructions.h"
 #include "llvm/Type.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
+#include "llvm/Support/CFG.h"
 
 namespace llvm {
   /// SCEVExpander - This class uses information about analyze scalars to
@@ -98,17 +101,17 @@ namespace llvm {
 
     Value *visitTruncateExpr(SCEVTruncateExpr *S) {
       Value *V = expand(S->getOperand());
-      return CastInst::CreateTruncOrBitCast(V, S->getType(), "tmp.", InsertPt);
+      return CastInst::createTruncOrBitCast(V, S->getType(), "tmp.", InsertPt);
     }
 
     Value *visitZeroExtendExpr(SCEVZeroExtendExpr *S) {
       Value *V = expand(S->getOperand());
-      return CastInst::CreateZExtOrBitCast(V, S->getType(), "tmp.", InsertPt);
+      return CastInst::createZExtOrBitCast(V, S->getType(), "tmp.", InsertPt);
     }
 
     Value *visitSignExtendExpr(SCEVSignExtendExpr *S) {
       Value *V = expand(S->getOperand());
-      return CastInst::CreateSExtOrBitCast(V, S->getType(), "tmp.", InsertPt);
+      return CastInst::createSExtOrBitCast(V, S->getType(), "tmp.", InsertPt);
     }
 
     Value *visitAddExpr(SCEVAddExpr *S) {

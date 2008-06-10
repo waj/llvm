@@ -475,7 +475,7 @@ static Value *getVal(const Type *Ty, const ValID &ID) {
   if (TriggerError) return 0;
 
   if (!Ty->isFirstClassType() && !isa<OpaqueType>(Ty)) {
-    GenerateError("Invalid use of a non-first-class type");
+    GenerateError("Invalid use of a composite type");
     return 0;
   }
 
@@ -731,10 +731,6 @@ ParseGlobalVariable(std::string *NameStr,
     GenerateError("Cannot declare global vars of function type");
     return 0;
   }
-  if (Ty == Type::LabelTy) {
-    GenerateError("Cannot declare global vars of label type");
-    return 0;
-  }
 
   const PointerType *PTy = PointerType::get(Ty, AddressSpace);
 
@@ -963,7 +959,6 @@ Module *llvm::RunVMAsmParser(llvm::MemoryBuffer *MB) {
   llvm::PATypeHolder                     *TypeVal;
   llvm::Value                            *ValueVal;
   std::vector<llvm::Value*>              *ValueList;
-  std::vector<unsigned>                  *ConstantList;
   llvm::ArgListType                      *ArgList;
   llvm::TypeWithAttrs                     TypeWithAttrs;
   llvm::TypeWithAttrsList                *TypeWithAttrsList;
@@ -1009,7 +1004,6 @@ Module *llvm::RunVMAsmParser(llvm::MemoryBuffer *MB) {
 %type <PHIList>       PHIList
 %type <ParamList>     ParamList      // For call param lists & GEP indices
 %type <ValueList>     IndexList         // For GEP indices
-%type <ConstantList>  ConstantIndexList // For insertvalue/extractvalue indices
 %type <TypeList>      TypeListI 
 %type <TypeWithAttrsList> ArgTypeList ArgTypeListI
 %type <TypeWithAttrs> ArgType
@@ -1064,7 +1058,7 @@ Module *llvm::RunVMAsmParser(llvm::MemoryBuffer *MB) {
 %token ZEROINITIALIZER TRUETOK FALSETOK BEGINTOK ENDTOK
 %token DECLARE DEFINE GLOBAL CONSTANT SECTION ALIAS VOLATILE THREAD_LOCAL
 %token TO DOTDOTDOT NULL_TOK UNDEF INTERNAL LINKONCE WEAK APPENDING
-%token DLLIMPORT DLLEXPORT EXTERN_WEAK COMMON
+%token DLLIMPORT DLLEXPORT EXTERN_WEAK
 %token OPAQUE EXTERNAL TARGET TRIPLE ALIGN ADDRSPACE
 %token DEPLIBS CALL TAIL ASM_TOK MODULE SIDEEFFECT
 %token CC_TOK CCC_TOK FASTCC_TOK COLDCC_TOK X86_STDCALLCC_TOK X86_FASTCALLCC_TOK
@@ -1081,7 +1075,7 @@ Module *llvm::RunVMAsmParser(llvm::MemoryBuffer *MB) {
 %token <BinaryOpVal> ADD SUB MUL UDIV SDIV FDIV UREM SREM FREM AND OR XOR
 %token <BinaryOpVal> SHL LSHR ASHR
 
-%token <OtherOpVal> ICMP FCMP VICMP VFCMP
+%token <OtherOpVal> ICMP FCMP
 %type  <IPredicate> IPredicates
 %type  <FPredicate> FPredicates
 %token  EQ NE SLT SGT SLE SGE ULT UGT ULE UGE 
@@ -1099,7 +1093,6 @@ Module *llvm::RunVMAsmParser(llvm::MemoryBuffer *MB) {
 %token <OtherOpVal> PHI_TOK SELECT VAARG
 %token <OtherOpVal> EXTRACTELEMENT INSERTELEMENT SHUFFLEVECTOR
 %token <OtherOpVal> GETRESULT
-%token <OtherOpVal> EXTRACTVALUE INSERTVALUE
 
 // Function Attributes
 %token SIGNEXT ZEROEXT NORETURN INREG SRET NOUNWIND NOALIAS BYVAL NEST
@@ -1181,7 +1174,6 @@ GVInternalLinkage
   | LINKONCE    { $$ = GlobalValue::LinkOnceLinkage; }
   | APPENDING   { $$ = GlobalValue::AppendingLinkage; }
   | DLLEXPORT   { $$ = GlobalValue::DLLExportLinkage; } 
-  | COMMON      { $$ = GlobalValue::CommonLinkage; }
   ;
 
 GVExternalLinkage
@@ -1408,7 +1400,7 @@ Types
   }
 
   | '[' EUINT64VAL 'x' Types ']' {          // Sized array type?
-    $$ = new PATypeHolder(HandleUpRefs(ArrayType::get(*$4, $2)));
+    $$ = new PATypeHolder(HandleUpRefs(ArrayType::get(*$4, (unsigned)$2)));
     delete $4;
     CHECK_FOR_ERROR
   }
@@ -1856,14 +1848,12 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     CHECK_FOR_ERROR
   }
   | INTTYPE TRUETOK {                      // Boolean constants
-    if (cast<IntegerType>($1)->getBitWidth() != 1)
-      GEN_ERROR("Constant true must have type i1");
+    assert(cast<IntegerType>($1)->getBitWidth() == 1 && "Not Bool?");
     $$ = ConstantInt::getTrue();
     CHECK_FOR_ERROR
   }
   | INTTYPE FALSETOK {                     // Boolean constants
-    if (cast<IntegerType>($1)->getBitWidth() != 1)
-      GEN_ERROR("Constant false must have type i1");
+    assert(cast<IntegerType>($1)->getBitWidth() == 1 && "Not Bool?");
     $$ = ConstantInt::getFalse();
     CHECK_FOR_ERROR
   }
@@ -1897,7 +1887,8 @@ ConstExpr: CastOps '(' ConstVal TO Types ')' {
       GEN_ERROR("GetElementPtr requires a pointer operand");
 
     const Type *IdxTy =
-      GetElementPtrInst::getIndexedType($3->getType(), $4->begin(), $4->end());
+      GetElementPtrInst::getIndexedType($3->getType(), $4->begin(), $4->end(),
+                                        true);
     if (!IdxTy)
       GEN_ERROR("Index list invalid for constant getelementptr");
 
@@ -1948,16 +1939,6 @@ ConstExpr: CastOps '(' ConstVal TO Types ')' {
       GEN_ERROR("fcmp operand types must match");
     $$ = ConstantExpr::getFCmp($2, $4, $6);
   }
-  | VICMP IPredicates '(' ConstVal ',' ConstVal ')' {
-    if ($4->getType() != $6->getType())
-      GEN_ERROR("vicmp operand types must match");
-    $$ = ConstantExpr::getVICmp($2, $4, $6);
-  }
-  | VFCMP FPredicates '(' ConstVal ',' ConstVal ')' {
-    if ($4->getType() != $6->getType())
-      GEN_ERROR("vfcmp operand types must match");
-    $$ = ConstantExpr::getVFCmp($2, $4, $6);
-  }
   | EXTRACTELEMENT '(' ConstVal ',' ConstVal ')' {
     if (!ExtractElementInst::isValidOperands($3, $5))
       GEN_ERROR("Invalid extractelement operands");
@@ -1974,22 +1955,6 @@ ConstExpr: CastOps '(' ConstVal TO Types ')' {
     if (!ShuffleVectorInst::isValidOperands($3, $5, $7))
       GEN_ERROR("Invalid shufflevector operands");
     $$ = ConstantExpr::getShuffleVector($3, $5, $7);
-    CHECK_FOR_ERROR
-  }
-  | EXTRACTVALUE '(' ConstVal ConstantIndexList ')' {
-    if (!isa<StructType>($3->getType()) && !isa<ArrayType>($3->getType()))
-      GEN_ERROR("ExtractValue requires an aggregate operand");
-
-    $$ = ConstantExpr::getExtractValue($3, &(*$4)[0], $4->size());
-    delete $4;
-    CHECK_FOR_ERROR
-  }
-  | INSERTVALUE '(' ConstVal ',' ConstVal ConstantIndexList ')' {
-    if (!isa<StructType>($3->getType()) && !isa<ArrayType>($3->getType()))
-      GEN_ERROR("InsertValue requires an aggregate operand");
-
-    $$ = ConstantExpr::getInsertValue($3, $5, &(*$6)[0], $6->size());
-    delete $6;
     CHECK_FOR_ERROR
   };
 
@@ -2232,8 +2197,8 @@ LibList : LibList ',' STRINGCONSTANT {
 ArgListH : ArgListH ',' Types OptParamAttrs OptLocalName {
     if (!UpRefs.empty())
       GEN_ERROR("Invalid upreference in type: " + (*$3)->getDescription());
-    if (!(*$3)->isFirstClassType())
-      GEN_ERROR("Argument types must be first-class");
+    if (*$3 == Type::VoidTy)
+      GEN_ERROR("void typed arguments are invalid");
     ArgListEntry E; E.Attrs = $4; E.Ty = $3; E.Name = $5;
     $$ = $1;
     $1->push_back(E);
@@ -2242,8 +2207,8 @@ ArgListH : ArgListH ',' Types OptParamAttrs OptLocalName {
   | Types OptParamAttrs OptLocalName {
     if (!UpRefs.empty())
       GEN_ERROR("Invalid upreference in type: " + (*$1)->getDescription());
-    if (!(*$1)->isFirstClassType())
-      GEN_ERROR("Argument types must be first-class");
+    if (*$1 == Type::VoidTy)
+      GEN_ERROR("void typed arguments are invalid");
     ArgListEntry E; E.Attrs = $2; E.Ty = $1; E.Name = $3;
     $$ = new ArgListType;
     $$->push_back(E);
@@ -2480,12 +2445,15 @@ ConstValueRef : ESINT64VAL {    // A reference to a direct constant
   | '<' ConstVector '>' { // Nonempty unsized packed vector
     const Type *ETy = (*$2)[0]->getType();
     int NumElements = $2->size(); 
-
-    if (!ETy->isInteger() && !ETy->isFloatingPoint())
-      GEN_ERROR("Invalid vector element type: " + ETy->getDescription());
     
     VectorType* pt = VectorType::get(ETy, NumElements);
-    PATypeHolder* PTy = new PATypeHolder(HandleUpRefs(pt));
+    PATypeHolder* PTy = new PATypeHolder(
+                                         HandleUpRefs(
+                                            VectorType::get(
+                                                ETy, 
+                                                NumElements)
+                                            )
+                                         );
     
     // Verify all elements are correct type!
     for (unsigned i = 0; i < $2->size(); i++) {
@@ -2497,80 +2465,6 @@ ConstValueRef : ESINT64VAL {    // A reference to a direct constant
 
     $$ = ValID::create(ConstantVector::get(pt, *$2));
     delete PTy; delete $2;
-    CHECK_FOR_ERROR
-  }
-  | '[' ConstVector ']' { // Nonempty unsized arr
-    const Type *ETy = (*$2)[0]->getType();
-    int NumElements = $2->size(); 
-
-    if (!ETy->isFirstClassType())
-      GEN_ERROR("Invalid array element type: " + ETy->getDescription());
-
-    ArrayType *ATy = ArrayType::get(ETy, NumElements);
-    PATypeHolder* PTy = new PATypeHolder(HandleUpRefs(ATy));
-
-    // Verify all elements are correct type!
-    for (unsigned i = 0; i < $2->size(); i++) {
-      if (ETy != (*$2)[i]->getType())
-        GEN_ERROR("Element #" + utostr(i) + " is not of type '" + 
-                       ETy->getDescription() +"' as required!\nIt is of type '"+
-                       (*$2)[i]->getType()->getDescription() + "'.");
-    }
-
-    $$ = ValID::create(ConstantArray::get(ATy, *$2));
-    delete PTy; delete $2;
-    CHECK_FOR_ERROR
-  }
-  | '[' ']' {
-    $$ = ValID::createUndef();
-    CHECK_FOR_ERROR
-  }
-  | 'c' STRINGCONSTANT {
-    int NumElements = $2->length();
-    const Type *ETy = Type::Int8Ty;
-
-    ArrayType *ATy = ArrayType::get(ETy, NumElements);
-
-    std::vector<Constant*> Vals;
-    for (unsigned i = 0; i < $2->length(); ++i)
-      Vals.push_back(ConstantInt::get(ETy, (*$2)[i]));
-    delete $2;
-    $$ = ValID::create(ConstantArray::get(ATy, Vals));
-    CHECK_FOR_ERROR
-  }
-  | '{' ConstVector '}' {
-    std::vector<const Type*> Elements($2->size());
-    for (unsigned i = 0, e = $2->size(); i != e; ++i)
-      Elements[i] = (*$2)[i]->getType();
-
-    const StructType *STy = StructType::get(Elements);
-    PATypeHolder* PTy = new PATypeHolder(HandleUpRefs(STy));
-
-    $$ = ValID::create(ConstantStruct::get(STy, *$2));
-    delete PTy; delete $2;
-    CHECK_FOR_ERROR
-  }
-  | '{' '}' {
-    const StructType *STy = StructType::get(std::vector<const Type*>());
-    $$ = ValID::create(ConstantStruct::get(STy, std::vector<Constant*>()));
-    CHECK_FOR_ERROR
-  }
-  | '<' '{' ConstVector '}' '>' {
-    std::vector<const Type*> Elements($3->size());
-    for (unsigned i = 0, e = $3->size(); i != e; ++i)
-      Elements[i] = (*$3)[i]->getType();
-
-    const StructType *STy = StructType::get(Elements, /*isPacked=*/true);
-    PATypeHolder* PTy = new PATypeHolder(HandleUpRefs(STy));
-
-    $$ = ValID::create(ConstantStruct::get(STy, *$3));
-    delete PTy; delete $3;
-    CHECK_FOR_ERROR
-  }
-  | '<' '{' '}' '>' {
-    const StructType *STy = StructType::get(std::vector<const Type*>(),
-                                            /*isPacked=*/true);
-    $$ = ValID::create(ConstantStruct::get(STy, std::vector<Constant*>()));
     CHECK_FOR_ERROR
   }
   | ConstExpr {
@@ -2692,8 +2586,7 @@ BBTerminatorInst :
     $$ = BranchInst::Create(tmpBB);
   }                                               // Conditional Branch...
   | BR INTTYPE ValueRef ',' LABEL ValueRef ',' LABEL ValueRef {  
-    if (cast<IntegerType>($2)->getBitWidth() != 1)
-      GEN_ERROR("Branch condition must have type i1");
+    assert(cast<IntegerType>($2)->getBitWidth() == 1 && "Not Bool?");
     BasicBlock* tmpBBA = getBBVal($6);
     CHECK_FOR_ERROR
     BasicBlock* tmpBBB = getBBVal($9);
@@ -2808,8 +2701,7 @@ BBTerminatorInst :
       PAL = PAListPtr::get(Attrs.begin(), Attrs.end());
 
     // Create the InvokeInst
-    InvokeInst *II = InvokeInst::Create(V, Normal, Except,
-                                        Args.begin(), Args.end());
+    InvokeInst *II = InvokeInst::Create(V, Normal, Except, Args.begin(),Args.end());
     II->setCallingConv($2);
     II->setParamAttrs(PAL);
     $$ = II;
@@ -2929,22 +2821,6 @@ IndexList       // Used for gep instructions and constant expressions
   }
   ;
 
-ConstantIndexList       // Used for insertvalue and extractvalue instructions
-  : ',' EUINT64VAL {
-    $$ = new std::vector<unsigned>();
-    if ((unsigned)$2 != $2)
-      GEN_ERROR("Index " + utostr($2) + " is not valid for insertvalue or extractvalue.");
-    $$->push_back($2);
-  }
-  | ConstantIndexList ',' EUINT64VAL {
-    $$ = $1;
-    if ((unsigned)$3 != $3)
-      GEN_ERROR("Index " + utostr($3) + " is not valid for insertvalue or extractvalue.");
-    $$->push_back($3);
-    CHECK_FOR_ERROR
-  }
-  ;
-
 OptTailCall : TAIL CALL {
     $$ = true;
     CHECK_FOR_ERROR
@@ -2965,7 +2841,7 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
     CHECK_FOR_ERROR
     Value* val2 = getVal(*$2, $5);
     CHECK_FOR_ERROR
-    $$ = BinaryOperator::Create($1, val1, val2);
+    $$ = BinaryOperator::create($1, val1, val2);
     if ($$ == 0)
       GEN_ERROR("binary operator returned null");
     delete $2;
@@ -2982,7 +2858,7 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
     CHECK_FOR_ERROR
     Value* tmpVal2 = getVal(*$2, $5);
     CHECK_FOR_ERROR
-    $$ = BinaryOperator::Create($1, tmpVal1, tmpVal2);
+    $$ = BinaryOperator::create($1, tmpVal1, tmpVal2);
     if ($$ == 0)
       GEN_ERROR("binary operator returned null");
     delete $2;
@@ -2996,7 +2872,7 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
     CHECK_FOR_ERROR
     Value* tmpVal2 = getVal(*$3, $6);
     CHECK_FOR_ERROR
-    $$ = CmpInst::Create($1, $2, tmpVal1, tmpVal2);
+    $$ = CmpInst::create($1, $2, tmpVal1, tmpVal2);
     if ($$ == 0)
       GEN_ERROR("icmp operator returned null");
     delete $3;
@@ -3010,35 +2886,7 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
     CHECK_FOR_ERROR
     Value* tmpVal2 = getVal(*$3, $6);
     CHECK_FOR_ERROR
-    $$ = CmpInst::Create($1, $2, tmpVal1, tmpVal2);
-    if ($$ == 0)
-      GEN_ERROR("fcmp operator returned null");
-    delete $3;
-  }
-  | VICMP IPredicates Types ValueRef ',' ValueRef  {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$3)->getDescription());
-    if (!isa<VectorType>((*$3).get()))
-      GEN_ERROR("Scalar types not supported by vicmp instruction");
-    Value* tmpVal1 = getVal(*$3, $4);
-    CHECK_FOR_ERROR
-    Value* tmpVal2 = getVal(*$3, $6);
-    CHECK_FOR_ERROR
-    $$ = CmpInst::Create($1, $2, tmpVal1, tmpVal2);
-    if ($$ == 0)
-      GEN_ERROR("icmp operator returned null");
-    delete $3;
-  }
-  | VFCMP FPredicates Types ValueRef ',' ValueRef  {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$3)->getDescription());
-    if (!isa<VectorType>((*$3).get()))
-      GEN_ERROR("Scalar types not supported by vfcmp instruction");
-    Value* tmpVal1 = getVal(*$3, $4);
-    CHECK_FOR_ERROR
-    Value* tmpVal2 = getVal(*$3, $6);
-    CHECK_FOR_ERROR
-    $$ = CmpInst::Create($1, $2, tmpVal1, tmpVal2);
+    $$ = CmpInst::create($1, $2, tmpVal1, tmpVal2);
     if ($$ == 0)
       GEN_ERROR("fcmp operator returned null");
     delete $3;
@@ -3052,7 +2900,7 @@ InstVal : ArithmeticOps Types ValueRef ',' ValueRef {
       GEN_ERROR("invalid cast opcode for cast from '" +
                 Val->getType()->getDescription() + "' to '" +
                 DestTy->getDescription() + "'"); 
-    $$ = CastInst::Create($1, Val, DestTy);
+    $$ = CastInst::create($1, Val, DestTy);
     delete $4;
   }
   | SELECT ResolvedVal ',' ResolvedVal ',' ResolvedVal {
@@ -3219,8 +3067,6 @@ MemoryInst : MALLOC Types OptCAlign {
   | MALLOC Types ',' INTTYPE ValueRef OptCAlign {
     if (!UpRefs.empty())
       GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
-    if ($4 != Type::Int32Ty)
-      GEN_ERROR("Malloc array size is not a 32-bit integer!");
     Value* tmpVal = getVal($4, $5);
     CHECK_FOR_ERROR
     $$ = new MallocInst(*$2, tmpVal, $6);
@@ -3236,8 +3082,6 @@ MemoryInst : MALLOC Types OptCAlign {
   | ALLOCA Types ',' INTTYPE ValueRef OptCAlign {
     if (!UpRefs.empty())
       GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
-    if ($4 != Type::Int32Ty)
-      GEN_ERROR("Alloca array size is not a 32-bit integer!");
     Value* tmpVal = getVal($4, $5);
     CHECK_FOR_ERROR
     $$ = new AllocaInst(*$2, tmpVal, $6);
@@ -3282,7 +3126,7 @@ MemoryInst : MALLOC Types OptCAlign {
     $$ = new StoreInst($3, tmpVal, $1, $7);
     delete $5;
   }
-  | GETRESULT Types ValueRef ',' EUINT64VAL  {
+| GETRESULT Types ValueRef ',' EUINT64VAL  {
   Value *TmpVal = getVal($2->get(), $3);
   if (!GetResultInst::isValidOperands(TmpVal, $5))
       GEN_ERROR("Invalid getresult operands");
@@ -3296,7 +3140,7 @@ MemoryInst : MALLOC Types OptCAlign {
     if (!isa<PointerType>($2->get()))
       GEN_ERROR("getelementptr insn requires pointer operand");
 
-    if (!GetElementPtrInst::getIndexedType(*$2, $4->begin(), $4->end()))
+    if (!GetElementPtrInst::getIndexedType(*$2, $4->begin(), $4->end(), true))
       GEN_ERROR("Invalid getelementptr indices for type '" +
                      (*$2)->getDescription()+ "'");
     Value* tmpVal = getVal(*$2, $3);
@@ -3304,38 +3148,6 @@ MemoryInst : MALLOC Types OptCAlign {
     $$ = GetElementPtrInst::Create(tmpVal, $4->begin(), $4->end());
     delete $2; 
     delete $4;
-  }
-  | EXTRACTVALUE Types ValueRef ConstantIndexList {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
-    if (!isa<StructType>($2->get()) && !isa<ArrayType>($2->get()))
-      GEN_ERROR("extractvalue insn requires an aggregate operand");
-
-    if (!ExtractValueInst::getIndexedType(*$2, $4->begin(), $4->end()))
-      GEN_ERROR("Invalid extractvalue indices for type '" +
-                     (*$2)->getDescription()+ "'");
-    Value* tmpVal = getVal(*$2, $3);
-    CHECK_FOR_ERROR
-    $$ = ExtractValueInst::Create(tmpVal, $4->begin(), $4->end());
-    delete $2; 
-    delete $4;
-  }
-  | INSERTVALUE Types ValueRef ',' Types ValueRef ConstantIndexList {
-    if (!UpRefs.empty())
-      GEN_ERROR("Invalid upreference in type: " + (*$2)->getDescription());
-    if (!isa<StructType>($2->get()) && !isa<ArrayType>($2->get()))
-      GEN_ERROR("extractvalue insn requires an aggregate operand");
-
-    if (ExtractValueInst::getIndexedType(*$2, $7->begin(), $7->end()) != $5->get())
-      GEN_ERROR("Invalid insertvalue indices for type '" +
-                     (*$2)->getDescription()+ "'");
-    Value* aggVal = getVal(*$2, $3);
-    Value* tmpVal = getVal(*$5, $6);
-    CHECK_FOR_ERROR
-    $$ = InsertValueInst::Create(aggVal, tmpVal, $7->begin(), $7->end());
-    delete $2; 
-    delete $5;
-    delete $7;
   };
 
 

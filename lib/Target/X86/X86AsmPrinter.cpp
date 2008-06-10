@@ -200,7 +200,7 @@ bool X86SharedAsmPrinter::doFinalization(Module &M) {
       
       if (!I->isThreadLocal() &&
           (I->hasInternalLinkage() || I->hasWeakLinkage() ||
-           I->hasLinkOnceLinkage() || I->hasCommonLinkage())) {
+           I->hasLinkOnceLinkage())) {
         if (Size == 0) Size = 1;   // .comm Foo, 0 is undefined, avoid it.
         if (!NoZerosInBSS && TAI->getBSSSection())
           SwitchToDataSection(TAI->getBSSSection(), I);
@@ -211,16 +211,6 @@ bool X86SharedAsmPrinter::doFinalization(Module &M) {
             O << TAI->getLCOMMDirective() << name << "," << Size;
             if (Subtarget->isTargetDarwin())
               O << "," << Align;
-          } else if (Subtarget->isTargetDarwin() && !I->hasCommonLinkage()) {
-            O << "\t.globl " << name << "\n"
-              << TAI->getWeakDefDirective() << name << "\n";
-            SwitchToDataSection("\t.section __DATA,__datacoal_nt,coalesced", I);
-            EmitAlignment(Align, I);
-            O << name << ":\t\t\t\t" << TAI->getCommentString() << " ";
-            PrintUnmangledNameSafely(I, O);
-            O << "\n";
-            EmitGlobalConstant(C);
-            continue;
           } else {
             O << TAI->getCOMMDirective()  << name << "," << Size;
             
@@ -245,21 +235,12 @@ bool X86SharedAsmPrinter::doFinalization(Module &M) {
     }
 
     switch (I->getLinkage()) {
-    case GlobalValue::CommonLinkage:
     case GlobalValue::LinkOnceLinkage:
     case GlobalValue::WeakLinkage:
       if (Subtarget->isTargetDarwin()) {
         O << "\t.globl " << name << "\n"
           << TAI->getWeakDefDirective() << name << "\n";
-        if (!I->isConstant())
-          SwitchToDataSection("\t.section __DATA,__datacoal_nt,coalesced", I);
-        else {
-          const ArrayType *AT = dyn_cast<ArrayType>(Type);
-          if (AT && AT->getElementType()==Type::Int8Ty)
-            SwitchToDataSection("\t.section __TEXT,__const_coal,coalesced", I);
-          else
-            SwitchToDataSection("\t.section __DATA,__const_coal,coalesced", I);
-        }
+        SwitchToDataSection("\t.section __DATA,__datacoal_nt,coalesced", I);
       } else if (Subtarget->isTargetCygMing()) {
         std::string SectionName(".section\t.data$linkonce." +
                                 name +
@@ -393,10 +374,8 @@ bool X86SharedAsmPrinter::doFinalization(Module &M) {
          i != e; ++i, ++j) {
       SwitchToDataSection("\t.section __IMPORT,__jump_table,symbol_stubs,"
                           "self_modifying_code+pure_instructions,5", 0);
-      std::string p = *i;
-      printSuffixedName(p, "$stub");
-      O << ":\n";
-      O << "\t.indirect_symbol " << p << "\n";
+      O << "L" << *i << "$stub:\n";
+      O << "\t.indirect_symbol " << *i << "\n";
       O << "\thlt ; hlt ; hlt ; hlt ; hlt\n";
     }
 
@@ -418,10 +397,8 @@ bool X86SharedAsmPrinter::doFinalization(Module &M) {
                     "\t.section __IMPORT,__pointers,non_lazy_symbol_pointers");
     for (std::set<std::string>::iterator i = GVStubs.begin(), e = GVStubs.end();
          i != e; ++i) {
-      std::string p = *i;
-      printSuffixedName(p, "$non_lazy_ptr");
-      O << ":\n";
-      O << "\t.indirect_symbol " << p << "\n";
+      O << "L" << *i << "$non_lazy_ptr:\n";
+      O << "\t.indirect_symbol " << *i << "\n";
       O << "\t.long\t0\n";
     }
 

@@ -250,7 +250,7 @@ public:
   /// such, whenever a client has an instance of instruction info, it should
   /// always be able to get register info as well (through this method).
   ///
-  virtual const X86RegisterInfo &getRegisterInfo() const { return RI; }
+  virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
 
   // Return true if the instruction is a register to register move and
   // leave the source and dest operands in the passed parameters.
@@ -260,7 +260,7 @@ public:
   unsigned isLoadFromStackSlot(MachineInstr *MI, int &FrameIndex) const;
   unsigned isStoreToStackSlot(MachineInstr *MI, int &FrameIndex) const;
 
-  bool isReallyTriviallyReMaterializable(const MachineInstr *MI) const;
+  bool isReallyTriviallyReMaterializable(MachineInstr *MI) const;
   void reMaterialize(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                      unsigned DestReg, const MachineInstr *Orig) const;
 

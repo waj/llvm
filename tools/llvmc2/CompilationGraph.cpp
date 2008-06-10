@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Error.h"
 #include "CompilationGraph.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -31,19 +30,6 @@ using namespace llvmc;
 extern cl::list<std::string> InputFilenames;
 extern cl::opt<std::string> OutputFilename;
 extern cl::list<std::string> Languages;
-
-namespace llvmc {
-  /// ExtsToLangs - Map from file extensions to language names.
-  LanguageMap GlobalLanguageMap;
-
-  /// GetLanguage -  Find the language name corresponding to the given file.
-  const std::string& GetLanguage(const sys::Path& File) {
-    LanguageMap::const_iterator Lang = GlobalLanguageMap.find(File.getSuffix());
-    if (Lang == GlobalLanguageMap.end())
-      throw std::runtime_error("Unknown suffix: " + File.getSuffix());
-    return Lang->second;
-  }
-}
 
 namespace {
 
@@ -100,6 +86,14 @@ const Node& CompilationGraph::getNode(const std::string& ToolName) const {
   return I->second;
 }
 
+// Find the language name corresponding to the given file.
+const std::string& CompilationGraph::getLanguage(const sys::Path& File) const {
+  LanguageMap::const_iterator Lang = ExtsToLangs.find(File.getSuffix());
+  if (Lang == ExtsToLangs.end())
+    throw std::runtime_error("Unknown suffix: " + File.getSuffix() + '!');
+  return Lang->second;
+}
+
 // Find the tools list corresponding to the given language name.
 const CompilationGraph::tools_vector_type&
 CompilationGraph::getToolsVector(const std::string& LangName) const
@@ -107,7 +101,7 @@ CompilationGraph::getToolsVector(const std::string& LangName) const
   tools_map_type::const_iterator I = ToolsMap.find(LangName);
   if (I == ToolsMap.end())
     throw std::runtime_error("No tool corresponding to the language "
-                             + LangName + " found");
+                             + LangName + "found!");
   return I->second;
 }
 
@@ -120,17 +114,16 @@ void CompilationGraph::insertNode(Tool* V) {
   }
 }
 
-void CompilationGraph::insertEdge(const std::string& A, Edge* Edg) {
-  Node& B = getNode(Edg->ToolName());
+void CompilationGraph::insertEdge(const std::string& A, Edge* E) {
+  Node& B = getNode(E->ToolName());
   if (A == "root") {
-    const char** InLangs = B.ToolPtr->InputLanguages();
-    for (;*InLangs; ++InLangs)
-      ToolsMap[*InLangs].push_back(IntrusiveRefCntPtr<Edge>(Edg));
-    NodesMap["root"].AddEdge(Edg);
+    const std::string& InputLanguage = B.ToolPtr->InputLanguage();
+    ToolsMap[InputLanguage].push_back(IntrusiveRefCntPtr<Edge>(E));
+    NodesMap["root"].AddEdge(E);
   }
   else {
     Node& N = getNode(A);
-    N.AddEdge(Edg);
+    N.AddEdge(E);
   }
   // Increase the inward edge counter.
   B.IncrInEdges();
@@ -139,22 +132,9 @@ void CompilationGraph::insertEdge(const std::string& A, Edge* Edg) {
 namespace {
   sys::Path MakeTempFile(const sys::Path& TempDir, const std::string& BaseName,
                          const std::string& Suffix) {
-    sys::Path Out;
-
-    // Make sure we don't end up with path names like '/file.o' if the
-    // TempDir is empty.
-    if (TempDir.empty()) {
-      Out.set(BaseName);
-    }
-    else {
-      Out = TempDir;
-      Out.appendComponent(BaseName);
-    }
+    sys::Path Out = TempDir;
+    Out.appendComponent(BaseName);
     Out.appendSuffix(Suffix);
-    // NOTE: makeUnique always *creates* a unique temporary file,
-    // which is good, since there will be no races. However, some
-    // tools do not like it when the output file already exists, so
-    // they have to be placated with -f or something like that.
     Out.makeUnique(true, NULL);
     return Out;
   }
@@ -196,8 +176,8 @@ void CompilationGraph::PassThroughGraph (const sys::Path& InFile,
       Out = MakeTempFile(TempDir, In.getBasename(), CurTool->OutputSuffix());
     }
 
-    if (int ret = CurTool->GenerateAction(In, Out, InLangs).Execute())
-      throw error_code(ret);
+    if (CurTool->GenerateAction(In, Out).Execute() != 0)
+      throw std::runtime_error("Tool returned error code!");
 
     if (Last)
       return;
@@ -217,7 +197,7 @@ FindToolChain(const sys::Path& In, const std::string* forceLanguage,
 
   // Determine the input language.
   const std::string& InLanguage =
-    forceLanguage ? *forceLanguage : GetLanguage(In);
+    forceLanguage ? *forceLanguage : getLanguage(In);
 
   // Add the current input language to the input language set.
   InLangs.insert(InLanguage);
@@ -225,8 +205,8 @@ FindToolChain(const sys::Path& In, const std::string* forceLanguage,
   // Find the toolchain for the input language.
   const tools_vector_type& TV = getToolsVector(InLanguage);
   if (TV.empty())
-    throw std::runtime_error("No toolchain corresponding to language "
-                             + InLanguage + " found");
+    throw std::runtime_error("No toolchain corresponding to language"
+                             + InLanguage + " found!");
   return &getNode(ChooseEdge(TV, InLangs)->ToolName());
 }
 
@@ -362,8 +342,8 @@ int CompilationGraph::Build (const sys::Path& TempDir) {
       Out = MakeTempFile(TempDir, "tmp", JT->OutputSuffix());
     }
 
-    if (int ret = JT->GenerateAction(Out, InLangs).Execute())
-      throw error_code(ret);
+    if (JT->GenerateAction(Out).Execute() != 0)
+      throw std::runtime_error("Tool returned error code!");
 
     if (!IsLast) {
       const Node* NextNode =
@@ -400,40 +380,24 @@ namespace llvm {
 
     template<typename EdgeIter>
     static std::string getEdgeSourceLabel(const Node* N, EdgeIter I) {
-      if (N->ToolPtr) {
+      if (N->ToolPtr)
         return N->ToolPtr->OutputLanguage();
-      }
-      else {
-        const char** InLangs = I->ToolPtr->InputLanguages();
-        std::string ret;
-
-        for (; *InLangs; ++InLangs) {
-          if (*(InLangs + 1)) {
-            ret += *InLangs;
-            ret +=  ", ";
-          }
-          else {
-            ret += *InLangs;
-          }
-        }
-
-        return ret;
-      }
+      else
+        return I->ToolPtr->InputLanguage();
     }
   };
 
 }
 
 void CompilationGraph::writeGraph() {
-  std::ofstream O("compilation-graph.dot");
+  std::ofstream O("CompilationGraph.dot");
 
   if (O.good()) {
     llvm::WriteGraph(this, "compilation-graph");
     O.close();
   }
   else {
-    throw std::runtime_error("Error opening file 'compilation-graph.dot'"
-                             " for writing!");
+    throw std::runtime_error("");
   }
 }
 

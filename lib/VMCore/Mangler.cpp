@@ -166,8 +166,7 @@ void Mangler::InsertName(GlobalValue *GV,
   } else {
     // If GV is external but the existing one is static, mangle the existing one
     if ((GV->hasExternalLinkage() || GV->hasDLLImportLinkage()) &&
-        !(ExistingValue->hasExternalLinkage()
-          || ExistingValue->hasDLLImportLinkage())) {
+        !(ExistingValue->hasExternalLinkage() || ExistingValue->hasDLLImportLinkage())) {
       MangledGlobals.insert(ExistingValue);
       ExistingValue = GV;
     } else if ((GV->hasExternalLinkage() ||
@@ -209,8 +208,6 @@ Mangler::Mangler(Module &M, const char *prefix)
   std::map<std::string, GlobalValue*> Names;
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I)
     InsertName(I, Names);
-  for (Module::global_iterator I = M.global_begin(), E = M.global_end();
-       I != E;
-       ++I)
+  for (Module::global_iterator I = M.global_begin(), E = M.global_end(); I != E; ++I)
     InsertName(I, Names);
 }

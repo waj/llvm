@@ -50,12 +50,12 @@ private:
 
 public:
   std::map<const GlobalValue*, void *> &
-  getGlobalAddressMap(const MutexGuard &) {
+  getGlobalAddressMap(const MutexGuard &locked) {
     return GlobalAddressMap;
   }
 
   std::map<void*, const GlobalValue*> & 
-  getGlobalAddressReverseMap(const MutexGuard &) {
+  getGlobalAddressReverseMap(const MutexGuard& locked) {
     return GlobalAddressReverseMap;
   }
 };
@@ -126,7 +126,7 @@ public:
   /// addModuleProvider - Add a ModuleProvider to the list of modules that we
   /// can JIT from.  Note that this takes ownership of the ModuleProvider: when
   /// the ExecutionEngine is destroyed, it destroys the MP as well.
-  virtual void addModuleProvider(ModuleProvider *P) {
+  void addModuleProvider(ModuleProvider *P) {
     Modules.push_back(P);
   }
   
@@ -137,8 +137,7 @@ public:
 
   /// removeModuleProvider - Remove a ModuleProvider from the list of modules.
   /// Release module from ModuleProvider.
-  virtual Module* removeModuleProvider(ModuleProvider *P,
-                                       std::string *ErrInfo = 0);
+  Module* removeModuleProvider(ModuleProvider *P, std::string *ErrInfo = 0);
 
   /// FindFunctionNamed - Search all of the active modules to find the one that
   /// defines FnName.  This is very slow operation and shouldn't be used for
@@ -174,10 +173,6 @@ public:
   /// clearAllGlobalMappings - Clear all global mappings and start over again
   /// use in dynamic compilation scenarios when you want to move globals
   void clearAllGlobalMappings();
-  
-  /// clearGlobalMappingsFromModule - Clear all global mappings that came from a
-  /// particular module, because it has been removed from the JIT.
-  void clearGlobalMappingsFromModule(Module *M);
   
   /// updateGlobalMapping - Replace an existing mapping for GV with a new
   /// address.  This updates both maps as required.  If "Addr" is null, the

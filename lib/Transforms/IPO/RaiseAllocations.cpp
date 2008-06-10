@@ -48,11 +48,12 @@ namespace {
     //
     bool runOnModule(Module &M);
   };
+
+  char RaiseAllocations::ID = 0;
+  RegisterPass<RaiseAllocations>
+  X("raiseallocs", "Raise allocations from calls to instructions");
 }  // end anonymous namespace
 
-char RaiseAllocations::ID = 0;
-static RegisterPass<RaiseAllocations>
-X("raiseallocs", "Raise allocations from calls to instructions");
 
 // createRaiseAllocationsPass - The interface to this file...
 ModulePass *llvm::createRaiseAllocationsPass() {
@@ -164,7 +165,7 @@ bool RaiseAllocations::runOnModule(Module &M) {
           // source size.
           if (Source->getType() != Type::Int32Ty)
             Source = 
-              CastInst::CreateIntegerCast(Source, Type::Int32Ty, false/*ZExt*/,
+              CastInst::createIntegerCast(Source, Type::Int32Ty, false/*ZExt*/,
                                           "MallocAmtCast", I);
 
           MallocInst *MI = new MallocInst(Type::Int8Ty, Source, "", I);

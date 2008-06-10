@@ -17,6 +17,7 @@
 #include "llvm/Support/MathExtras.h"
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
 
 namespace llvm {
@@ -64,7 +65,7 @@ public:
 
   /// BitVector default ctor - Creates an empty bitvector.
   BitVector() : Size(0), Capacity(0) {
-    Bits = 0;
+    Bits = NULL;
   }
 
   /// BitVector ctor - Creates a bitvector of specified number of bits. All
@@ -80,7 +81,7 @@ public:
   /// BitVector copy ctor.
   BitVector(const BitVector &RHS) : Size(RHS.size()) {
     if (Size == 0) {
-      Bits = 0;
+      Bits = NULL;
       Capacity = 0;
       return;
     }

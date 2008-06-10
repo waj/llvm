@@ -39,7 +39,6 @@ DarwinTargetAsmInfo::DarwinTargetAsmInfo(const PPCTargetMachine &TM)
   CommentString = ";";
   GlobalPrefix = "_";
   PrivateGlobalPrefix = "L";
-  StringConstantPrefix = "\1LC";
   ConstantPoolSection = "\t.const\t";
   JumpTableDataSection = ".const";
   CStringSection = "\t.cstring";
