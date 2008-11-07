@@ -1,0 +1,172 @@
+project(LLVM)
+cmake_minimum_required(VERSION 2.6.1)
+
+set(PACKAGE_NAME llvm)
+set(PACKAGE_VERSION svn)
+set(PACKAGE_BUGREPORT "llvmbugs@cs.uiuc.edu")
+
+include(FindPerl)
+
+set(LLVM_MAIN_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(LLVM_MAIN_INCLUDE_DIR ${LLVM_MAIN_SRC_DIR}/include)
+set(LLVM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(LLVM_TOOLS_BINARY_DIR ${LLVM_BINARY_DIR}/bin)
+set(LLVM_EXAMPLES_BINARY_DIR ${LLVM_BINARY_DIR}/examples)
+
+if( MSVC )
+  set(LLVM_TARGETS_TO_BUILD X86
+    CACHE STRING "Semicolon-separated list of targets to build")
+else( MSVC )
+  set(LLVM_TARGETS_TO_BUILD
+    Alpha ARM CBackend CellSPU CppBackend IA64 Mips MSIL PIC16 PowerPC Sparc X86 XCore
+    CACHE STRING "Semicolon-separated list of targets to build")
+endif( MSVC )
+
+set(llvm_builded_incs_dir ${LLVM_BINARY_DIR}/include/llvm)
+
+# Add path for custom modules
+set(CMAKE_MODULE_PATH
+  ${CMAKE_MODULE_PATH}
+  "${LLVM_MAIN_SRC_DIR}/cmake"
+  "${LLVM_MAIN_SRC_DIR}/cmake/modules"
+  )
+
+if(WIN32)
+  if(CYGWIN)
+    set(LLVM_ON_WIN32 0)
+    set(LLVM_ON_UNIX 1)
+  else(CYGWIN)
+    set(LLVM_ON_WIN32 1)
+    set(LLVM_ON_UNIX 0)
+  endif(CYGWIN)
+  set(LTDL_SHLIB_EXT ".dll")
+  set(EXEEXT ".exe")
+  # Maximum path length is 160 for non-unicode paths
+  set(MAXPATHLEN 160)
+else(WIN32)
+  if(UNIX)
+    set(LLVM_ON_WIN32 0)
+    set(LLVM_ON_UNIX 1)
+    set(LTDL_SHLIB_EXT ".so")
+    set(EXEEXT "")
+    # FIXME: Maximum path length is currently set to 'safe' fixed value
+    set(MAXPATHLEN 2024)
+  else(UNIX)
+    MESSAGE(SEND_ERROR "Unable to determine platform")
+  endif(UNIX)
+endif(WIN32)
+
+if( EXISTS ${LLVM_TOOLS_BINARY_DIR}/llvm-config )
+  set(HAVE_LLVM_CONFIG 1)
+endif( EXISTS ${LLVM_TOOLS_BINARY_DIR}/llvm-config )
+# find_file(HAVE_LLVM_CONFIG llvm-config ${LLVM_TOOLS_BINARY_DIR})
+# message(STATUS ${HAVE_LLVM_CONFIG})
+
+include(config-ix)
+
+set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_TOOLS_BINARY_DIR} )
+set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib )
+set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib )
+
+# set(CMAKE_VERBOSE_MAKEFILE true)
+
+add_definitions( -D__STDC_LIMIT_MACROS )
+add_definitions( -D__STDC_CONSTANT_MACROS )
+
+set(LLVM_PLO_FLAGS "" CACHE
+  STRING "Flags for creating partially linked objects.")
+
+if( CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT WIN32 )
+  # TODO: support other platforms and toolchains.
+  option(BUILD_32_BITS "Build 32 bits executables and libraries." OFF)
+  if( BUILD_32_BITS )
+    message(STATUS "Building 32 bits executables and libraries.")
+    add_definitions( -m32 )
+    set( CMAKE_EXE_LINKER_FLAGS "-m32 ${CMAKE_EXE_LINKER_FLAGS}" )
+    set( CMAKE_LINK_LIBRARY_FLAG "-m32 ${CMAKE_LINK_LIBRARY_FLAG}" )
+    set( LLVM_PLO_FLAGS -melf_i386 ${LLVM_PLO_FLAGS} )
+  endif( BUILD_32_BITS )
+endif( CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT WIN32 )
+
+if( MSVC )
+  add_definitions( -D_CRT_SECURE_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS )
+  add_definitions( -D_SCL_SECURE_NO_WARNINGS -DCRT_NONSTDC_NO_WARNINGS )
+  add_definitions( -D_SCL_SECURE_NO_DEPRECATE )
+  add_definitions( -wd4146 -wd4503 -wd4996 -wd4800 -wd4244 -wd4624 )
+  add_definitions( -wd4355 -wd4715 )
+endif( MSVC )
+
+include_directories( ${LLVM_BINARY_DIR}/include ${LLVM_MAIN_INCLUDE_DIR})
+#link_directories( d:/dev/lib )
+
+#add_subdirectory(lib)
+
+include(AddLLVM)
+include(AddPartiallyLinkedObject)
+include(TableGen)
+
+add_subdirectory(lib/Support)
+add_subdirectory(lib/System)
+
+# Everything else depends on Support and System:
+set(LLVM_COMMON_DEPENDS ${LLVM_COMMON_DEPENDS} ${LLVM_LIBS} )
+
+add_subdirectory(utils/TableGen)
+
+add_custom_command(OUTPUT ${llvm_builded_incs_dir}/Intrinsics.gen
+  COMMAND tblgen -gen-intrinsic -I ${LLVM_MAIN_INCLUDE_DIR} ${LLVM_MAIN_INCLUDE_DIR}/llvm/Intrinsics.td -o ${llvm_builded_incs_dir}/Intrinsics.gen
+  DEPENDS tblgen
+  COMMENT "Building intrinsics.gen...")
+
+add_custom_target(intrinsics_gen ALL
+  DEPENDS ${llvm_builded_incs_dir}/Intrinsics.gen)
+
+set(LLVM_COMMON_DEPENDS ${LLVM_COMMON_DEPENDS} intrinsics_gen )
+
+add_subdirectory(lib/VMCore)
+add_subdirectory(lib/CodeGen)
+add_subdirectory(lib/CodeGen/SelectionDAG)
+add_subdirectory(lib/CodeGen/AsmPrinter)
+add_subdirectory(lib/Bitcode/Reader)
+add_subdirectory(lib/Bitcode/Writer)
+add_subdirectory(lib/Transforms/Utils)
+add_subdirectory(lib/Transforms/Instrumentation)
+add_subdirectory(lib/Transforms/Scalar)
+add_subdirectory(lib/Transforms/IPO)
+add_subdirectory(lib/Transforms/Hello)
+add_subdirectory(lib/Linker)
+add_subdirectory(lib/Analysis)
+add_subdirectory(lib/Analysis/IPA)
+
+foreach(t ${LLVM_TARGETS_TO_BUILD})
+  message(STATUS "Targeting ${t}")
+  add_subdirectory(lib/Target/${t})
+  if( EXISTS ${CMAKE_SOURCE_DIR}/lib/Target/${t}/AsmPrinter/CMakeLists.txt )
+    add_subdirectory(lib/Target/${t}/AsmPrinter)
+  endif( EXISTS ${CMAKE_SOURCE_DIR}/lib/Target/${t}/AsmPrinter/CMakeLists.txt )
+endforeach(t)
+
+add_subdirectory(lib/ExecutionEngine)
+add_subdirectory(lib/ExecutionEngine/Interpreter)
+add_subdirectory(lib/ExecutionEngine/JIT)
+add_subdirectory(lib/Target)
+add_subdirectory(lib/AsmParser)
+add_subdirectory(lib/Debugger)
+add_subdirectory(lib/Archive)
+
+add_subdirectory(tools)
+
+add_subdirectory(examples)
+
+install(DIRECTORY include
+  DESTINATION .
+  PATTERN ".svn" EXCLUDE
+  PATTERN "*.cmake" EXCLUDE
+  PATTERN "*.in" EXCLUDE
+  )
+
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include
+  DESTINATION .
+  )
+
+# TODO: make and install documentation.
