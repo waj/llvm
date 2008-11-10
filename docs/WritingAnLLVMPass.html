@@ -492,8 +492,7 @@ refering to function bodies in no predictable order, or adding and removing
 functions.  Because nothing is known about the behavior of <tt>ModulePass</tt>
 subclasses, no optimization can be done for their execution. A module pass
 can use function level passes (e.g. dominators) using getAnalysis interface
-<tt> getAnalysis&lt;DominatorTree&gt;(Function)</tt>, if the function pass
-does not require any module passes. </p> 
+<tt> getAnalysis&lt;DominatorTree&gt;(Function)</tt>. </p> 
 
 <p>To write a correct <tt>ModulePass</tt> subclass, derive from
 <tt>ModulePass</tt> and overload the <tt>runOnModule</tt> method with the
@@ -978,7 +977,7 @@ implement the virtual <tt>print</tt> method:</p>
 <div class="doc_text">
 
 <div class="doc_code"><pre>
-  <b>virtual void</b> print(std::ostream &amp;O, <b>const</b> Module *M) <b>const</b>;
+  <b>virtual void</b> print(llvm::OStream &amp;O, <b>const</b> Module *M) <b>const</b>;
 </pre></div>
 
 <p>The <tt>print</tt> method must be implemented by "analyses" in order to print
@@ -1663,7 +1662,7 @@ MachinePassRegistry RegisterMyPasses::Registry;
 
 <div class="doc_code"><pre>
   cl::opt&lt;RegisterMyPasses::FunctionPassCtor, false,
-          RegisterPassParser&lt;RegisterMyPasses&gt; &gt;
+          RegisterPassParser&lt;RegisterMyPasses&gt &gt
   MyPassOpt("mypass",
             cl::init(&amp;createDefaultMyPass),
             cl::desc("my pass option help")); 

@@ -29,39 +29,32 @@ class User;
 //                          Generic Tagging Functions
 //===----------------------------------------------------------------------===//
 
-// We adhere to the following convention: The type of a tagged pointer
-// to T is T volatile*. This means that functions that superpose a tag
-// on a pointer will be supplied a T* (or T const*) and will return a
-// tagged one: T volatile*. Untagging functions do it the other way
-// 'round. While this scheme does not prevent dereferencing of tagged
-// pointers, proper type annotations do catch most inappropriate uses.
-
 /// Tag - generic tag type for (at least 32 bit) pointers
 enum Tag { noTag, tagOne, tagTwo, tagThree };
 
 /// addTag - insert tag bits into an (untagged) pointer
 template <typename T, typename TAG>
-inline volatile T *addTag(const T *P, TAG Tag) {
-  return reinterpret_cast<T*>(ptrdiff_t(P) | Tag);
+inline T *addTag(const T *P, TAG Tag) {
+    return reinterpret_cast<T*>(ptrdiff_t(P) | Tag);
 }
 
 /// stripTag - remove tag bits from a pointer,
 /// making it dereferencable
 template <ptrdiff_t MASK, typename T>
-inline T *stripTag(const volatile T *P) {
+inline T *stripTag(const T *P) {
   return reinterpret_cast<T*>(ptrdiff_t(P) & ~MASK);
 }
 
 /// extractTag - extract tag bits from a pointer
 template <typename TAG, TAG MASK, typename T>
-inline TAG extractTag(const volatile T *P) {
+inline TAG extractTag(const T *P) {
   return TAG(ptrdiff_t(P) & MASK);
 }
 
 /// transferTag - transfer tag bits from a pointer,
 /// to an untagged pointer
 template <ptrdiff_t MASK, typename T>
-inline volatile T *transferTag(const volatile T *From, const T *To) {
+inline T *transferTag(const T *From, const T *To) {
   return reinterpret_cast<T*>((ptrdiff_t(From) & MASK) | ptrdiff_t(To));
 }
 
@@ -70,9 +63,13 @@ inline volatile T *transferTag(const volatile T *From, const T *To) {
 //                                  Use Class
 //===----------------------------------------------------------------------===//
 
-/// Use is here to make keeping the "use" list of a Value up-to-date really
-/// easy.
+// Use is here to make keeping the "use" list of a Value up-to-date really easy.
+//
 class Use {
+private:
+  /// init - specify Value and User
+  /// @deprecated in 2.4, will be removed soon
+  inline void init(Value *V, User *U);
 public:
   /// swap - provide a fast substitute to std::swap<Use>
   /// that also works with less standard-compliant compilers
@@ -87,8 +84,9 @@ private:
     if (Val) removeFromList();
   }
 
-  /// Default ctor - This leaves the Use completely uninitialized.  The only
-  /// thing that is valid to do with this use is to call the "init" method.
+  /// Default ctor - This leaves the Use completely uninitialized.  The only thing
+  /// that is valid to do with this use is to call the "init" method.
+
   inline Use() {}
   enum PrevPtrTag { zeroDigitTag = noTag
                   , oneDigitTag = tagOne
@@ -96,16 +94,12 @@ private:
                   , fullStopTag = tagThree };
 
 public:
-  /// Normally Use will just implicitly convert to a Value* that it holds.
   operator Value*() const { return Val; }
-  
-  /// If implicit conversion to Value* doesn't work, the get() method returns
-  /// the Value*.
   Value *get() const { return Val; }
-  
-  /// getUser - This returns the User that contains this Use.  For an
-  /// instruction operand, for example, this will return the instruction.
   User *getUser() const;
+  const Use* getImpliedUser() const;
+  static Use *initTags(Use *Start, Use *Stop, ptrdiff_t Done = 0);
+  static void zap(Use *Start, const Use *Stop, bool del = false);
 
   inline void set(Value *Val);
 
@@ -122,18 +116,9 @@ public:
   const Value *operator->() const { return Val; }
 
   Use *getNext() const { return Next; }
-
-  
-  /// zap - This is used to destroy Use operands when the number of operands of
-  /// a User changes.
-  static void zap(Use *Start, const Use *Stop, bool del = false);
-
 private:
-  const Use* getImpliedUser() const;
-  static Use *initTags(Use *Start, Use *Stop, ptrdiff_t Done = 0);
-  
   Value *Val;
-  Use *Next, *volatile*Prev;
+  Use *Next, **Prev;
 
   void setPrev(Use **NewPrev) {
     Prev = transferTag<fullStopTag>(Prev, NewPrev);
@@ -151,7 +136,6 @@ private:
   }
 
   friend class Value;
-  friend class User;
 };
 
 // simplify_type - Allow clients to treat uses just like values when using

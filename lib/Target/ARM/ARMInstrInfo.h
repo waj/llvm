@@ -16,7 +16,6 @@
 
 #include "llvm/Target/TargetInstrInfo.h"
 #include "ARMRegisterInfo.h"
-#include "ARM.h"
 
 namespace llvm {
   class ARMSubtarget;
@@ -30,7 +29,8 @@ namespace ARMII {
     // Instruction Flags.
 
     //===------------------------------------------------------------------===//
-    // This four-bit field describes the addressing mode used.
+    // This three-bit field describes the addressing mode used.  Zero is unused
+    // so that we can tell if we forgot to set a value.
 
     AddrModeMask  = 0xf,
     AddrModeNone  = 0,
@@ -42,7 +42,7 @@ namespace ARMII {
     AddrModeT1    = 6,
     AddrModeT2    = 7,
     AddrModeT4    = 8,
-    AddrModeTs    = 9,  // i8 * 4 for pc and sp relative data
+    AddrModeTs    = 9,   // i8 * 4 for pc and sp relative data
 
     // Size* - Flags to keep track of the size of an instruction.
     SizeShift     = 4,
@@ -59,71 +59,70 @@ namespace ARMII {
     IndexModePre   = 1,
     IndexModePost  = 2,
     
-    //===------------------------------------------------------------------===//
-    // Misc flags.
-
-    // UnaryDP - Indicates this is a unary data processing instruction, i.e.
-    // it doesn't have a Rn operand.
-    UnaryDP       = 1 << 9,
-
-    //===------------------------------------------------------------------===//
-    // Instruction encoding formats.
-    //
-    FormShift   = 10,
-    FormMask    = 0xf << FormShift,
+    // Opcode
+    OpcodeShift   = 9,
+    OpcodeMask    = 0xf << OpcodeShift,
+    
+    // Format
+    FormShift   = 13,
+    FormMask    = 31 << FormShift,
 
     // Pseudo instructions
     Pseudo      = 1 << FormShift,
 
     // Multiply instructions
     MulFrm      = 2 << FormShift,
+    MulSMLAW    = 3 << FormShift,
+    MulSMULW    = 4 << FormShift,
+    MulSMLA     = 5 << FormShift,
+    MulSMUL     = 6 << FormShift,
 
     // Branch instructions
-    BrFrm       = 3 << FormShift,
-    BrMiscFrm   = 4 << FormShift,
+    Branch      = 7 << FormShift,
+    BranchMisc  = 8 << FormShift,
 
     // Data Processing instructions
-    DPFrm       = 5 << FormShift,
-    DPSoRegFrm  = 6 << FormShift,
+    DPRdIm      = 9 << FormShift,
+    DPRdReg     = 10 << FormShift,
+    DPRdSoReg   = 11 << FormShift,
+    DPRdMisc    = 12 << FormShift,
+
+    DPRnIm      = 13 << FormShift,
+    DPRnReg     = 14 << FormShift,
+    DPRnSoReg   = 15 << FormShift,
+
+    DPRIm       = 16 << FormShift,
+    DPRReg      = 17 << FormShift,
+    DPRSoReg    = 18 << FormShift,
+
+    DPRImS      = 19 << FormShift,
+    DPRRegS     = 20 << FormShift,
+    DPRSoRegS   = 21 << FormShift,
 
     // Load and Store
-    LdFrm       = 7  << FormShift,
-    StFrm       = 8  << FormShift,
-    LdMiscFrm   = 9  << FormShift,
-    StMiscFrm   = 10 << FormShift,
-    LdMulFrm    = 11 << FormShift,
-    StMulFrm    = 12 << FormShift,
+    LdFrm       = 22 << FormShift,
+    StFrm       = 23 << FormShift,
 
     // Miscellaneous arithmetic instructions
-    ArithMiscFrm= 13 << FormShift,
-
-    // Extend instructions
-    ExtFrm      = 14 << FormShift,
+    ArithMisc   = 24 << FormShift,
 
     // Thumb format
-    ThumbFrm    = 15 << FormShift,
+    ThumbFrm    = 25 << FormShift,
 
     // VFP format
-    VPFFrm      = 16 << FormShift,
+    VPFFrm      = 26 << FormShift,
 
-    //===------------------------------------------------------------------===//
     // Field shifts - such shifts are used to set field while generating
     // machine instructions.
-    ShiftShift     = 7,
-    SoRotImmShift  = 8,
-    RegRsShift     = 8,
-    ExtRotImmShift = 10,
-    RegRdLoShift   = 12,
-    RegRdShift     = 12,
-    RegRdHiShift   = 16,
-    RegRnShift     = 16,
-    S_BitShift     = 20,
-    W_BitShift     = 21,
-    AM3_I_BitShift = 22,
-    U_BitShift     = 23,
-    P_BitShift     = 24,
-    I_BitShift     = 25,
-    CondShift      = 28
+    RotImmShift = 8,
+    RegRsShift  = 8,
+    RegRdShift  = 12,
+    RegRnShift  = 16,
+    L_BitShift  = 20,
+    S_BitShift  = 20,
+    U_BitShift  = 23,
+    IndexShift  = 24,
+    I_BitShift  = 25
   };
 }
 
@@ -198,31 +197,25 @@ public:
   
   virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
                                           MachineInstr* MI,
-                                          const SmallVectorImpl<unsigned> &Ops,
+                                          SmallVectorImpl<unsigned> &Ops,
                                           int FrameIndex) const;
 
   virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
                                           MachineInstr* MI,
-                                          const SmallVectorImpl<unsigned> &Ops,
+                                          SmallVectorImpl<unsigned> &Ops,
                                           MachineInstr* LoadMI) const {
     return 0;
   }
 
-  virtual bool canFoldMemoryOperand(const MachineInstr *MI,
-                                    const SmallVectorImpl<unsigned> &Ops) const;
+  virtual bool canFoldMemoryOperand(MachineInstr *MI,
+                                    SmallVectorImpl<unsigned> &Ops) const;
   
-  virtual bool BlockHasNoFallThrough(const MachineBasicBlock &MBB) const;
+  virtual bool BlockHasNoFallThrough(MachineBasicBlock &MBB) const;
   virtual
   bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const;
 
   // Predication support.
   virtual bool isPredicated(const MachineInstr *MI) const;
-
-  ARMCC::CondCodes getPredicate(const MachineInstr *MI) const {
-    int PIdx = MI->findFirstPredOperandIdx();
-    return PIdx != -1 ? (ARMCC::CondCodes)MI->getOperand(PIdx).getImm() 
-                      : ARMCC::AL;
-  }
 
   virtual
   bool PredicateInstruction(MachineInstr *MI,

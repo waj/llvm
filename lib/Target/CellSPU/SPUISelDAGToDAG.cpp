@@ -31,6 +31,8 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Compiler.h"
+#include <queue>
+#include <set>
 
 using namespace llvm;
 
@@ -296,6 +298,7 @@ public:
       if (!SelectDFormAddr(Op, Op, Op0, Op1)
           && !SelectAFormAddr(Op, Op, Op0, Op1)) {
         Op0 = Op;
+        AddToISelQueue(Op0);     // r+0.
         Op1 = getSmallIPtrImm(0);
       }
       break;
@@ -343,7 +346,7 @@ SPUDAGToDAGISel::InstructionSelect()
   DEBUG(BB->dump());
 
   // Select target instructions for the DAG.
-  SelectRoot(*CurDAG);
+  SelectRoot();
   CurDAG->RemoveDeadNodes();
 }
 
@@ -608,6 +611,8 @@ SPUDAGToDAGISel::Select(SDValue Op) {
       Ops[0] = CurDAG->getRegister(SPU::R1, PtrVT);
       Ops[1] = CurDAG->getConstant(FI, PtrVT);
       n_ops = 2;
+
+      AddToISelQueue(Ops[1]);
     }
   } else if (Opc == ISD::ZERO_EXTEND) {
     // (zero_extend:i16 (and:i8 <arg>, <const>))
@@ -640,16 +645,19 @@ SPUDAGToDAGISel::Select(SDValue Op) {
       abort();
     }
 
+    AddToISelQueue(Arg);
     Opc = vtm->ldresult_ins;
     if (vtm->ldresult_imm) {
       SDValue Zero = CurDAG->getTargetConstant(0, VT);
 
+      AddToISelQueue(Zero);
       Result = CurDAG->getTargetNode(Opc, VT, MVT::Other, Arg, Zero, Chain);
     } else {
       Result = CurDAG->getTargetNode(Opc, MVT::Other, Arg, Arg, Chain);
     }
 
     Chain = SDValue(Result, 1);
+    AddToISelQueue(Chain);
 
     return Result;
   } else if (Opc == SPUISD::IndirectAddr) {
@@ -670,6 +678,8 @@ SPUDAGToDAGISel::Select(SDValue Op) {
         ConstantSDNode *CN = cast<ConstantSDNode>(Op1);
         Op1 = CurDAG->getTargetConstant(CN->getZExtValue(), VT);
         NewOpc = (isI32IntS10Immediate(CN) ? SPU::AIr32 : SPU::Ar32);
+        AddToISelQueue(Op0);
+        AddToISelQueue(Op1);
         Ops[0] = Op0;
         Ops[1] = Op1;
         n_ops = 2;

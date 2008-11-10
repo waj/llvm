@@ -84,6 +84,9 @@ inline Attributes constructAlignmentFromInt(unsigned i) {
 std::string getAsString(Attributes Attrs);
 } // end namespace Attribute
 
+namespace Attribute {
+} // end namespace Attribute
+
 /// This is just a pair of values to associate a set of attributes
 /// with an index. 
 struct AttributeWithIndex {
@@ -159,7 +162,7 @@ public:
     return getAttributes(0);
   }
 
-  /// getFnAttributes - The function attributes are returned.
+  /// getFnAttributes - The function attributes are  returned. 
   Attributes getFnAttributes() const {
     return getAttributes(~0);
   }

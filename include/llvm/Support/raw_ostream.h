@@ -1,4 +1,4 @@
-//===--- raw_ostream.h - Raw output stream ----------------------*- C++ -*-===//
+//===--- raw_ostream.h - Raw output stream --------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -152,10 +152,9 @@ class raw_fd_ostream : public raw_ostream {
   int FD;
   bool ShouldClose;
 public:
-  /// raw_fd_ostream - Open the specified file for writing. If an
-  /// error occurs, information about the error is put into ErrorInfo,
-  /// and the stream should be immediately destroyed; the string will
-  /// be empty if no error occurred.
+  /// raw_fd_ostream - Open the specified file for writing.  If an error occurs,
+  /// information about the error is put into ErrorInfo, and the stream should
+  /// be immediately destroyed.
   raw_fd_ostream(const char *Filename, std::string &ErrorInfo);
   
   /// raw_fd_ostream ctor - FD is the file descriptor that this writes to.  If
@@ -168,9 +167,6 @@ public:
   /// subclasses.  This outputs the currently buffered data and resets the
   /// buffer to empty.
   virtual void flush_impl();
-  
-  /// close - Manually flush the stream and close the file.
-  void close();  
 };
   
 /// raw_stdout_ostream - This is a stream that always prints to stdout.

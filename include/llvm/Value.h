@@ -253,6 +253,11 @@ inline raw_ostream &operator<<(raw_ostream &OS, const Value &V) {
   return OS;
 }
   
+void Use::init(Value *V, User *) {
+  Val = V;
+  if (V) V->addUse(*this);
+}
+
 void Use::set(Value *V) {
   if (Val) removeFromList();
   Val = V;
@@ -289,8 +294,7 @@ template <> inline bool isa_impl<GlobalAlias, Value>(const Value &Val) {
   return Val.getValueID() == Value::GlobalAliasVal;
 }
 template <> inline bool isa_impl<GlobalValue, Value>(const Value &Val) {
-  return isa<GlobalVariable>(Val) || isa<Function>(Val) ||
-         isa<GlobalAlias>(Val);
+  return isa<GlobalVariable>(Val) || isa<Function>(Val) || isa<GlobalAlias>(Val);
 }
 
 } // End llvm namespace

@@ -28,7 +28,7 @@ using namespace llvm;
 
 static cl::opt<unsigned>     
 BasicInlineThreshold("inline-threshold", cl::Hidden, cl::init(200),
-   cl::desc("Control the amount of basic inlining to perform (default = 200)"));
+                     cl::desc("Control the amount of basic inlining to perform (default = 200)"));
 
 namespace llvm {
 
@@ -95,43 +95,31 @@ void BasicInlinerImpl::inlineFunctions() {
   bool Changed = false;
   do {
     Changed = false;
-    for (unsigned index = 0; index != CallSites.size() && !CallSites.empty(); 
-         ++index) {
+    for (unsigned index = 0; index != CallSites.size() && !CallSites.empty(); ++index) {
       CallSite CS = CallSites[index];
       if (Function *Callee = CS.getCalledFunction()) {
         
-        // Eliminate calls that are never inlinable.
+        // Eliminate calls taht are never inlinable.
         if (Callee->isDeclaration() ||
             CS.getInstruction()->getParent()->getParent() == Callee) {
           CallSites.erase(CallSites.begin() + index);
-          --index;
-          continue;
+              --index;
+              continue;
         }
-        InlineCost IC = CA.getInlineCost(CS, NeverInline);
-        if (IC.isAlways()) {        
-          DOUT << "  Inlining: cost=always"
-               <<", call: " << *CS.getInstruction();
-        } else if (IC.isNever()) {
-          DOUT << "  NOT Inlining: cost=never"
-               <<", call: " << *CS.getInstruction();
-          continue;
-        } else {
-          int Cost = IC.getValue();
-          
-          if (Cost >= (int) BasicInlineThreshold) {
-            DOUT << "  NOT Inlining: cost = " << Cost
-                 << ", call: " <<  *CS.getInstruction();
-            continue;
-          } else {
-            DOUT << "  Inlining: cost = " << Cost
-                 << ", call: " <<  *CS.getInstruction();
-          }
+        int InlineCost = CA.getInlineCost(CS, NeverInline);
+        if (InlineCost >= (int) BasicInlineThreshold) {
+              DOUT << "  NOT Inlining: cost = " << InlineCost
+                   << ", call: " <<  *CS.getInstruction();
+              continue;
         }
+        
+        DOUT << "  Inlining: cost=" << InlineCost
+             <<", call: " << *CS.getInstruction();
         
         // Inline
         if (InlineFunction(CS, NULL, TD)) {
           if (Callee->use_empty() && Callee->hasInternalLinkage())
-            DeadFunctions.insert(Callee);
+                DeadFunctions.insert(Callee);
           Changed = true;
           CallSites.erase(CallSites.begin() + index);
           --index;

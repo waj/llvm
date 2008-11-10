@@ -24,7 +24,7 @@ macro(add_partially_linked_object lib)
       DEPENDS ${lib}
       WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/temp_lib
       COMMAND ar x ${CMAKE_STATIC_LIBRARY_PREFIX}${lib}${CMAKE_STATIC_LIBRARY_SUFFIX}
-      COMMAND ${CMAKE_LINKER} "${LLVM_PLO_FLAGS}" -r "*${CMAKE_CXX_OUTPUT_EXTENSION}" -o ${pll}
+      COMMAND ld -r *${CMAKE_CXX_OUTPUT_EXTENSION} -o ${pll}
       COMMAND rm -f *${CMAKE_CXX_OUTPUT_EXTENSION}
       )
     target_name_of_partially_linked_object(${lib} tnplo)
@@ -32,6 +32,4 @@ macro(add_partially_linked_object lib)
     set( llvm_libs ${llvm_libs} ${pll} PARENT_SCOPE)
     set( llvm_lib_targets ${llvm_lib_targets} ${tnplo} PARENT_SCOPE )
   endif( MSVC )
-  install(FILES ${pll}
-    DESTINATION lib)
 endmacro(add_partially_linked_object lib)

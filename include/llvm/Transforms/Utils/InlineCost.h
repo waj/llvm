@@ -11,11 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TRANSFORMS_UTILS_INLINECOST_H
-#define LLVM_TRANSFORMS_UTILS_INLINECOST_H
+#ifndef INLINECOST_H
+#define INLINECOST_H
 
 #include "llvm/ADT/SmallPtrSet.h"
-#include <cassert>
 #include <map>
 #include <vector>
 
@@ -25,41 +24,6 @@ namespace llvm {
   class Function;
   class CallSite;
 
-  /// InlineCost - Represent the cost of inlining a function. This
-  /// supports special values for functions which should "always" or
-  /// "never" be inlined. Otherwise, the cost represents a unitless
-  /// amount; smaller values increase the likelyhood of the function
-  /// being inlined.
-  class InlineCost {
-    enum Kind {
-      Value,
-      Always,
-      Never
-    };
-
-    int Cost : 30;
-    unsigned Type :  2;
-
-    InlineCost(int C, int T) : Cost(C), Type(T) {
-      assert(Cost == C && "Cost exceeds InlineCost precision");
-    }
-  public:
-    static InlineCost get(int Cost) { return InlineCost(Cost, Value); }
-    static InlineCost getAlways() { return InlineCost(0, Always); }
-    static InlineCost getNever() { return InlineCost(0, Never); } 
-
-    bool isVariable() const { return Type == Value; }
-    bool isAlways() const { return Type == Always; }
-    bool isNever() const { return Type == Never; }
-
-    /// getValue() - Return a "variable" inline cost's amount. It is
-    /// an error to call this on an "always" or "never" InlineCost.
-    int getValue() const { 
-      assert(Type == Value && "Invalid access of InlineCost");
-      return Cost;
-    }
-  };
-  
   /// InlineCostAnalyzer - Cost analyzer used by inliner.
   class InlineCostAnalyzer {
     struct ArgInfo {
@@ -82,7 +46,7 @@ namespace llvm {
       /// is used to estimate the code size cost of inlining it.
       unsigned NumInsts, NumBlocks;
 
-      /// NumVectorInsts - Keep track of how many instructions produce vector
+      /// NumVectorInsts - Keep track how many instrctions produce vector
       /// values.  The inliner is being more aggressive with inlining vector
       /// kernels.
       unsigned NumVectorInsts;
@@ -119,8 +83,8 @@ namespace llvm {
     /// getInlineCost - The heuristic used to determine if we should inline the
     /// function call or not.
     ///
-    InlineCost getInlineCost(CallSite CS,
-                             SmallPtrSet<const Function *, 16> &NeverInline);
+    int getInlineCost(CallSite CS,
+                      SmallPtrSet<const Function *, 16> &NeverInline);
 
     /// getInlineFudgeFactor - Return a > 1.0 factor if the inliner should use a
     /// higher threshold to determine if the function call should be inlined.

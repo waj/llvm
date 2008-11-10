@@ -8,8 +8,6 @@ add_llvm_library(LLVMAnalysis
   BasicAliasAnalysis.cpp
   CFGPrinter.cpp
   ConstantFolding.cpp
-  DebugInfo.cpp
-  EscapeAnalysis.cpp
   InstCount.cpp
   Interval.cpp
   IntervalPartition.cpp

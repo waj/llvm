@@ -1592,12 +1592,16 @@ bool BitcodeReader::ParseFunctionBody(Function *F) {
           getValue(Record, OpNum, Vec1->getType(), Vec2))
         return Error("Invalid SHUFFLEVEC record");
 
-      if (getValueTypePair(Record, OpNum, NextValueNo, Mask))
+      const Type *MaskTy =
+        VectorType::get(Type::Int32Ty, 
+                        cast<VectorType>(Vec1->getType())->getNumElements());
+
+      if (getValue(Record, OpNum, MaskTy, Mask))
         return Error("Invalid SHUFFLEVEC record");
       I = new ShuffleVectorInst(Vec1, Vec2, Mask);
       break;
     }
-
+      
     case bitc::FUNC_CODE_INST_CMP: { // CMP: [opty, opval, opval, pred]
       // VFCmp/VICmp
       // or old form of ICmp/FCmp returning bool

@@ -16,14 +16,12 @@
 
 #include "llvm/BasicBlock.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 
 namespace llvm {
 
 class AllocaInst;
 class ConstantFP;
-class Instruction;
 class MachineBasicBlock;
 class MachineConstantPool;
 class MachineFunction;
@@ -46,9 +44,6 @@ protected:
   DenseMap<const Value *, unsigned> &ValueMap;
   DenseMap<const BasicBlock *, MachineBasicBlock *> &MBBMap;
   DenseMap<const AllocaInst *, int> &StaticAllocaMap;
-#ifndef NDEBUG
-  SmallSet<Instruction*, 8> &CatchInfoLost;
-#endif
   MachineFunction &MF;
   MachineModuleInfo *MMI;
   MachineRegisterInfo &MRI;
@@ -113,11 +108,7 @@ protected:
            MachineModuleInfo *mmi,
            DenseMap<const Value *, unsigned> &vm,
            DenseMap<const BasicBlock *, MachineBasicBlock *> &bm,
-           DenseMap<const AllocaInst *, int> &am
-#ifndef NDEBUG
-           , SmallSet<Instruction*, 8> &cil
-#endif
-           );
+           DenseMap<const AllocaInst *, int> &am);
 
   /// FastEmit_r - This method is called by target-independent code
   /// to request that an instruction with the given type and opcode

@@ -73,7 +73,7 @@ namespace ISD {
     // EntryToken - This is the marker used to indicate the start of the region.
     EntryToken,
 
-    // TokenFactor - This node takes multiple tokens as input and produces a
+    // Token factor - This node takes multiple tokens as input and produces a
     // single token result.  This is used to represent the fact that the operand
     // operators are independent of each other.
     TokenFactor,
@@ -326,21 +326,19 @@ namespace ISD {
     // Counting operators
     CTTZ, CTLZ, CTPOP,
 
-    // Select(COND, TRUEVAL, FALSEVAL).  If the type of the boolean COND is not
-    // i1 then the high bits must conform to getSetCCResultContents.
-    SELECT,
-
+    // Select(COND, TRUEVAL, FALSEVAL)
+    SELECT, 
+    
     // Select with condition operator - This selects between a true value and 
     // a false value (ops #2 and #3) based on the boolean result of comparing
     // the lhs and rhs (ops #0 and #1) of a conditional expression with the 
     // condition code in op #4, a CondCodeSDNode.
     SELECT_CC,
 
-    // SetCC operator - This evaluates to a true value iff the condition is
-    // true.  If the result value type is not i1 then the high bits conform
-    // to getSetCCResultContents.  The operands to this are the left and right
-    // operands to compare (ops #0, and #1) and the condition code to compare
-    // them with (op #2) as a CondCodeSDNode.
+    // SetCC operator - This evaluates to a boolean (i1) true value if the
+    // condition is true.  The operands to this are the left and right operands
+    // to compare (ops #0, and #1) and the condition code to compare them with
+    // (op #2) as a CondCodeSDNode.
     SETCC,
 
     // Vector SetCC operator - This evaluates to a vector of integer elements
@@ -468,11 +466,10 @@ namespace ISD {
     // BR_JT - Jumptable branch. The first operand is the chain, the second
     // is the jumptable index, the last one is the jumptable entry index.
     BR_JT,
-
-    // BRCOND - Conditional branch.  The first operand is the chain, the
-    // second is the condition, the third is the block to branch to if the
-    // condition is true.  If the type of the condition is not i1, then the
-    // high bits must conform to getSetCCResultContents.
+    
+    // BRCOND - Conditional branch.  The first operand is the chain,
+    // the second is the condition, the third is the block to branch
+    // to if the condition is true.
     BRCOND,
 
     // BR_CC - Conditional branch.  The behavior is like that of SELECT_CC, in
@@ -737,7 +734,7 @@ namespace ISD {
     EXTLOAD,
     SEXTLOAD,
     ZEXTLOAD,
-    LAST_LOADEXT_TYPE
+    LAST_LOADX_TYPE
   };
 
   //===--------------------------------------------------------------------===//
@@ -1527,10 +1524,6 @@ public:
             const Value *srcValue, int SVOff,
             unsigned alignment, bool isvolatile);
 
-  MemSDNode(unsigned Opc, SDVTList VTs, const SDValue *Ops, unsigned NumOps,
-            MVT MemoryVT, const Value *srcValue, int SVOff,
-            unsigned alignment, bool isvolatile);
-
   /// Returns alignment and volatility of the memory access
   unsigned getAlignment() const { return (1u << (Flags >> 1)) >> 1; }
   bool isVolatile() const { return Flags & 1; }
@@ -1558,8 +1551,6 @@ public:
   // Methods to support isa and dyn_cast
   static bool classof(const MemSDNode *) { return true; }
   static bool classof(const SDNode *N) {
-    // For some targets, we lower some target intrinsics to a MemIntrinsicNode
-    // with either an intrinsic or a target opcode.
     return N->getOpcode() == ISD::LOAD                ||
            N->getOpcode() == ISD::STORE               ||
            N->getOpcode() == ISD::ATOMIC_CMP_SWAP_8   ||
@@ -1612,16 +1603,11 @@ public:
            N->getOpcode() == ISD::ATOMIC_LOAD_MIN_64  ||
            N->getOpcode() == ISD::ATOMIC_LOAD_MAX_64  ||
            N->getOpcode() == ISD::ATOMIC_LOAD_UMIN_64 ||
-           N->getOpcode() == ISD::ATOMIC_LOAD_UMAX_64 ||
-           
-           N->getOpcode() == ISD::INTRINSIC_W_CHAIN   ||
-           N->getOpcode() == ISD::INTRINSIC_VOID      ||
-           N->isTargetOpcode();
+           N->getOpcode() == ISD::ATOMIC_LOAD_UMAX_64;
   }  
 };
 
-/// AtomicSDNode - A SDNode reprenting atomic operations.
-///
+/// Atomic operations node
 class AtomicSDNode : public MemSDNode {
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
   SDUse Ops[4];
@@ -1721,36 +1707,6 @@ class AtomicSDNode : public MemSDNode {
   }
 };
 
-/// MemIntrinsicSDNode - This SDNode is used for target intrinsic that touches
-/// memory and need an associated memory operand.
-///
-class MemIntrinsicSDNode : public MemSDNode {
-  virtual void ANCHOR();  // Out-of-line virtual method to give class a home.  
-  bool ReadMem;  // Intrinsic reads memory
-  bool WriteMem; // Intrinsic writes memory
-  public:
-  MemIntrinsicSDNode(unsigned Opc, SDVTList VTs,
-                     const SDValue *Ops, unsigned NumOps,
-                     MVT MemoryVT, const Value *srcValue, int SVO,
-                     unsigned Align, bool Vol, bool ReadMem, bool WriteMem)
-    : MemSDNode(Opc, VTs, Ops, NumOps, MemoryVT, srcValue, SVO, Align, Vol),
-      ReadMem(ReadMem), WriteMem(WriteMem) {
-  }
-
-  bool readMem() const { return ReadMem; }
-  bool writeMem() const { return WriteMem; }
-
-  // Methods to support isa and dyn_cast
-  static bool classof(const MemIntrinsicSDNode *) { return true; }
-  static bool classof(const SDNode *N) {
-    // We lower some target intrinsics to their target opcode
-    // early a node with a target opcode can be of this class
-    return N->getOpcode() == ISD::INTRINSIC_W_CHAIN ||
-           N->getOpcode() == ISD::INTRINSIC_VOID ||
-           N->isTargetOpcode();
-  }
-};
-
 class ConstantSDNode : public SDNode {
   const ConstantInt *Value;
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
@@ -1800,13 +1756,12 @@ public:
   /// convenient to write "2.0" and the like.  Without this function we'd 
   /// have to duplicate its logic everywhere it's called.
   bool isExactlyValue(double V) const {
-    bool ignored;
     // convert is not supported on this type
     if (&Value->getValueAPF().getSemantics() == &APFloat::PPCDoubleDouble)
       return false;
     APFloat Tmp(V);
     Tmp.convert(Value->getValueAPF().getSemantics(),
-                APFloat::rmNearestTiesToEven, &ignored);
+                APFloat::rmNearestTiesToEven);
     return isExactlyValue(Tmp);
   }
   bool isExactlyValue(const APFloat& V) const;
@@ -1822,16 +1777,15 @@ public:
 
 class GlobalAddressSDNode : public SDNode {
   GlobalValue *TheGlobal;
-  int64_t Offset;
+  int Offset;
   virtual void ANCHOR();  // Out-of-line virtual method to give class a home.
 protected:
   friend class SelectionDAG;
-  GlobalAddressSDNode(bool isTarget, const GlobalValue *GA, MVT VT,
-                      int64_t o = 0);
+  GlobalAddressSDNode(bool isTarget, const GlobalValue *GA, MVT VT, int o = 0);
 public:
 
   GlobalValue *getGlobal() const { return TheGlobal; }
-  int64_t getOffset() const { return Offset; }
+  int getOffset() const { return Offset; }
 
   static bool classof(const GlobalAddressSDNode *) { return true; }
   static bool classof(const SDNode *N) {

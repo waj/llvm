@@ -39,7 +39,7 @@ class MachineRelocation {
   enum AddressType {
     isResult,         // Relocation has be transformed into its result pointer.
     isGV,             // The Target.GV field is valid.
-    isIndirectSym,    // Relocation of an indirect symbol.
+    isGVLazyPtr,      // Relocation of a lazily resolved GV address.
     isBB,             // Relocation of BB address.
     isExtSym,         // The Target.ExtSym field is valid.
     isConstPool,      // Relocation of constant pool address.
@@ -56,18 +56,17 @@ class MachineRelocation {
 
   union {
     void *Result;           // If this has been resolved to a resolved pointer
-    GlobalValue *GV;        // If this is a pointer to a GV or an indirect ref.
+    GlobalValue *GV;        // If this is a pointer to a GV or a GV lazy ptr
     MachineBasicBlock *MBB; // If this is a pointer to a LLVM BB
     const char *ExtSym;     // If this is a pointer to a named symbol
     unsigned Index;         // Constant pool / jump table index
     unsigned GOTIndex;      // Index in the GOT of this symbol/global
   } Target;
 
-  unsigned TargetReloType : 6; // The target relocation ID
-  AddressType AddrType    : 4; // The field of Target to use
-  bool NeedStub           : 1; // True if this relocation requires a stub
+  unsigned TargetReloType : 6; // The target relocation ID.
+  AddressType AddrType    : 4; // The field of Target to use.
+  bool NeedStub           : 1; // True if this relocation requires a stub.
   bool GOTRelative        : 1; // Should this relocation be relative to the GOT?
-  bool TargetResolve      : 1; // True if target should resolve the address
 
 public:
  // Relocation types used in a generic implementation.  Currently, relocation
@@ -91,27 +90,25 @@ public:
     Result.AddrType = isGV;
     Result.NeedStub = NeedStub;
     Result.GOTRelative = GOTrelative;
-    Result.TargetResolve = false;
     Result.Target.GV = GV;
     return Result;
   }
 
-  /// MachineRelocation::getIndirectSymbol - Return a relocation entry for an
-  /// indirect symbol.
-  static MachineRelocation getIndirectSymbol(intptr_t offset,
-                                             unsigned RelocationType, 
-                                             GlobalValue *GV, intptr_t cst = 0,
-                                             bool NeedStub = 0,
-                                             bool GOTrelative = 0) {
+  /// MachineRelocation::getGVLazyPtr - Return a relocation entry for a
+  /// lazily resolved GlobalValue address.
+  static MachineRelocation getGVLazyPtr(intptr_t offset,
+                                 unsigned RelocationType, 
+                                 GlobalValue *GV, intptr_t cst = 0,
+                                 bool NeedStub = 0,
+                                 bool GOTrelative = 0) {
     assert((RelocationType & ~63) == 0 && "Relocation type too large!");
     MachineRelocation Result;
     Result.Offset = offset;
     Result.ConstantVal = cst;
     Result.TargetReloType = RelocationType;
-    Result.AddrType = isIndirectSym;
+    Result.AddrType = isGVLazyPtr;
     Result.NeedStub = NeedStub;
     Result.GOTRelative = GOTrelative;
-    Result.TargetResolve = false;
     Result.Target.GV = GV;
     return Result;
   }
@@ -128,7 +125,6 @@ public:
     Result.AddrType = isBB;
     Result.NeedStub = false;
     Result.GOTRelative = false;
-    Result.TargetResolve = false;
     Result.Target.MBB = MBB;
     return Result;
   }
@@ -147,7 +143,6 @@ public:
     Result.AddrType = isExtSym;
     Result.NeedStub = true;
     Result.GOTRelative = GOTrelative;
-    Result.TargetResolve = false;
     Result.Target.ExtSym = ES;
     return Result;
   }
@@ -156,8 +151,7 @@ public:
   /// pool entry.
   ///
   static MachineRelocation getConstPool(intptr_t offset,unsigned RelocationType,
-                                        unsigned CPI, intptr_t cst = 0,
-                                        bool letTargetResolve = false) {
+                                        unsigned CPI, intptr_t cst = 0) {
     assert((RelocationType & ~63) == 0 && "Relocation type too large!");
     MachineRelocation Result;
     Result.Offset = offset;
@@ -166,7 +160,6 @@ public:
     Result.AddrType = isConstPool;
     Result.NeedStub = false;
     Result.GOTRelative = false;
-    Result.TargetResolve = letTargetResolve;
     Result.Target.Index = CPI;
     return Result;
   }
@@ -175,8 +168,7 @@ public:
   /// table entry.
   ///
   static MachineRelocation getJumpTable(intptr_t offset,unsigned RelocationType,
-                                        unsigned JTI, intptr_t cst = 0,
-                                        bool letTargetResolve = false) {
+                                        unsigned JTI, intptr_t cst = 0) {
     assert((RelocationType & ~63) == 0 && "Relocation type too large!");
     MachineRelocation Result;
     Result.Offset = offset;
@@ -185,7 +177,6 @@ public:
     Result.AddrType = isJumpTable;
     Result.NeedStub = false;
     Result.GOTRelative = false;
-    Result.TargetResolve = letTargetResolve;
     Result.Target.Index = JTI;
     return Result;
   }
@@ -222,10 +213,10 @@ public:
     return AddrType == isGV;
   }
 
-  /// isIndirectSymbol - Return true if this relocation is the address an
-  /// indirect symbol
-  bool isIndirectSymbol() const {
-    return AddrType == isIndirectSym;
+  /// isGlobalValueVLazyPtr - Return true if this relocation is the address
+  /// of a lazily resolved GlobalValue.
+  bool isGlobalValueLazyPtr() const {
+    return AddrType == isGVLazyPtr;
   }
 
   /// isBasicBlock - Return true if this relocation is a basic block reference.
@@ -234,9 +225,9 @@ public:
     return AddrType == isBB;
   }
 
-  /// isExternalSymbol - Return true if this is a constant string.
+  /// isString - Return true if this is a constant string.
   ///
-  bool isExternalSymbol() const {
+  bool isString() const {
     return AddrType == isExtSym;
   }
 
@@ -266,16 +257,10 @@ public:
     return !NeedStub;
   }
 
-  /// letTargetResolve - Return true if the target JITInfo is usually
-  /// responsible for resolving the address of this relocation.
-  bool letTargetResolve() const {
-    return TargetResolve;
-  }
-
   /// getGlobalValue - If this is a global value reference, return the
   /// referenced global.
   GlobalValue *getGlobalValue() const {
-    assert((isGlobalValue() || isIndirectSymbol()) &&
+    assert((isGlobalValue() || isGlobalValueLazyPtr()) &&
            "This is not a global value reference!");
     return Target.GV;
   }
@@ -287,8 +272,8 @@ public:
 
   /// getString - If this is a string value, return the string reference.
   ///
-  const char *getExternalSymbol() const {
-    assert(isExternalSymbol() && "This is not an external symbol reference!");
+  const char *getString() const {
+    assert(isString() && "This is not a string reference!");
     return Target.ExtSym;
   }
 

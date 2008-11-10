@@ -28,6 +28,9 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/Support/Debug.h"
+#include <queue>
+#include <set>
+
 using namespace llvm;
 
 const char *PIC16TargetLowering:: getTargetNodeName(unsigned Opcode) const 
@@ -57,9 +60,9 @@ PIC16TargetLowering(PIC16TargetMachine &TM): TargetLowering(TM)
   addRegisterClass(MVT::i16, PIC16::PTRRegsRegisterClass);
 
   // Load extented operations for i1 types must be promoted .
-  setLoadExtAction(ISD::EXTLOAD, MVT::i1,  Promote);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1,  Promote);
+  setLoadXAction(ISD::EXTLOAD, MVT::i1,  Promote);
+  setLoadXAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i1,  Promote);
 
   setOperationAction(ISD::ADD, MVT::i1, Promote);
   setOperationAction(ISD::ADD, MVT::i8, Legal);

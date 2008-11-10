@@ -31,6 +31,9 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/Support/Debug.h"
+#include <queue>
+#include <set>
+
 using namespace llvm;
 
 const char *MipsTargetLowering::
@@ -79,9 +82,9 @@ MipsTargetLowering(MipsTargetMachine &TM): TargetLowering(TM)
   addLegalFPImmediate(APFloat(+0.0f));
 
   // Load extented operations for i1 types must be promoted 
-  setLoadExtAction(ISD::EXTLOAD,  MVT::i1,  Promote);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1,  Promote);
+  setLoadXAction(ISD::EXTLOAD,  MVT::i1,  Promote);
+  setLoadXAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i1,  Promote);
 
   // Used by legalize types to correctly generate the setcc result. 
   // Without this, every float setcc comes with a AND/OR with the result, 
@@ -1093,10 +1096,4 @@ getRegClassForInlineAsmConstraint(const std::string &Constraint,
                  Mips::D14, Mips::D15, 0);
   }
   return std::vector<unsigned>();
-}
-
-bool
-MipsTargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
-  // The Mips target isn't yet aware of offsets.
-  return false;
 }

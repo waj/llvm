@@ -1,4 +1,4 @@
-add_llvm_library(LLVMCore
+add_llvm_library(LLVMVMCore
   AsmWriter.cpp
   Attributes.cpp
   AutoUpgrade.cpp
@@ -20,7 +20,6 @@ add_llvm_library(LLVMCore
   ModuleProvider.cpp
   Pass.cpp
   PassManager.cpp
-  PrintModulePass.cpp
   Type.cpp
   TypeSymbolTable.cpp
   Use.cpp

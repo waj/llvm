@@ -13,6 +13,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineLocation.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
@@ -363,7 +364,7 @@ public:
     Field.resize(0);
     Constant *C = CI->getOperand(I++);
     GlobalVariable *GV = getGlobalVariable(C);
-    if (GV && GV->hasInitializer()) {
+    if (GV->hasInitializer()) {
       if (ConstantArray *CA = dyn_cast<ConstantArray>(GV->getInitializer())) {
         for (unsigned i = 0, N = CA->getNumOperands(); i < N; ++i) {
           GlobalVariable *GVE = getGlobalVariable(CA->getOperand(i));

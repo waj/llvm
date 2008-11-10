@@ -17,9 +17,9 @@
 
 // Sparc 32-bit C return-value convention.
 def RetCC_Sparc32 : CallingConv<[
-  CCIfType<[i32], CCAssignToReg<[I0, I1, I2, I3, I4, I5]>>,
-  CCIfType<[f32], CCAssignToReg<[F0, F1, F2, F3]>>,
-  CCIfType<[f64], CCAssignToReg<[D0, D1]>>
+  CCIfType<[i32], CCAssignToReg<[I0, I1]>>,
+  CCIfType<[f32], CCAssignToReg<[F0]>>,
+  CCIfType<[f64], CCAssignToReg<[D0]>>
 ]>;
 
 // Sparc 32-bit C Calling convention.

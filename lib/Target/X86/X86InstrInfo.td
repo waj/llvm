@@ -254,8 +254,10 @@ def i32immSExt8  : PatLeaf<(i32 imm), [{
 // Helper fragments for loads.
 // It's always safe to treat a anyext i16 load as a i32 load if the i16 is
 // known to be 32-bit aligned or better. Ditto for i8 to i16.
-def loadi16 : PatFrag<(ops node:$ptr), (i16 (unindexedload node:$ptr)), [{
+def loadi16 : PatFrag<(ops node:$ptr), (i16 (ld node:$ptr)), [{
   LoadSDNode *LD = cast<LoadSDNode>(N);
+  if (LD->getAddressingMode() != ISD::UNINDEXED)
+    return false;
   ISD::LoadExtType ExtType = LD->getExtensionType();
   if (ExtType == ISD::NON_EXTLOAD)
     return true;
@@ -264,16 +266,20 @@ def loadi16 : PatFrag<(ops node:$ptr), (i16 (unindexedload node:$ptr)), [{
   return false;
 }]>;
 
-def loadi16_anyext : PatFrag<(ops node:$ptr), (i32 (unindexedload node:$ptr)), [{
+def loadi16_anyext : PatFrag<(ops node:$ptr), (i32 (ld node:$ptr)), [{
   LoadSDNode *LD = cast<LoadSDNode>(N);
+  if (LD->getAddressingMode() != ISD::UNINDEXED)
+    return false;
   ISD::LoadExtType ExtType = LD->getExtensionType();
   if (ExtType == ISD::EXTLOAD)
     return LD->getAlignment() >= 2 && !LD->isVolatile();
   return false;
 }]>;
 
-def loadi32 : PatFrag<(ops node:$ptr), (i32 (unindexedload node:$ptr)), [{
+def loadi32 : PatFrag<(ops node:$ptr), (i32 (ld node:$ptr)), [{
   LoadSDNode *LD = cast<LoadSDNode>(N);
+  if (LD->getAddressingMode() != ISD::UNINDEXED)
+    return false;
   ISD::LoadExtType ExtType = LD->getExtensionType();
   if (ExtType == ISD::NON_EXTLOAD)
     return true;
@@ -282,9 +288,11 @@ def loadi32 : PatFrag<(ops node:$ptr), (i32 (unindexedload node:$ptr)), [{
   return false;
 }]>;
 
-def nvloadi32 : PatFrag<(ops node:$ptr), (i32 (unindexedload node:$ptr)), [{
+def nvloadi32 : PatFrag<(ops node:$ptr), (i32 (ld node:$ptr)), [{
   LoadSDNode *LD = cast<LoadSDNode>(N);
   if (LD->isVolatile())
+    return false;
+  if (LD->getAddressingMode() != ISD::UNINDEXED)
     return false;
   ISD::LoadExtType ExtType = LD->getExtensionType();
   if (ExtType == ISD::NON_EXTLOAD)
@@ -323,34 +331,6 @@ def extloadi32i16  : PatFrag<(ops node:$ptr), (i32 (extloadi16 node:$ptr))>;
 // An 'and' node with a single use.
 def and_su : PatFrag<(ops node:$lhs, node:$rhs), (and node:$lhs, node:$rhs), [{
   return N->hasOneUse();
-}]>;
-
-// 'shld' and 'shrd' instruction patterns. Note that even though these have
-// the srl and shl in their patterns, the C++ code must still check for them,
-// because predicates are tested before children nodes are explored.
-
-def shrd : PatFrag<(ops node:$src1, node:$amt1, node:$src2, node:$amt2),
-                   (or (srl node:$src1, node:$amt1),
-                       (shl node:$src2, node:$amt2)), [{
-  assert(N->getOpcode() == ISD::OR);
-  return N->getOperand(0).getOpcode() == ISD::SRL &&
-         N->getOperand(1).getOpcode() == ISD::SHL &&
-         isa<ConstantSDNode>(N->getOperand(0).getOperand(1)) &&
-         isa<ConstantSDNode>(N->getOperand(1).getOperand(1)) &&
-         N->getOperand(0).getConstantOperandVal(1) ==
-         N->getValueSizeInBits(0) - N->getOperand(1).getConstantOperandVal(1);
-}]>;
-
-def shld : PatFrag<(ops node:$src1, node:$amt1, node:$src2, node:$amt2),
-                   (or (shl node:$src1, node:$amt1),
-                       (srl node:$src2, node:$amt2)), [{
-  assert(N->getOpcode() == ISD::OR);
-  return N->getOperand(0).getOpcode() == ISD::SHL &&
-         N->getOperand(1).getOpcode() == ISD::SRL &&
-         isa<ConstantSDNode>(N->getOperand(0).getOperand(1)) &&
-         isa<ConstantSDNode>(N->getOperand(1).getOperand(1)) &&
-         N->getOperand(0).getConstantOperandVal(1) ==
-         N->getValueSizeInBits(0) - N->getOperand(1).getConstantOperandVal(1);
 }]>;
 
 //===----------------------------------------------------------------------===//
@@ -461,8 +441,7 @@ let isCall = 1 in
   // registers are added manually.
   let Defs = [EAX, ECX, EDX, FP0, FP1, FP2, FP3, FP4, FP5, FP6, ST0,
               MM0, MM1, MM2, MM3, MM4, MM5, MM6, MM7,
-              XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7,
-              XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14, XMM15, EFLAGS],
+              XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, EFLAGS],
       Uses = [ESP] in {
     def CALLpcrel32 : Ii32<0xE8, RawFrm, (outs), (ins i32imm:$dst,variable_ops),
                            "call\t${dst:call}", []>;
@@ -749,7 +728,7 @@ def IMUL32m : I<0xF7, MRM5m, (outs), (ins i32mem:$src),
 }
 
 // unsigned division/remainder
-let Defs = [AL,AH,EFLAGS], Uses = [AX] in
+let Defs = [AX,EFLAGS], Uses = [AL,AH] in
 def DIV8r  : I<0xF6, MRM6r, (outs),  (ins GR8:$src),          // AX/r8 = AL,AH
                "div{b}\t$src", []>;
 let Defs = [AX,DX,EFLAGS], Uses = [AX,DX] in
@@ -759,7 +738,7 @@ let Defs = [EAX,EDX,EFLAGS], Uses = [EAX,EDX] in
 def DIV32r : I<0xF7, MRM6r, (outs),  (ins GR32:$src),         // EDX:EAX/r32 = EAX,EDX
                "div{l}\t$src", []>;
 let mayLoad = 1 in {
-let Defs = [AL,AH,EFLAGS], Uses = [AX] in
+let Defs = [AX,EFLAGS], Uses = [AL,AH] in
 def DIV8m  : I<0xF6, MRM6m, (outs), (ins i8mem:$src),       // AX/[mem8] = AL,AH
                "div{b}\t$src", []>;
 let Defs = [AX,DX,EFLAGS], Uses = [AX,DX] in
@@ -771,7 +750,7 @@ def DIV32m : I<0xF7, MRM6m, (outs), (ins i32mem:$src),      // EDX:EAX/[mem32] =
 }
 
 // Signed division/remainder.
-let Defs = [AL,AH,EFLAGS], Uses = [AX] in
+let Defs = [AX,EFLAGS], Uses = [AL,AH] in
 def IDIV8r : I<0xF6, MRM7r, (outs),  (ins GR8:$src),          // AX/r8 = AL,AH
                "idiv{b}\t$src", []>;
 let Defs = [AX,DX,EFLAGS], Uses = [AX,DX] in
@@ -781,7 +760,7 @@ let Defs = [EAX,EDX,EFLAGS], Uses = [EAX,EDX] in
 def IDIV32r: I<0xF7, MRM7r, (outs),  (ins GR32:$src),         // EDX:EAX/r32 = EAX,EDX
                "idiv{l}\t$src", []>;
 let mayLoad = 1, mayLoad = 1 in {
-let Defs = [AL,AH,EFLAGS], Uses = [AX] in
+let Defs = [AX,EFLAGS], Uses = [AL,AH] in
 def IDIV8m : I<0xF6, MRM7m, (outs), (ins i8mem:$src),      // AX/[mem8] = AL,AH
                "idiv{b}\t$src", []>;
 let Defs = [AX,DX,EFLAGS], Uses = [AX,DX] in
@@ -2618,15 +2597,14 @@ def TLS_gs_rr  : I<0, Pseudo, (outs GR32:$dst), (ins GR32:$src),
                   [(set GR32:$dst, (load (add X86TLStp, GR32:$src)))]>;
 
 let AddedComplexity = 15 in
-def TLS_gs_ri : I<0x8B, Pseudo, (outs GR32:$dst), (ins i32imm:$src),
+def TLS_gs_ri : I<0, Pseudo, (outs GR32:$dst), (ins i32imm:$src),
                   "movl\t%gs:${src:mem}, $dst",
                   [(set GR32:$dst,
-                    (load (add X86TLStp, (X86Wrapper tglobaltlsaddr:$src))))]>,
-                  SegGS;
+                    (load (add X86TLStp, (X86Wrapper tglobaltlsaddr:$src))))]>;
 
-def TLS_tp : I<0x8B, Pseudo, (outs GR32:$dst), (ins),
+def TLS_tp : I<0, Pseudo, (outs GR32:$dst), (ins),
                "movl\t%gs:0, $dst",
-               [(set GR32:$dst, X86TLStp)]>, SegGS;
+               [(set GR32:$dst, X86TLStp)]>;
 
 //===----------------------------------------------------------------------===//
 // DWARF Pseudo Instructions
@@ -2913,17 +2891,6 @@ def : Pat<(i32 (and (nvloadi32 addr:$src), (i32 65535))),
 // Some peepholes
 //===----------------------------------------------------------------------===//
 
-// Odd encoding trick: -128 fits into an 8-bit immediate field while
-// +128 doesn't, so in this special case use a sub instead of an add.
-def : Pat<(add GR16:$src1, 128),
-          (SUB16ri8 GR16:$src1, -128)>;
-def : Pat<(store (add (loadi16 addr:$dst), 128), addr:$dst),
-          (SUB16mi8 addr:$dst, -128)>;
-def : Pat<(add GR32:$src1, 128),
-          (SUB32ri8 GR32:$src1, -128)>;
-def : Pat<(store (add (loadi32 addr:$dst), 128), addr:$dst),
-          (SUB32mi8 addr:$dst, -128)>;
-
 // r & (2^16-1) ==> movz
 def : Pat<(and GR32:$src1, 0xffff),
           (MOVZX32rr16 (i16 (EXTRACT_SUBREG GR32:$src1, x86_subreg_16bit)))>;
@@ -3014,22 +2981,6 @@ def : Pat<(store (or (srl (loadi32 addr:$dst), CL:$amt),
                      (shl GR32:$src2, (sub 32, CL:$amt))), addr:$dst),
           (SHRD32mrCL addr:$dst, GR32:$src2)>;
 
-def : Pat<(or (srl GR32:$src1, (i8 (trunc ECX:$amt))),
-              (shl GR32:$src2, (i8 (trunc (sub 32, ECX:$amt))))),
-          (SHRD32rrCL GR32:$src1, GR32:$src2)>;
-
-def : Pat<(store (or (srl (loadi32 addr:$dst), (i8 (trunc ECX:$amt))),
-                     (shl GR32:$src2, (i8 (trunc (sub 32, ECX:$amt))))),
-                 addr:$dst),
-          (SHRD32mrCL addr:$dst, GR32:$src2)>;
-
-def : Pat<(shrd GR32:$src1, (i8 imm:$amt1), GR32:$src2, (i8 imm:$amt2)),
-          (SHRD32rri8 GR32:$src1, GR32:$src2, (i8 imm:$amt1))>;
-
-def : Pat<(store (shrd (loadi32 addr:$dst), (i8 imm:$amt1),
-                       GR32:$src2, (i8 imm:$amt2)), addr:$dst),
-          (SHRD32mri8 addr:$dst, GR32:$src2, (i8 imm:$amt1))>;
-
 // (or (x << c) | (y >> (32 - c))) ==> (shld32 x, y, c)
 def : Pat<(or (shl GR32:$src1, CL:$amt),
               (srl GR32:$src2, (sub 32, CL:$amt))),
@@ -3038,22 +2989,6 @@ def : Pat<(or (shl GR32:$src1, CL:$amt),
 def : Pat<(store (or (shl (loadi32 addr:$dst), CL:$amt),
                      (srl GR32:$src2, (sub 32, CL:$amt))), addr:$dst),
           (SHLD32mrCL addr:$dst, GR32:$src2)>;
-
-def : Pat<(or (shl GR32:$src1, (i8 (trunc ECX:$amt))),
-              (srl GR32:$src2, (i8 (trunc (sub 32, ECX:$amt))))),
-          (SHLD32rrCL GR32:$src1, GR32:$src2)>;
-
-def : Pat<(store (or (shl (loadi32 addr:$dst), (i8 (trunc ECX:$amt))),
-                     (srl GR32:$src2, (i8 (trunc (sub 32, ECX:$amt))))),
-                 addr:$dst),
-          (SHLD32mrCL addr:$dst, GR32:$src2)>;
-
-def : Pat<(shld GR32:$src1, (i8 imm:$amt1), GR32:$src2, (i8 imm:$amt2)),
-          (SHLD32rri8 GR32:$src1, GR32:$src2, (i8 imm:$amt1))>;
-
-def : Pat<(store (shld (loadi32 addr:$dst), (i8 imm:$amt1),
-                       GR32:$src2, (i8 imm:$amt2)), addr:$dst),
-          (SHLD32mri8 addr:$dst, GR32:$src2, (i8 imm:$amt1))>;
 
 // (or (x >> c) | (y << (16 - c))) ==> (shrd16 x, y, c)
 def : Pat<(or (srl GR16:$src1, CL:$amt),
@@ -3064,22 +2999,6 @@ def : Pat<(store (or (srl (loadi16 addr:$dst), CL:$amt),
                      (shl GR16:$src2, (sub 16, CL:$amt))), addr:$dst),
           (SHRD16mrCL addr:$dst, GR16:$src2)>;
 
-def : Pat<(or (srl GR16:$src1, (i8 (trunc CX:$amt))),
-              (shl GR16:$src2, (i8 (trunc (sub 16, CX:$amt))))),
-          (SHRD16rrCL GR16:$src1, GR16:$src2)>;
-
-def : Pat<(store (or (srl (loadi16 addr:$dst), (i8 (trunc CX:$amt))),
-                     (shl GR16:$src2, (i8 (trunc (sub 16, CX:$amt))))),
-                 addr:$dst),
-          (SHRD16mrCL addr:$dst, GR16:$src2)>;
-
-def : Pat<(shrd GR16:$src1, (i8 imm:$amt1), GR16:$src2, (i8 imm:$amt2)),
-          (SHRD16rri8 GR16:$src1, GR16:$src2, (i8 imm:$amt1))>;
-
-def : Pat<(store (shrd (loadi16 addr:$dst), (i8 imm:$amt1),
-                       GR16:$src2, (i8 imm:$amt2)), addr:$dst),
-          (SHRD16mri8 addr:$dst, GR16:$src2, (i8 imm:$amt1))>;
-
 // (or (x << c) | (y >> (16 - c))) ==> (shld16 x, y, c)
 def : Pat<(or (shl GR16:$src1, CL:$amt),
               (srl GR16:$src2, (sub 16, CL:$amt))),
@@ -3088,22 +3007,6 @@ def : Pat<(or (shl GR16:$src1, CL:$amt),
 def : Pat<(store (or (shl (loadi16 addr:$dst), CL:$amt),
                      (srl GR16:$src2, (sub 16, CL:$amt))), addr:$dst),
           (SHLD16mrCL addr:$dst, GR16:$src2)>;
-
-def : Pat<(or (shl GR16:$src1, (i8 (trunc CX:$amt))),
-              (srl GR16:$src2, (i8 (trunc (sub 16, CX:$amt))))),
-          (SHLD16rrCL GR16:$src1, GR16:$src2)>;
-
-def : Pat<(store (or (shl (loadi16 addr:$dst), (i8 (trunc CX:$amt))),
-                     (srl GR16:$src2, (i8 (trunc (sub 16, CX:$amt))))),
-                 addr:$dst),
-          (SHLD16mrCL addr:$dst, GR16:$src2)>;
-
-def : Pat<(shld GR16:$src1, (i8 imm:$amt1), GR16:$src2, (i8 imm:$amt2)),
-          (SHLD16rri8 GR16:$src1, GR16:$src2, (i8 imm:$amt1))>;
-
-def : Pat<(store (shld (loadi16 addr:$dst), (i8 imm:$amt1),
-                       GR16:$src2, (i8 imm:$amt2)), addr:$dst),
-          (SHLD16mri8 addr:$dst, GR16:$src2, (i8 imm:$amt1))>;
 
 //===----------------------------------------------------------------------===//
 // Floating Point Stack Support

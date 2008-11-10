@@ -89,7 +89,7 @@ def llvm_f128_ty       : LLVMType<f128>;
 def llvm_ppcf128_ty    : LLVMType<ppcf128>;
 def llvm_ptr_ty        : LLVMPointerType<llvm_i8_ty>;             // i8*
 def llvm_ptrptr_ty     : LLVMPointerType<llvm_ptr_ty>;            // i8**
-def llvm_anyptr_ty     : LLVMAnyPointerType<llvm_i8_ty>;          // (space)i8*
+def llvm_anyptr_ty     : LLVMPointerType<llvm_i8_ty>;             // (space)i8*
 def llvm_empty_ty      : LLVMType<OtherVT>;                       // { }
 def llvm_descriptor_ty : LLVMPointerType<llvm_empty_ty>;          // { }*
 
@@ -165,7 +165,6 @@ def int_stacksave     : Intrinsic<[llvm_ptr_ty]>,
                         GCCBuiltin<"__builtin_stack_save">;
 def int_stackrestore  : Intrinsic<[llvm_void_ty, llvm_ptr_ty]>,
                         GCCBuiltin<"__builtin_stack_restore">;
-
 // IntrWriteArgMem is more pessimistic than strictly necessary for prefetch,
 // however it does conveniently prevent the prefetch from being reordered
 // with respect to nearby accesses to the same memory.
@@ -175,14 +174,6 @@ def int_prefetch      : Intrinsic<[llvm_void_ty, llvm_ptr_ty,
 def int_pcmarker      : Intrinsic<[llvm_void_ty, llvm_i32_ty]>;
 
 def int_readcyclecounter : Intrinsic<[llvm_i64_ty]>;
-
-// Stack Protector Intrinsics - The stackprotector_create writes the stack guard
-// to the correct place on the stack frame. The stackprotector_check reads back
-// the stack guard that the stackprotector_create stored.
-def int_stackprotector_create : Intrinsic<[llvm_void_ty, llvm_ptr_ty,
-                                           llvm_ptrptr_ty], [IntrWriteMem]>;
-def int_stackprotector_check  : Intrinsic<[llvm_ptr_ty, llvm_ptrptr_ty],
-                                          [IntrReadMem]>;
 
 //===------------------- Standard C Library Intrinsics --------------------===//
 //
@@ -291,8 +282,7 @@ def int_init_trampoline : Intrinsic<[llvm_ptr_ty, llvm_ptr_ty, llvm_ptr_ty,
 //===------------------------- Atomic Intrinsics --------------------------===//
 //
 def int_memory_barrier : Intrinsic<[llvm_void_ty, llvm_i1_ty, llvm_i1_ty, 
-                                    llvm_i1_ty, llvm_i1_ty, llvm_i1_ty], []>,
-                                    GCCBuiltin<"__builtin_llvm_memory_barrier">;
+                                    llvm_i1_ty, llvm_i1_ty, llvm_i1_ty], []>;
 
 def int_atomic_cmp_swap : Intrinsic<[llvm_anyint_ty,
                                   LLVMAnyPointerType<LLVMMatchType<0>>,

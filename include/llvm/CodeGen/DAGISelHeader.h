@@ -11,20 +11,21 @@
 // data, which is used by SelectionDAG-based instruction selectors.
 //
 // *** NOTE: This file is #included into the middle of the target
-// instruction selector class.  These functions are really methods.
-// This is a little awkward, but it allows this code to be shared
-// by all the targets while still being able to call into
-// target-specific code without using a virtual function call.
-//
+// *** instruction selector class.  These functions are really methods.
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_CODEGEN_DAGISEL_HEADER_H
 #define LLVM_CODEGEN_DAGISEL_HEADER_H
 
-/// ISelPosition - Node iterator marking the current position of
-/// instruction selection as it procedes through the topologically-sorted
-/// node list.
-SelectionDAG::allnodes_iterator ISelPosition;
+/// ISelQueue - Instruction selector priority queue sorted 
+/// in the order of decreasing NodeId() values.
+std::vector<SDNode*> ISelQueue;
+
+/// Keep track of nodes which have already been added to queue.
+unsigned char *ISelQueued;
+
+/// Keep track of nodes which have already been selected.
+unsigned char *ISelSelected;
 
 /// IsChainCompatible - Returns true if Chain is Op or Chain does
 /// not reach Op.
@@ -41,40 +42,97 @@ static bool IsChainCompatible(SDNode *Chain, SDNode *Op) {
   return true;
 }
 
-/// ISelUpdater - helper class to handle updates of the 
-/// instruciton selection graph.
-class VISIBILITY_HIDDEN ISelUpdater : public SelectionDAG::DAGUpdateListener {
-  SelectionDAG::allnodes_iterator &ISelPosition;
-public:
-  explicit ISelUpdater(SelectionDAG::allnodes_iterator &isp)
-    : ISelPosition(isp) {}
-  
-  /// NodeDeleted - Handle nodes deleted from the graph. If the
-  /// node being deleted is the current ISelPosition node, update
-  /// ISelPosition.
-  ///
-  virtual void NodeDeleted(SDNode *N, SDNode *E) {
-    if (ISelPosition == SelectionDAG::allnodes_iterator(N))
-      ++ISelPosition;
+/// isel_sort - Sorting functions for the selection queue in the
+/// decreasing NodeId order.
+struct isel_sort : public std::binary_function<SDNode*, SDNode*, bool> {
+  bool operator()(const SDNode* left, const SDNode* right) const {
+    return left->getNodeId() < right->getNodeId();
   }
-
-  /// NodeUpdated - Ignore updates for now.
-  virtual void NodeUpdated(SDNode *N) {}
 };
+
+/// setQueued - marks the node with a given NodeId() as element of the 
+/// instruction selection queue.
+inline void setQueued(int Id) {
+  ISelQueued[Id / 8] |= 1 << (Id % 8);
+}
+
+/// isSelected - checks if the node with a given NodeId() is
+/// in the instruction selection queue already.
+inline bool isQueued(int Id) {
+  return ISelQueued[Id / 8] & (1 << (Id % 8));
+}
+
+/// setSelected - marks the node with a given NodeId() as selected.
+inline void setSelected(int Id) {
+  ISelSelected[Id / 8] |= 1 << (Id % 8);
+}
+
+/// isSelected - checks if the node with a given NodeId() is
+/// selected already.
+inline bool isSelected(int Id) {
+  return ISelSelected[Id / 8] & (1 << (Id % 8));
+}
+
+/// AddToISelQueue - adds a node to the instruction 
+/// selection queue.
+void AddToISelQueue(SDValue N) DISABLE_INLINE {
+  int Id = N.getNode()->getNodeId();
+  if (Id != -1 && !isQueued(Id)) {
+    ISelQueue.push_back(N.getNode());
+    std::push_heap(ISelQueue.begin(), ISelQueue.end(), isel_sort());
+    setQueued(Id);
+  }
+}
+
+/// ISelQueueUpdater - helper class to handle updates of the 
+/// instruciton selection queue.
+class VISIBILITY_HIDDEN ISelQueueUpdater :
+  public SelectionDAG::DAGUpdateListener {
+    std::vector<SDNode*> &ISelQueue;
+    bool HadDelete; // Indicate if any deletions were done.
+  public:
+    explicit ISelQueueUpdater(std::vector<SDNode*> &isq)
+      : ISelQueue(isq), HadDelete(false) {}
+    
+    bool hadDelete() const { return HadDelete; }
+
+    /// NodeDeleted - remove node from the selection queue.
+    virtual void NodeDeleted(SDNode *N, SDNode *E) {
+      ISelQueue.erase(std::remove(ISelQueue.begin(), ISelQueue.end(), N),
+                      ISelQueue.end());
+      HadDelete = true;
+    }
+
+    /// NodeUpdated - Ignore updates for now.
+    virtual void NodeUpdated(SDNode *N) {}
+  };
+
+/// UpdateQueue - update the instruction selction queue to maintain 
+/// the decreasing NodeId() ordering property.
+inline void UpdateQueue(const ISelQueueUpdater &ISQU) {
+  if (ISQU.hadDelete())
+    std::make_heap(ISelQueue.begin(), ISelQueue.end(),isel_sort());
+}
+
 
 /// ReplaceUses - replace all uses of the old node F with the use
 /// of the new node T.
 void ReplaceUses(SDValue F, SDValue T) DISABLE_INLINE {
-  ISelUpdater ISU(ISelPosition);
-  CurDAG->ReplaceAllUsesOfValueWith(F, T, &ISU);
+  ISelQueueUpdater ISQU(ISelQueue);
+  CurDAG->ReplaceAllUsesOfValueWith(F, T, &ISQU);
+  setSelected(F.getNode()->getNodeId());
+  UpdateQueue(ISQU);
 }
 
 /// ReplaceUses - replace all uses of the old nodes F with the use
 /// of the new nodes T.
 void ReplaceUses(const SDValue *F, const SDValue *T,
                  unsigned Num) DISABLE_INLINE {
-  ISelUpdater ISU(ISelPosition);
-  CurDAG->ReplaceAllUsesOfValuesWith(F, T, Num, &ISU);
+  ISelQueueUpdater ISQU(ISelQueue);
+  CurDAG->ReplaceAllUsesOfValuesWith(F, T, Num, &ISQU);
+  for (unsigned i = 0; i != Num; ++i)
+    setSelected(F[i].getNode()->getNodeId());
+  UpdateQueue(ISQU);
 }
 
 /// ReplaceUses - replace all uses of the old node F with the use
@@ -82,61 +140,63 @@ void ReplaceUses(const SDValue *F, const SDValue *T,
 void ReplaceUses(SDNode *F, SDNode *T) DISABLE_INLINE {
   unsigned FNumVals = F->getNumValues();
   unsigned TNumVals = T->getNumValues();
-  ISelUpdater ISU(ISelPosition);
+  ISelQueueUpdater ISQU(ISelQueue);
   if (FNumVals != TNumVals) {
     for (unsigned i = 0, e = std::min(FNumVals, TNumVals); i < e; ++i)
-     CurDAG->ReplaceAllUsesOfValueWith(SDValue(F, i), SDValue(T, i), &ISU);
+     CurDAG->ReplaceAllUsesOfValueWith(SDValue(F, i), SDValue(T, i), &ISQU);
   } else {
-    CurDAG->ReplaceAllUsesWith(F, T, &ISU);
+    CurDAG->ReplaceAllUsesWith(F, T, &ISQU);
   }
+  setSelected(F->getNodeId());
+  UpdateQueue(ISQU);
 }
 
 /// SelectRoot - Top level entry to DAG instruction selector.
 /// Selects instructions starting at the root of the current DAG.
-void SelectRoot(SelectionDAG &DAG) {
+void SelectRoot() {
   SelectRootInit();
+  unsigned NumBytes = (DAGSize + 7) / 8;
+  ISelQueued   = new unsigned char[NumBytes];
+  ISelSelected = new unsigned char[NumBytes];
+  memset(ISelQueued,   0, NumBytes);
+  memset(ISelSelected, 0, NumBytes);
 
   // Create a dummy node (which is not added to allnodes), that adds
   // a reference to the root node, preventing it from being deleted,
   // and tracking any changes of the root.
   HandleSDNode Dummy(CurDAG->getRoot());
-  ISelPosition = next(SelectionDAG::allnodes_iterator(CurDAG->getRoot().getNode()));
+  ISelQueue.push_back(CurDAG->getRoot().getNode());
 
-  // The AllNodes list is now topological-sorted. Visit the
-  // nodes by starting at the end of the list (the root of the
-  // graph) and preceding back toward the beginning (the entry
-  // node).
-  while (ISelPosition != CurDAG->allnodes_begin()) {
-    SDNode *Node = --ISelPosition;
-    // Skip dead nodes. DAGCombiner is expected to eliminate all dead nodes,
-    // but there are currently some corner cases that it misses. Also, this
-    // makes it theoretically possible to disable the DAGCombiner.
-    if (Node->use_empty())
+  // Select pending nodes from the instruction selection queue
+  // until no more nodes are left for selection.
+  while (!ISelQueue.empty()) {
+    SDNode *Node = ISelQueue.front();
+    std::pop_heap(ISelQueue.begin(), ISelQueue.end(), isel_sort());
+    ISelQueue.pop_back();
+    // Skip already selected nodes.
+    if (isSelected(Node->getNodeId()))
       continue;
-#if 0
-    DAG.setSubgraphColor(Node, "red");
-#endif
     SDNode *ResNode = Select(SDValue(Node, 0));
     // If node should not be replaced, 
     // continue with the next one.
     if (ResNode == Node)
       continue;
     // Replace node.
-    if (ResNode) {
-#if 0
-      DAG.setSubgraphColor(ResNode, "yellow");
-      DAG.setSubgraphColor(ResNode, "black");
-#endif
+    if (ResNode)
       ReplaceUses(Node, ResNode);
-    }
     // If after the replacement this node is not used any more,
     // remove this dead node.
     if (Node->use_empty()) { // Don't delete EntryToken, etc.
-      ISelUpdater ISU(ISelPosition);
-      CurDAG->RemoveDeadNode(Node, &ISU);
+      ISelQueueUpdater ISQU(ISelQueue);
+      CurDAG->RemoveDeadNode(Node, &ISQU);
+      UpdateQueue(ISQU);
     }
   }
 
+  delete[] ISelQueued;
+  ISelQueued = NULL;
+  delete[] ISelSelected;
+  ISelSelected = NULL;
   CurDAG->setRoot(Dummy.getValue());
 }
 

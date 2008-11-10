@@ -212,13 +212,6 @@ int main(int argc, char **argv) {
       std::remove(OutputFilename.c_str());    // Remove the file, it's broken
     }
     return 1;
-  } catch (const char *Error) {
-    cerr << argv[0] << ": " << Error << "\n";
-    if (Out != cout.stream()) {
-      delete Out;                             // Close the file
-      std::remove(OutputFilename.c_str());    // Remove the file, it's broken
-    }
-    return 1;
   } catch (...) {
     cerr << argv[0] << ": Unknown unexpected exception occurred.\n";
     if (Out != cout.stream()) {

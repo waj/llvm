@@ -102,7 +102,7 @@ E: foldr@codedgers.com
 D: Author of llvmc2
 
 N: Dan Gohman
-E: gohman@apple.com
+E: djg@cray.com
 D: Miscellaneous bug fixes
 
 N: David Greene
@@ -218,10 +218,6 @@ D: Added STI Cell SPU backend.
 N: Morten Ofstad
 E: morten@hue.no
 D: Visual C++ compatibility fixes 
-
-N: Richard Osborne
-E: richard@xmos.com
-D: XCore backend
 
 N: Devang Patel
 E: dpatel@apple.com

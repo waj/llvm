@@ -101,7 +101,7 @@ Mutex::~Mutex()
     pthread_mutex_t* mutex = static_cast<pthread_mutex_t*>(data_);
     assert(mutex != 0);
     pthread_mutex_destroy(mutex);
-    free(mutex);
+    assert(mutex != 0);
   }
 }
 

@@ -60,7 +60,6 @@
     </tr>
     <tr><th colspan="8"><b>- <a href="#R">R</a> -</b></th></tr>
     <tr>
-      <td><a href="#RAUW">RAUW</a></td>
       <td><a href="#Reassociation">Reassociation</a></td>
       <td><a href="#Root">Root</a></td>
     </tr>
@@ -158,7 +157,7 @@ href="http://www.program-transformation.org/Transform/BURG">BURG</a> tool.</dd>
     <dd>Inter-Procedural Optimization. Refers to any variety of code
     optimization that occurs between procedures, functions or compilation units
     (modules).</dd>
-    <dt><a name="ISel"><b>ISel</b></a></dt>
+    <dt><a name="IPO"><b>ISel</b></a></dt>
     <dd>Instruction Selection.</dd>
   </dl>
 </div>
@@ -176,7 +175,7 @@ href="http://www.program-transformation.org/Transform/BURG">BURG</a> tool.</dd>
 </div>
 
 <!-- _______________________________________________________________________ -->
-<div class="doc_subsection"><a name="O">- O -</a></div>
+<div class="doc_subsection"><a name="P">- O -</a></div>
 <div class="doc_text">
   <dl>
     <dt><a name="Object_Pointer"><b>Object Pointer</b></a></dt>
@@ -199,13 +198,6 @@ href="http://www.program-transformation.org/Transform/BURG">BURG</a> tool.</dd>
 <div class="doc_subsection"><a name="R">- R -</a></div>
 <div class="doc_text">
   <dl>
-  	<dt><a name="RAUW"><b>RAUW</b></a></dt> <dd>An abbreviation for Replace
-  	All Uses With. The functions User::replaceUsesOfWith(), 
-  	Value::replaceAllUsesWith(), and Constant::replaceUsesOfWithOnConstant()
-  	implement the replacement of one Value with another by iterating over its
-  	def/use chain and fixing up all of the pointers to point to the new value.
-  	See also <a href="ProgrammersManual.html#iterate_chains">def/use chains</a>.
-  	</dd>
     <dt><a name="Reassociation"><b>Reassociation</b></a></dt> <dd>Rearranging
     associative expressions to promote better redundancy elimination and other
     optimization.  For example, changing (A+B-A) into (B+A-A), permitting it to
@@ -222,7 +214,7 @@ href="http://www.program-transformation.org/Transform/BURG">BURG</a> tool.</dd>
 <div class="doc_subsection"><a name="S">- S -</a></div>
 <div class="doc_text">
   <dl>
-    <dt><a name="Safe_Point"><b>Safe Point</b></a></dt>
+    <dt><a name="SCC"><b>Safe Point</b></a></dt>
     <dd>In garbage collection, it is necessary to identify <a href="#Root">stack
     roots</a> so that reachability analysis may proceed. It may be infeasible to
     provide this information for every instruction, so instead the information

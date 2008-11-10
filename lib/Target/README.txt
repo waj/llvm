@@ -283,39 +283,6 @@ unsigned long reverse(unsigned v) {
 
 //===---------------------------------------------------------------------===//
 
-These idioms should be recognized as popcount (see PR1488):
-
-unsigned countbits_slow(unsigned v) {
-  unsigned c;
-  for (c = 0; v; v >>= 1)
-    c += v & 1;
-  return c;
-}
-unsigned countbits_fast(unsigned v){
-  unsigned c;
-  for (c = 0; v; c++)
-    v &= v - 1; // clear the least significant bit set
-  return c;
-}
-
-BITBOARD = unsigned long long
-int PopCnt(register BITBOARD a) {
-  register int c=0;
-  while(a) {
-    c++;
-    a &= a - 1;
-  }
-  return c;
-}
-unsigned int popcount(unsigned int input) {
-  unsigned int count = 0;
-  for (unsigned int i =  0; i < 4 * 8; i++)
-    count += (input >> i) & i;
-  return count;
-}
-
-//===---------------------------------------------------------------------===//
-
 These should turn into single 16-bit (unaligned?) loads on little/big endian
 processors.
 
@@ -799,7 +766,7 @@ unsigned long long f6(unsigned long long x, unsigned long long y, int z) {
   }
 }
 
-On X86-64, we only handle f2/f3/f4 right.  On x86-32, a few of these 
+On X86-64, we only handle f3/f4 right.  On x86-32, several of these 
 generate truly horrible code, instead of using shld and friends.  On
 ARM, we end up with calls to L___lshrdi3/L___ashldi3 in f, which is
 badness.  PPC64 misses f, f5 and f6.  CellSPU aborts in isel.
@@ -921,66 +888,6 @@ static vec2d a={{1,2}}, b={{3,4}};
     
 vec2d foo () {
     return (vec2d){ .v = a.v + b.v * (vec2d){{5,5}}.v };
-}
-
-//===---------------------------------------------------------------------===//
-
-This C++ file:
-void g(); struct A { int n; int m; A& operator++(void) { ++n; if (n == m) g(); 
-return *this; }    A() : n(0), m(0) { } friend bool operator!=(A const& a1, 
-A const& a2) { return a1.n != a2.n; } }; void testfunction(A& iter) { A const 
-end; while (iter != end) ++iter; }
-
-Compiles down to:
-
-bb:		; preds = %bb3.backedge, %bb.nph
-	%.rle = phi i32 [ %1, %bb.nph ], [ %7, %bb3.backedge ]		; <i32> [#uses=1]
-	%4 = add i32 %.rle, 1		; <i32> [#uses=2]
-	store i32 %4, i32* %0, align 4
-	%5 = load i32* %3, align 4		; <i32> [#uses=1]
-	%6 = icmp eq i32 %4, %5		; <i1> [#uses=1]
-	br i1 %6, label %bb1, label %bb3.backedge
-
-bb1:		; preds = %bb
-	tail call void @_Z1gv()
-	br label %bb3.backedge
-
-bb3.backedge:		; preds = %bb, %bb1
-	%7 = load i32* %0, align 4		; <i32> [#uses=2]
-
-
-The %7 load is partially redundant with the store of %4 to %0, GVN's PRE 
-should remove it, but it doesn't apply to memory objects.
-
-//===---------------------------------------------------------------------===//
-
-Better mod/ref analysis for scanf would allow us to eliminate the vtable and a
-bunch of other stuff from this example (see PR1604): 
-
-#include <cstdio>
-struct test {
-    int val;
-    virtual ~test() {}
-};
-
-int main() {
-    test t;
-    std::scanf("%d", &t.val);
-    std::printf("%d\n", t.val);
-}
-
-//===---------------------------------------------------------------------===//
-
-Instcombine will merge comparisons like (x >= 10) && (x < 20) by producing (x -
-10) u< 10, but only when the comparisons have matching sign.
-
-This could be converted with a similiar technique. (PR1941)
-
-define i1 @test(i8 %x) {
-  %A = icmp uge i8 %x, 5
-  %B = icmp slt i8 %x, 20
-  %C = and i1 %A, %B
-  ret i1 %C
 }
 
 //===---------------------------------------------------------------------===//

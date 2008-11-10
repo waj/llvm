@@ -53,8 +53,8 @@ PPCTargetLowering::PPCTargetLowering(PPCTargetMachine &TM)
   addRegisterClass(MVT::f64, PPC::F8RCRegisterClass);
   
   // PowerPC has an i16 but no i8 (or i1) SEXTLOAD
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i8, Expand);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i1, Promote);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i8, Expand);
 
   setTruncStoreAction(MVT::f64, MVT::f32, Expand);
     
@@ -209,20 +209,6 @@ PPCTargetLowering::PPCTargetLowering(PPCTargetMachine &TM)
   // We want to custom lower some of our intrinsics.
   setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
   
-  // Comparisons that require checking two conditions.
-  setCondCodeAction(ISD::SETULT, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETULT, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETUGT, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETUGT, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETUEQ, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETUEQ, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETOGE, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETOGE, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETOLE, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETOLE, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETONE, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETONE, MVT::f64, Expand);
-    
   if (TM.getSubtarget<PPCSubtarget>().has64BitSupport()) {
     // They also have instructions for converting between i64 and fp.
     setOperationAction(ISD::FP_TO_SINT, MVT::i64, Custom);
@@ -1190,7 +1176,7 @@ SDValue PPCTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) {
       unsigned Log2b = Log2_32(VT.getSizeInBits());
       SDValue Clz = DAG.getNode(ISD::CTLZ, VT, Zext);
       SDValue Scc = DAG.getNode(ISD::SRL, VT, Clz,
-                                DAG.getConstant(Log2b, MVT::i32));
+                                  DAG.getConstant(Log2b, MVT::i32));
       return DAG.getNode(ISD::TRUNCATE, MVT::i32, Scc);
     }
     // Leave comparisons against 0 and -1 alone for now, since they're usually 
@@ -2879,10 +2865,9 @@ SDValue PPCTargetLowering::LowerFP_ROUND_INREG(SDValue Op,
   assert(Op.getValueType() == MVT::ppcf128);
   SDNode *Node = Op.getNode();
   assert(Node->getOperand(0).getValueType() == MVT::ppcf128);
-  SDValue Lo = DAG.getNode(ISD::EXTRACT_ELEMENT, MVT::f64, Node->getOperand(0),
-                           DAG.getIntPtrConstant(0));
-  SDValue Hi = DAG.getNode(ISD::EXTRACT_ELEMENT, MVT::f64, Node->getOperand(0),
-                           DAG.getIntPtrConstant(1));
+  assert(Node->getOperand(0).getNode()->getOpcode() == ISD::BUILD_PAIR);
+  SDValue Lo = Node->getOperand(0).getNode()->getOperand(0);
+  SDValue Hi = Node->getOperand(0).getNode()->getOperand(1);
 
   // This sequence changes FPSCR to do round-to-zero, adds the two halves
   // of the long double, and puts FPSCR back the way it was.  We do not
@@ -2931,7 +2916,7 @@ SDValue PPCTargetLowering::LowerFP_ROUND_INREG(SDValue Op,
 
   // We know the low half is about to be thrown away, so just use something
   // convenient.
-  return DAG.getNode(ISD::BUILD_PAIR, MVT::ppcf128, FPreg, FPreg);
+  return DAG.getNode(ISD::BUILD_PAIR, Lo.getValueType(), FPreg, FPreg);
 }
 
 SDValue PPCTargetLowering::LowerSINT_TO_FP(SDValue Op, SelectionDAG &DAG) {
@@ -3029,7 +3014,7 @@ SDValue PPCTargetLowering::LowerFLT_ROUNDS_(SDValue Op, SelectionDAG &DAG) {
                             DAG.getNode(ISD::XOR, MVT::i32,
                                         CWD, DAG.getConstant(3, MVT::i32)),
                             DAG.getConstant(3, MVT::i32)),
-                DAG.getConstant(1, MVT::i32));
+                DAG.getConstant(1, MVT::i8));
 
   SDValue RetVal =
     DAG.getNode(ISD::XOR, MVT::i32, CWD1, CWD2);
@@ -3053,12 +3038,12 @@ SDValue PPCTargetLowering::LowerSHL_PARTS(SDValue Op, SelectionDAG &DAG) {
   MVT AmtVT = Amt.getValueType();
   
   SDValue Tmp1 = DAG.getNode(ISD::SUB, AmtVT,
-                             DAG.getConstant(BitWidth, AmtVT), Amt);
+                               DAG.getConstant(BitWidth, AmtVT), Amt);
   SDValue Tmp2 = DAG.getNode(PPCISD::SHL, VT, Hi, Amt);
   SDValue Tmp3 = DAG.getNode(PPCISD::SRL, VT, Lo, Tmp1);
   SDValue Tmp4 = DAG.getNode(ISD::OR , VT, Tmp2, Tmp3);
   SDValue Tmp5 = DAG.getNode(ISD::ADD, AmtVT, Amt,
-                             DAG.getConstant(-BitWidth, AmtVT));
+                               DAG.getConstant(-BitWidth, AmtVT));
   SDValue Tmp6 = DAG.getNode(PPCISD::SHL, VT, Lo, Tmp5);
   SDValue OutHi = DAG.getNode(ISD::OR, VT, Tmp4, Tmp6);
   SDValue OutLo = DAG.getNode(PPCISD::SHL, VT, Lo, Amt);
@@ -3081,12 +3066,12 @@ SDValue PPCTargetLowering::LowerSRL_PARTS(SDValue Op, SelectionDAG &DAG) {
   MVT AmtVT = Amt.getValueType();
   
   SDValue Tmp1 = DAG.getNode(ISD::SUB, AmtVT,
-                             DAG.getConstant(BitWidth, AmtVT), Amt);
+                               DAG.getConstant(BitWidth, AmtVT), Amt);
   SDValue Tmp2 = DAG.getNode(PPCISD::SRL, VT, Lo, Amt);
   SDValue Tmp3 = DAG.getNode(PPCISD::SHL, VT, Hi, Tmp1);
   SDValue Tmp4 = DAG.getNode(ISD::OR , VT, Tmp2, Tmp3);
   SDValue Tmp5 = DAG.getNode(ISD::ADD, AmtVT, Amt,
-                             DAG.getConstant(-BitWidth, AmtVT));
+                               DAG.getConstant(-BitWidth, AmtVT));
   SDValue Tmp6 = DAG.getNode(PPCISD::SRL, VT, Hi, Tmp5);
   SDValue OutLo = DAG.getNode(ISD::OR, VT, Tmp4, Tmp6);
   SDValue OutHi = DAG.getNode(PPCISD::SRL, VT, Hi, Amt);
@@ -3108,16 +3093,16 @@ SDValue PPCTargetLowering::LowerSRA_PARTS(SDValue Op, SelectionDAG &DAG) {
   MVT AmtVT = Amt.getValueType();
   
   SDValue Tmp1 = DAG.getNode(ISD::SUB, AmtVT,
-                             DAG.getConstant(BitWidth, AmtVT), Amt);
+                               DAG.getConstant(BitWidth, AmtVT), Amt);
   SDValue Tmp2 = DAG.getNode(PPCISD::SRL, VT, Lo, Amt);
   SDValue Tmp3 = DAG.getNode(PPCISD::SHL, VT, Hi, Tmp1);
   SDValue Tmp4 = DAG.getNode(ISD::OR , VT, Tmp2, Tmp3);
   SDValue Tmp5 = DAG.getNode(ISD::ADD, AmtVT, Amt,
-                             DAG.getConstant(-BitWidth, AmtVT));
+                               DAG.getConstant(-BitWidth, AmtVT));
   SDValue Tmp6 = DAG.getNode(PPCISD::SRA, VT, Hi, Tmp5);
   SDValue OutHi = DAG.getNode(PPCISD::SRA, VT, Hi, Amt);
   SDValue OutLo = DAG.getSelectCC(Tmp5, DAG.getConstant(0, AmtVT),
-                                  Tmp4, Tmp6, ISD::SETLE);
+                                    Tmp4, Tmp6, ISD::SETLE);
   SDValue OutOps[] = { OutLo, OutHi };
   return DAG.getMergeValues(OutOps, 2);
 }
@@ -3898,8 +3883,7 @@ SDValue PPCTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) {
 
 SDNode *PPCTargetLowering::ReplaceNodeResults(SDNode *N, SelectionDAG &DAG) {
   switch (N->getOpcode()) {
-  default:
-    return PPCTargetLowering::LowerOperation(SDValue (N, 0), DAG).getNode();
+  default: assert(0 && "Wasn't expecting to be able to lower this!");
   case ISD::FP_TO_SINT: {
     SDValue Res = LowerFP_TO_SINT(SDValue(N, 0), DAG);
     // Use MERGE_VALUES to drop the chain result value and get a node with one
@@ -4927,10 +4911,4 @@ SDValue PPCTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) {
   else
     return DAG.getCopyFromReg(DAG.getEntryNode(), is31 ? PPC::R31 : PPC::R1,
       MVT::i32);
-}
-
-bool
-PPCTargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
-  // The PowerPC target isn't yet aware of offsets.
-  return false;
 }

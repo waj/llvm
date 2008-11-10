@@ -55,6 +55,11 @@ namespace {
                  cl::init(AutoPick));
 
   cl::opt<bool>
+  CheckProgramExitCode("check-exit-code",
+                   cl::desc("Assume nonzero exit code is failure (default on)"),
+                       cl::init(true));
+
+  cl::opt<bool>
   AppendProgramExitCode("append-exit-code",
       cl::desc("Append the exit code to the output so it gets diff'd too"),
       cl::init(false));
@@ -312,6 +317,12 @@ std::string BugDriver::executeProgramWithCBE(std::string OutputFile) {
   bool ProgramExitedNonzero;
   std::string outFN = executeProgram(OutputFile, "", "", cbe,
                                      &ProgramExitedNonzero);
+  if (ProgramExitedNonzero) {
+    std::cerr
+      << "Warning: While generating reference output, program exited with\n"
+      << "non-zero exit code. This will NOT be treated as a failure.\n";
+    CheckProgramExitCode = false;
+  }
   return outFN;
 }
 
@@ -372,6 +383,14 @@ bool BugDriver::diffProgram(const std::string &BitcodeFile,
   // Execute the program, generating an output file...
   sys::Path Output(executeProgram("", BitcodeFile, SharedObject, 0,
                                       &ProgramExitedNonzero));
+
+  // If we're checking the program exit code, assume anything nonzero is bad.
+  if (CheckProgramExitCode && ProgramExitedNonzero) {
+    Output.eraseFromDisk();
+    if (RemoveBitcode)
+      sys::Path(BitcodeFile).eraseFromDisk();
+    return true;
+  }
 
   std::string Error;
   bool FilesDifferent = false;

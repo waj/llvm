@@ -1638,8 +1638,10 @@ static bool AddressIsTaken(GlobalValue *GV) {
     } else if (isa<InvokeInst>(*UI) || isa<CallInst>(*UI)) {
       // Make sure we are calling the function, not passing the address.
       CallSite CS = CallSite::get(cast<Instruction>(*UI));
-      if (CS.hasArgument(GV))
-        return true;
+      for (CallSite::arg_iterator AI = CS.arg_begin(),
+             E = CS.arg_end(); AI != E; ++AI)
+        if (*AI == GV)
+          return true;
     } else if (LoadInst *LI = dyn_cast<LoadInst>(*UI)) {
       if (LI->isVolatile())
         return true;

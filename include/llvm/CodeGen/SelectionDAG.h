@@ -16,12 +16,12 @@
 #define LLVM_CODEGEN_SELECTIONDAG_H
 
 #include "llvm/ADT/ilist.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 
 #include <cassert>
+#include <list>
 #include <vector>
 #include <map>
 #include <string>
@@ -103,12 +103,6 @@ class SelectionDAG {
   /// VerifyNode - Sanity check the given node.  Aborts if it is invalid.
   void VerifyNode(SDNode *N);
 
-  /// setGraphColorHelper - Implementation of setSubgraphColor.
-  /// Return whether we had to truncate the search.
-  ///
-  bool setSubgraphColorHelper(SDNode *N, const char *Color, DenseSet<SDNode *> &visited,
-                              int level, bool &printed);
-
 public:
   SelectionDAG(TargetLowering &tli, FunctionLoweringInfo &fli);
   ~SelectionDAG();
@@ -153,10 +147,6 @@ public:
   /// setGraphColor - Convenience for setting node color attribute.
   ///
   void setGraphColor(const SDNode *N, const char *Color);
-
-  /// setGraphColor - Convenience for setting subgraph color attribute.
-  ///
-  void setSubgraphColor(SDNode *N, const char *Color);
 
   typedef ilist<SDNode>::const_iterator allnodes_const_iterator;
   allnodes_const_iterator allnodes_begin() const { return AllNodes.begin(); }
@@ -266,9 +256,9 @@ public:
     return getConstantFP(Val, VT, true);
   }
   SDValue getGlobalAddress(const GlobalValue *GV, MVT VT,
-                           int64_t offset = 0, bool isTargetGA = false);
+                             int offset = 0, bool isTargetGA = false);
   SDValue getTargetGlobalAddress(const GlobalValue *GV, MVT VT,
-                                 int64_t offset = 0) {
+                                   int offset = 0) {
     return getGlobalAddress(GV, VT, offset, true);
   }
   SDValue getFrameIndex(int FI, MVT VT, bool isTarget = false);
@@ -447,32 +437,17 @@ public:
   SDValue getVAArg(MVT VT, SDValue Chain, SDValue Ptr,
                      SDValue SV);
 
-  /// getAtomic - Gets a node for an atomic op, produces result and chain and 
-  /// takes 3 operands
+  /// getAtomic - Gets a node for an atomic op, produces result and chain, takes
+  /// 3 operands
   SDValue getAtomic(unsigned Opcode, SDValue Chain, SDValue Ptr, 
                       SDValue Cmp, SDValue Swp, const Value* PtrVal,
                       unsigned Alignment=0);
 
-  /// getAtomic - Gets a node for an atomic op, produces result and chain and
-  /// takes 2 operands.
+  /// getAtomic - Gets a node for an atomic op, produces result and chain, takes
+  /// 2 operands
   SDValue getAtomic(unsigned Opcode, SDValue Chain, SDValue Ptr, 
                       SDValue Val, const Value* PtrVal,
                       unsigned Alignment = 0);
-
-  /// getMemIntrinsicNode - Creates a MemIntrinsicNode that may produce a
-  /// result and takes a list of operands.
-  SDValue getMemIntrinsicNode(unsigned Opcode,
-                              const MVT *VTs, unsigned NumVTs,
-                              const SDValue *Ops, unsigned NumOps,
-                              MVT MemVT, const Value *srcValue, int SVOff,
-                              unsigned Align = 0, bool Vol = false,
-                              bool ReadMem = true, bool WriteMem = true);
-
-  SDValue getMemIntrinsicNode(unsigned Opcode, SDVTList VTList,
-                              const SDValue *Ops, unsigned NumOps,
-                              MVT MemVT, const Value *srcValue, int SVOff,
-                              unsigned Align = 0, bool Vol = false,
-                              bool ReadMem = true, bool WriteMem = true);
 
   /// getMergeValues - Create a MERGE_VALUES node from the given operands.
   /// Allowed to return something different (and simpler) if Simplify is true.
@@ -692,13 +667,6 @@ public:
   /// assign a unique node id for each node in the DAG based on their
   /// topological order. Returns the number of nodes.
   unsigned AssignTopologicalOrder();
-
-  /// RepositionNode - Move node N in the AllNodes list to be immediately
-  /// before the given iterator Position. This may be used to update the
-  /// topological ordering when the list of nodes is modified.
-  void RepositionNode(allnodes_iterator Position, SDNode *N) {
-    AllNodes.insert(Position, AllNodes.remove(N));
-  }
 
   /// isCommutativeBinOp - Returns true if the opcode is a commutative binary
   /// operation.

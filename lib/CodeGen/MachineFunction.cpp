@@ -110,11 +110,8 @@ void ilist_traits<MachineBasicBlock>::deleteNode(MachineBasicBlock *MBB) {
 MachineFunction::MachineFunction(const Function *F,
                                  const TargetMachine &TM)
   : Annotation(MF_AID), Fn(F), Target(TM) {
-  if (TM.getRegisterInfo())
-    RegInfo = new (Allocator.Allocate<MachineRegisterInfo>())
-                  MachineRegisterInfo(*TM.getRegisterInfo());
-  else
-    RegInfo = 0;
+  RegInfo = new (Allocator.Allocate<MachineRegisterInfo>())
+                MachineRegisterInfo(*TM.getRegisterInfo());
   MFInfo = 0;
   FrameInfo = new (Allocator.Allocate<MachineFrameInfo>())
                   MachineFrameInfo(*TM.getFrameInfo());
@@ -135,8 +132,7 @@ MachineFunction::~MachineFunction() {
   BasicBlocks.clear();
   InstructionRecycler.clear(Allocator);
   BasicBlockRecycler.clear(Allocator);
-  if (RegInfo)
-    RegInfo->~MachineRegisterInfo();        Allocator.Deallocate(RegInfo);
+  RegInfo->~MachineRegisterInfo();        Allocator.Deallocate(RegInfo);
   if (MFInfo) {
     MFInfo->~MachineFunctionInfo();       Allocator.Deallocate(MFInfo);
   }
@@ -259,7 +255,7 @@ void MachineFunction::print(std::ostream &OS) const {
   
   const TargetRegisterInfo *TRI = getTarget().getRegisterInfo();
   
-  if (RegInfo && !RegInfo->livein_empty()) {
+  if (!RegInfo->livein_empty()) {
     OS << "Live Ins:";
     for (MachineRegisterInfo::livein_iterator
          I = RegInfo->livein_begin(), E = RegInfo->livein_end(); I != E; ++I) {
@@ -273,7 +269,7 @@ void MachineFunction::print(std::ostream &OS) const {
     }
     OS << "\n";
   }
-  if (RegInfo && !RegInfo->liveout_empty()) {
+  if (!RegInfo->liveout_empty()) {
     OS << "Live Outs:";
     for (MachineRegisterInfo::liveout_iterator
          I = RegInfo->liveout_begin(), E = RegInfo->liveout_end(); I != E; ++I)
@@ -396,12 +392,11 @@ int MachineFrameInfo::CreateFixedObject(uint64_t Size, int64_t SPOffset,
 
 
 void MachineFrameInfo::print(const MachineFunction &MF, std::ostream &OS) const{
-  const TargetFrameInfo *FI = MF.getTarget().getFrameInfo();
-  int ValOffset = (FI ? FI->getOffsetOfLocalArea() : 0);
+  int ValOffset = MF.getTarget().getFrameInfo()->getOffsetOfLocalArea();
 
   for (unsigned i = 0, e = Objects.size(); i != e; ++i) {
     const StackObject &SO = Objects[i];
-    OS << "  <fi#" << (int)(i-NumFixedObjects) << ">: ";
+    OS << "  <fi #" << (int)(i-NumFixedObjects) << ">: ";
     if (SO.Size == ~0ULL) {
       OS << "dead\n";
       continue;
@@ -459,7 +454,7 @@ void MachineJumpTableInfo::print(std::ostream &OS) const {
   // FIXME: this is lame, maybe we could print out the MBB numbers or something
   // like {1, 2, 4, 5, 3, 0}
   for (unsigned i = 0, e = JumpTables.size(); i != e; ++i) {
-    OS << "  <jt#" << i << "> has " << JumpTables[i].MBBs.size() 
+    OS << "  <jt #" << i << "> has " << JumpTables[i].MBBs.size() 
        << " entries\n";
   }
 }
@@ -537,7 +532,7 @@ unsigned MachineConstantPool::getConstantPoolIndex(MachineConstantPoolValue *V,
 
 void MachineConstantPool::print(raw_ostream &OS) const {
   for (unsigned i = 0, e = Constants.size(); i != e; ++i) {
-    OS << "  <cp#" << i << "> is";
+    OS << "  <cp #" << i << "> is";
     if (Constants[i].isMachineConstantPoolEntry())
       Constants[i].Val.MachineCPVal->print(OS);
     else

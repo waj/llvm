@@ -169,7 +169,7 @@ void InlineCostAnalyzer::FunctionInfo::analyzeFunction(Function *F) {
 // getInlineCost - The heuristic used to determine if we should inline the
 // function call or not.
 //
-InlineCost InlineCostAnalyzer::getInlineCost(CallSite CS,
+int InlineCostAnalyzer::getInlineCost(CallSite CS,
                                SmallPtrSet<const Function *, 16> &NeverInline) {
   Instruction *TheCall = CS.getInstruction();
   Function *Callee = CS.getCalledFunction();
@@ -182,10 +182,12 @@ InlineCost InlineCostAnalyzer::getInlineCost(CallSite CS,
       // FIXME: We allow link-once linkage since in practice all versions of
       // the function have the same body (C++ ODR) - but the LLVM definition
       // of LinkOnceLinkage doesn't require this.
-      (Callee->mayBeOverridden() && !Callee->hasLinkOnceLinkage()) ||
+      (Callee->mayBeOverridden() && !Callee->hasLinkOnceLinkage()
+       ) ||
+
       // Don't inline functions marked noinline.
-      Callee->hasFnAttr(Attribute::NoInline) || NeverInline.count(Callee))
-    return llvm::InlineCost::getNever();
+      NeverInline.count(Callee))
+    return 2000000000;
 
   // InlineCost - This value measures how good of an inline candidate this call
   // site is to inline.  A lower inline cost make is more likely for the call to
@@ -222,14 +224,10 @@ InlineCost InlineCostAnalyzer::getInlineCost(CallSite CS,
   
   // If we should never inline this, return a huge cost.
   if (CalleeFI.NeverInline)
-    return InlineCost::getNever();
+    return 2000000000;
 
-  // FIXME: It would be nice to kill off CalleeFI.NeverInline. Then we
-  // could move this up and avoid computing the FunctionInfo for
-  // things we are going to just return always inline for. This
-  // requires handling setjmp somewhere else, however.
   if (!Callee->isDeclaration() && Callee->hasFnAttr(Attribute::AlwaysInline))
-    return InlineCost::getAlways();
+    return -2000000000;
     
   // Add to the inline quality for properties that make the call valuable to
   // inline.  This includes factors that indicate that the result of inlining
@@ -276,7 +274,7 @@ InlineCost InlineCostAnalyzer::getInlineCost(CallSite CS,
   // Look at the size of the callee. Each instruction counts as 5.
   InlineCost += CalleeFI.NumInsts*5;
 
-  return llvm::InlineCost::get(InlineCost);
+  return InlineCost;
 }
 
 // getInlineFudgeFactor - Return a > 1.0 factor if the inliner should use a

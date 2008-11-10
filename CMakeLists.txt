@@ -1,54 +1,35 @@
-project(LLVM)
 cmake_minimum_required(VERSION 2.6.1)
 
 set(PACKAGE_NAME llvm)
 set(PACKAGE_VERSION svn)
-set(PACKAGE_BUGREPORT "llvmbugs@cs.uiuc.edu")
+set(PACKAGE_BUGREPORT "ofv@wanadoo.es")
+#set(PACKAGE_BUGREPORT "llvmbugs@cs.uiuc.edu")
 
 include(FindPerl)
 
 set(LLVM_MAIN_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(LLVM_MAIN_INCLUDE_DIR ${LLVM_MAIN_SRC_DIR}/include)
+set(LLVM_MAIN_INCLUDE_DIR ${LLVM_MAIN_SRC_DIR}/include/llvm)
 set(LLVM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(LLVM_TOOLS_BINARY_DIR ${LLVM_BINARY_DIR}/bin)
 set(LLVM_EXAMPLES_BINARY_DIR ${LLVM_BINARY_DIR}/examples)
 
-set(LLVM_ALL_TARGETS
-  Alpha
-  ARM
-  CBackend
-  CellSPU
-  CppBackend
-  IA64
-  Mips
-  MSIL
-  PIC16
-  PowerPC
-  Sparc
-  X86
-  XCore
-  )
-
 if( MSVC )
   set(LLVM_TARGETS_TO_BUILD X86
-    CACHE STRING "Semicolon-separated list of targets to build, or \"all\".")
+    CACHE STRING "Semicolon-separated list of targets to build")
 else( MSVC )
-  set(LLVM_TARGETS_TO_BUILD ${LLVM_ALL_TARGETS}
-    CACHE STRING "Semicolon-separated list of targets to build, or \"all\".")
+  set(LLVM_TARGETS_TO_BUILD
+    Alpha ARM CBackend CellSPU CppBackend IA64 Mips MSIL PIC16 PowerPC Sparc X86
+    CACHE STRING "Semicolon-separated list of targets to build")
 endif( MSVC )
 
-if( LLVM_TARGETS_TO_BUILD STREQUAL "all" )
-  set( LLVM_TARGETS_TO_BUILD ${LLVM_ALL_TARGETS} )
-endif()
+if( NOT MSVC )
+  set(CMAKE_CXX_LINK_EXECUTABLE "sh -c \"${CMAKE_CXX_LINK_EXECUTABLE}\"")
+endif( NOT MSVC )
 
-foreach(c ${LLVM_TARGETS_TO_BUILD})
-  list(FIND LLVM_ALL_TARGETS ${c} idx)
-  if( idx LESS 0 )
-    message(FATAL_ERROR "The target `${c}' does not exists.
-    It should be one of\n${LLVM_ALL_TARGETS}")
-  endif()
-endforeach(c)
+# TODO: Eliminate?
+get_filename_component(llvm_include_path ${LLVM_MAIN_SRC_DIR}/include ABSOLUTE)
 
+#get_filename_component(llvm_builded_incs_dir ${LLVM_BINARY_DIR}/include/llvm ABSOLUTE)
 set(llvm_builded_incs_dir ${LLVM_BINARY_DIR}/include/llvm)
 
 # Add path for custom modules
@@ -59,13 +40,8 @@ set(CMAKE_MODULE_PATH
   )
 
 if(WIN32)
-  if(CYGWIN)
-    set(LLVM_ON_WIN32 0)
-    set(LLVM_ON_UNIX 1)
-  else(CYGWIN)
-    set(LLVM_ON_WIN32 1)
-    set(LLVM_ON_UNIX 0)
-  endif(CYGWIN)
+  set(LLVM_ON_WIN32 1)
+  set(LLVM_ON_UNIX 0)
   set(LTDL_SHLIB_EXT ".dll")
   set(EXEEXT ".exe")
   # Maximum path length is 160 for non-unicode paths
@@ -89,7 +65,13 @@ endif( EXISTS ${LLVM_TOOLS_BINARY_DIR}/llvm-config )
 # find_file(HAVE_LLVM_CONFIG llvm-config ${LLVM_TOOLS_BINARY_DIR})
 # message(STATUS ${HAVE_LLVM_CONFIG})
 
-include(config-ix)
+if( MSVC )
+  message(STATUS "Configuring using MSVC hack.")
+  include(config-w32)
+else( MSVC )
+  message(STATUS "Configuring traditional style.")
+  include(config-ix)
+endif( MSVC )
 
 set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_TOOLS_BINARY_DIR} )
 set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib )
@@ -98,22 +80,12 @@ set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib )
 # set(CMAKE_VERBOSE_MAKEFILE true)
 
 add_definitions( -D__STDC_LIMIT_MACROS )
-add_definitions( -D__STDC_CONSTANT_MACROS )
 
-set(LLVM_PLO_FLAGS "" CACHE
-  STRING "Flags for creating partially linked objects.")
-
-if( CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT WIN32 )
-  # TODO: support other platforms and toolchains.
-  option(BUILD_32_BITS "Build 32 bits executables and libraries." OFF)
-  if( BUILD_32_BITS )
-    message(STATUS "Building 32 bits executables and libraries.")
-    add_definitions( -m32 )
-    set( CMAKE_EXE_LINKER_FLAGS "-m32 ${CMAKE_EXE_LINKER_FLAGS}" )
-    set( CMAKE_LINK_LIBRARY_FLAG "-m32 ${CMAKE_LINK_LIBRARY_FLAG}" )
-    set( LLVM_PLO_FLAGS -melf_i386 ${LLVM_PLO_FLAGS} )
-  endif( BUILD_32_BITS )
-endif( CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT WIN32 )
+if( LLVM_ON_UNIX )
+  add_definitions( -DLLVM_ON_UNIX )
+else( LLVM_ON_UNIX )
+  add_definitions( -DLLVM_ON_WIN32 )
+endif( LLVM_ON_UNIX )
 
 if( MSVC )
   add_definitions( -D_CRT_SECURE_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS )
@@ -123,7 +95,7 @@ if( MSVC )
   add_definitions( -wd4355 -wd4715 )
 endif( MSVC )
 
-include_directories( ${LLVM_BINARY_DIR}/include ${LLVM_MAIN_INCLUDE_DIR})
+include_directories( ${LLVM_BINARY_DIR}/include ${llvm_include_path})
 #link_directories( d:/dev/lib )
 
 #add_subdirectory(lib)
@@ -138,18 +110,10 @@ add_subdirectory(lib/System)
 # Everything else depends on Support and System:
 set(LLVM_COMMON_DEPENDS ${LLVM_COMMON_DEPENDS} ${LLVM_LIBS} )
 
-set(LLVM_TABLEGEN "tblgen" CACHE
-  STRING "Native TableGen executable. Saves building one when cross-compiling.")
-
 add_subdirectory(utils/TableGen)
 
-if( CMAKE_CROSSCOMPILING )
-  # This adds a dependency on target `tblgen', so must go after utils/TableGen
-  include( CrossCompileLLVM )
-endif( CMAKE_CROSSCOMPILING )
-
 add_custom_command(OUTPUT ${llvm_builded_incs_dir}/Intrinsics.gen
-  COMMAND ${LLVM_TABLEGEN} -gen-intrinsic -I ${LLVM_MAIN_INCLUDE_DIR} ${LLVM_MAIN_INCLUDE_DIR}/llvm/Intrinsics.td -o ${llvm_builded_incs_dir}/Intrinsics.gen
+  COMMAND tblgen -gen-intrinsic -I ${llvm_include_path} ${llvm_include_path}/llvm/Intrinsics.td -o ${llvm_builded_incs_dir}/Intrinsics.gen
   DEPENDS tblgen
   COMMENT "Building intrinsics.gen...")
 
@@ -192,16 +156,3 @@ add_subdirectory(lib/Archive)
 add_subdirectory(tools)
 
 add_subdirectory(examples)
-
-install(DIRECTORY include
-  DESTINATION .
-  PATTERN ".svn" EXCLUDE
-  PATTERN "*.cmake" EXCLUDE
-  PATTERN "*.in" EXCLUDE
-  )
-
-install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include
-  DESTINATION .
-  )
-
-# TODO: make and install documentation.

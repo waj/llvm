@@ -1287,12 +1287,10 @@ ShuffleVectorInst::ShuffleVectorInst(const ShuffleVectorInst &SV)
 ShuffleVectorInst::ShuffleVectorInst(Value *V1, Value *V2, Value *Mask,
                                      const std::string &Name,
                                      Instruction *InsertBefore)
-: Instruction(VectorType::get(cast<VectorType>(V1->getType())->getElementType(),
-                cast<VectorType>(Mask->getType())->getNumElements()),
-              ShuffleVector,
-              OperandTraits<ShuffleVectorInst>::op_begin(this),
-              OperandTraits<ShuffleVectorInst>::operands(this),
-              InsertBefore) {
+  : Instruction(V1->getType(), ShuffleVector,
+                OperandTraits<ShuffleVectorInst>::op_begin(this),
+                OperandTraits<ShuffleVectorInst>::operands(this),
+                InsertBefore) {
   assert(isValidOperands(V1, V2, Mask) &&
          "Invalid shuffle vector instruction operands!");
   Op<0>() = V1;
@@ -1302,7 +1300,7 @@ ShuffleVectorInst::ShuffleVectorInst(Value *V1, Value *V2, Value *Mask,
 }
 
 ShuffleVectorInst::ShuffleVectorInst(Value *V1, Value *V2, Value *Mask,
-                                     const std::string &Name,
+                                     const std::string &Name, 
                                      BasicBlock *InsertAtEnd)
   : Instruction(V1->getType(), ShuffleVector,
                 OperandTraits<ShuffleVectorInst>::op_begin(this),
@@ -1317,14 +1315,17 @@ ShuffleVectorInst::ShuffleVectorInst(Value *V1, Value *V2, Value *Mask,
   setName(Name);
 }
 
-bool ShuffleVectorInst::isValidOperands(const Value *V1, const Value *V2,
+bool ShuffleVectorInst::isValidOperands(const Value *V1, const Value *V2, 
                                         const Value *Mask) {
-  if (!isa<VectorType>(V1->getType()) || V1->getType() != V2->getType())
+  if (!isa<VectorType>(V1->getType()) || 
+      V1->getType() != V2->getType()) 
     return false;
   
   const VectorType *MaskTy = dyn_cast<VectorType>(Mask->getType());
   if (!isa<Constant>(Mask) || MaskTy == 0 ||
-      MaskTy->getElementType() != Type::Int32Ty)
+      MaskTy->getElementType() != Type::Int32Ty ||
+      MaskTy->getNumElements() != 
+      cast<VectorType>(V1->getType())->getNumElements())
     return false;
   return true;
 }
@@ -2171,7 +2172,6 @@ CastInst::getCastOpcode(
     } else if (const VectorType *PTy = dyn_cast<VectorType>(SrcTy)) {
       assert(DestBits == PTy->getBitWidth() &&
                "Casting vector to integer of different width");
-      PTy = NULL;
       return BitCast;                             // Same size, no-op cast
     } else {
       assert(isa<PointerType>(SrcTy) &&
@@ -2195,8 +2195,7 @@ CastInst::getCastOpcode(
     } else if (const VectorType *PTy = dyn_cast<VectorType>(SrcTy)) {
       assert(DestBits == PTy->getBitWidth() &&
              "Casting vector to floating point of different width");
-      PTy = NULL;
-      return BitCast;                             // same size, no-op cast
+        return BitCast;                             // same size, no-op cast
     } else {
       assert(0 && "Casting pointer or non-first class to float");
     }

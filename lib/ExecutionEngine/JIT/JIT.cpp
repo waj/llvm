@@ -509,13 +509,13 @@ void *JIT::getPointerToFunction(Function *F) {
       abort();
     }
   }
-
+  
   if (void *Addr = getPointerToGlobalIfAvailable(F)) {
     return Addr;
   }
 
   MutexGuard locked(lock);
-
+  
   if (F->isDeclaration()) {
     void *Addr = getPointerToNamedFunction(F->getName());
     addGlobalMapping(F, Addr);
@@ -562,22 +562,7 @@ void *JIT::getOrEmitGlobalVariable(const GlobalVariable *GV) {
     const Type *GlobalType = GV->getType()->getElementType();
     size_t S = getTargetData()->getABITypeSize(GlobalType);
     size_t A = getTargetData()->getPreferredAlignment(GV);
-    if (GV->isThreadLocal()) {
-      MutexGuard locked(lock);
-      Ptr = TJI.allocateThreadLocalMemory(S);
-    } else if (TJI.allocateSeparateGVMemory()) {
-      if (A <= 8) {
-        Ptr = malloc(S);
-      } else {
-        // Allocate S+A bytes of memory, then use an aligned pointer within that
-        // space.
-        Ptr = malloc(S+A);
-        unsigned MisAligned = ((intptr_t)Ptr & (A-1));
-        Ptr = (char*)Ptr + (MisAligned ? (A-MisAligned) : 0);
-      }
-    } else {
-      Ptr = MCE->allocateSpace(S, A);
-    }
+    Ptr = MCE->allocateSpace(S, A);
     addGlobalMapping(GV, Ptr);
     EmitGlobalVariable(GV);
   }
@@ -609,17 +594,3 @@ void *JIT::recompileAndRelinkFunction(Function *F) {
   return Addr;
 }
 
-/// getMemoryForGV - This method abstracts memory allocation of global
-/// variable so that the JIT can allocate thread local variables depending
-/// on the target.
-///
-char* JIT::getMemoryForGV(const GlobalVariable* GV) {
-  const Type *ElTy = GV->getType()->getElementType();
-  size_t GVSize = (size_t)getTargetData()->getABITypeSize(ElTy);
-  if (GV->isThreadLocal()) {
-    MutexGuard locked(lock);
-    return TJI.allocateThreadLocalMemory(GVSize);
-  } else {
-    return new char[GVSize];
-  }
-}

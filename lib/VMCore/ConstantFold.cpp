@@ -126,7 +126,6 @@ static Constant *FoldBitCast(Constant *V, const Type *DestTy) {
     if (const VectorType *SrcTy = dyn_cast<VectorType>(V->getType())) {
       assert(DestPTy->getBitWidth() == SrcTy->getBitWidth() &&
              "Not cast between same sized vectors!");
-      SrcTy = NULL;
       // First, check for null.  Undef is already handled.
       if (isa<ConstantAggregateZero>(V))
         return Constant::getNullValue(DestTy);
@@ -134,12 +133,6 @@ static Constant *FoldBitCast(Constant *V, const Type *DestTy) {
       if (ConstantVector *CV = dyn_cast<ConstantVector>(V))
         return BitCastConstantVector(CV, DestPTy);
     }
-
-    // Canonicalize scalar-to-vector bitcasts into vector-to-vector bitcasts
-    // This allows for other simplifications (although some of them
-    // can only be handled by Analysis/ConstantFolding.cpp).
-    if (isa<ConstantInt>(V) || isa<ConstantFP>(V))
-      return ConstantExpr::getBitCast(ConstantVector::get(&V, 1), DestPTy);
   }
   
   // Finally, implement bitcast folding now.   The code below doesn't handle
@@ -167,10 +160,10 @@ static Constant *FoldBitCast(Constant *V, const Type *DestTy) {
   if (const ConstantFP *FP = dyn_cast<ConstantFP>(V)) {
     // FP -> Integral.
     if (DestTy == Type::Int32Ty) {
-      return ConstantInt::get(FP->getValueAPF().bitcastToAPInt());
+      return ConstantInt::get(FP->getValueAPF().convertToAPInt());
     } else {
       assert(DestTy == Type::Int64Ty && "only support f32/f64 for now!");
-      return ConstantInt::get(FP->getValueAPF().bitcastToAPInt());
+      return ConstantInt::get(FP->getValueAPF().convertToAPInt());
     }
   }
   return 0;
@@ -220,14 +213,13 @@ Constant *llvm::ConstantFoldCastInstruction(unsigned opc, const Constant *V,
   case Instruction::FPTrunc:
   case Instruction::FPExt:
     if (const ConstantFP *FPC = dyn_cast<ConstantFP>(V)) {
-      bool ignored;
       APFloat Val = FPC->getValueAPF();
       Val.convert(DestTy == Type::FloatTy ? APFloat::IEEEsingle :
                   DestTy == Type::DoubleTy ? APFloat::IEEEdouble :
                   DestTy == Type::X86_FP80Ty ? APFloat::x87DoubleExtended :
                   DestTy == Type::FP128Ty ? APFloat::IEEEquad :
                   APFloat::Bogus,
-                  APFloat::rmNearestTiesToEven, &ignored);
+                  APFloat::rmNearestTiesToEven);
       return ConstantFP::get(Val);
     }
     return 0; // Can't fold.
@@ -235,11 +227,10 @@ Constant *llvm::ConstantFoldCastInstruction(unsigned opc, const Constant *V,
   case Instruction::FPToSI:
     if (const ConstantFP *FPC = dyn_cast<ConstantFP>(V)) {
       const APFloat &V = FPC->getValueAPF();
-      bool ignored;
       uint64_t x[2]; 
       uint32_t DestBitWidth = cast<IntegerType>(DestTy)->getBitWidth();
       (void) V.convertToInteger(x, DestBitWidth, opc==Instruction::FPToSI,
-                                APFloat::rmTowardZero, &ignored);
+                                APFloat::rmTowardZero);
       APInt Val(DestBitWidth, 2, x);
       return ConstantInt::get(Val);
     }
@@ -424,25 +415,24 @@ Constant *llvm::ConstantFoldShuffleVectorInstruction(const Constant *V1,
                                                      const Constant *Mask) {
   // Undefined shuffle mask -> undefined value.
   if (isa<UndefValue>(Mask)) return UndefValue::get(V1->getType());
-
-  unsigned MaskNumElts = cast<VectorType>(Mask->getType())->getNumElements();
-  unsigned SrcNumElts = cast<VectorType>(V1->getType())->getNumElements();
+  
+  unsigned NumElts = cast<VectorType>(V1->getType())->getNumElements();
   const Type *EltTy = cast<VectorType>(V1->getType())->getElementType();
-
+  
   // Loop over the shuffle mask, evaluating each element.
   SmallVector<Constant*, 32> Result;
-  for (unsigned i = 0; i != MaskNumElts; ++i) {
+  for (unsigned i = 0; i != NumElts; ++i) {
     Constant *InElt = GetVectorElement(Mask, i);
     if (InElt == 0) return 0;
-
+    
     if (isa<UndefValue>(InElt))
       InElt = UndefValue::get(EltTy);
     else if (ConstantInt *CI = dyn_cast<ConstantInt>(InElt)) {
       unsigned Elt = CI->getZExtValue();
-      if (Elt >= SrcNumElts*2)
+      if (Elt >= NumElts*2)
         InElt = UndefValue::get(EltTy);
-      else if (Elt >= SrcNumElts)
-        InElt = GetVectorElement(V2, Elt - SrcNumElts);
+      else if (Elt >= NumElts)
+        InElt = GetVectorElement(V2, Elt-NumElts);
       else
         InElt = GetVectorElement(V1, Elt);
       if (InElt == 0) return 0;
@@ -452,7 +442,7 @@ Constant *llvm::ConstantFoldShuffleVectorInstruction(const Constant *V1,
     }
     Result.push_back(InElt);
   }
-
+  
   return ConstantVector::get(&Result[0], Result.size());
 }
 

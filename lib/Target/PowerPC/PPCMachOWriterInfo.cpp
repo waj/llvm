@@ -16,7 +16,6 @@
 #include "PPCTargetMachine.h"
 #include "llvm/CodeGen/MachORelocation.h"
 #include "llvm/Support/OutputBuffer.h"
-#include <cstdio>
 using namespace llvm;
 
 PPCMachOWriterInfo::PPCMachOWriterInfo(const PPCTargetMachine &TM)

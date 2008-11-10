@@ -27,14 +27,6 @@ static void PrintDefList(const std::vector<Record*> &Uses,
   OS << "0 };\n";
 }
 
-static void PrintBarriers(std::vector<Record*> &Barriers,
-                          unsigned Num, std::ostream &OS) {
-  OS << "static const TargetRegisterClass* Barriers" << Num << "[] = { ";
-  for (unsigned i = 0, e = Barriers.size(); i != e; ++i)
-    OS << "&" << getQualifiedName(Barriers[i]) << "RegClass, ";
-  OS << "NULL };\n";
-}
-
 //===----------------------------------------------------------------------===//
 // Instruction Itinerary Information.
 //===----------------------------------------------------------------------===//
@@ -145,33 +137,6 @@ void InstrInfoEmitter::EmitOperandInfo(std::ostream &OS,
   }
 }
 
-void InstrInfoEmitter::DetectRegisterClassBarriers(std::vector<Record*> &Defs,
-                                  const std::vector<CodeGenRegisterClass> &RCs,
-                                  std::vector<Record*> &Barriers) {
-  std::set<Record*> DefSet;
-  unsigned NumDefs = Defs.size();
-  for (unsigned i = 0; i < NumDefs; ++i)
-    DefSet.insert(Defs[i]);
-
-  for (unsigned i = 0, e = RCs.size(); i != e; ++i) {
-    const CodeGenRegisterClass &RC = RCs[i];
-    unsigned NumRegs = RC.Elements.size();
-    if (NumRegs > NumDefs)
-      continue; // Can't possibly clobber this RC.
-
-    bool Clobber = true;
-    for (unsigned j = 0; j < NumRegs; ++j) {
-      Record *Reg = RC.Elements[j];
-      if (!DefSet.count(Reg)) {
-        Clobber = false;
-        break;
-      }
-    }
-    if (Clobber)
-      Barriers.push_back(RC.TheDef);
-  }
-}
-
 //===----------------------------------------------------------------------===//
 // Main Output.
 //===----------------------------------------------------------------------===//
@@ -186,14 +151,10 @@ void InstrInfoEmitter::run(std::ostream &OS) {
   CodeGenTarget &Target = CDP.getTargetInfo();
   const std::string &TargetName = Target.getName();
   Record *InstrInfo = Target.getInstructionSet();
-  const std::vector<CodeGenRegisterClass> &RCs = Target.getRegisterClasses();
 
   // Keep track of all of the def lists we have emitted already.
   std::map<std::vector<Record*>, unsigned> EmittedLists;
   unsigned ListNumber = 0;
-  std::map<std::vector<Record*>, unsigned> EmittedBarriers;
-  unsigned BarrierNumber = 0;
-  std::map<Record*, unsigned> BarriersMap;
  
   // Emit all of the instruction's implicit uses and defs.
   for (CodeGenTarget::inst_iterator II = Target.inst_begin(),
@@ -206,14 +167,6 @@ void InstrInfoEmitter::run(std::ostream &OS) {
     }
     std::vector<Record*> Defs = Inst->getValueAsListOfDefs("Defs");
     if (!Defs.empty()) {
-      std::vector<Record*> RCBarriers;
-      DetectRegisterClassBarriers(Defs, RCs, RCBarriers);
-      if (!RCBarriers.empty()) {
-        unsigned &IB = EmittedBarriers[RCBarriers];
-        if (!IB) PrintBarriers(RCBarriers, IB = ++BarrierNumber, OS);
-        BarriersMap.insert(std::make_pair(Inst, IB));
-      }
-
       unsigned &IL = EmittedLists[Defs];
       if (!IL) PrintDefList(Defs, IL = ++ListNumber, OS);
     }
@@ -233,7 +186,7 @@ void InstrInfoEmitter::run(std::ostream &OS) {
 
   for (unsigned i = 0, e = NumberedInstructions.size(); i != e; ++i)
     emitRecord(*NumberedInstructions[i], i, InstrInfo, EmittedLists,
-               BarriersMap, OperandInfoIDs, OS);
+               OperandInfoIDs, OS);
   OS << "};\n";
   OS << "} // End llvm namespace \n";
 }
@@ -241,7 +194,6 @@ void InstrInfoEmitter::run(std::ostream &OS) {
 void InstrInfoEmitter::emitRecord(const CodeGenInstruction &Inst, unsigned Num,
                                   Record *InstrInfo,
                          std::map<std::vector<Record*>, unsigned> &EmittedLists,
-                                  std::map<Record*, unsigned> &BarriersMap,
                                   const OperandInfoMapTy &OpInfo,
                                   std::ostream &OS) {
   int MinOperands = 0;
@@ -304,12 +256,6 @@ void InstrInfoEmitter::emitRecord(const CodeGenInstruction &Inst, unsigned Num,
     OS << "NULL, ";
   else
     OS << "ImplicitList" << EmittedLists[DefList] << ", ";
-
-  std::map<Record*, unsigned>::iterator BI = BarriersMap.find(Inst.TheDef);
-  if (BI == BarriersMap.end())
-    OS << "NULL, ";
-  else
-    OS << "Barriers" << BI->second << ", ";
 
   // Emit the operand info.
   std::vector<std::string> OperandInfo = GetOperandInfo(Inst);

@@ -52,12 +52,6 @@ ExecutionEngine::~ExecutionEngine() {
     delete Modules[i];
 }
 
-char* ExecutionEngine::getMemoryForGV(const GlobalVariable* GV) {
-  const Type *ElTy = GV->getType()->getElementType();
-  size_t GVSize = (size_t)getTargetData()->getABITypeSize(ElTy);
-  return new char[GVSize];
-}
-
 /// removeModuleProvider - Remove a ModuleProvider from the list of modules.
 /// Release module from ModuleProvider.
 Module* ExecutionEngine::removeModuleProvider(ModuleProvider *P, 
@@ -94,7 +88,7 @@ Function *ExecutionEngine::FindFunctionNamed(const char *FnName) {
 void ExecutionEngine::addGlobalMapping(const GlobalValue *GV, void *Addr) {
   MutexGuard locked(lock);
 
-  DOUT << "JIT: Map \'" << GV->getNameStart() << "\' to [" << Addr << "]\n";  
+  DOUT << "Map " << *GV << " to " << Addr << "\n";  
   void *&CurVal = state.getGlobalAddressMap(locked)[GV];
   assert((CurVal == 0 || Addr == 0) && "GlobalMapping already established!");
   CurVal = Addr;
@@ -211,13 +205,13 @@ static void *CreateArgv(ExecutionEngine *EE,
   unsigned PtrSize = EE->getTargetData()->getPointerSize();
   char *Result = new char[(InputArgv.size()+1)*PtrSize];
 
-  DOUT << "JIT: ARGV = " << (void*)Result << "\n";
+  DOUT << "ARGV = " << (void*)Result << "\n";
   const Type *SBytePtr = PointerType::getUnqual(Type::Int8Ty);
 
   for (unsigned i = 0; i != InputArgv.size(); ++i) {
     unsigned Size = InputArgv[i].size()+1;
     char *Dest = new char[Size];
-    DOUT << "JIT: ARGV[" << i << "] = " << (void*)Dest << "\n";
+    DOUT << "ARGV[" << i << "] = " << (void*)Dest << "\n";
 
     std::copy(InputArgv[i].begin(), InputArgv[i].end(), Dest);
     Dest[Size-1] = 0;
@@ -473,7 +467,7 @@ GenericValue ExecutionEngine::getConstantValue(const Constant *C) {
         (void)apf.convertFromAPInt(GV.IntVal, 
                                    false,
                                    APFloat::rmNearestTiesToEven);
-        GV.IntVal = apf.bitcastToAPInt();
+        GV.IntVal = apf.convertToAPInt();
       }
       return GV;
     }
@@ -489,7 +483,7 @@ GenericValue ExecutionEngine::getConstantValue(const Constant *C) {
         (void)apf.convertFromAPInt(GV.IntVal, 
                                    true,
                                    APFloat::rmNearestTiesToEven);
-        GV.IntVal = apf.bitcastToAPInt();
+        GV.IntVal = apf.convertToAPInt();
       }
       return GV;
     }
@@ -504,10 +498,9 @@ GenericValue ExecutionEngine::getConstantValue(const Constant *C) {
       else if (Op0->getType() == Type::X86_FP80Ty) {
         APFloat apf = APFloat(GV.IntVal);
         uint64_t v;
-        bool ignored;
         (void)apf.convertToInteger(&v, BitWidth,
                                    CE->getOpcode()==Instruction::FPToSI, 
-                                   APFloat::rmTowardZero, &ignored);
+                                   APFloat::rmTowardZero);
         GV.IntVal = v; // endian?
       }
       return GV;
@@ -621,23 +614,23 @@ GenericValue ExecutionEngine::getConstantValue(const Constant *C) {
           default: assert(0 && "Invalid long double opcode"); abort();
           case Instruction::Add:  
             apfLHS.add(APFloat(RHS.IntVal), APFloat::rmNearestTiesToEven);
-            GV.IntVal = apfLHS.bitcastToAPInt();
+            GV.IntVal = apfLHS.convertToAPInt();
             break;
           case Instruction::Sub:  
             apfLHS.subtract(APFloat(RHS.IntVal), APFloat::rmNearestTiesToEven);
-            GV.IntVal = apfLHS.bitcastToAPInt();
+            GV.IntVal = apfLHS.convertToAPInt();
             break;
           case Instruction::Mul:  
             apfLHS.multiply(APFloat(RHS.IntVal), APFloat::rmNearestTiesToEven);
-            GV.IntVal = apfLHS.bitcastToAPInt();
+            GV.IntVal = apfLHS.convertToAPInt();
             break;
           case Instruction::FDiv: 
             apfLHS.divide(APFloat(RHS.IntVal), APFloat::rmNearestTiesToEven);
-            GV.IntVal = apfLHS.bitcastToAPInt();
+            GV.IntVal = apfLHS.convertToAPInt();
             break;
           case Instruction::FRem: 
             apfLHS.mod(APFloat(RHS.IntVal), APFloat::rmNearestTiesToEven);
-            GV.IntVal = apfLHS.bitcastToAPInt();
+            GV.IntVal = apfLHS.convertToAPInt();
             break;
           }
         }
@@ -663,7 +656,7 @@ GenericValue ExecutionEngine::getConstantValue(const Constant *C) {
   case Type::X86_FP80TyID:
   case Type::FP128TyID:
   case Type::PPC_FP128TyID:
-    Result.IntVal = cast <ConstantFP>(C)->getValueAPF().bitcastToAPInt();
+    Result.IntVal = cast <ConstantFP>(C)->getValueAPF().convertToAPInt();
     break;
   case Type::IntegerTyID:
     Result.IntVal = cast<ConstantInt>(C)->getValue();
@@ -715,8 +708,8 @@ static void StoreIntToMemory(const APInt &IntVal, uint8_t *Dst,
 /// is the address of the memory at which to store Val, cast to GenericValue *.
 /// It is not a pointer to a GenericValue containing the address at which to
 /// store Val.
-void ExecutionEngine::StoreValueToMemory(const GenericValue &Val,
-                                         GenericValue *Ptr, const Type *Ty) {
+void ExecutionEngine::StoreValueToMemory(const GenericValue &Val, GenericValue *Ptr,
+                                         const Type *Ty) {
   const unsigned StoreBytes = getTargetData()->getTypeStoreSize(Ty);
 
   switch (Ty->getTypeID()) {
@@ -839,7 +832,7 @@ void ExecutionEngine::LoadValueFromMemory(GenericValue &Result,
 // specified memory location...
 //
 void ExecutionEngine::InitializeMemory(const Constant *Init, void *Addr) {
-  DOUT << "JIT: Initializing " << Addr << " ";
+  DOUT << "Initializing " << Addr;
   DEBUG(Init->dump());
   if (isa<UndefValue>(Init)) {
     return;
@@ -879,6 +872,7 @@ void ExecutionEngine::InitializeMemory(const Constant *Init, void *Addr) {
 /// their initializers into the memory.
 ///
 void ExecutionEngine::emitGlobals() {
+  const TargetData *TD = getTargetData();
 
   // Loop over all of the global variables in the program, allocating the memory
   // to hold them.  If there is more than one module, do a prepass over globals
@@ -939,7 +933,12 @@ void ExecutionEngine::emitGlobals() {
       }
       
       if (!I->isDeclaration()) {
-        addGlobalMapping(I, getMemoryForGV(I));
+        // Get the type of the global.
+        const Type *Ty = I->getType()->getElementType();
+
+        // Allocate some memory for it!
+        unsigned Size = TD->getABITypeSize(Ty);
+        addGlobalMapping(I, new char[Size]);
       } else {
         // External variable reference. Try to use the dynamic loader to
         // get a pointer to it.
@@ -963,7 +962,7 @@ void ExecutionEngine::emitGlobals() {
           LinkedGlobalsMap[std::make_pair(GV->getName(), GV->getType())];
         void *Ptr = getPointerToGlobalIfAvailable(CGV);
         assert(Ptr && "Canonical global wasn't codegen'd!");
-        addGlobalMapping(GV, Ptr);
+        addGlobalMapping(GV, getPointerToGlobalIfAvailable(CGV));
       }
     }
     
@@ -989,19 +988,17 @@ void ExecutionEngine::emitGlobals() {
 // already in the map.
 void ExecutionEngine::EmitGlobalVariable(const GlobalVariable *GV) {
   void *GA = getPointerToGlobalIfAvailable(GV);
+  DOUT << "Global '" << GV->getName() << "' -> " << GA << "\n";
 
-  if (GA == 0) {
-    // If it's not already specified, allocate memory for the global.
-    GA = getMemoryForGV(GV);
-    addGlobalMapping(GV, GA);
-  }
-  
-  // Don't initialize if it's thread local, let the client do it.
-  if (!GV->isThreadLocal())
-    InitializeMemory(GV->getInitializer(), GA);
-  
   const Type *ElTy = GV->getType()->getElementType();
   size_t GVSize = (size_t)getTargetData()->getABITypeSize(ElTy);
+  if (GA == 0) {
+    // If it's not already specified, allocate memory for the global.
+    GA = new char[GVSize];
+    addGlobalMapping(GV, GA);
+  }
+
+  InitializeMemory(GV->getInitializer(), GA);
   NumInitBytes += (unsigned)GVSize;
   ++NumGlobals;
 }

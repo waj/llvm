@@ -31,6 +31,9 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetMachine.h"
+#include <queue>
+#include <set>
+
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -102,7 +105,7 @@ void PIC16DAGToDAGISel::InstructionSelect()
 #endif
 
   // Select target instructions for the DAG.
-  SelectRoot(*CurDAG);
+  SelectRoot();
 
   DOUT << "===== Instruction selection ends:\n";
 

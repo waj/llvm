@@ -142,12 +142,12 @@ namespace llvm {
     virtual void setModuleInfo(llvm::MachineModuleInfo* MMI) { }
 
     /// JIT SPECIFIC FUNCTIONS - DO NOT IMPLEMENT THESE HERE!
-    virtual void startGVStub(const GlobalValue* F, unsigned StubSize,
-                             unsigned Alignment = 1) {
+    virtual void startFunctionStub(const GlobalValue* F, unsigned StubSize,
+                                   unsigned Alignment = 1) {
       assert(0 && "JIT specific function called!");
       abort();
     }
-    virtual void *finishGVStub(const GlobalValue* F) {
+    virtual void *finishFunctionStub(const GlobalValue* F) {
       assert(0 && "JIT specific function called!");
       abort();
       return 0;
@@ -878,7 +878,7 @@ void MachOWriter::InitMem(const Constant *C, void *Addr, intptr_t Offset,
         break;
       }
       case Type::FloatTyID: {
-        uint32_t val = cast<ConstantFP>(PC)->getValueAPF().bitcastToAPInt().
+        uint32_t val = cast<ConstantFP>(PC)->getValueAPF().convertToAPInt().
                         getZExtValue();
         if (TD->isBigEndian())
           val = ByteSwap_32(val);
@@ -889,7 +889,7 @@ void MachOWriter::InitMem(const Constant *C, void *Addr, intptr_t Offset,
         break;
       }
       case Type::DoubleTyID: {
-        uint64_t val = cast<ConstantFP>(PC)->getValueAPF().bitcastToAPInt().
+        uint64_t val = cast<ConstantFP>(PC)->getValueAPF().convertToAPInt().
                          getZExtValue();
         if (TD->isBigEndian())
           val = ByteSwap_64(val);

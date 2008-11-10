@@ -30,7 +30,6 @@ add_llvm_library(LLVMCodeGen
   PHIElimination.cpp
   Passes.cpp
   PostRASchedulerList.cpp
-  PreAllocSplitting.cpp
   PrologEpilogInserter.cpp
   PseudoSourceValue.cpp
   RegAllocBigBlock.cpp
@@ -42,7 +41,6 @@ add_llvm_library(LLVMCodeGen
   RegisterScavenging.cpp
   ShadowStackGC.cpp
   SimpleRegisterCoalescing.cpp
-  StackProtector.cpp
   StackSlotColoring.cpp
   StrongPHIElimination.cpp
   TargetInstrInfoImpl.cpp

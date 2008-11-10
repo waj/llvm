@@ -41,11 +41,11 @@ STATISTIC(NumCCCopies,   "Number of cross class copies");
 
 static RegisterScheduler
   burrListDAGScheduler("list-burr",
-                       "Bottom-up register reduction list scheduling",
+                       "  Bottom-up register reduction list scheduling",
                        createBURRListDAGScheduler);
 static RegisterScheduler
   tdrListrDAGScheduler("list-tdrr",
-                       "Top-down register reduction list scheduling",
+                       "  Top-down register reduction list scheduling",
                        createTDRRListDAGScheduler);
 
 namespace {
@@ -1349,15 +1349,17 @@ namespace {
     RegReductionPriorityQueue() :
     Queue(SF(this)), currentQueueId(0) {}
     
-    virtual void initNodes(std::vector<SUnit> &sunits) = 0;
+    virtual void initNodes(std::vector<SUnit> &sunits) {}
 
-    virtual void addNode(const SUnit *SU) = 0;
+    virtual void addNode(const SUnit *SU) {}
 
-    virtual void updateNode(const SUnit *SU) = 0;
+    virtual void updateNode(const SUnit *SU) {}
 
-    virtual void releaseState() = 0;
+    virtual void releaseState() {}
     
-    virtual unsigned getNodePriority(const SUnit *SU) const = 0;
+    virtual unsigned getNodePriority(const SUnit *SU) const {
+      return 0;
+    }
     
     unsigned size() const { return Queue.size(); }
 

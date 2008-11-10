@@ -848,13 +848,12 @@ X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr *MI) const {
 /// two instructions it assumes it's not safe.
 static bool isSafeToClobberEFLAGS(MachineBasicBlock &MBB,
                                   MachineBasicBlock::iterator I) {
-  // It's always safe to clobber EFLAGS at the end of a block.
-  if (I == MBB.end())
-    return true;
-
   // For compile time consideration, if we are not able to determine the
   // safety after visiting 2 instructions, we will assume it's not safe.
   for (unsigned i = 0; i < 2; ++i) {
+    if (I == MBB.end())
+      // Reached end of block, it's safe.
+      return true;
     bool SeenDef = false;
     for (unsigned j = 0, e = I->getNumOperands(); j != e; ++j) {
       MachineOperand &MO = I->getOperand(j);
@@ -871,10 +870,6 @@ static bool isSafeToClobberEFLAGS(MachineBasicBlock &MBB,
       // This instruction defines EFLAGS, no need to look any further.
       return true;
     ++I;
-
-    // If we make it to the end of the block, it's safe to clobber EFLAGS.
-    if (I == MBB.end())
-      return true;
   }
 
   // Conservative answer.
@@ -1253,14 +1248,26 @@ X86InstrInfo::commuteInstruction(MachineInstr *MI, bool NewMI) const {
     case X86::SHLD64rri8: Size = 64; Opc = X86::SHRD64rri8; break;
     }
     unsigned Amt = MI->getOperand(3).getImm();
-    if (NewMI) {
-      MachineFunction &MF = *MI->getParent()->getParent();
-      MI = MF.CloneMachineInstr(MI);
-      NewMI = false;
+    unsigned A = MI->getOperand(0).getReg();
+    unsigned B = MI->getOperand(1).getReg();
+    unsigned C = MI->getOperand(2).getReg();
+    bool AisDead = MI->getOperand(0).isDead();
+    bool BisKill = MI->getOperand(1).isKill();
+    bool CisKill = MI->getOperand(2).isKill();
+    // If machine instrs are no longer in two-address forms, update
+    // destination register as well.
+    if (A == B) {
+      // Must be two address instruction!
+      assert(MI->getDesc().getOperandConstraint(0, TOI::TIED_TO) &&
+             "Expecting a two-address instruction!");
+      A = C;
+      CisKill = false;
     }
-    MI->setDesc(get(Opc));
-    MI->getOperand(3).setImm(Size-Amt);
-    return TargetInstrInfoImpl::commuteInstruction(MI, NewMI);
+    MachineFunction &MF = *MI->getParent()->getParent();
+    return BuildMI(MF, get(Opc))
+      .addReg(A, true, false, false, AisDead)
+      .addReg(C, false, false, CisKill)
+      .addReg(B, false, false, BisKill).addImm(Size-Amt);
   }
   case X86::CMOVB16rr:
   case X86::CMOVB32rr:
@@ -1350,11 +1357,7 @@ X86InstrInfo::commuteInstruction(MachineInstr *MI, bool NewMI) const {
     case X86::CMOVNP32rr: Opc = X86::CMOVP32rr; break;
     case X86::CMOVNP64rr: Opc = X86::CMOVP64rr; break;
     }
-    if (NewMI) {
-      MachineFunction &MF = *MI->getParent()->getParent();
-      MI = MF.CloneMachineInstr(MI);
-      NewMI = false;
-    }
+
     MI->setDesc(get(Opc));
     // Fallthrough intended.
   }
@@ -1455,105 +1458,92 @@ bool X86InstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                  MachineBasicBlock *&TBB,
                                  MachineBasicBlock *&FBB,
                                  SmallVectorImpl<MachineOperand> &Cond) const {
-  // Start from the bottom of the block and work up, examining the
-  // terminator instructions.
+  // If the block has no terminators, it just falls into the block after it.
   MachineBasicBlock::iterator I = MBB.end();
-  while (I != MBB.begin()) {
-    --I;
-    // Working from the bottom, when we see a non-terminator
-    // instruction, we're done.
-    if (!isBrAnalysisUnpredicatedTerminator(I, *this))
-      break;
-    // A terminator that isn't a branch can't easily be handled
-    // by this analysis.
-    if (!I->getDesc().isBranch())
+  if (I == MBB.begin() || !isBrAnalysisUnpredicatedTerminator(--I, *this))
+    return false;
+
+  // Get the last instruction in the block.
+  MachineInstr *LastInst = I;
+  
+  // If there is only one terminator instruction, process it.
+  if (I == MBB.begin() || !isBrAnalysisUnpredicatedTerminator(--I, *this)) {
+    if (!LastInst->getDesc().isBranch())
       return true;
-    // Handle unconditional branches.
-    if (I->getOpcode() == X86::JMP) {
-      // If the block has any instructions after a JMP, delete them.
-      while (next(I) != MBB.end())
-        next(I)->eraseFromParent();
-      Cond.clear();
-      FBB = 0;
-      // Delete the JMP if it's equivalent to a fall-through.
-      if (MBB.isLayoutSuccessor(I->getOperand(0).getMBB())) {
-        TBB = 0;
-        I->eraseFromParent();
-        I = MBB.end();
-        continue;
-      }
-      // TBB is used to indicate the unconditinal destination.
-      TBB = I->getOperand(0).getMBB();
-      continue;
+    
+    // If the block ends with a branch there are 3 possibilities:
+    // it's an unconditional, conditional, or indirect branch.
+    
+    if (LastInst->getOpcode() == X86::JMP) {
+      TBB = LastInst->getOperand(0).getMBB();
+      return false;
     }
-    // Handle conditional branches.
-    X86::CondCode BranchCode = GetCondFromBranchOpc(I->getOpcode());
+    X86::CondCode BranchCode = GetCondFromBranchOpc(LastInst->getOpcode());
     if (BranchCode == X86::COND_INVALID)
       return true;  // Can't handle indirect branch.
-    // Working from the bottom, handle the first conditional branch.
-    if (Cond.empty()) {
-      FBB = TBB;
-      TBB = I->getOperand(0).getMBB();
-      Cond.push_back(MachineOperand::CreateImm(BranchCode));
-      continue;
-    }
-    // Handle subsequent conditional branches. Only handle the case
-    // where all conditional branches branch to the same destination
-    // and their condition opcodes fit one of the special
-    // multi-branch idioms.
-    assert(Cond.size() == 1);
-    assert(TBB);
-    // Only handle the case where all conditional branches branch to
-    // the same destination.
-    if (TBB != I->getOperand(0).getMBB())
-      return true;
-    X86::CondCode OldBranchCode = (X86::CondCode)Cond[0].getImm();
-    // If the conditions are the same, we can leave them alone.
-    if (OldBranchCode == BranchCode)
-      continue;
-    // If they differ, see if they fit one of the known patterns.
-    // Theoretically we could handle more patterns here, but
-    // we shouldn't expect to see them if instruction selection
-    // has done a reasonable job.
-    if ((OldBranchCode == X86::COND_NP &&
-         BranchCode == X86::COND_E) ||
-        (OldBranchCode == X86::COND_E &&
-         BranchCode == X86::COND_NP))
-      BranchCode = X86::COND_NP_OR_E;
-    else if ((OldBranchCode == X86::COND_P &&
-              BranchCode == X86::COND_NE) ||
-             (OldBranchCode == X86::COND_NE &&
-              BranchCode == X86::COND_P))
-      BranchCode = X86::COND_NE_OR_P;
-    else
-      return true;
-    // Update the MachineOperand.
-    Cond[0].setImm(BranchCode);
+
+    // Otherwise, block ends with fall-through condbranch.
+    TBB = LastInst->getOperand(0).getMBB();
+    Cond.push_back(MachineOperand::CreateImm(BranchCode));
+    return false;
+  }
+  
+  // Get the instruction before it if it's a terminator.
+  MachineInstr *SecondLastInst = I;
+  
+  // If there are three terminators, we don't know what sort of block this is.
+  if (SecondLastInst && I != MBB.begin() &&
+      isBrAnalysisUnpredicatedTerminator(--I, *this))
+    return true;
+
+  // If the block ends with X86::JMP and a conditional branch, handle it.
+  X86::CondCode BranchCode = GetCondFromBranchOpc(SecondLastInst->getOpcode());
+  if (BranchCode != X86::COND_INVALID && LastInst->getOpcode() == X86::JMP) {
+    TBB = SecondLastInst->getOperand(0).getMBB();
+    Cond.push_back(MachineOperand::CreateImm(BranchCode));
+    FBB = LastInst->getOperand(0).getMBB();
+    return false;
   }
 
-  return false;
+  // If the block ends with two X86::JMPs, handle it.  The second one is not
+  // executed, so remove it.
+  if (SecondLastInst->getOpcode() == X86::JMP && 
+      LastInst->getOpcode() == X86::JMP) {
+    TBB = SecondLastInst->getOperand(0).getMBB();
+    I = LastInst;
+    I->eraseFromParent();
+    return false;
+  }
+
+  // Otherwise, can't handle this.
+  return true;
 }
 
 unsigned X86InstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator I = MBB.end();
-  unsigned Count = 0;
-
-  while (I != MBB.begin()) {
-    --I;
-    if (I->getOpcode() != X86::JMP &&
-        GetCondFromBranchOpc(I->getOpcode()) == X86::COND_INVALID)
-      break;
-    // Remove the branch.
-    I->eraseFromParent();
-    I = MBB.end();
-    ++Count;
-  }
+  if (I == MBB.begin()) return 0;
+  --I;
+  if (I->getOpcode() != X86::JMP && 
+      GetCondFromBranchOpc(I->getOpcode()) == X86::COND_INVALID)
+    return 0;
   
-  return Count;
+  // Remove the branch.
+  I->eraseFromParent();
+  
+  I = MBB.end();
+  
+  if (I == MBB.begin()) return 1;
+  --I;
+  if (GetCondFromBranchOpc(I->getOpcode()) == X86::COND_INVALID)
+    return 1;
+  
+  // Remove the branch.
+  I->eraseFromParent();
+  return 2;
 }
 
 static const MachineInstrBuilder &X86InstrAddOperand(MachineInstrBuilder &MIB,
-                                                     const MachineOperand &MO) {
+                                                     MachineOperand &MO) {
   if (MO.isReg())
     MIB = MIB.addReg(MO.getReg(), MO.isDef(), MO.isImplicit(),
                      MO.isKill(), MO.isDead(), MO.getSubReg());
@@ -1584,43 +1574,23 @@ X86InstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
   assert((Cond.size() == 1 || Cond.size() == 0) &&
          "X86 branch conditions have one component!");
 
-  if (Cond.empty()) {
-    // Unconditional branch?
-    assert(!FBB && "Unconditional branch with multiple successors!");
-    BuildMI(&MBB, get(X86::JMP)).addMBB(TBB);
+  if (FBB == 0) { // One way branch.
+    if (Cond.empty()) {
+      // Unconditional branch?
+      BuildMI(&MBB, get(X86::JMP)).addMBB(TBB);
+    } else {
+      // Conditional branch.
+      unsigned Opc = GetCondBranchFromCond((X86::CondCode)Cond[0].getImm());
+      BuildMI(&MBB, get(Opc)).addMBB(TBB);
+    }
     return 1;
   }
-
-  // Conditional branch.
-  unsigned Count = 0;
-  X86::CondCode CC = (X86::CondCode)Cond[0].getImm();
-  switch (CC) {
-  case X86::COND_NP_OR_E:
-    // Synthesize NP_OR_E with two branches.
-    BuildMI(&MBB, get(X86::JNP)).addMBB(TBB);
-    ++Count;
-    BuildMI(&MBB, get(X86::JE)).addMBB(TBB);
-    ++Count;
-    break;
-  case X86::COND_NE_OR_P:
-    // Synthesize NE_OR_P with two branches.
-    BuildMI(&MBB, get(X86::JNE)).addMBB(TBB);
-    ++Count;
-    BuildMI(&MBB, get(X86::JP)).addMBB(TBB);
-    ++Count;
-    break;
-  default: {
-    unsigned Opc = GetCondBranchFromCond(CC);
-    BuildMI(&MBB, get(Opc)).addMBB(TBB);
-    ++Count;
-  }
-  }
-  if (FBB) {
-    // Two-way Conditional branch. Insert the second branch.
-    BuildMI(&MBB, get(X86::JMP)).addMBB(FBB);
-    ++Count;
-  }
-  return Count;
+  
+  // Two-way Conditional branch.
+  unsigned Opc = GetCondBranchFromCond((X86::CondCode)Cond[0].getImm());
+  BuildMI(&MBB, get(Opc)).addMBB(TBB);
+  BuildMI(&MBB, get(X86::JMP)).addMBB(FBB);
+  return 2;
 }
 
 bool X86InstrInfo::copyRegToReg(MachineBasicBlock &MBB,
@@ -1902,7 +1872,7 @@ bool X86InstrInfo::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 }
 
 static MachineInstr *FuseTwoAddrInst(MachineFunction &MF, unsigned Opcode,
-                                     const SmallVector<MachineOperand,4> &MOs,
+                                     SmallVector<MachineOperand,4> &MOs,
                                  MachineInstr *MI, const TargetInstrInfo &TII) {
   // Create the base instruction with the memory operand as the first part.
   MachineInstr *NewMI = MF.CreateMachineInstr(TII.get(Opcode), true);
@@ -1928,7 +1898,7 @@ static MachineInstr *FuseTwoAddrInst(MachineFunction &MF, unsigned Opcode,
 
 static MachineInstr *FuseInst(MachineFunction &MF,
                               unsigned Opcode, unsigned OpNo,
-                              const SmallVector<MachineOperand,4> &MOs,
+                              SmallVector<MachineOperand,4> &MOs,
                               MachineInstr *MI, const TargetInstrInfo &TII) {
   MachineInstr *NewMI = MF.CreateMachineInstr(TII.get(Opcode), true);
   MachineInstrBuilder MIB(NewMI);
@@ -1950,7 +1920,7 @@ static MachineInstr *FuseInst(MachineFunction &MF,
 }
 
 static MachineInstr *MakeM0Inst(const TargetInstrInfo &TII, unsigned Opcode,
-                                const SmallVector<MachineOperand,4> &MOs,
+                                SmallVector<MachineOperand,4> &MOs,
                                 MachineInstr *MI) {
   MachineFunction &MF = *MI->getParent()->getParent();
   MachineInstrBuilder MIB = BuildMI(MF, TII.get(Opcode));
@@ -1966,7 +1936,7 @@ static MachineInstr *MakeM0Inst(const TargetInstrInfo &TII, unsigned Opcode,
 MachineInstr*
 X86InstrInfo::foldMemoryOperand(MachineFunction &MF,
                                 MachineInstr *MI, unsigned i,
-                                const SmallVector<MachineOperand,4> &MOs) const{
+                                SmallVector<MachineOperand,4> &MOs) const {
   const DenseMap<unsigned*, unsigned> *OpcodeTablePtr = NULL;
   bool isTwoAddrFold = false;
   unsigned NumOps = MI->getDesc().getNumOperands();
@@ -2025,7 +1995,7 @@ X86InstrInfo::foldMemoryOperand(MachineFunction &MF,
 
 MachineInstr* X86InstrInfo::foldMemoryOperand(MachineFunction &MF,
                                               MachineInstr *MI,
-                                        const SmallVectorImpl<unsigned> &Ops,
+                                              SmallVectorImpl<unsigned> &Ops,
                                               int FrameIndex) const {
   // Check switch flag 
   if (NoFusing) return NULL;
@@ -2072,7 +2042,7 @@ MachineInstr* X86InstrInfo::foldMemoryOperand(MachineFunction &MF,
 
 MachineInstr* X86InstrInfo::foldMemoryOperand(MachineFunction &MF,
                                               MachineInstr *MI,
-                                        const SmallVectorImpl<unsigned> &Ops,
+                                              SmallVectorImpl<unsigned> &Ops,
                                               MachineInstr *LoadMI) const {
   // Check switch flag 
   if (NoFusing) return NULL;
@@ -2123,8 +2093,8 @@ MachineInstr* X86InstrInfo::foldMemoryOperand(MachineFunction &MF,
 }
 
 
-bool X86InstrInfo::canFoldMemoryOperand(const MachineInstr *MI,
-                                  const SmallVectorImpl<unsigned> &Ops) const {
+bool X86InstrInfo::canFoldMemoryOperand(MachineInstr *MI,
+                                        SmallVectorImpl<unsigned> &Ops) const {
   // Check switch flag 
   if (NoFusing) return 0;
 
@@ -2380,7 +2350,7 @@ unsigned X86InstrInfo::getOpcodeAfterMemoryUnfold(unsigned Opc,
   return I->second.first;
 }
 
-bool X86InstrInfo::BlockHasNoFallThrough(const MachineBasicBlock &MBB) const {
+bool X86InstrInfo::BlockHasNoFallThrough(MachineBasicBlock &MBB) const {
   if (MBB.empty()) return false;
   
   switch (MBB.back().getOpcode()) {
@@ -2405,18 +2375,8 @@ bool X86InstrInfo::
 ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
   assert(Cond.size() == 1 && "Invalid X86 branch condition!");
   X86::CondCode CC = static_cast<X86::CondCode>(Cond[0].getImm());
-  if (CC == X86::COND_NE_OR_P || CC == X86::COND_NP_OR_E)
-    return true;
   Cond[0].setImm(GetOppositeBranchCondition(CC));
   return false;
-}
-
-bool X86InstrInfo::
-IgnoreRegisterClassBarriers(const TargetRegisterClass *RC) const {
-  // FIXME: Ignore bariers of x87 stack registers for now. We can't
-  // allow any loads of these registers before FpGet_ST0_80.
-  return RC == &X86::CCRRegClass || RC == &X86::RFP32RegClass ||
-    RC == &X86::RFP64RegClass || RC == &X86::RFP80RegClass;
 }
 
 const TargetRegisterClass *X86InstrInfo::getPointerRegClass() const {
@@ -2708,16 +2668,6 @@ static unsigned GetInstSizeWithDesc(const MachineInstr &MI,
   // Emit the lock opcode prefix as needed.
   if (Desc->TSFlags & X86II::LOCK) ++FinalSize;
 
-  // Emit segment overrid opcode prefix as needed.
-  switch (Desc->TSFlags & X86II::SegOvrMask) {
-  case X86II::FS:
-  case X86II::GS:
-   ++FinalSize;
-   break;
-  default: assert(0 && "Invalid segment!");
-  case 0: break;  // No segment override!
-  }
-
   // Emit the repeat opcode prefix as needed.
   if ((Desc->TSFlags & X86II::Op0Mask) == X86II::REP) ++FinalSize;
 
@@ -2806,11 +2756,6 @@ static unsigned GetInstSizeWithDesc(const MachineInstr &MI,
       FinalSize += sizeConstant(X86InstrInfo::sizeOfImm(Desc));
       break;
     }
-    case X86::TLS_tp:
-    case X86::TLS_gs_ri:
-      FinalSize += 2;
-      FinalSize += sizeGlobalAddress(false);
-      break;
     }
     CurOp = NumOps;
     break;

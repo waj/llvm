@@ -30,7 +30,6 @@
 #include "llvm/Support/PluginLoader.h"
 #include "llvm/Support/Streams.h"
 #include "llvm/Support/SystemUtils.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/LinkAllPasses.h"
 #include "llvm/LinkAllVMCore.h"
 #include <iostream>
@@ -527,21 +526,16 @@ int main(int argc, char **argv) {
         cerr << argv[0] << ": cannot create pass: "
              << PassInf->getPassName() << "\n";
       if (P) {
-        bool isBBPass = dynamic_cast<BasicBlockPass*>(P) != 0;
-        bool isLPass = !isBBPass && dynamic_cast<LoopPass*>(P) != 0;
-        bool isFPass = !isLPass && dynamic_cast<FunctionPass*>(P) != 0;
-        bool isCGSCCPass = !isFPass && dynamic_cast<CallGraphSCCPass*>(P) != 0;
-
         addPass(Passes, P);
-
+        
         if (AnalyzeOnly) {
-          if (isBBPass)
+          if (dynamic_cast<BasicBlockPass*>(P))
             Passes.add(new BasicBlockPassPrinter(PassInf));
-          else if (isLPass)
-            Passes.add(new LoopPassPrinter(PassInf));
-          else if (isFPass)
+          else if (dynamic_cast<LoopPass*>(P))
+            Passes.add(new  LoopPassPrinter(PassInf));
+          else if (dynamic_cast<FunctionPass*>(P))
             Passes.add(new FunctionPassPrinter(PassInf));
-          else if (isCGSCCPass)
+          else if (dynamic_cast<CallGraphSCCPass*>(P))
             Passes.add(new CallGraphSCCPassPrinter(PassInf));
           else
             Passes.add(new ModulePassPrinter(PassInf));
@@ -549,7 +543,7 @@ int main(int argc, char **argv) {
       }
       
       if (PrintEachXForm)
-        Passes.add(createPrintModulePass(&errs()));
+        Passes.add(new PrintModulePass(&cerr));
     }
     
     // If -std-compile-opts was specified at the end of the pass list, add them.

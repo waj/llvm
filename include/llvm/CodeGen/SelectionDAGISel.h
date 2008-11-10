@@ -30,7 +30,6 @@ namespace llvm {
   class MachineInstr;
   class MachineModuleInfo;
   class TargetLowering;
-  class TargetInstrInfo;
   class FunctionLoweringInfo;
   class HazardRecognizer;
   class GCFunctionInfo;
@@ -108,8 +107,7 @@ protected:
   
 private:
   void SelectAllBasicBlocks(Function &Fn, MachineFunction &MF,
-                            MachineModuleInfo *MMI,
-                            const TargetInstrInfo &TII);
+                            MachineModuleInfo *MMI);
   void FinishBasicBlock();
 
   void SelectBasicBlock(BasicBlock *LLVMBB,

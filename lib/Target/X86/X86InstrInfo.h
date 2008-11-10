@@ -44,15 +44,6 @@ namespace X86 {
     COND_O  = 13,
     COND_P  = 14,
     COND_S  = 15,
-
-    // Artificial condition codes. These are used by AnalyzeBranch
-    // to indicate a block terminated with two conditional branches to
-    // the same location. This occurs in code using FCMP_OEQ or FCMP_UNE,
-    // which can't be represented on x86 with a single condition. These
-    // are never used in MachineInstrs.
-    COND_NE_OR_P,
-    COND_NP_OR_E,
-
     COND_INVALID
   };
     
@@ -230,14 +221,7 @@ namespace X86II {
     LOCKShift = 19,
     LOCK = 1 << LOCKShift,
 
-    // Segment override prefixes. Currently we just need ability to address
-    // stuff in gs and fs segments.
-    SegOvrShift = 20,
-    SegOvrMask  = 3 << SegOvrShift,
-    FS          = 1 << SegOvrShift,
-    GS          = 2 << SegOvrShift,
-
-    // Bits 22 -> 23 are unused
+    // Bits 20 -> 23 are unused
     OpcodeShift   = 24,
     OpcodeMask    = 0xFF << OpcodeShift
   };
@@ -368,7 +352,7 @@ public:
   /// references has been changed.
   virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
                                           MachineInstr* MI,
-                                          const SmallVectorImpl<unsigned> &Ops,
+                                          SmallVectorImpl<unsigned> &Ops,
                                           int FrameIndex) const;
 
   /// foldMemoryOperand - Same as the previous version except it allows folding
@@ -376,13 +360,12 @@ public:
   /// stack slot.
   virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
                                           MachineInstr* MI,
-                                  const SmallVectorImpl<unsigned> &Ops,
+                                  SmallVectorImpl<unsigned> &Ops,
                                   MachineInstr* LoadMI) const;
 
   /// canFoldMemoryOperand - Returns true if the specified load / store is
   /// folding is possible.
-  virtual bool canFoldMemoryOperand(const MachineInstr*,
-                                    const SmallVectorImpl<unsigned> &) const;
+  virtual bool canFoldMemoryOperand(MachineInstr*, SmallVectorImpl<unsigned> &) const;
 
   /// unfoldMemoryOperand - Separate a single instruction which folded a load or
   /// a store or a load and a store into two or more instruction. If this is
@@ -401,14 +384,9 @@ public:
   virtual unsigned getOpcodeAfterMemoryUnfold(unsigned Opc,
                                       bool UnfoldLoad, bool UnfoldStore) const;
   
-  virtual bool BlockHasNoFallThrough(const MachineBasicBlock &MBB) const;
+  virtual bool BlockHasNoFallThrough(MachineBasicBlock &MBB) const;
   virtual
   bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const;
-
-  /// IgnoreRegisterClassBarriers - Returns true if pre-register allocation
-  /// live interval splitting pass should ignore barriers of the specified
-  /// register class.
-  bool IgnoreRegisterClassBarriers(const TargetRegisterClass *RC) const;
 
   const TargetRegisterClass *getPointerRegClass() const;
 
@@ -428,6 +406,7 @@ public:
   }
   
   static unsigned sizeOfImm(const TargetInstrDesc *Desc);
+  static unsigned getX86RegNum(unsigned RegNo);
   static bool isX86_64ExtendedReg(const MachineOperand &MO);
   static unsigned determineREX(const MachineInstr &MI);
 
@@ -445,7 +424,7 @@ private:
   MachineInstr* foldMemoryOperand(MachineFunction &MF,
                                   MachineInstr* MI,
                                   unsigned OpNum,
-                                const SmallVector<MachineOperand,4> &MOs) const;
+                                  SmallVector<MachineOperand,4> &MOs) const;
 };
 
 } // End llvm namespace

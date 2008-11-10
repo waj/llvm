@@ -11,9 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef PASSMANAGERS_H
-#define PASSMANAGERS_H
-
 #include "llvm/PassManager.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -87,6 +84,12 @@
 // PassManagerImpl is a top level pass manager responsible for managing
 // MPPassManagers.
 //===----------------------------------------------------------------------===//
+
+#ifndef PASSMANAGERS_H
+#define PASSMANAGERS_H
+
+#include "llvm/Pass.h"
+#include <deque>
 
 namespace llvm {
 

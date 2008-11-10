@@ -24,8 +24,8 @@
 
 using namespace llvm;
 
-DarwinTargetAsmInfo::DarwinTargetAsmInfo(const TargetMachine &TM) 
-  : TargetAsmInfo(TM) {
+DarwinTargetAsmInfo::DarwinTargetAsmInfo(const TargetMachine &TM) {
+  DTM = &TM;
 
   CStringSection_ = getUnnamedSection("\t.cstring",
                                 SectionFlags::Mergeable | SectionFlags::Strings);
@@ -43,8 +43,6 @@ DarwinTargetAsmInfo::DarwinTargetAsmInfo(const TargetMachine &TM)
   TextCoalSection =
     getNamedSection("\t__TEXT,__textcoal_nt,coalesced,pure_instructions",
                     SectionFlags::Code);
-  ConstTextCoalSection = getNamedSection("\t__TEXT,__const_coal,coalesced",
-                                         SectionFlags::None);
   ConstDataCoalSection = getNamedSection("\t__DATA,__const_coal,coalesced",
                                          SectionFlags::None);
   ConstDataSection = getUnnamedSection(".const_data", SectionFlags::None);
@@ -76,7 +74,7 @@ const Section*
 DarwinTargetAsmInfo::SelectSectionForGlobal(const GlobalValue *GV) const {
   SectionKind::Kind Kind = SectionKindForGlobal(GV);
   bool isWeak = GV->mayBeOverridden();
-  bool isNonStatic = TM.getRelocationModel() != Reloc::Static;
+  bool isNonStatic = (DTM->getRelocationModel() != Reloc::Static);
 
   switch (Kind) {
    case SectionKind::Text:
@@ -97,7 +95,7 @@ DarwinTargetAsmInfo::SelectSectionForGlobal(const GlobalValue *GV) const {
             (isNonStatic ? ConstDataSection : getReadOnlySection()));
    case SectionKind::RODataMergeStr:
     return (isWeak ?
-            ConstTextCoalSection :
+            ConstDataCoalSection :
             MergeableStringSection(cast<GlobalVariable>(GV)));
    case SectionKind::RODataMergeConst:
     return (isWeak ?
@@ -112,12 +110,13 @@ DarwinTargetAsmInfo::SelectSectionForGlobal(const GlobalValue *GV) const {
 
 const Section*
 DarwinTargetAsmInfo::MergeableStringSection(const GlobalVariable *GV) const {
-  const TargetData *TD = TM.getTargetData();
+  const TargetData *TD = DTM->getTargetData();
   Constant *C = cast<GlobalVariable>(GV)->getInitializer();
   const Type *Type = cast<ConstantArray>(C)->getType()->getElementType();
 
   unsigned Size = TD->getABITypeSize(Type);
   if (Size) {
+    const TargetData *TD = DTM->getTargetData();
     unsigned Align = TD->getPreferredAlignment(GV);
     if (Align <= 32)
       return getCStringSection_();
@@ -135,7 +134,7 @@ DarwinTargetAsmInfo::MergeableConstSection(const GlobalVariable *GV) const {
 
 inline const Section*
 DarwinTargetAsmInfo::MergeableConstSection(const Type *Ty) const {
-  const TargetData *TD = TM.getTargetData();
+  const TargetData *TD = DTM->getTargetData();
 
   unsigned Size = TD->getABITypeSize(Ty);
   if (Size == 4)
@@ -154,7 +153,7 @@ DarwinTargetAsmInfo::SelectSectionForMachineConst(const Type *Ty) const {
 
   // Handle weird special case, when compiling PIC stuff.
   if (S == getReadOnlySection() &&
-      TM.getRelocationModel() != Reloc::Static)
+      DTM->getRelocationModel() != Reloc::Static)
     return ConstDataSection;
 
   return S;

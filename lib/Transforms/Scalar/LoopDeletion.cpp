@@ -60,7 +60,7 @@ namespace {
 char LoopDeletion::ID = 0;
 static RegisterPass<LoopDeletion> X("loop-deletion", "Delete dead loops");
 
-Pass* llvm::createLoopDeletionPass() {
+LoopPass* llvm::createLoopDeletionPass() {
   return new LoopDeletion();
 }
 

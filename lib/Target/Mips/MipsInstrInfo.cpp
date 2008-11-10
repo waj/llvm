@@ -281,7 +281,7 @@ void MipsInstrInfo::loadRegFromAddr(MachineFunction &MF, unsigned DestReg,
 MachineInstr *MipsInstrInfo::
 foldMemoryOperand(MachineFunction &MF,
                   MachineInstr* MI,
-                  const SmallVectorImpl<unsigned> &Ops, int FI) const 
+                  SmallVectorImpl<unsigned> &Ops, int FI) const 
 {
   if (Ops.size() != 1) return NULL;
 
@@ -602,7 +602,7 @@ RemoveBranch(MachineBasicBlock &MBB) const
 /// BlockHasNoFallThrough - Analyze if MachineBasicBlock does not
 /// fall-through into its successor block.
 bool MipsInstrInfo::
-BlockHasNoFallThrough(const MachineBasicBlock &MBB) const 
+BlockHasNoFallThrough(MachineBasicBlock &MBB) const 
 {
   if (MBB.empty()) return false;
   

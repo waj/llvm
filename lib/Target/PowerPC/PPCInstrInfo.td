@@ -385,11 +385,11 @@ def SPILL_CR : Pseudo<(outs), (ins GPRC:$cond, memri:$F),
                      "${:comment} SPILL_CR $cond $F", []>;
 
 let isTerminator = 1, isBarrier = 1, PPC970_Unit = 7 in {
-  let isReturn = 1, Uses = [LR, RM] in
+  let isReturn = 1 in
     def BLR : XLForm_2_br<19, 16, 0, (outs), (ins pred:$p),
                           "b${p:cc}lr ${p:reg}", BrB, 
                           [(retflag)]>;
-  let isBranch = 1, isIndirectBranch = 1, Uses = [CTR] in
+  let isBranch = 1, isIndirectBranch = 1 in
     def BCTR : XLForm_2_ext<19, 528, 20, 0, 0, (outs), (ins), "bctr", BrB, []>;
 }
 
@@ -423,20 +423,16 @@ let isCall = 1, PPC970_Unit = 7,
           CR0LT,CR0GT,CR0EQ,CR0UN,CR1LT,CR1GT,CR1EQ,CR1UN,CR5LT,CR5GT,CR5EQ,
           CR5UN,CR6LT,CR6GT,CR6EQ,CR6UN,CR7LT,CR7GT,CR7EQ,CR7UN] in {
   // Convenient aliases for call instructions
-  let Uses = [RM] in {
-    def BL_Macho  : IForm<18, 0, 1,
-                          (outs), (ins calltarget:$func, variable_ops), 
-                          "bl $func", BrB, []>;  // See Pat patterns below.
-    def BLA_Macho : IForm<18, 1, 1, 
-                          (outs), (ins aaddr:$func, variable_ops),
-                          "bla $func", BrB, [(PPCcall_Macho (i32 imm:$func))]>;
-  }
-  let Uses = [CTR, RM] in {
-    def BCTRL_Macho : XLForm_2_ext<19, 528, 20, 0, 1, 
+  def BL_Macho  : IForm<18, 0, 1,
+                        (outs), (ins calltarget:$func, variable_ops), 
+                        "bl $func", BrB, []>;  // See Pat patterns below.
+  def BLA_Macho : IForm<18, 1, 1, 
+                        (outs), (ins aaddr:$func, variable_ops),
+                        "bla $func", BrB, [(PPCcall_Macho (i32 imm:$func))]>;
+  def BCTRL_Macho : XLForm_2_ext<19, 528, 20, 0, 1, 
                                  (outs), (ins variable_ops),
                                  "bctrl", BrB,
                                  [(PPCbctrl_Macho)]>, Requires<[In32BitMode]>;
-  }
 }
 
 // ELF ABI Calls.
@@ -450,58 +446,54 @@ let isCall = 1, PPC970_Unit = 7,
           CR0LT,CR0GT,CR0EQ,CR0UN,CR1LT,CR1GT,CR1EQ,CR1UN,CR5LT,CR5GT,CR5EQ,
           CR5UN,CR6LT,CR6GT,CR6EQ,CR6UN,CR7LT,CR7GT,CR7EQ,CR7UN] in {
   // Convenient aliases for call instructions
-  let Uses = [RM] in {
-    def BL_ELF  : IForm<18, 0, 1,
-                        (outs), (ins calltarget:$func, variable_ops), 
-                        "bl $func", BrB, []>;  // See Pat patterns below.
-    def BLA_ELF : IForm<18, 1, 1,
-                        (outs), (ins aaddr:$func, variable_ops),
-                        "bla $func", BrB,
-                        [(PPCcall_ELF (i32 imm:$func))]>;
-  }
-  let Uses = [CTR, RM] in {
-    def BCTRL_ELF : XLForm_2_ext<19, 528, 20, 0, 1,
+  def BL_ELF  : IForm<18, 0, 1,
+                      (outs), (ins calltarget:$func, variable_ops), 
+                      "bl $func", BrB, []>;  // See Pat patterns below.
+  def BLA_ELF : IForm<18, 1, 1,
+                      (outs), (ins aaddr:$func, variable_ops),
+                      "bla $func", BrB,
+                      [(PPCcall_ELF (i32 imm:$func))]>;
+  def BCTRL_ELF : XLForm_2_ext<19, 528, 20, 0, 1,
                                (outs), (ins variable_ops),
                                "bctrl", BrB,
                                [(PPCbctrl_ELF)]>, Requires<[In32BitMode]>;
-  }
 }
 
 
-let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [RM] in
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
 def TCRETURNdi :Pseudo< (outs),
                         (ins calltarget:$dst, i32imm:$offset, variable_ops),
                  "#TC_RETURNd $dst $offset",
                  []>;
 
 
-let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [RM] in
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
 def TCRETURNai :Pseudo<(outs), (ins aaddr:$func, i32imm:$offset, variable_ops),
                  "#TC_RETURNa $func $offset",
                  [(PPCtc_return (i32 imm:$func), imm:$offset)]>;
 
-let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [RM] in
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
 def TCRETURNri : Pseudo<(outs), (ins CTRRC:$dst, i32imm:$offset, variable_ops),
                  "#TC_RETURNr $dst $offset",
                  []>;
 
 
 let isTerminator = 1, isBarrier = 1, PPC970_Unit = 7, isBranch = 1,
-    isIndirectBranch = 1, isCall = 1, isReturn = 1, Uses = [CTR, RM]  in
+    isIndirectBranch = 1, isCall = 1, isReturn = 1  in
 def TAILBCTR : XLForm_2_ext<19, 528, 20, 0, 0, (outs), (ins), "bctr", BrB, []>,
      Requires<[In32BitMode]>;
 
 
 
 let isBranch = 1, isTerminator = 1, hasCtrlDep = 1, PPC970_Unit = 7,
-    isBarrier = 1, isCall = 1, isReturn = 1, Uses = [RM] in
+    isBarrier = 1, isCall = 1, isReturn = 1 in
 def TAILB   : IForm<18, 0, 0, (outs), (ins calltarget:$dst),
                   "b $dst", BrB,
                   []>;
 
 
 let isBranch = 1, isTerminator = 1, hasCtrlDep = 1, PPC970_Unit = 7,
-    isBarrier = 1, isCall = 1, isReturn = 1, Uses = [RM] in
+    isBarrier = 1, isCall = 1, isReturn = 1 in
 def TAILBA   : IForm<18, 0, 0, (outs), (ins aaddr:$dst),
                   "ba $dst", BrB,
                   []>;
@@ -986,20 +978,18 @@ def FCMPUS : XForm_17<63, 0, (outs CRRC:$crD), (ins F4RC:$fA, F4RC:$fB),
 def FCMPUD : XForm_17<63, 0, (outs CRRC:$crD), (ins F8RC:$fA, F8RC:$fB),
                       "fcmpu $crD, $fA, $fB", FPCompare>;
 
-let Uses = [RM] in {
-  def FCTIWZ : XForm_26<63, 15, (outs F8RC:$frD), (ins F8RC:$frB),
-                        "fctiwz $frD, $frB", FPGeneral,
-                        [(set F8RC:$frD, (PPCfctiwz F8RC:$frB))]>;
-  def FRSP   : XForm_26<63, 12, (outs F4RC:$frD), (ins F8RC:$frB),
-                        "frsp $frD, $frB", FPGeneral,
-                        [(set F4RC:$frD, (fround F8RC:$frB))]>;
-  def FSQRT  : XForm_26<63, 22, (outs F8RC:$frD), (ins F8RC:$frB),
-                        "fsqrt $frD, $frB", FPSqrt,
-                        [(set F8RC:$frD, (fsqrt F8RC:$frB))]>;
-  def FSQRTS : XForm_26<59, 22, (outs F4RC:$frD), (ins F4RC:$frB),
-                        "fsqrts $frD, $frB", FPSqrt,
-                        [(set F4RC:$frD, (fsqrt F4RC:$frB))]>;
-  }
+def FCTIWZ : XForm_26<63, 15, (outs F8RC:$frD), (ins F8RC:$frB),
+                      "fctiwz $frD, $frB", FPGeneral,
+                      [(set F8RC:$frD, (PPCfctiwz F8RC:$frB))]>;
+def FRSP   : XForm_26<63, 12, (outs F4RC:$frD), (ins F8RC:$frB),
+                      "frsp $frD, $frB", FPGeneral,
+                      [(set F4RC:$frD, (fround F8RC:$frB))]>;
+def FSQRT  : XForm_26<63, 22, (outs F8RC:$frD), (ins F8RC:$frB),
+                      "fsqrt $frD, $frB", FPSqrt,
+                      [(set F8RC:$frD, (fsqrt F8RC:$frB))]>;
+def FSQRTS : XForm_26<59, 22, (outs F4RC:$frD), (ins F4RC:$frB),
+                      "fsqrts $frD, $frB", FPSqrt,
+                      [(set F4RC:$frD, (fsqrt F4RC:$frB))]>;
 }
 
 /// FMR is split into 3 versions, one for 4/8 byte FP, and one for extending.
@@ -1066,27 +1056,21 @@ def CRSET  : XLForm_1_ext<19, 289, (outs CRBITRC:$dst), (ins),
 
 // XFX-Form instructions.  Instructions that deal with SPRs.
 //
-let Uses = [CTR] in {
 def MFCTR : XFXForm_1_ext<31, 339, 9, (outs GPRC:$rT), (ins),
                           "mfctr $rT", SprMFSPR>,
             PPC970_DGroup_First, PPC970_Unit_FXU;
-}
-let Defs = [CTR], Pattern = [(PPCmtctr GPRC:$rS)] in {
+let Pattern = [(PPCmtctr GPRC:$rS)] in {
 def MTCTR : XFXForm_7_ext<31, 467, 9, (outs), (ins GPRC:$rS),
                           "mtctr $rS", SprMTSPR>,
             PPC970_DGroup_First, PPC970_Unit_FXU;
 }
 
-let Defs = [LR] in {
 def MTLR  : XFXForm_7_ext<31, 467, 8, (outs), (ins GPRC:$rS),
                           "mtlr $rS", SprMTSPR>,
             PPC970_DGroup_First, PPC970_Unit_FXU;
-}
-let Uses = [LR] in {
 def MFLR  : XFXForm_1_ext<31, 339, 8, (outs GPRC:$rT), (ins),
                           "mflr $rT", SprMFSPR>,
             PPC970_DGroup_First, PPC970_Unit_FXU;
-}
 
 // Move to/from VRSAVE: despite being a SPR, the VRSAVE register is renamed like
 // a GPR on the PPC970.  As such, copies in and out have the same performance
@@ -1101,13 +1085,6 @@ def MFVRSAVE : XFXForm_1_ext<31, 339, 256, (outs GPRC:$rT), (ins),
 def MTCRF : XFXForm_5<31, 144, (outs), (ins crbitm:$FXM, GPRC:$rS),
                       "mtcrf $FXM, $rS", BrMCRX>,
             PPC970_MicroCode, PPC970_Unit_CRU;
-// FIXME:  this Uses all the CR registers.  Marking it as such is 
-// necessary for DeadMachineInstructionElim to do the right thing.
-// However, marking it also exposes PR 2964, and causes crashes in
-// the Local RA because it doesn't like this sequence:
-//  vreg = MCRF  CR0
-//  MFCR  <kill of whatever preg got assigned to vreg>
-// For now DeadMachineInstructionElim is turned off, so don't do the marking.
 def MFCR  : XFXForm_3<31, 19, (outs GPRC:$rT), (ins), "mfcr $rT", SprMFCR>,
             PPC970_MicroCode, PPC970_Unit_CRU;
 def MFOCRF: XFXForm_5a<31, 19, (outs GPRC:$rT), (ins crbitm:$FXM),
@@ -1117,38 +1094,33 @@ def MFOCRF: XFXForm_5a<31, 19, (outs GPRC:$rT), (ins crbitm:$FXM),
 // Instructions to manipulate FPSCR.  Only long double handling uses these.
 // FPSCR is not modelled; we use the SDNode Flag to keep things in order.
 
-let Uses = [RM], Defs = [RM] in { 
-  def MTFSB0 : XForm_43<63, 70, (outs), (ins u5imm:$FM),
-                         "mtfsb0 $FM", IntMTFSB0,
-                        [(PPCmtfsb0 (i32 imm:$FM))]>,
-               PPC970_DGroup_Single, PPC970_Unit_FPU;
-  def MTFSB1 : XForm_43<63, 38, (outs), (ins u5imm:$FM),
-                         "mtfsb1 $FM", IntMTFSB0,
-                        [(PPCmtfsb1 (i32 imm:$FM))]>,
-               PPC970_DGroup_Single, PPC970_Unit_FPU;
-  // MTFSF does not actually produce an FP result.  We pretend it copies
-  // input reg B to the output.  If we didn't do this it would look like the
-  // instruction had no outputs (because we aren't modelling the FPSCR) and
-  // it would be deleted.
-  def MTFSF  : XFLForm<63, 711, (outs F8RC:$FRA),
-                                (ins i32imm:$FM, F8RC:$rT, F8RC:$FRB),
-                         "mtfsf $FM, $rT", "$FRB = $FRA", IntMTFSB0,
-                         [(set F8RC:$FRA, (PPCmtfsf (i32 imm:$FM), 
-                                                     F8RC:$rT, F8RC:$FRB))]>,
-               PPC970_DGroup_Single, PPC970_Unit_FPU;
-}
-let Uses = [RM] in {
-  def MFFS   : XForm_42<63, 583, (outs F8RC:$rT), (ins), 
-                         "mffs $rT", IntMFFS,
-                         [(set F8RC:$rT, (PPCmffs))]>,
-               PPC970_DGroup_Single, PPC970_Unit_FPU;
-  def FADDrtz: AForm_2<63, 21,
-                      (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
-                      "fadd $FRT, $FRA, $FRB", FPGeneral,
-                      [(set F8RC:$FRT, (PPCfaddrtz F8RC:$FRA, F8RC:$FRB))]>,
-               PPC970_DGroup_Single, PPC970_Unit_FPU;
-}
-
+def MFFS   : XForm_42<63, 583, (outs F8RC:$rT), (ins), 
+                       "mffs $rT", IntMFFS,
+                       [(set F8RC:$rT, (PPCmffs))]>,
+             PPC970_DGroup_Single, PPC970_Unit_FPU;
+def MTFSB0 : XForm_43<63, 70, (outs), (ins u5imm:$FM),
+                       "mtfsb0 $FM", IntMTFSB0,
+                      [(PPCmtfsb0 (i32 imm:$FM))]>,
+             PPC970_DGroup_Single, PPC970_Unit_FPU;
+def MTFSB1 : XForm_43<63, 38, (outs), (ins u5imm:$FM),
+                       "mtfsb1 $FM", IntMTFSB0,
+                      [(PPCmtfsb1 (i32 imm:$FM))]>,
+             PPC970_DGroup_Single, PPC970_Unit_FPU;
+def FADDrtz: AForm_2<63, 21,
+                    (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
+                    "fadd $FRT, $FRA, $FRB", FPGeneral,
+                    [(set F8RC:$FRT, (PPCfaddrtz F8RC:$FRA, F8RC:$FRB))]>,
+             PPC970_DGroup_Single, PPC970_Unit_FPU;
+// MTFSF does not actually produce an FP result.  We pretend it copies
+// input reg B to the output.  If we didn't do this it would look like the
+// instruction had no outputs (because we aren't modelling the FPSCR) and
+// it would be deleted.
+def MTFSF  : XFLForm<63, 711, (outs F8RC:$FRA),
+                              (ins i32imm:$FM, F8RC:$rT, F8RC:$FRB),
+                       "mtfsf $FM, $rT", "$FRB = $FRA", IntMTFSB0,
+                       [(set F8RC:$FRA, (PPCmtfsf (i32 imm:$FM), 
+                                                   F8RC:$rT, F8RC:$FRB))]>,
+             PPC970_DGroup_Single, PPC970_Unit_FPU;
 
 let PPC970_Unit = 1 in {  // FXU Operations.
 
@@ -1212,56 +1184,54 @@ def SUBFZE : XOForm_3<31, 200, 0, (outs GPRC:$rT), (ins GPRC:$rA),
 // this type.
 //
 let PPC970_Unit = 3 in {  // FPU Operations.
-let Uses = [RM] in {
-  def FMADD : AForm_1<63, 29, 
-                      (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRC, F8RC:$FRB),
-                      "fmadd $FRT, $FRA, $FRC, $FRB", FPFused,
-                      [(set F8RC:$FRT, (fadd (fmul F8RC:$FRA, F8RC:$FRC),
-                                             F8RC:$FRB))]>,
-                      Requires<[FPContractions]>;
-  def FMADDS : AForm_1<59, 29,
-                      (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRC, F4RC:$FRB),
-                      "fmadds $FRT, $FRA, $FRC, $FRB", FPGeneral,
-                      [(set F4RC:$FRT, (fadd (fmul F4RC:$FRA, F4RC:$FRC),
-                                             F4RC:$FRB))]>,
-                      Requires<[FPContractions]>;
-  def FMSUB : AForm_1<63, 28,
-                      (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRC, F8RC:$FRB),
-                      "fmsub $FRT, $FRA, $FRC, $FRB", FPFused,
-                      [(set F8RC:$FRT, (fsub (fmul F8RC:$FRA, F8RC:$FRC),
-                                             F8RC:$FRB))]>,
-                      Requires<[FPContractions]>;
-  def FMSUBS : AForm_1<59, 28,
-                      (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRC, F4RC:$FRB),
-                      "fmsubs $FRT, $FRA, $FRC, $FRB", FPGeneral,
-                      [(set F4RC:$FRT, (fsub (fmul F4RC:$FRA, F4RC:$FRC),
-                                             F4RC:$FRB))]>,
-                      Requires<[FPContractions]>;
-  def FNMADD : AForm_1<63, 31,
-                      (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRC, F8RC:$FRB),
-                      "fnmadd $FRT, $FRA, $FRC, $FRB", FPFused,
-                      [(set F8RC:$FRT, (fneg (fadd (fmul F8RC:$FRA, F8RC:$FRC),
-                                                   F8RC:$FRB)))]>,
-                      Requires<[FPContractions]>;
-  def FNMADDS : AForm_1<59, 31,
-                      (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRC, F4RC:$FRB),
-                      "fnmadds $FRT, $FRA, $FRC, $FRB", FPGeneral,
-                      [(set F4RC:$FRT, (fneg (fadd (fmul F4RC:$FRA, F4RC:$FRC),
-                                                   F4RC:$FRB)))]>,
-                      Requires<[FPContractions]>;
-  def FNMSUB : AForm_1<63, 30,
-                      (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRC, F8RC:$FRB),
-                      "fnmsub $FRT, $FRA, $FRC, $FRB", FPFused,
-                      [(set F8RC:$FRT, (fneg (fsub (fmul F8RC:$FRA, F8RC:$FRC),
-                                                   F8RC:$FRB)))]>,
-                      Requires<[FPContractions]>;
-  def FNMSUBS : AForm_1<59, 30,
-                      (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRC, F4RC:$FRB),
-                      "fnmsubs $FRT, $FRA, $FRC, $FRB", FPGeneral,
-                      [(set F4RC:$FRT, (fneg (fsub (fmul F4RC:$FRA, F4RC:$FRC),
-                                                   F4RC:$FRB)))]>,
-                      Requires<[FPContractions]>;
-}
+def FMADD : AForm_1<63, 29, 
+                    (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRC, F8RC:$FRB),
+                    "fmadd $FRT, $FRA, $FRC, $FRB", FPFused,
+                    [(set F8RC:$FRT, (fadd (fmul F8RC:$FRA, F8RC:$FRC),
+                                           F8RC:$FRB))]>,
+                    Requires<[FPContractions]>;
+def FMADDS : AForm_1<59, 29,
+                    (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRC, F4RC:$FRB),
+                    "fmadds $FRT, $FRA, $FRC, $FRB", FPGeneral,
+                    [(set F4RC:$FRT, (fadd (fmul F4RC:$FRA, F4RC:$FRC),
+                                           F4RC:$FRB))]>,
+                    Requires<[FPContractions]>;
+def FMSUB : AForm_1<63, 28,
+                    (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRC, F8RC:$FRB),
+                    "fmsub $FRT, $FRA, $FRC, $FRB", FPFused,
+                    [(set F8RC:$FRT, (fsub (fmul F8RC:$FRA, F8RC:$FRC),
+                                           F8RC:$FRB))]>,
+                    Requires<[FPContractions]>;
+def FMSUBS : AForm_1<59, 28,
+                    (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRC, F4RC:$FRB),
+                    "fmsubs $FRT, $FRA, $FRC, $FRB", FPGeneral,
+                    [(set F4RC:$FRT, (fsub (fmul F4RC:$FRA, F4RC:$FRC),
+                                           F4RC:$FRB))]>,
+                    Requires<[FPContractions]>;
+def FNMADD : AForm_1<63, 31,
+                    (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRC, F8RC:$FRB),
+                    "fnmadd $FRT, $FRA, $FRC, $FRB", FPFused,
+                    [(set F8RC:$FRT, (fneg (fadd (fmul F8RC:$FRA, F8RC:$FRC),
+                                                 F8RC:$FRB)))]>,
+                    Requires<[FPContractions]>;
+def FNMADDS : AForm_1<59, 31,
+                    (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRC, F4RC:$FRB),
+                    "fnmadds $FRT, $FRA, $FRC, $FRB", FPGeneral,
+                    [(set F4RC:$FRT, (fneg (fadd (fmul F4RC:$FRA, F4RC:$FRC),
+                                                 F4RC:$FRB)))]>,
+                    Requires<[FPContractions]>;
+def FNMSUB : AForm_1<63, 30,
+                    (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRC, F8RC:$FRB),
+                    "fnmsub $FRT, $FRA, $FRC, $FRB", FPFused,
+                    [(set F8RC:$FRT, (fneg (fsub (fmul F8RC:$FRA, F8RC:$FRC),
+                                                 F8RC:$FRB)))]>,
+                    Requires<[FPContractions]>;
+def FNMSUBS : AForm_1<59, 30,
+                    (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRC, F4RC:$FRB),
+                    "fnmsubs $FRT, $FRA, $FRC, $FRB", FPGeneral,
+                    [(set F4RC:$FRT, (fneg (fsub (fmul F4RC:$FRA, F4RC:$FRC),
+                                                 F4RC:$FRB)))]>,
+                    Requires<[FPContractions]>;
 // FSEL is artificially split into 4 and 8-byte forms for the result.  To avoid
 // having 4 of these, force the comparison to always be an 8-byte double (code
 // should use an FMRSD if the input comparison value really wants to be a float)
@@ -1274,40 +1244,38 @@ def FSELS : AForm_1<63, 23,
                      (outs F4RC:$FRT), (ins F8RC:$FRA, F4RC:$FRC, F4RC:$FRB),
                      "fsel $FRT, $FRA, $FRC, $FRB", FPGeneral,
                     [(set F4RC:$FRT, (PPCfsel F8RC:$FRA,F4RC:$FRC,F4RC:$FRB))]>;
-let Uses = [RM] in {
-  def FADD  : AForm_2<63, 21,
-                      (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
-                      "fadd $FRT, $FRA, $FRB", FPGeneral,
-                      [(set F8RC:$FRT, (fadd F8RC:$FRA, F8RC:$FRB))]>;
-  def FADDS : AForm_2<59, 21,
-                      (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRB),
-                      "fadds $FRT, $FRA, $FRB", FPGeneral,
-                      [(set F4RC:$FRT, (fadd F4RC:$FRA, F4RC:$FRB))]>;
-  def FDIV  : AForm_2<63, 18,
-                      (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
-                      "fdiv $FRT, $FRA, $FRB", FPDivD,
-                      [(set F8RC:$FRT, (fdiv F8RC:$FRA, F8RC:$FRB))]>;
-  def FDIVS : AForm_2<59, 18,
-                      (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRB),
-                      "fdivs $FRT, $FRA, $FRB", FPDivS,
-                      [(set F4RC:$FRT, (fdiv F4RC:$FRA, F4RC:$FRB))]>;
-  def FMUL  : AForm_3<63, 25,
-                      (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
-                      "fmul $FRT, $FRA, $FRB", FPFused,
-                      [(set F8RC:$FRT, (fmul F8RC:$FRA, F8RC:$FRB))]>;
-  def FMULS : AForm_3<59, 25,
-                      (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRB),
-                      "fmuls $FRT, $FRA, $FRB", FPGeneral,
-                      [(set F4RC:$FRT, (fmul F4RC:$FRA, F4RC:$FRB))]>;
-  def FSUB  : AForm_2<63, 20,
-                      (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
-                      "fsub $FRT, $FRA, $FRB", FPGeneral,
-                      [(set F8RC:$FRT, (fsub F8RC:$FRA, F8RC:$FRB))]>;
-  def FSUBS : AForm_2<59, 20,
-                      (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRB),
-                      "fsubs $FRT, $FRA, $FRB", FPGeneral,
-                      [(set F4RC:$FRT, (fsub F4RC:$FRA, F4RC:$FRB))]>;
-  }
+def FADD  : AForm_2<63, 21,
+                    (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
+                    "fadd $FRT, $FRA, $FRB", FPGeneral,
+                    [(set F8RC:$FRT, (fadd F8RC:$FRA, F8RC:$FRB))]>;
+def FADDS : AForm_2<59, 21,
+                    (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRB),
+                    "fadds $FRT, $FRA, $FRB", FPGeneral,
+                    [(set F4RC:$FRT, (fadd F4RC:$FRA, F4RC:$FRB))]>;
+def FDIV  : AForm_2<63, 18,
+                    (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
+                    "fdiv $FRT, $FRA, $FRB", FPDivD,
+                    [(set F8RC:$FRT, (fdiv F8RC:$FRA, F8RC:$FRB))]>;
+def FDIVS : AForm_2<59, 18,
+                    (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRB),
+                    "fdivs $FRT, $FRA, $FRB", FPDivS,
+                    [(set F4RC:$FRT, (fdiv F4RC:$FRA, F4RC:$FRB))]>;
+def FMUL  : AForm_3<63, 25,
+                    (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
+                    "fmul $FRT, $FRA, $FRB", FPFused,
+                    [(set F8RC:$FRT, (fmul F8RC:$FRA, F8RC:$FRB))]>;
+def FMULS : AForm_3<59, 25,
+                    (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRB),
+                    "fmuls $FRT, $FRA, $FRB", FPGeneral,
+                    [(set F4RC:$FRT, (fmul F4RC:$FRA, F4RC:$FRB))]>;
+def FSUB  : AForm_2<63, 20,
+                    (outs F8RC:$FRT), (ins F8RC:$FRA, F8RC:$FRB),
+                    "fsub $FRT, $FRA, $FRB", FPGeneral,
+                    [(set F8RC:$FRT, (fsub F8RC:$FRA, F8RC:$FRB))]>;
+def FSUBS : AForm_2<59, 20,
+                    (outs F4RC:$FRT), (ins F4RC:$FRA, F4RC:$FRB),
+                    "fsubs $FRT, $FRA, $FRB", FPGeneral,
+                    [(set F4RC:$FRT, (fsub F4RC:$FRA, F4RC:$FRB))]>;
 }
 
 let PPC970_Unit = 1 in {  // FXU Operations.

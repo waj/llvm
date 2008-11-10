@@ -150,9 +150,6 @@ class MachineFrameInfo {
   /// only valid during and after prolog/epilog code insertion.
   bool HasCalls;
 
-  /// StackProtectorIdx - The frame index for the stack protector.
-  int StackProtectorIdx;
-
   /// MaxCallFrameSize - This contains the size of the largest call frame if the
   /// target uses frame setup/destroy pseudo instructions (as defined in the
   /// TargetFrameInfo class).  This information is important for frame pointer
@@ -183,7 +180,6 @@ public:
     HasVarSizedObjects = false;
     FrameAddressTaken = false;
     HasCalls = false;
-    StackProtectorIdx = -1;
     MaxCallFrameSize = 0;
     MMI = 0;
   }
@@ -199,23 +195,17 @@ public:
   ///
   bool hasVarSizedObjects() const { return HasVarSizedObjects; }
 
-  /// getStackProtectorIndex/setStackProtectorIndex - Return the index for the
-  /// stack protector object.
-  ///
-  int getStackProtectorIndex() const { return StackProtectorIdx; }
-  void setStackProtectorIndex(int I) { StackProtectorIdx = I; }
-
   /// isFrameAddressTaken - This method may be called any time after instruction
   /// selection is complete to determine if there is a call to
   /// @llvm.frameaddress in this function.
   bool isFrameAddressTaken() const { return FrameAddressTaken; }
   void setFrameAddressIsTaken(bool T) { FrameAddressTaken = T; }
 
-  /// getObjectIndexBegin - Return the minimum frame object index.
+  /// getObjectIndexBegin - Return the minimum frame object index...
   ///
   int getObjectIndexBegin() const { return -NumFixedObjects; }
 
-  /// getObjectIndexEnd - Return one past the maximum frame object index.
+  /// getObjectIndexEnd - Return one past the maximum frame object index...
   ///
   int getObjectIndexEnd() const { return (int)Objects.size()-NumFixedObjects; }
 
@@ -226,7 +216,7 @@ public:
   ///
   unsigned getNumObjects() const { return Objects.size(); }
 
-  /// getObjectSize - Return the size of the specified object.
+  /// getObjectSize - Return the size of the specified object
   ///
   int64_t getObjectSize(int ObjectIdx) const {
     assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
@@ -234,21 +224,21 @@ public:
     return Objects[ObjectIdx+NumFixedObjects].Size;
   }
 
-  /// setObjectSize - Change the size of the specified stack object.
+  // setObjectSize - Change the size of the specified stack object...
   void setObjectSize(int ObjectIdx, int64_t Size) {
     assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
            "Invalid Object Idx!");
     Objects[ObjectIdx+NumFixedObjects].Size = Size;
   }
 
-  /// getObjectAlignment - Return the alignment of the specified stack object.
+  /// getObjectAlignment - Return the alignment of the specified stack object...
   unsigned getObjectAlignment(int ObjectIdx) const {
     assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
            "Invalid Object Idx!");
     return Objects[ObjectIdx+NumFixedObjects].Alignment;
   }
 
-  /// setObjectAlignment - Change the alignment of the specified stack object.
+  /// setObjectAlignment - Change the alignment of the specified stack object...
   void setObjectAlignment(int ObjectIdx, unsigned Align) {
     assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
            "Invalid Object Idx!");

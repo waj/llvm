@@ -17,63 +17,6 @@
 #include "llvm/DerivedTypes.h"
 using namespace llvm;
 
-MVT MVT::getExtendedIntegerVT(unsigned BitWidth) {
-  MVT VT;
-  VT.LLVMTy = IntegerType::get(BitWidth);
-  assert(VT.isExtended() && "Type is not extended!");
-  return VT;
-}
-
-MVT MVT::getExtendedVectorVT(MVT VT, unsigned NumElements) {
-  MVT ResultVT;
-  ResultVT.LLVMTy = VectorType::get(VT.getTypeForMVT(), NumElements);
-  assert(ResultVT.isExtended() && "Type is not extended!");
-  return ResultVT;
-}
-
-bool MVT::isExtendedFloatingPoint() const {
-  assert(isExtended() && "Type is not extended!");
-  return LLVMTy->isFPOrFPVector();
-}
-
-bool MVT::isExtendedInteger() const {
-  assert(isExtended() && "Type is not extended!");
-  return LLVMTy->isIntOrIntVector();
-}
-
-bool MVT::isExtendedVector() const {
-  assert(isExtended() && "Type is not extended!");
-  return isa<VectorType>(LLVMTy);
-}
-
-bool MVT::isExtended64BitVector() const {
-  return isExtendedVector() && getSizeInBits() == 64;
-}
-
-bool MVT::isExtended128BitVector() const {
-  return isExtendedVector() && getSizeInBits() == 128;
-}
-
-MVT MVT::getExtendedVectorElementType() const {
-  assert(isExtended() && "Type is not extended!");
-  return MVT::getMVT(cast<VectorType>(LLVMTy)->getElementType());
-}
-
-unsigned MVT::getExtendedVectorNumElements() const {
-  assert(isExtended() && "Type is not extended!");
-  return cast<VectorType>(LLVMTy)->getNumElements();
-}
-
-unsigned MVT::getExtendedSizeInBits() const {
-  assert(isExtended() && "Type is not extended!");
-  if (const IntegerType *ITy = dyn_cast<IntegerType>(LLVMTy))
-    return ITy->getBitWidth();
-  if (const VectorType *VTy = dyn_cast<VectorType>(LLVMTy))
-    return VTy->getBitWidth();
-  assert(false && "Unrecognized extended type!");
-  return 0; // Suppress warnings.
-}
-
 /// getMVTString - This function returns value type as a string, e.g. "i32".
 std::string MVT::getMVTString() const {
   switch (V) {
@@ -121,8 +64,13 @@ std::string MVT::getMVTString() const {
 const Type *MVT::getTypeForMVT() const {
   switch (V) {
   default:
-    assert(isExtended() && "Type is not extended!");
-    return LLVMTy;
+    if (isVector())
+      return VectorType::get(getVectorElementType().getTypeForMVT(),
+                             getVectorNumElements());
+    if (isInteger())
+      return IntegerType::get(getSizeInBits());
+    assert(0 && "MVT does not correspond to LLVM type!");
+    return Type::VoidTy;
   case MVT::isVoid:  return Type::VoidTy;
   case MVT::i1:      return Type::Int1Ty;
   case MVT::i8:      return Type::Int8Ty;

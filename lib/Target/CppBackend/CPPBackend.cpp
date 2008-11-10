@@ -72,7 +72,7 @@ static cl::opt<std::string> NameToGenerate("cppfor", cl::Optional,
   cl::init("!bad!"));
 
 // Register the target.
-static RegisterTarget<CPPTargetMachine> X("cpp", "C++ backend");
+static RegisterTarget<CPPTargetMachine> X("cpp", "  C++ backend");
 
 namespace {
   typedef std::vector<const Type*> TypeList;
@@ -218,10 +218,9 @@ namespace {
   // This makes sure that conversion to/from floating yields the same binary
   // result so that we don't lose precision.
   void CppWriter::printCFP(const ConstantFP *CFP) {
-    bool ignored;
     APFloat APF = APFloat(CFP->getValueAPF());  // copy
     if (CFP->getType() == Type::FloatTy)
-      APF.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven, &ignored);
+      APF.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven);
     Out << "ConstantFP::get(";
     Out << "APFloat(";
 #if HAVE_PRINTF_A
@@ -255,12 +254,11 @@ namespace {
           Out << StrVal << "f";
       } else if (CFP->getType() == Type::DoubleTy)
         Out << "BitsToDouble(0x"
-            << utohexstr(CFP->getValueAPF().bitcastToAPInt().getZExtValue())
+            << utohexstr(CFP->getValueAPF().convertToAPInt().getZExtValue())
             << "ULL) /* " << StrVal << " */";
       else
         Out << "BitsToFloat(0x"
-            << utohexstr((uint32_t)CFP->getValueAPF().
-                                        bitcastToAPInt().getZExtValue())
+      << utohexstr((uint32_t)CFP->getValueAPF().convertToAPInt().getZExtValue())
             << "U) /* " << StrVal << " */";
       Out << ")";
 #if HAVE_PRINTF_A
@@ -439,9 +437,9 @@ namespace {
       Out << "SmallVector<AttributeWithIndex, 4> Attrs;"; nl(Out);
       Out << "AttributeWithIndex PAWI;"; nl(Out);
       for (unsigned i = 0; i < PAL.getNumSlots(); ++i) {
-        unsigned index = PAL.getSlot(i).Index;
+        uint16_t index = PAL.getSlot(i).Index;
         Attributes attrs = PAL.getSlot(i).Attrs;
-        Out << "PAWI.Index = " << index << "U; PAWI.Attrs = 0 ";
+        Out << "PAWI.Index = " << index << "; PAWI.Attrs = 0 ";
         if (attrs & Attribute::SExt)
           Out << " | Attribute::SExt";
         if (attrs & Attribute::ZExt)
@@ -1269,7 +1267,7 @@ namespace {
     }
     case Instruction::Store: {
       const StoreInst* store = cast<StoreInst>(I);
-      Out << " new StoreInst("
+      Out << "StoreInst* " << iName << " = new StoreInst("
           << opNames[0] << ", "
           << opNames[1] << ", "
           << (store->isVolatile() ? "true" : "false")

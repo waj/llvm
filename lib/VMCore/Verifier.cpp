@@ -1098,15 +1098,14 @@ void Verifier::visitShuffleVectorInst(ShuffleVectorInst &SV) {
   Assert1(ShuffleVectorInst::isValidOperands(SV.getOperand(0), SV.getOperand(1),
                                              SV.getOperand(2)),
           "Invalid shufflevector operands!", &SV);
-
-  const VectorType *VTy = dyn_cast<VectorType>(SV.getOperand(0)->getType());
-  Assert1(VTy, "Operands are not a vector type", &SV);
-
+  Assert1(SV.getType() == SV.getOperand(0)->getType(),
+          "Result of shufflevector must match first operand type!", &SV);
+  
   // Check to see if Mask is valid.
   if (const ConstantVector *MV = dyn_cast<ConstantVector>(SV.getOperand(2))) {
     for (unsigned i = 0, e = MV->getNumOperands(); i != e; ++i) {
       if (ConstantInt* CI = dyn_cast<ConstantInt>(MV->getOperand(i))) {
-        Assert1(!CI->uge(VTy->getNumElements()*2),
+        Assert1(!CI->uge(MV->getNumOperands()*2),
                 "Invalid shufflevector shuffle mask!", &SV);
       } else {
         Assert1(isa<UndefValue>(MV->getOperand(i)),
@@ -1118,7 +1117,7 @@ void Verifier::visitShuffleVectorInst(ShuffleVectorInst &SV) {
             isa<ConstantAggregateZero>(SV.getOperand(2)),
             "Invalid shufflevector shuffle mask!", &SV);
   }
-
+  
   visitInstruction(SV);
 }
 
@@ -1348,10 +1347,8 @@ void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
   case Intrinsic::gcwrite:
   case Intrinsic::gcread:
     if (ID == Intrinsic::gcroot) {
-      AllocaInst *AI =
-        dyn_cast<AllocaInst>(CI.getOperand(1)->stripPointerCasts());
-      Assert1(AI && isa<PointerType>(AI->getType()->getElementType()),
-              "llvm.gcroot parameter #1 must be a pointer alloca.", &CI);
+      Assert1(isa<AllocaInst>(CI.getOperand(1)->stripPointerCasts()),
+              "llvm.gcroot parameter #1 must be an alloca.", &CI);
       Assert1(isa<Constant>(CI.getOperand(2)),
               "llvm.gcroot parameter #2 must be a constant.", &CI);
     }
@@ -1362,14 +1359,6 @@ void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
   case Intrinsic::init_trampoline:
     Assert1(isa<Function>(CI.getOperand(2)->stripPointerCasts()),
             "llvm.init_trampoline parameter #2 must resolve to a function.",
-            &CI);
-    break;
-  case Intrinsic::prefetch:
-    Assert1(isa<ConstantInt>(CI.getOperand(2)) &&
-            isa<ConstantInt>(CI.getOperand(3)) &&
-            cast<ConstantInt>(CI.getOperand(2))->getZExtValue() < 2 &&
-            cast<ConstantInt>(CI.getOperand(3))->getZExtValue() < 4,
-            "invalid arguments to llvm.prefetch",
             &CI);
     break;
   }

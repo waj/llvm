@@ -26,9 +26,9 @@ template <typename T> class ImmutableListFactory;
 template <typename T>
 class ImmutableListImpl : public FoldingSetNode {
   T Head;
-  const ImmutableListImpl* Tail;
+  ImmutableListImpl* Tail;
 
-  ImmutableListImpl(const T& head, const ImmutableListImpl* tail = 0)
+  ImmutableListImpl(const T& head, ImmutableListImpl* tail = 0)
     : Head(head), Tail(tail) {}
   
   friend class ImmutableListFactory<T>;
@@ -39,10 +39,10 @@ class ImmutableListImpl : public FoldingSetNode {
   
 public:
   const T& getHead() const { return Head; }
-  const ImmutableListImpl* getTail() const { return Tail; }
+  ImmutableListImpl* getTail() const { return Tail; }
   
   static inline void Profile(FoldingSetNodeID& ID, const T& H,
-                             const ImmutableListImpl* L){
+                             ImmutableListImpl* L){
     ID.AddPointer(L);
     ID.Add(H);
   }
@@ -67,20 +67,20 @@ public:
   typedef ImmutableListFactory<T> Factory;
 
 private:
-  const ImmutableListImpl<T>* X;
+  ImmutableListImpl<T>* X;
 
 public:
   // This constructor should normally only be called by ImmutableListFactory<T>.
   // There may be cases, however, when one needs to extract the internal pointer
   // and reconstruct a list object from that pointer.
-  ImmutableList(const ImmutableListImpl<T>* x = 0) : X(x) {}
+  ImmutableList(ImmutableListImpl<T>* x = 0) : X(x) {}
 
-  const ImmutableListImpl<T>* getInternalPointer() const {
+  ImmutableListImpl<T>* getInternalPointer() const {
     return X;
   }
   
   class iterator {
-    const ImmutableListImpl<T>* L;
+    ImmutableListImpl<T>* L;
   public:
     iterator() : L(0) {}
     iterator(ImmutableList l) : L(l.getInternalPointer()) {}
@@ -157,7 +157,7 @@ public:
     FoldingSetNodeID ID;
     void* InsertPos;
     
-    const ListTy* TailImpl = Tail.getInternalPointer();
+    ListTy* TailImpl = Tail.getInternalPointer();
     ListTy::Profile(ID, Head, TailImpl);
     ListTy* L = Cache.FindNodeOrInsertPos(ID, InsertPos);
     

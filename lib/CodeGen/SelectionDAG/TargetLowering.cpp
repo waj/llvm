@@ -402,11 +402,10 @@ TargetLowering::TargetLowering(TargetMachine &tm)
          "Fixed size array in TargetLowering is not large enough!");
   // All operations default to being supported.
   memset(OpActions, 0, sizeof(OpActions));
-  memset(LoadExtActions, 0, sizeof(LoadExtActions));
+  memset(LoadXActions, 0, sizeof(LoadXActions));
   memset(TruncStoreActions, 0, sizeof(TruncStoreActions));
   memset(IndexedModeActions, 0, sizeof(IndexedModeActions));
   memset(ConvertActions, 0, sizeof(ConvertActions));
-  memset(CondCodeActions, 0, sizeof(CondCodeActions));
 
   // Set default actions for various operations.
   for (unsigned VT = 0; VT != (unsigned)MVT::LAST_VALUETYPE; ++VT) {
@@ -474,8 +473,7 @@ TargetLowering::TargetLowering(TargetMachine &tm)
   InitCmpLibcallCCs(CmpLibcallCCs);
 
   // Tell Legalize whether the assembler supports DEBUG_LOC.
-  const TargetAsmInfo *TASM = TM.getTargetAsmInfo();
-  if (!TASM || !TASM->hasDotLocAndDotFile())
+  if (!TM.getTargetAsmInfo()->hasDotLocAndDotFile())
     setOperationAction(ISD::DEBUG_LOC, MVT::Other, Expand);
 }
 
@@ -573,7 +571,7 @@ void TargetLowering::computeRegisterProperties() {
                                RegisterVT);
       RegisterTypeForVT[i] = RegisterVT;
       TransformToType[i] = MVT::Other; // this isn't actually used
-      ValueTypeActions.setTypeAction(VT, Promote);
+      ValueTypeActions.setTypeAction(VT, Expand);
     }
   }
 }
@@ -642,20 +640,6 @@ unsigned TargetLowering::getVectorTypeBreakdown(MVT VT,
   return 1;
 }
 
-/// getWidenVectorType: given a vector type, returns the type to widen to
-/// (e.g., v7i8 to v8i8). If the vector type is legal, it returns itself.
-/// If there is no vector type that we want to widen to, returns MVT::Other
-/// When and where to widen is target dependent based on the cost of
-/// scalarizing vs using the wider vector type.
-MVT TargetLowering::getWidenVectorType(MVT VT) {
-  assert(VT.isVector());
-  if (isTypeLegal(VT))
-    return VT;
- 
-  // Default is not to widen until moved to LegalizeTypes
-  return MVT::Other;
-}
-
 /// getByValTypeAlignment - Return the desired alignment for ByVal aggregate
 /// function arguments in the caller parameter area.  This is the actual
 /// alignment, not its logarithm.
@@ -668,23 +652,6 @@ SDValue TargetLowering::getPICJumpTableRelocBase(SDValue Table,
   if (usesGlobalOffsetTable())
     return DAG.getNode(ISD::GLOBAL_OFFSET_TABLE, getPointerTy());
   return Table;
-}
-
-bool
-TargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
-  // Assume that everything is safe in static mode.
-  if (getTargetMachine().getRelocationModel() == Reloc::Static)
-    return true;
-
-  // In dynamic-no-pic mode, assume that known defined values are safe.
-  if (getTargetMachine().getRelocationModel() == Reloc::DynamicNoPIC &&
-      GA &&
-      !GA->getGlobal()->isDeclaration() &&
-      !GA->getGlobal()->mayBeOverridden())
-    return true;
-
-  // Otherwise assume nothing is safe.
-  return false;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1352,58 +1319,7 @@ TargetLowering::SimplifySetCC(MVT VT, SDValue N0, SDValue N1,
                               Zero, Cond);
         }
       }
-
-#if 0
-      // If the LHS is '(and load, const)', the RHS is 0,
-      // the test is for equality or unsigned, and all 1 bits of the const are
-      // in the same partial word, see if we can shorten the load.
-      if (DCI.isBeforeLegalize() &&
-          N0.getOpcode() == ISD::AND && C1 == 0 &&
-          isa<LoadSDNode>(N0.getOperand(0)) &&
-          N0.getOperand(0).getNode()->hasOneUse() &&
-          isa<ConstantSDNode>(N0.getOperand(1))) {
-        LoadSDNode *Lod = cast<LoadSDNode>(N0.getOperand(0));
-        uint64_t Mask = cast<ConstantSDNode>(N0.getOperand(1))->getZExtValue();
-        unsigned bestWidth = 0, bestOffset = 0;
-        if (!Lod->isVolatile()) {
-          unsigned origWidth = N0.getValueType().getSizeInBits();
-          for (unsigned width = origWidth / 2; width>=8; width /= 2) {
-            uint64_t newMask = (1ULL << width) - 1;
-            for (unsigned offset=0; offset<origWidth/width; offset++) {
-              if ((newMask & Mask)==Mask) {
-                if (!TD->isLittleEndian())
-                  bestOffset = (origWidth/width - offset - 1) * (width/8);
-                else 
-                  bestOffset = (uint64_t)offset * (width/8);
-                bestWidth = width;
-                break;
-              }
-              newMask = newMask << width;
-            }
-          }
-        }
-        if (bestWidth) {
-          MVT newVT = MVT::getIntegerVT(bestWidth);
-          if (newVT.isRound()) {
-            uint64_t bestMask = Mask >> (bestOffset * 8);
-            MVT PtrType = Lod->getOperand(1).getValueType();
-            SDValue Ptr = Lod->getBasePtr();
-            if (bestOffset != 0)
-              Ptr = DAG.getNode(ISD::ADD, PtrType, Lod->getBasePtr(),
-                                DAG.getConstant(bestOffset, PtrType));
-            unsigned NewAlign = MinAlign(Lod->getAlignment(), bestOffset);
-            SDValue NewLoad = DAG.getLoad(newVT, Lod->getChain(), Ptr,
-                                          Lod->getSrcValue(), 
-                                          Lod->getSrcValueOffset() + bestOffset,
-                                          false, NewAlign);
-            return DAG.getSetCC(VT, DAG.getNode(ISD::AND, newVT, NewLoad,
-                                            DAG.getConstant(bestMask, newVT)),
-                                    DAG.getConstant(0LL, newVT), Cond);
-          }
-        }
-      }
-#endif
-     
+      
       // If the LHS is a ZERO_EXTEND, perform the comparison on the input.
       if (N0.getOpcode() == ISD::ZERO_EXTEND) {
         unsigned InSize = N0.getOperand(0).getValueType().getSizeInBits();
@@ -2043,21 +1959,6 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
 
 //===----------------------------------------------------------------------===//
 // Constraint Selection.
-
-/// isMatchingInputConstraint - Return true of this is an input operand that is
-/// a matching constraint like "4".
-bool TargetLowering::AsmOperandInfo::isMatchingInputConstraint() const {
-  assert(!ConstraintCode.empty() && "No known constraint!");
-  return isdigit(ConstraintCode[0]);
-}
-
-/// getMatchedOperand - If this is an input matching constraint, this method
-/// returns the output operand it matches.
-unsigned TargetLowering::AsmOperandInfo::getMatchedOperand() const {
-  assert(!ConstraintCode.empty() && "No known constraint!");
-  return atoi(ConstraintCode.c_str());
-}
-
 
 /// getConstraintGenerality - Return an integer indicating how general CT
 /// is.

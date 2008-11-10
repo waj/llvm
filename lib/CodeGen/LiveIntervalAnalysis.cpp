@@ -30,7 +30,6 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
@@ -68,12 +67,8 @@ void LiveIntervals::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<LiveVariables>();
   AU.addPreservedID(MachineLoopInfoID);
   AU.addPreservedID(MachineDominatorsID);
-  
-  if (!StrongPHIElim) {
-    AU.addPreservedID(PHIEliminationID);
-    AU.addRequiredID(PHIEliminationID);
-  }
-  
+  AU.addPreservedID(PHIEliminationID);
+  AU.addRequiredID(PHIEliminationID);
   AU.addRequiredID(TwoAddressInstructionPassID);
   MachineFunctionPass::getAnalysisUsage(AU);
 }
@@ -130,13 +125,9 @@ void LiveIntervals::computeNumbering() {
       MIIndex += InstrSlots::NUM;
       FunctionSize++;
       
-      // Insert max(1, numdefs) empty slots after every instruction.
-      unsigned Slots = I->getDesc().getNumDefs();
-      if (Slots == 0)
-        Slots = 1;
-      MIIndex += InstrSlots::NUM * Slots;
-      while (Slots--)
-        i2miMap_.push_back(0);
+      // Insert an empty slot after every instruction.
+      MIIndex += InstrSlots::NUM;
+      i2miMap_.push_back(0);
     }
     
     // Set the MBB2IdxMap entry for this MBB.
@@ -736,12 +727,8 @@ void LiveIntervals::computeIntervals() {
           handleRegisterDef(MBB, MI, MIIndex, MO, i);
         }
       }
-
-      // Skip over the empty slots after each instruction.
-      unsigned Slots = MI->getDesc().getNumDefs();
-      if (Slots == 0)
-        Slots = 1;
-      MIIndex += InstrSlots::NUM * Slots;
+      
+      MIIndex += InstrSlots::NUM;
       
       // Skip over empty indices.
       while (MIIndex / InstrSlots::NUM < i2miMap_.size() &&
@@ -751,37 +738,16 @@ void LiveIntervals::computeIntervals() {
   }
 }
 
-bool LiveIntervals::findLiveInMBBs(unsigned Start, unsigned End,
+bool LiveIntervals::findLiveInMBBs(const LiveRange &LR,
                               SmallVectorImpl<MachineBasicBlock*> &MBBs) const {
   std::vector<IdxMBBPair>::const_iterator I =
-    std::lower_bound(Idx2MBBMap.begin(), Idx2MBBMap.end(), Start);
+    std::lower_bound(Idx2MBBMap.begin(), Idx2MBBMap.end(), LR.start);
 
   bool ResVal = false;
   while (I != Idx2MBBMap.end()) {
-    if (I->first > End)
+    if (LR.end <= I->first)
       break;
     MBBs.push_back(I->second);
-    ResVal = true;
-    ++I;
-  }
-  return ResVal;
-}
-
-bool LiveIntervals::findReachableMBBs(unsigned Start, unsigned End,
-                              SmallVectorImpl<MachineBasicBlock*> &MBBs) const {
-  std::vector<IdxMBBPair>::const_iterator I =
-    std::lower_bound(Idx2MBBMap.begin(), Idx2MBBMap.end(), Start);
-
-  bool ResVal = false;
-  while (I != Idx2MBBMap.end()) {
-    if (I->first > End)
-      break;
-    MachineBasicBlock *MBB = I->second;
-    if (getMBBEndIdx(MBB) > End)
-      break;
-    for (MachineBasicBlock::succ_iterator SI = MBB->succ_begin(),
-           SE = MBB->succ_end(); SI != SE; ++SI)
-      MBBs.push_back(*SI);
     ResVal = true;
     ++I;
   }
@@ -967,15 +933,6 @@ bool LiveIntervals::isReMaterializable(const LiveInterval &li,
         return false;
   }
   return true;
-}
-
-/// isReMaterializable - Returns true if the definition MI of the specified
-/// val# of the specified interval is re-materializable.
-bool LiveIntervals::isReMaterializable(const LiveInterval &li,
-                                       const VNInfo *ValNo, MachineInstr *MI) {
-  SmallVector<LiveInterval*, 4> Dummy1;
-  bool Dummy2;
-  return isReMaterializable(li, ValNo, MI, Dummy1, Dummy2);
 }
 
 /// isReMaterializable - Returns true if every definition of MI of every
@@ -1252,17 +1209,6 @@ rewriteInstructionForSpills(const LiveInterval &li, const VNInfo *VNI,
       if (!TrySplit)
       SSWeight += Weight;
 
-    // Create a new virtual register for the spill interval.
-    // Create the new register now so we can map the fold instruction
-    // to the new register so when it is unfolded we get the correct
-    // answer.
-    bool CreatedNewVReg = false;
-    if (NewVReg == 0) {
-      NewVReg = mri_->createVirtualRegister(rc);
-      vrm.grow();
-      CreatedNewVReg = true;
-    }
-
     if (!TryFold)
       CanFold = false;
     else {
@@ -1270,16 +1216,9 @@ rewriteInstructionForSpills(const LiveInterval &li, const VNInfo *VNI,
       // optimal point to insert a load / store later.
       if (!TrySplit) {
         if (tryFoldMemoryOperand(MI, vrm, ReMatDefMI, index,
-                                 Ops, FoldSS, FoldSlot, NewVReg)) {
+                                 Ops, FoldSS, FoldSlot, Reg)) {
           // Folding the load/store can completely change the instruction in
           // unpredictable ways, rescan it from the beginning.
-
-          if (FoldSS) {
-            // We need to give the new vreg the same stack slot as the
-            // spilled interval.
-            vrm.assignVirt2StackSlot(NewVReg, FoldSlot);
-          }
-
           HasUse = false;
           HasDef = false;
           CanFold = false;
@@ -1295,6 +1234,13 @@ rewriteInstructionForSpills(const LiveInterval &li, const VNInfo *VNI,
       }
     }
 
+    // Create a new virtual register for the spill interval.
+    bool CreatedNewVReg = false;
+    if (NewVReg == 0) {
+      NewVReg = mri_->createVirtualRegister(rc);
+      vrm.grow();
+      CreatedNewVReg = true;
+    }
     mop.setReg(NewVReg);
     if (mop.isImplicit())
       rewriteImplicitOps(li, MI, NewVReg, vrm);

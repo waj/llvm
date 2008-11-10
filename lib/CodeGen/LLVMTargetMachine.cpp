@@ -56,22 +56,12 @@ DisablePostRAScheduler("disable-post-RA-scheduler",
 // Enable or disable FastISel. Both options are needed, because
 // FastISel is enabled by default with -fast, and we wish to be
 // able to enable or disable fast-isel independently from -fast.
-static cl::opt<cl::boolOrDefault>
+static cl::opt<bool>
 EnableFastISelOption("fast-isel", cl::Hidden,
   cl::desc("Enable the experimental \"fast\" instruction selector"));
-
-// Enable stack protectors.
-static cl::opt<SSP::StackProtectorLevel>
-EnableStackProtector("enable-stack-protector",
-                     cl::desc("Stack canary protection level: (default: off)"),
-                     cl::init(SSP::OFF),
-                     cl::values(clEnumValN(SSP::ALL,  "all",
-                                         "All functions get stack protectors."),
-                                clEnumValN(SSP::SOME, "some",
-                         "Only functions requiring stack protectors get them."),
-                                clEnumValN(SSP::OFF,  "off",
-                                          "No functions get stack protectors."),
-                                clEnumValEnd));
+static cl::opt<bool>
+DisableFastISelOption("disable-fast-isel", cl::Hidden,
+  cl::desc("Disable the experimental \"fast\" instruction selector"));
 
 FileModel::Model
 LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
@@ -164,7 +154,7 @@ bool LLVMTargetMachine::addCommonCodeGenPasses(PassManagerBase &PM, bool Fast) {
   if (!Fast) {
     PM.add(createLoopStrengthReducePass(getTargetLowering()));
     if (PrintLSR)
-      PM.add(createPrintFunctionPass("\n\n*** Code after LSR ***\n", &errs()));
+      PM.add(new PrintFunctionPass("\n\n*** Code after LSR ***\n", &cerr));
   }
 
   PM.add(createGCLoweringPass());
@@ -178,19 +168,17 @@ bool LLVMTargetMachine::addCommonCodeGenPasses(PassManagerBase &PM, bool Fast) {
   if (!Fast)
     PM.add(createCodeGenPreparePass(getTargetLowering()));
 
-  if (EnableStackProtector != SSP::OFF)
-    PM.add(createStackProtectorPass(EnableStackProtector, getTargetLowering()));
-
   if (PrintISelInput)
-    PM.add(createPrintFunctionPass("\n\n"
-                                   "*** Final LLVM Code input to ISel ***\n",
-                                   &errs()));
+    PM.add(new PrintFunctionPass("\n\n*** Final LLVM Code input to ISel ***\n",
+                                 &cerr));
 
   // Standard Lower-Level Passes.
 
   // Enable FastISel with -fast, but allow that to be overridden.
-  if (EnableFastISelOption == cl::BOU_TRUE ||
-      (Fast && EnableFastISelOption != cl::BOU_FALSE))
+  assert((!EnableFastISelOption || !DisableFastISelOption) &&
+         "Both -fast-isel and -disable-fast-isel given!");
+  if (EnableFastISelOption ||
+      (Fast && !DisableFastISelOption))
     EnableFastISel = true;
 
   // Ask the target for an isel.

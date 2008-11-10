@@ -72,10 +72,10 @@ namespace {
   private:
     void emitPCRelativeBlockAddress(MachineBasicBlock *MBB);
     void emitGlobalAddress(GlobalValue *GV, unsigned Reloc,
-                           intptr_t Disp = 0, intptr_t PCAdj = 0,
-                           bool NeedStub = false, bool Indirect = false);
+                           int Disp = 0, intptr_t PCAdj = 0,
+                           bool NeedStub = false, bool IsLazy = false);
     void emitExternalSymbolAddress(const char *ES, unsigned Reloc);
-    void emitConstPoolAddress(unsigned CPI, unsigned Reloc, intptr_t Disp = 0,
+    void emitConstPoolAddress(unsigned CPI, unsigned Reloc, int Disp = 0,
                               intptr_t PCAdj = 0);
     void emitJumpTableAddress(unsigned JTI, unsigned Reloc,
                               intptr_t PCAdj = 0);
@@ -84,7 +84,6 @@ namespace {
                                intptr_t PCAdj = 0);
 
     void emitRegModRMByte(unsigned ModRMReg, unsigned RegOpcodeField);
-    void emitRegModRMByte(unsigned RegOpcodeField);
     void emitSIBByte(unsigned SS, unsigned Index, unsigned Base);
     void emitConstant(uint64_t Val, unsigned Size);
 
@@ -94,7 +93,7 @@ namespace {
 
     unsigned getX86RegNum(unsigned RegNo) const;
 
-    bool gvNeedsNonLazyPtr(const GlobalValue *GV);
+    bool gvNeedsLazyPtr(const GlobalValue *GV);
   };
   char Emitter::ID = 0;
 }
@@ -152,26 +151,23 @@ void Emitter::emitPCRelativeBlockAddress(MachineBasicBlock *MBB) {
 /// this is part of a "take the address of a global" instruction.
 ///
 void Emitter::emitGlobalAddress(GlobalValue *GV, unsigned Reloc,
-                                intptr_t Disp /* = 0 */,
-                                intptr_t PCAdj /* = 0 */,
+                                int Disp /* = 0 */, intptr_t PCAdj /* = 0 */,
                                 bool NeedStub /* = false */,
-                                bool Indirect /* = false */) {
+                                bool isLazy /* = false */) {
   intptr_t RelocCST = 0;
   if (Reloc == X86::reloc_picrel_word)
     RelocCST = PICBaseOffset;
   else if (Reloc == X86::reloc_pcrel_word)
     RelocCST = PCAdj;
-  MachineRelocation MR = Indirect
-    ? MachineRelocation::getIndirectSymbol(MCE.getCurrentPCOffset(), Reloc,
-                                           GV, RelocCST, NeedStub)
+  MachineRelocation MR = isLazy 
+    ? MachineRelocation::getGVLazyPtr(MCE.getCurrentPCOffset(), Reloc,
+                                      GV, RelocCST, NeedStub)
     : MachineRelocation::getGV(MCE.getCurrentPCOffset(), Reloc,
                                GV, RelocCST, NeedStub);
   MCE.addRelocation(MR);
-  // The relocated value will be added to the displacement
   if (Reloc == X86::reloc_absolute_dword)
-    MCE.emitDWordLE(Disp);
-  else
-    MCE.emitWordLE((int32_t)Disp);
+    MCE.emitWordLE(0);
+  MCE.emitWordLE(Disp); // The relocated value will be added to the displacement
 }
 
 /// emitExternalSymbolAddress - Arrange for the address of an external symbol to
@@ -182,16 +178,15 @@ void Emitter::emitExternalSymbolAddress(const char *ES, unsigned Reloc) {
   MCE.addRelocation(MachineRelocation::getExtSym(MCE.getCurrentPCOffset(),
                                                  Reloc, ES, RelocCST));
   if (Reloc == X86::reloc_absolute_dword)
-    MCE.emitDWordLE(0);
-  else
     MCE.emitWordLE(0);
+  MCE.emitWordLE(0);
 }
 
 /// emitConstPoolAddress - Arrange for the address of an constant pool
 /// to be emitted to the current location in the function, and allow it to be PC
 /// relative.
 void Emitter::emitConstPoolAddress(unsigned CPI, unsigned Reloc,
-                                   intptr_t Disp /* = 0 */,
+                                   int Disp /* = 0 */,
                                    intptr_t PCAdj /* = 0 */) {
   intptr_t RelocCST = 0;
   if (Reloc == X86::reloc_picrel_word)
@@ -200,11 +195,9 @@ void Emitter::emitConstPoolAddress(unsigned CPI, unsigned Reloc,
     RelocCST = PCAdj;
   MCE.addRelocation(MachineRelocation::getConstPool(MCE.getCurrentPCOffset(),
                                                     Reloc, CPI, RelocCST));
-  // The relocated value will be added to the displacement
   if (Reloc == X86::reloc_absolute_dword)
-    MCE.emitDWordLE(Disp);
-  else
-    MCE.emitWordLE((int32_t)Disp);
+    MCE.emitWordLE(0);
+  MCE.emitWordLE(Disp); // The relocated value will be added to the displacement
 }
 
 /// emitJumpTableAddress - Arrange for the address of a jump table to
@@ -219,11 +212,9 @@ void Emitter::emitJumpTableAddress(unsigned JTI, unsigned Reloc,
     RelocCST = PCAdj;
   MCE.addRelocation(MachineRelocation::getJumpTable(MCE.getCurrentPCOffset(),
                                                     Reloc, JTI, RelocCST));
-  // The relocated value will be added to the displacement
   if (Reloc == X86::reloc_absolute_dword)
-    MCE.emitDWordLE(0);
-  else
     MCE.emitWordLE(0);
+  MCE.emitWordLE(0); // The relocated value will be added to the displacement
 }
 
 unsigned Emitter::getX86RegNum(unsigned RegNo) const {
@@ -238,10 +229,6 @@ inline static unsigned char ModRMByte(unsigned Mod, unsigned RegOpcode,
 
 void Emitter::emitRegModRMByte(unsigned ModRMReg, unsigned RegOpcodeFld){
   MCE.emitByte(ModRMByte(3, RegOpcodeFld, getX86RegNum(ModRMReg)));
-}
-
-void Emitter::emitRegModRMByte(unsigned RegOpcodeFld) {
-  MCE.emitByte(ModRMByte(3, RegOpcodeFld, 0));
 }
 
 void Emitter::emitSIBByte(unsigned SS, unsigned Index, unsigned Base) {
@@ -263,8 +250,8 @@ static bool isDisp8(int Value) {
   return Value == (signed char)Value;
 }
 
-bool Emitter::gvNeedsNonLazyPtr(const GlobalValue *GV) {
-  // For Darwin, simulate the linktime GOT by using the same non-lazy-pointer
+bool Emitter::gvNeedsLazyPtr(const GlobalValue *GV) {
+  // For Darwin, simulate the linktime GOT by using the same lazy-pointer
   // mechanism as 32-bit mode.
   return (!Is64BitMode || TM.getSubtarget<X86Subtarget>().isTargetDarwin()) &&
     TM.getSubtarget<X86Subtarget>().GVRequiresExtraLoad(GV, TM, false);
@@ -289,9 +276,9 @@ void Emitter::emitDisplacementField(const MachineOperand *RelocOp,
     unsigned rt = Is64BitMode ? X86::reloc_pcrel_word
       : (IsPIC ? X86::reloc_picrel_word : X86::reloc_absolute_word);
     bool NeedStub = isa<Function>(RelocOp->getGlobal());
-    bool Indirect = gvNeedsNonLazyPtr(RelocOp->getGlobal());
+    bool isLazy = gvNeedsLazyPtr(RelocOp->getGlobal());
     emitGlobalAddress(RelocOp->getGlobal(), rt, RelocOp->getOffset(),
-                      PCAdj, NeedStub, Indirect);
+                      PCAdj, NeedStub, isLazy);
   } else if (RelocOp->isCPI()) {
     unsigned rt = Is64BitMode ? X86::reloc_pcrel_word : X86::reloc_picrel_word;
     emitConstPoolAddress(RelocOp->getIndex(), rt,
@@ -338,7 +325,7 @@ void Emitter::emitMemModRMByte(const MachineInstr &MI,
   unsigned BaseReg = Base.getReg();
 
   // Is a SIB byte needed?
-  if ((!Is64BitMode || DispForReloc) && IndexReg.getReg() == 0 &&
+  if (IndexReg.getReg() == 0 &&
       (BaseReg == 0 || getX86RegNum(BaseReg) != N86::ESP)) {
     if (BaseReg == 0) {  // Just a displacement?
       // Emit special case [disp32] encoding
@@ -395,13 +382,9 @@ void Emitter::emitMemModRMByte(const MachineInstr &MI,
     if (BaseReg == 0) {
       // Handle the SIB byte for the case where there is no base.  The
       // displacement has already been output.
-      unsigned IndexRegNo;
-      if (IndexReg.getReg())
-        IndexRegNo = getX86RegNum(IndexReg.getReg());
-      else
-        IndexRegNo = 4;   // For example [ESP+1*<noreg>+4]
-      emitSIBByte(SS, IndexRegNo, 5);
-      } else {
+      assert(IndexReg.getReg() && "Index register must be specified!");
+      emitSIBByte(SS, getX86RegNum(IndexReg.getReg()), 5);
+    } else {
       unsigned BaseRegNo = getX86RegNum(BaseReg);
       unsigned IndexRegNo;
       if (IndexReg.getReg())
@@ -428,18 +411,6 @@ void Emitter::emitInstruction(const MachineInstr &MI,
 
   // Emit the lock opcode prefix as needed.
   if (Desc->TSFlags & X86II::LOCK) MCE.emitByte(0xF0);
-
-  // Emit segment override opcode prefix as needed.
-  switch (Desc->TSFlags & X86II::SegOvrMask) {
-  case X86II::FS:
-    MCE.emitByte(0x64);
-    break;
-  case X86II::GS:
-    MCE.emitByte(0x65);
-    break;
-  default: assert(0 && "Invalid segment!");
-  case 0: break;  // No segment override!
-  }
 
   // Emit the repeat opcode prefix as needed.
   if ((Desc->TSFlags & X86II::Op0Mask) == X86II::REP) MCE.emitByte(0xF3);
@@ -531,23 +502,6 @@ void Emitter::emitInstruction(const MachineInstr &MI,
     case X86::DWARF_LOC:
     case X86::FP_REG_KILL:
       break;
-    case X86::TLS_tp: {
-      MCE.emitByte(BaseOpcode);
-      unsigned RegOpcodeField = getX86RegNum(MI.getOperand(0).getReg());
-      MCE.emitByte(ModRMByte(0, RegOpcodeField, 5));
-      emitConstant(0, 4);
-      break;
-    }
-    case X86::TLS_gs_ri: {
-      MCE.emitByte(BaseOpcode);
-      unsigned RegOpcodeField = getX86RegNum(MI.getOperand(0).getReg());
-      MCE.emitByte(ModRMByte(0, RegOpcodeField, 5));
-      GlobalValue* GV = MI.getOperand(1).getGlobal();
-      unsigned rt = Is64BitMode ? X86::reloc_pcrel_word
-        : (IsPIC ? X86::reloc_picrel_word : X86::reloc_absolute_word);
-      emitGlobalAddress(GV, rt);
-      break;
-    }
     case X86::MOVPC32r: {
       // This emits the "call" portion of this pseudo instruction.
       MCE.emitByte(BaseOpcode);
@@ -583,7 +537,7 @@ void Emitter::emitInstruction(const MachineInstr &MI,
                TM.getSubtarget<X86Subtarget>().isTargetDarwin())) ||
           Opcode == X86::TAILJMPd;
         emitGlobalAddress(MO.getGlobal(), X86::reloc_pcrel_word,
-                          MO.getOffset(), 0, NeedStub);
+                          0, 0, NeedStub);
       } else if (MO.isSymbol()) {
         emitExternalSymbolAddress(MO.getSymbolName(), X86::reloc_pcrel_word);
       } else if (MO.isImm()) {
@@ -610,9 +564,9 @@ void Emitter::emitInstruction(const MachineInstr &MI,
           rt = X86::reloc_absolute_dword;  // FIXME: add X86II flag?
         if (MO1.isGlobal()) {
           bool NeedStub = isa<Function>(MO1.getGlobal());
-          bool Indirect = gvNeedsNonLazyPtr(MO1.getGlobal());
+          bool isLazy = gvNeedsLazyPtr(MO1.getGlobal());
           emitGlobalAddress(MO1.getGlobal(), rt, MO1.getOffset(), 0,
-                            NeedStub, Indirect);
+                            NeedStub, isLazy);
         } else if (MO1.isSymbol())
           emitExternalSymbolAddress(MO1.getSymbolName(), rt);
         else if (MO1.isCPI())
@@ -665,16 +619,10 @@ void Emitter::emitInstruction(const MachineInstr &MI,
   case X86II::MRM0r: case X86II::MRM1r:
   case X86II::MRM2r: case X86II::MRM3r:
   case X86II::MRM4r: case X86II::MRM5r:
-  case X86II::MRM6r: case X86II::MRM7r: {
+  case X86II::MRM6r: case X86II::MRM7r:
     MCE.emitByte(BaseOpcode);
-
-    // Special handling of lfence and mfence. 
-    if (Desc->getOpcode() == X86::LFENCE ||
-        Desc->getOpcode() == X86::MFENCE)
-      emitRegModRMByte((Desc->TSFlags & X86II::FormMask)-X86II::MRM0r);
-    else
-      emitRegModRMByte(MI.getOperand(CurOp++).getReg(),
-                       (Desc->TSFlags & X86II::FormMask)-X86II::MRM0r);
+    emitRegModRMByte(MI.getOperand(CurOp++).getReg(),
+                     (Desc->TSFlags & X86II::FormMask)-X86II::MRM0r);
 
     if (CurOp != NumOps) {
       const MachineOperand &MO1 = MI.getOperand(CurOp++);
@@ -688,9 +636,9 @@ void Emitter::emitInstruction(const MachineInstr &MI,
           rt = X86::reloc_absolute_word;  // FIXME: add X86II flag?
         if (MO1.isGlobal()) {
           bool NeedStub = isa<Function>(MO1.getGlobal());
-          bool Indirect = gvNeedsNonLazyPtr(MO1.getGlobal());
+          bool isLazy = gvNeedsLazyPtr(MO1.getGlobal());
           emitGlobalAddress(MO1.getGlobal(), rt, MO1.getOffset(), 0,
-                            NeedStub, Indirect);
+                            NeedStub, isLazy);
         } else if (MO1.isSymbol())
           emitExternalSymbolAddress(MO1.getSymbolName(), rt);
         else if (MO1.isCPI())
@@ -700,7 +648,6 @@ void Emitter::emitInstruction(const MachineInstr &MI,
       }
     }
     break;
-  }
 
   case X86II::MRM0m: case X86II::MRM1m:
   case X86II::MRM2m: case X86II::MRM3m:
@@ -726,9 +673,9 @@ void Emitter::emitInstruction(const MachineInstr &MI,
           rt = X86::reloc_absolute_word;  // FIXME: add X86II flag?
         if (MO.isGlobal()) {
           bool NeedStub = isa<Function>(MO.getGlobal());
-          bool Indirect = gvNeedsNonLazyPtr(MO.getGlobal());
+          bool isLazy = gvNeedsLazyPtr(MO.getGlobal());
           emitGlobalAddress(MO.getGlobal(), rt, MO.getOffset(), 0,
-                            NeedStub, Indirect);
+                            NeedStub, isLazy);
         } else if (MO.isSymbol())
           emitExternalSymbolAddress(MO.getSymbolName(), rt);
         else if (MO.isCPI())

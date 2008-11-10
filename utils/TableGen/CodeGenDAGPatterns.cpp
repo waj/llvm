@@ -579,8 +579,8 @@ void TreePatternNode::print(std::ostream &OS) const {
     OS << ")";
   }
   
-  for (unsigned i = 0, e = PredicateFns.size(); i != e; ++i)
-    OS << "<<P:" << PredicateFns[i] << ">>";
+  if (!PredicateFn.empty())
+    OS << "<<P:" << PredicateFn << ">>";
   if (TransformFn)
     OS << "<<X:" << TransformFn->getName() << ">>";
   if (!getName().empty())
@@ -602,7 +602,7 @@ bool TreePatternNode::isIsomorphicTo(const TreePatternNode *N,
                                      const MultipleUseVarSet &DepVars) const {
   if (N == this) return true;
   if (N->isLeaf() != isLeaf() || getExtTypes() != N->getExtTypes() ||
-      getPredicateFns() != N->getPredicateFns() ||
+      getPredicateFn() != N->getPredicateFn() ||
       getTransformFn() != N->getTransformFn())
     return false;
 
@@ -640,7 +640,7 @@ TreePatternNode *TreePatternNode::clone() const {
   }
   New->setName(getName());
   New->setTypes(getExtTypes());
-  New->setPredicateFns(getPredicateFns());
+  New->setPredicateFn(getPredicateFn());
   New->setTransformFn(getTransformFn());
   return New;
 }
@@ -658,12 +658,9 @@ SubstituteFormalArguments(std::map<std::string, TreePatternNode*> &ArgMap) {
       if (dynamic_cast<DefInit*>(Val) &&
           static_cast<DefInit*>(Val)->getDef()->getName() == "node") {
         // We found a use of a formal argument, replace it with its value.
-        TreePatternNode *NewChild = ArgMap[Child->getName()];
-        assert(NewChild && "Couldn't find formal argument!");
-        assert((Child->getPredicateFns().empty() ||
-                NewChild->getPredicateFns() == Child->getPredicateFns()) &&
-               "Non-empty child predicate clobbered!");
-        setChild(i, NewChild);
+        Child = ArgMap[Child->getName()];
+        assert(Child && "Couldn't find formal argument!");
+        setChild(i, Child);
       }
     } else {
       getChild(i)->SubstituteFormalArguments(ArgMap);
@@ -681,16 +678,8 @@ TreePatternNode *TreePatternNode::InlinePatternFragments(TreePattern &TP) {
   
   if (!Op->isSubClassOf("PatFrag")) {
     // Just recursively inline children nodes.
-    for (unsigned i = 0, e = getNumChildren(); i != e; ++i) {
-      TreePatternNode *Child = getChild(i);
-      TreePatternNode *NewChild = Child->InlinePatternFragments(TP);
-
-      assert((Child->getPredicateFns().empty() ||
-              NewChild->getPredicateFns() == Child->getPredicateFns()) &&
-             "Non-empty child predicate clobbered!");
-
-      setChild(i, NewChild);
-    }
+    for (unsigned i = 0, e = getNumChildren(); i != e; ++i)
+      setChild(i, getChild(i)->InlinePatternFragments(TP));
     return this;
   }
 
@@ -705,10 +694,6 @@ TreePatternNode *TreePatternNode::InlinePatternFragments(TreePattern &TP) {
 
   TreePatternNode *FragTree = Frag->getOnlyTree()->clone();
 
-  std::string Code = Op->getValueAsCode("Predicate");
-  if (!Code.empty())
-    FragTree->addPredicateFn("Predicate_"+Op->getName());
-
   // Resolve formal arguments to their actual value.
   if (Frag->getNumArgs()) {
     // Compute the map of formal to actual arguments.
@@ -721,11 +706,7 @@ TreePatternNode *TreePatternNode::InlinePatternFragments(TreePattern &TP) {
   
   FragTree->setName(getName());
   FragTree->UpdateNodeType(getExtTypes(), TP);
-
-  // Transfer in the old predicates.
-  for (unsigned i = 0, e = getPredicateFns().size(); i != e; ++i)
-    FragTree->addPredicateFn(getPredicateFns()[i]);
-
+  
   // Get a new copy of this fragment to stitch into here.
   //delete this;    // FIXME: implement refcounting!
   
@@ -1424,7 +1405,7 @@ void CodeGenDAGPatterns::ParsePatternFragments() {
     // this fragment uses it.
     std::string Code = Fragments[i]->getValueAsCode("Predicate");
     if (!Code.empty())
-      P->getOnlyTree()->addPredicateFn("Predicate_"+Fragments[i]->getName());
+      P->getOnlyTree()->setPredicateFn("Predicate_"+Fragments[i]->getName());
     
     // If there is a node transformation corresponding to this, keep track of
     // it.
@@ -1930,7 +1911,7 @@ void CodeGenDAGPatterns::ParseInstructions() {
       TreePatternNode *OpNode = InVal->clone();
       
       // No predicate is useful on the result.
-      OpNode->clearPredicateFns();
+      OpNode->setPredicateFn("");
       
       // Promote the xform function to be an explicit node if set.
       if (Record *Xform = OpNode->getTransformFn()) {
@@ -2157,7 +2138,7 @@ static void CombineChildVariants(TreePatternNode *Orig,
     
     // Copy over properties.
     R->setName(Orig->getName());
-    R->setPredicateFns(Orig->getPredicateFns());
+    R->setPredicateFn(Orig->getPredicateFn());
     R->setTransformFn(Orig->getTransformFn());
     R->setTypes(Orig->getExtTypes());
     
@@ -2219,7 +2200,7 @@ static void GatherChildrenOfAssociativeOpcode(TreePatternNode *N,
   Record *Operator = N->getOperator();
   
   // Only permit raw nodes.
-  if (!N->getName().empty() || !N->getPredicateFns().empty() ||
+  if (!N->getName().empty() || !N->getPredicateFn().empty() ||
       N->getTransformFn()) {
     Children.push_back(N);
     return;

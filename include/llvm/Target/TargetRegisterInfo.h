@@ -21,6 +21,7 @@
 #include "llvm/CodeGen/ValueTypes.h"
 #include <cassert>
 #include <functional>
+#include <set>
 
 namespace llvm {
 
@@ -31,6 +32,7 @@ class MachineMove;
 class RegScavenger;
 class SDNode;
 class SelectionDAG;
+class TargetRegisterClass;
 class Type;
 
 /// TargetRegisterDesc - This record contains all of the information known about
@@ -546,12 +548,16 @@ public:
   /// eliminated by this method.  This method may modify or replace the
   /// specified instruction, as long as it keeps the iterator pointing the the
   /// finished product. SPAdj is the SP adjustment due to call frame setup
-  /// instruction.
+  /// instruction. The return value is the number of instructions added to
+  /// (negative if removed from) the basic block.
+  ///
   virtual void eliminateFrameIndex(MachineBasicBlock::iterator MI,
                                    int SPAdj, RegScavenger *RS=NULL) const = 0;
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
-  /// the function.
+  /// the function. The return value is the number of instructions
+  /// added to (negative if removed from) the basic block (entry for prologue).
+  ///
   virtual void emitPrologue(MachineFunction &MF) const = 0;
   virtual void emitEpilogue(MachineFunction &MF,
                             MachineBasicBlock &MBB) const = 0;
@@ -562,7 +568,7 @@ public:
   /// getDwarfRegNum - Map a target register to an equivalent dwarf register
   /// number.  Returns -1 if there is no equivalent value.  The second
   /// parameter allows targets to use different numberings for EH info and
-  /// debugging info.
+  /// deubgging info.
   virtual int getDwarfRegNum(unsigned RegNum, bool isEH) const = 0;
 
   /// getFrameRegister - This method should return the register used as a base

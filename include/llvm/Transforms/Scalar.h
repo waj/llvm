@@ -18,6 +18,7 @@
 namespace llvm {
 
 class FunctionPass;
+class LoopPass;
 class Pass;
 class GetElementPtrInst;
 class PassInfo;
@@ -80,7 +81,7 @@ FunctionPass *createScalarReplAggregatesPass(signed Threshold = -1);
 // InductionVariableSimplify - Transform induction variables in a program to all
 // use a single canonical induction variable per loop.
 //
-Pass *createIndVarSimplifyPass();
+LoopPass *createIndVarSimplifyPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -100,7 +101,7 @@ FunctionPass *createInstructionCombiningPass();
 //
 // LICM - This pass is a loop invariant code motion and memory promotion pass.
 //
-Pass *createLICMPass();
+LoopPass *createLICMPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -109,32 +110,32 @@ Pass *createLICMPass();
 // optional parameter used to consult the target machine whether certain
 // transformations are profitable.
 //
-Pass *createLoopStrengthReducePass(const TargetLowering *TLI = 0);
+LoopPass *createLoopStrengthReducePass(const TargetLowering *TLI = 0);
 
 //===----------------------------------------------------------------------===//
 //
 // LoopUnswitch - This pass is a simple loop unswitching pass.
 //
-Pass *createLoopUnswitchPass(bool OptimizeForSize = false);
+LoopPass *createLoopUnswitchPass(bool OptimizeForSize = false);
 
 //===----------------------------------------------------------------------===//
 //
 // LoopUnroll - This pass is a simple loop unrolling pass.
 //
-Pass *createLoopUnrollPass();
+LoopPass *createLoopUnrollPass();
 
 //===----------------------------------------------------------------------===//
 //
 // LoopRotate - This pass is a simple loop rotating pass.
 //
-Pass *createLoopRotatePass();
+LoopPass *createLoopRotatePass();
 
 //===----------------------------------------------------------------------===//
 //
 // LoopIndexSplit - This pass divides loop's iteration range by spliting loop
 // such that each individual loop is executed efficiently.
 //
-Pass *createLoopIndexSplitPass();
+LoopPass *createLoopIndexSplitPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -273,7 +274,7 @@ FunctionPass *createBlockPlacementPass();
 // LCSSA - This pass inserts phi nodes at loop boundaries to simplify other loop
 // optimizations.
 //
-Pass *createLCSSAPass();
+LoopPass *createLCSSAPass();
 extern const PassInfo *const LCSSAID;
 
 //===----------------------------------------------------------------------===//
@@ -309,19 +310,13 @@ FunctionPass *createMemCpyOptPass();
 // LoopDeletion - This pass performs DCE of non-infinite loops that it
 // can prove are dead.
 //
-Pass *createLoopDeletionPass();
+LoopPass *createLoopDeletionPass();
   
 //===----------------------------------------------------------------------===//
 //
 /// createSimplifyLibCallsPass - This pass optimizes specific calls to
 /// specific well-known (library) functions.
 FunctionPass *createSimplifyLibCallsPass();
-
-//===----------------------------------------------------------------------===//
-//
-/// createSimplifyHalfPowrLibCallsPass - This is an experimental pass that
-/// optimizes specific half_pow functions.
-FunctionPass *createSimplifyHalfPowrLibCallsPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -335,7 +330,6 @@ FunctionPass *createCodeGenPreparePass(const TargetLowering *TLI = 0);
 // InstructionNamer - Give any unnamed non-void instructions "tmp" names.
 //
 FunctionPass *createInstructionNamerPass();
-extern const PassInfo *const InstructionNamerID;
   
 } // End llvm namespace
 

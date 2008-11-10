@@ -22,7 +22,6 @@
 #include "llvm/Analysis/Dominators.h"
 #include "llvm-c/Core.h"
 #include <algorithm>
-#include <cstdio>
 #include <vector>
 #include <map>
 using namespace llvm;
@@ -458,10 +457,8 @@ void PMTopLevelManager::schedulePass(Pass *P) {
   // generate the analysis again. Stale analysis info should not be
   // available at this point.
   if (P->getPassInfo() &&
-      P->getPassInfo()->isAnalysis() && findAnalysisPass(P->getPassInfo())) {
-    delete P;
+      P->getPassInfo()->isAnalysis() && findAnalysisPass(P->getPassInfo()))
     return;
-  }
 
   AnalysisUsage *AnUsage = findAnalysisUsage(P);
 
@@ -727,12 +724,12 @@ void PMDataManager::removeNotPreservedAnalysis(Pass *P) {
         && std::find(PreservedSet.begin(), PreservedSet.end(), Info->first) == 
         PreservedSet.end()) {
       // Remove this analysis
+      AvailableAnalysis.erase(Info);
       if (PassDebugging >= Details) {
         Pass *S = Info->second;
         cerr << " -- '" <<  P->getPassName() << "' is not preserving '";
         cerr << S->getPassName() << "'\n";
       }
-      AvailableAnalysis.erase(Info);
     }
   }
 

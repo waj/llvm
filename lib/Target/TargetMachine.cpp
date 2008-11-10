@@ -39,7 +39,6 @@ namespace llvm {
   bool RealignStack;
   bool VerboseAsm;
   bool DisableJumpTables;
-  bool StrongPHIElim;
 }
 
 static cl::opt<bool, true> PrintCode("print-machineinstrs",
@@ -102,13 +101,13 @@ DefRelocationModel(
   cl::init(Reloc::Default),
   cl::values(
     clEnumValN(Reloc::Default, "default",
-               "Target default relocation model"),
+               "  Target default relocation model"),
     clEnumValN(Reloc::Static, "static",
-               "Non-relocatable code"),
+               "  Non-relocatable code"),
     clEnumValN(Reloc::PIC_, "pic",
-               "Fully relocatable, position independent code"),
+               "  Fully relocatable, position independent code"),
     clEnumValN(Reloc::DynamicNoPIC, "dynamic-no-pic",
-               "Relocatable external references, non-relocatable code"),
+               "  Relocatable external references, non-relocatable code"),
     clEnumValEnd));
 static cl::opt<llvm::CodeModel::Model, true>
 DefCodeModel(
@@ -118,15 +117,15 @@ DefCodeModel(
   cl::init(CodeModel::Default),
   cl::values(
     clEnumValN(CodeModel::Default, "default",
-               "Target default code model"),
+               "  Target default code model"),
     clEnumValN(CodeModel::Small, "small",
-               "Small code model"),
+               "  Small code model"),
     clEnumValN(CodeModel::Kernel, "kernel",
-               "Kernel code model"),
+               "  Kernel code model"),
     clEnumValN(CodeModel::Medium, "medium",
-               "Medium code model"),
+               "  Medium code model"),
     clEnumValN(CodeModel::Large, "large",
-               "Large code model"),
+               "  Large code model"),
     clEnumValEnd));
 
 static cl::opt<bool, true>
@@ -156,12 +155,6 @@ static cl::opt<bool, true>
 DisableSwitchTables(cl::Hidden, "disable-jump-tables", 
            cl::desc("Do not generate jump tables."),
            cl::location(DisableJumpTables),
-           cl::init(false));
-
-static cl::opt<bool, true>
-EnableStrongPHIElim(cl::Hidden, "strong-phi-elim",
-           cl::desc("Use strong PHI elimination."),
-           cl::location(StrongPHIElim),
            cl::init(false));
 
 //---------------------------------------------------------------------------

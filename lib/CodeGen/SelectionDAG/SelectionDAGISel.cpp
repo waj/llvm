@@ -54,19 +54,14 @@ using namespace llvm;
 static cl::opt<bool>
 EnableValueProp("enable-value-prop", cl::Hidden);
 static cl::opt<bool>
-DisableLegalizeTypes("disable-legalize-types", cl::Hidden);
-#ifndef NDEBUG
+EnableLegalizeTypes("enable-legalize-types", cl::Hidden);
 static cl::opt<bool>
 EnableFastISelVerbose("fast-isel-verbose", cl::Hidden,
-          cl::desc("Enable verbose messages in the \"fast\" "
+          cl::desc("Enable verbose messages in the experimental \"fast\" "
                    "instruction selector"));
 static cl::opt<bool>
 EnableFastISelAbort("fast-isel-abort", cl::Hidden,
           cl::desc("Enable abort calls when \"fast\" instruction fails"));
-#else
-static const bool EnableFastISelVerbose = false,
-                  EnableFastISelAbort = false;
-#endif
 static cl::opt<bool>
 SchedLiveInCopies("schedule-livein-copies",
                   cl::desc("Schedule copies of livein registers"),
@@ -124,7 +119,7 @@ ISHeuristic("pre-RA-sched",
                      " allocation):"));
 
 static RegisterScheduler
-defaultListDAGScheduler("default", "Best scheduler for the target",
+defaultListDAGScheduler("default", "  Best scheduler for the target",
                         createDefaultScheduler);
 
 namespace llvm {
@@ -319,7 +314,7 @@ bool SelectionDAGISel::runOnFunction(Function &Fn) {
       // Mark landing pad.
       FuncInfo->MBBMap[Invoke->getSuccessor(1)]->setIsLandingPad();
 
-  SelectAllBasicBlocks(Fn, MF, MMI, TII);
+  SelectAllBasicBlocks(Fn, MF, MMI);
 
   // If the first basic block in the function has live ins that need to be
   // copied into vregs, emit the copies into the top of the block before
@@ -457,6 +452,48 @@ void SelectionDAGISel::SelectBasicBlock(BasicBlock *LLVMBB,
                                         BasicBlock::iterator End) {
   SDL->setCurrentBasicBlock(BB);
 
+  MachineModuleInfo *MMI = CurDAG->getMachineModuleInfo();
+
+  if (MMI && BB->isLandingPad()) {
+    // Add a label to mark the beginning of the landing pad.  Deletion of the
+    // landing pad can thus be detected via the MachineModuleInfo.
+    unsigned LabelID = MMI->addLandingPad(BB);
+    CurDAG->setRoot(CurDAG->getLabel(ISD::EH_LABEL,
+                                     CurDAG->getEntryNode(), LabelID));
+
+    // Mark exception register as live in.
+    unsigned Reg = TLI.getExceptionAddressRegister();
+    if (Reg) BB->addLiveIn(Reg);
+
+    // Mark exception selector register as live in.
+    Reg = TLI.getExceptionSelectorRegister();
+    if (Reg) BB->addLiveIn(Reg);
+
+    // FIXME: Hack around an exception handling flaw (PR1508): the personality
+    // function and list of typeids logically belong to the invoke (or, if you
+    // like, the basic block containing the invoke), and need to be associated
+    // with it in the dwarf exception handling tables.  Currently however the
+    // information is provided by an intrinsic (eh.selector) that can be moved
+    // to unexpected places by the optimizers: if the unwind edge is critical,
+    // then breaking it can result in the intrinsics being in the successor of
+    // the landing pad, not the landing pad itself.  This results in exceptions
+    // not being caught because no typeids are associated with the invoke.
+    // This may not be the only way things can go wrong, but it is the only way
+    // we try to work around for the moment.
+    BranchInst *Br = dyn_cast<BranchInst>(LLVMBB->getTerminator());
+
+    if (Br && Br->isUnconditional()) { // Critical edge?
+      BasicBlock::iterator I, E;
+      for (I = LLVMBB->begin(), E = --LLVMBB->end(); I != E; ++I)
+        if (isa<EHSelectorInst>(I))
+          break;
+
+      if (I == E)
+        // No catch info found - try to extract some from the successor.
+        copyCatchInfo(Br->getSuccessor(0), LLVMBB, MMI, *FuncInfo);
+    }
+  }
+
   // Lower all of the non-terminator instructions.
   for (BasicBlock::iterator I = Begin; I != End; ++I)
     if (!isa<TerminatorInst>(I))
@@ -577,7 +614,7 @@ void SelectionDAGISel::CodeGenAndEmitDAG() {
   
   // Second step, hack on the DAG until it only uses operations and types that
   // the target supports.
-  if (!DisableLegalizeTypes) {
+  if (EnableLegalizeTypes) {// Enable this some day.
     if (ViewLegalizeTypesDAGs) CurDAG->viewGraph("legalize-types input for " +
                                                  BlockName);
 
@@ -671,19 +708,14 @@ void SelectionDAGISel::CodeGenAndEmitDAG() {
 }  
 
 void SelectionDAGISel::SelectAllBasicBlocks(Function &Fn, MachineFunction &MF,
-                                            MachineModuleInfo *MMI,
-                                            const TargetInstrInfo &TII) {
+                                            MachineModuleInfo *MMI) {
   // Initialize the Fast-ISel state, if needed.
   FastISel *FastIS = 0;
   if (EnableFastISel)
     FastIS = TLI.createFastISel(*FuncInfo->MF, MMI,
                                 FuncInfo->ValueMap,
                                 FuncInfo->MBBMap,
-                                FuncInfo->StaticAllocaMap
-#ifndef NDEBUG
-                                , FuncInfo->CatchInfoLost
-#endif
-                                );
+                                FuncInfo->StaticAllocaMap);
 
   // Iterate over all basic blocks in the function.
   for (Function::iterator I = Fn.begin(), E = Fn.end(); I != E; ++I) {
@@ -714,49 +746,9 @@ void SelectionDAGISel::SelectAllBasicBlocks(Function &Fn, MachineFunction &MF,
       }
     }
 
-    if (MMI && BB->isLandingPad()) {
-      // Add a label to mark the beginning of the landing pad.  Deletion of the
-      // landing pad can thus be detected via the MachineModuleInfo.
-      unsigned LabelID = MMI->addLandingPad(BB);
-
-      const TargetInstrDesc &II = TII.get(TargetInstrInfo::EH_LABEL);
-      BuildMI(BB, II).addImm(LabelID);
-
-      // Mark exception register as live in.
-      unsigned Reg = TLI.getExceptionAddressRegister();
-      if (Reg) BB->addLiveIn(Reg);
-
-      // Mark exception selector register as live in.
-      Reg = TLI.getExceptionSelectorRegister();
-      if (Reg) BB->addLiveIn(Reg);
-
-      // FIXME: Hack around an exception handling flaw (PR1508): the personality
-      // function and list of typeids logically belong to the invoke (or, if you
-      // like, the basic block containing the invoke), and need to be associated
-      // with it in the dwarf exception handling tables.  Currently however the
-      // information is provided by an intrinsic (eh.selector) that can be moved
-      // to unexpected places by the optimizers: if the unwind edge is critical,
-      // then breaking it can result in the intrinsics being in the successor of
-      // the landing pad, not the landing pad itself.  This results in exceptions
-      // not being caught because no typeids are associated with the invoke.
-      // This may not be the only way things can go wrong, but it is the only way
-      // we try to work around for the moment.
-      BranchInst *Br = dyn_cast<BranchInst>(LLVMBB->getTerminator());
-
-      if (Br && Br->isUnconditional()) { // Critical edge?
-        BasicBlock::iterator I, E;
-        for (I = LLVMBB->begin(), E = --LLVMBB->end(); I != E; ++I)
-          if (isa<EHSelectorInst>(I))
-            break;
-
-        if (I == E)
-          // No catch info found - try to extract some from the successor.
-          copyCatchInfo(Br->getSuccessor(0), LLVMBB, MMI, *FuncInfo);
-      }
-    }
-
     // Before doing SelectionDAG ISel, see if FastISel has been requested.
-    if (FastIS && !SuppressFastISel) {
+    // FastISel doesn't support EH landing pads, which require special handling.
+    if (FastIS && !SuppressFastISel && !BB->isLandingPad()) {
       // Emit code for any incoming arguments. This must happen before
       // beginning FastISel on the entry block.
       if (LLVMBB == &Fn.getEntryBlock()) {

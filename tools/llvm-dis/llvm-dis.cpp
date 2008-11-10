@@ -24,7 +24,6 @@
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Streams.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/System/Signals.h"
 #include <iostream>
 #include <fstream>
@@ -118,8 +117,8 @@ int main(int argc, char **argv) {
     // All that llvm-dis does is write the assembly to a file.
     if (!DontPrint) {
       PassManager Passes;
-      raw_os_ostream L(*Out);
-      Passes.add(createPrintModulePass(&L));
+      OStream L(*Out);
+      Passes.add(new PrintModulePass(&L));
       Passes.run(*M.get());
     }
 

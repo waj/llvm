@@ -70,20 +70,16 @@ let isCall = 1, PPC970_Unit = 7,
           LR8,CTR8,
           CR0,CR1,CR5,CR6,CR7] in {
   // Convenient aliases for call instructions
-  let Uses = [RM] in {
-    def BL8_Macho  : IForm<18, 0, 1,
-                           (outs), (ins calltarget:$func, variable_ops), 
-                           "bl $func", BrB, []>;  // See Pat patterns below.
-    def BLA8_Macho : IForm<18, 1, 1,
-                           (outs), (ins aaddr:$func, variable_ops),
-                           "bla $func", BrB, [(PPCcall_Macho (i64 imm:$func))]>;
-  }
-  let Uses = [CTR8, RM] in {
-    def BCTRL8_Macho : XLForm_2_ext<19, 528, 20, 0, 1, 
+  def BL8_Macho  : IForm<18, 0, 1,
+                         (outs), (ins calltarget:$func, variable_ops), 
+                         "bl $func", BrB, []>;  // See Pat patterns below.
+  def BLA8_Macho : IForm<18, 1, 1,
+                         (outs), (ins aaddr:$func, variable_ops),
+                         "bla $func", BrB, [(PPCcall_Macho (i64 imm:$func))]>;
+  def BCTRL8_Macho : XLForm_2_ext<19, 528, 20, 0, 1, 
                                  (outs), (ins variable_ops),
                                  "bctrl", BrB,
                                  [(PPCbctrl_Macho)]>, Requires<[In64BitMode]>;
-  }
 }
 
 // ELF 64 ABI Calls = Macho ABI Calls
@@ -96,20 +92,16 @@ let isCall = 1, PPC970_Unit = 7,
           LR8,CTR8,
           CR0,CR1,CR5,CR6,CR7] in {
   // Convenient aliases for call instructions
-  let Uses = [RM] in {
-    def BL8_ELF  : IForm<18, 0, 1,
-                         (outs), (ins calltarget:$func, variable_ops), 
-                         "bl $func", BrB, []>;  // See Pat patterns below.                            
-    def BLA8_ELF : IForm<18, 1, 1,
-                         (outs), (ins aaddr:$func, variable_ops),
-                         "bla $func", BrB, [(PPCcall_ELF (i64 imm:$func))]>;
-  }
-  let Uses = [CTR8, RM] in {
-    def BCTRL8_ELF : XLForm_2_ext<19, 528, 20, 0, 1,
+  def BL8_ELF  : IForm<18, 0, 1,
+                       (outs), (ins calltarget:$func, variable_ops), 
+                       "bl $func", BrB, []>;  // See Pat patterns below.                            
+  def BLA8_ELF : IForm<18, 1, 1,
+                       (outs), (ins aaddr:$func, variable_ops),
+                       "bla $func", BrB, [(PPCcall_ELF (i64 imm:$func))]>;
+  def BCTRL8_ELF : XLForm_2_ext<19, 528, 20, 0, 1,
                                (outs), (ins variable_ops),
                                "bctrl", BrB,
                                [(PPCbctrl_ELF)]>, Requires<[In64BitMode]>;
-  }
 }
 
 
@@ -176,39 +168,39 @@ def STDCX : XForm_1<31, 214, (outs), (ins G8RC:$rS, memrr:$dst),
                    [(PPCstcx G8RC:$rS, xoaddr:$dst)]>,
                    isDOT;
 
-let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [RM] in
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
 def TCRETURNdi8 :Pseudo< (outs),
                         (ins calltarget:$dst, i32imm:$offset, variable_ops),
                  "#TC_RETURNd8 $dst $offset",
                  []>;
 
-let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [RM] in
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
 def TCRETURNai8 :Pseudo<(outs), (ins aaddr:$func, i32imm:$offset, variable_ops),
                  "#TC_RETURNa8 $func $offset",
                  [(PPCtc_return (i64 imm:$func), imm:$offset)]>;
 
-let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [RM] in
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
 def TCRETURNri8 : Pseudo<(outs), (ins CTRRC8:$dst, i32imm:$offset, variable_ops),
                  "#TC_RETURNr8 $dst $offset",
                  []>;
 
 
 let isTerminator = 1, isBarrier = 1, PPC970_Unit = 7, isBranch = 1,
-    isIndirectBranch = 1, isCall = 1, isReturn = 1, Uses = [CTR, RM] in
+    isIndirectBranch = 1, isCall = 1, isReturn = 1  in
 def TAILBCTR8 : XLForm_2_ext<19, 528, 20, 0, 0, (outs), (ins), "bctr", BrB, []>,
     Requires<[In64BitMode]>;
 
 
 
 let isBranch = 1, isTerminator = 1, hasCtrlDep = 1, PPC970_Unit = 7,
-    isBarrier = 1, isCall = 1, isReturn = 1, Uses = [RM] in
+    isBarrier = 1, isCall = 1, isReturn = 1 in
 def TAILB8   : IForm<18, 0, 0, (outs), (ins calltarget:$dst),
                   "b $dst", BrB,
                   []>;
 
 
 let isBranch = 1, isTerminator = 1, hasCtrlDep = 1, PPC970_Unit = 7,
-    isBarrier = 1, isCall = 1, isReturn = 1, Uses = [RM] in
+    isBarrier = 1, isCall = 1, isReturn = 1 in
 def TAILBA8   : IForm<18, 0, 0, (outs), (ins aaddr:$dst),
                   "ba $dst", BrB,
                   []>;
@@ -226,12 +218,10 @@ def : Pat<(PPCtc_return CTRRC8:$dst, imm:$imm),
 //===----------------------------------------------------------------------===//
 // 64-bit SPR manipulation instrs.
 
-let Uses = [CTR8] in {
 def MFCTR8 : XFXForm_1_ext<31, 339, 9, (outs G8RC:$rT), (ins),
                            "mfctr $rT", SprMFSPR>,
              PPC970_DGroup_First, PPC970_Unit_FXU;
-}
-let Pattern = [(PPCmtctr G8RC:$rS)], Defs = [CTR8] in {
+let Pattern = [(PPCmtctr G8RC:$rS)] in {
 def MTCTR8 : XFXForm_7_ext<31, 467, 9, (outs), (ins G8RC:$rS),
                            "mtctr $rS", SprMTSPR>,
              PPC970_DGroup_First, PPC970_Unit_FXU;
@@ -243,16 +233,13 @@ def DYNALLOC8 : Pseudo<(outs G8RC:$result), (ins G8RC:$negsize, memri:$fpsi),
                        [(set G8RC:$result,
                              (PPCdynalloc G8RC:$negsize, iaddr:$fpsi))]>;
 
-let Defs = [LR8] in {
 def MTLR8  : XFXForm_7_ext<31, 467, 8, (outs), (ins G8RC:$rS),
                            "mtlr $rS", SprMTSPR>,
              PPC970_DGroup_First, PPC970_Unit_FXU;
-}
-let Uses = [LR8] in {
 def MFLR8  : XFXForm_1_ext<31, 339, 8, (outs G8RC:$rT), (ins),
                            "mflr $rT", SprMFSPR>,
              PPC970_DGroup_First, PPC970_Unit_FXU;
-}
+
 
 //===----------------------------------------------------------------------===//
 // Fixed point instructions.
@@ -638,7 +625,7 @@ def STDX_32  : XForm_8<31, 149, (outs), (ins GPRC:$rT, memrr:$dst),
 //
 
 
-let PPC970_Unit = 3, Uses = [RM] in {  // FPU Operations.
+let PPC970_Unit = 3 in {  // FPU Operations.
 def FCFID  : XForm_26<63, 846, (outs F8RC:$frD), (ins F8RC:$frB),
                       "fcfid $frD, $frB", FPGeneral,
                       [(set F8RC:$frD, (PPCfcfid F8RC:$frB))]>, isPPC64;

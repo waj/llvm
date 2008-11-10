@@ -371,11 +371,6 @@ LLVMValueRef LLVMConstInsertElement(LLVMValueRef VectorConstant,
 LLVMValueRef LLVMConstShuffleVector(LLVMValueRef VectorAConstant,
                                     LLVMValueRef VectorBConstant,
                                     LLVMValueRef MaskConstant);
-LLVMValueRef LLVMConstExtractValue(LLVMValueRef AggConstant, unsigned *IdxList,
-                                   unsigned NumIdx);
-LLVMValueRef LLVMConstInsertValue(LLVMValueRef AggConstant,
-                                  LLVMValueRef ElementValueConstant,
-                                  unsigned *IdxList, unsigned NumIdx);
 
 /* Operations on global variables, functions, and aliases (globals) */
 LLVMModuleRef LLVMGetGlobalParent(LLVMValueRef Global);
@@ -610,11 +605,6 @@ LLVMValueRef LLVMBuildInsertElement(LLVMBuilderRef, LLVMValueRef VecVal,
 LLVMValueRef LLVMBuildShuffleVector(LLVMBuilderRef, LLVMValueRef V1,
                                     LLVMValueRef V2, LLVMValueRef Mask,
                                     const char *Name);
-LLVMValueRef LLVMBuildExtractValue(LLVMBuilderRef, LLVMValueRef AggVal,
-                                   unsigned Index, const char *Name);
-LLVMValueRef LLVMBuildInsertValue(LLVMBuilderRef, LLVMValueRef AggVal,
-                                  LLVMValueRef EltVal, unsigned Index,
-                                  const char *Name);
 
 
 /*===-- Module providers --------------------------------------------------===*/

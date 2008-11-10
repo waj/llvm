@@ -89,7 +89,7 @@ if [ \! -f Makefile.config ]; then
         || exit 1
 fi
 
-SUBVERSION=`echo $RC_ProjectSourceVersion | sed -e 's/[^.]*\.\([0-9]*\).*/\1/'`
+SUBVERSION=`echo $RC_ProjectSourceVersion | sed -e 's/.*\.//'`
 
 if [ "x$SUBVERSION" != "x$RC_ProjectSourceVersion" ]; then
     LLVM_SUBMIT_SUBVERSION=`printf "%02d" $SUBVERSION`
@@ -138,8 +138,7 @@ fi
 make $JOBS_FLAG $OPTIMIZE_OPTS UNIVERSAL=1 UNIVERSAL_ARCH="$TARGETS" \
     LLVM_SUBMIT_VERSION=$LLVM_SUBMIT_VERSION \
     LLVM_SUBMIT_SUBVERSION=$LLVM_SUBMIT_SUBVERSION \
-    CXXFLAGS="-DLLVM_VERSION_INFO='\" Apple Build #$LLVM_VERSION\"'" \
-    VERBOSE=1
+    CXXFLAGS="-DLLVM_VERSION_INFO='\" Apple Build #$LLVM_VERSION\"'"
 
 if ! test $? == 0 ; then
     echo "error: LLVM 'make' failed!"
@@ -159,9 +158,7 @@ cd $DIR/obj-llvm || exit 1
 
 # Install the tree into the destination directory.
 make $LOCAL_MAKEFLAGS $OPTIMIZE_OPTS UNIVERSAL=1 UNIVERSAL_ARCH="$TARGETS" \
-    LLVM_SUBMIT_VERSION=$LLVM_SUBMIT_VERSION \
-    LLVM_SUBMIT_SUBVERSION=$LLVM_SUBMIT_SUBVERSION \
-    OPTIMIZE_OPTION='-O2' VERBOSE=1 install
+    OPTIMIZE_OPTION='-O2' install
 
 if ! test $? == 0 ; then
     echo "error: LLVM 'make install' failed!"

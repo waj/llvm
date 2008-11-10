@@ -76,9 +76,6 @@ protected:
   void setTargetData(const TargetData *td) {
     TD = td;
   }
-  
-  /// getMemoryforGV - Allocate memory for a global variable.
-  virtual char* getMemoryForGV(const GlobalVariable* GV);
 
   // To avoid having libexecutionengine depend on the JIT and interpreter
   // libraries, the JIT and Interpreter set these functions to ctor pointers

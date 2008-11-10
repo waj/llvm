@@ -22,7 +22,7 @@
 using namespace llvm;
 
 // Register the targets
-static RegisterTarget<AlphaTargetMachine> X("alpha", "Alpha [experimental]");
+static RegisterTarget<AlphaTargetMachine> X("alpha", "  Alpha (incomplete)");
 
 const TargetAsmInfo *AlphaTargetMachine::createTargetAsmInfo() const {
   return new AlphaTargetAsmInfo(*this);

@@ -26,7 +26,6 @@
 #include "llvm/CodeGen/RegisterCoalescer.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/Statistic.h"
@@ -49,13 +48,8 @@ NewHeuristic("new-spilling-heuristic",
              cl::desc("Use new spilling heuristic"),
              cl::init(false), cl::Hidden);
 
-static cl::opt<bool>
-PreSplitIntervals("pre-alloc-split",
-                  cl::desc("Pre-register allocation live interval splitting"),
-                  cl::init(false), cl::Hidden);
-
 static RegisterRegAlloc
-linearscanRegAlloc("linearscan", "linear scan register allocator",
+linearscanRegAlloc("linearscan", "  linear scan register allocator",
                    createLinearScanRegisterAllocator);
 
 namespace {
@@ -113,13 +107,9 @@ namespace {
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.addRequired<LiveIntervals>();
-      if (StrongPHIElim)
-        AU.addRequiredID(StrongPHIEliminationID);
       // Make sure PassManager knows which analyses to make available
       // to coalescing and which analyses coalescing invalidates.
       AU.addRequiredTransitive<RegisterCoalescer>();
-      if (PreSplitIntervals)
-        AU.addRequiredID(PreAllocSplittingID);
       AU.addRequired<LiveStacks>();
       AU.addPreserved<LiveStacks>();
       AU.addRequired<MachineLoopInfo>();
@@ -410,7 +400,7 @@ void RALinScan::linearScan()
     for (LiveInterval::Ranges::const_iterator I = cur.begin(), E = cur.end();
          I != E; ++I) {
       const LiveRange &LR = *I;
-      if (li_->findLiveInMBBs(LR.start, LR.end, LiveInMBBs)) {
+      if (li_->findLiveInMBBs(LR, LiveInMBBs)) {
         for (unsigned i = 0, e = LiveInMBBs.size(); i != e; ++i)
           if (LiveInMBBs[i] != EntryMBB)
             LiveInMBBs[i]->addLiveIn(Reg);
@@ -550,7 +540,7 @@ static void addStackInterval(LiveInterval *cur, LiveStacks *ls_,
   SI.weight += Weight;
 
   VNInfo *VNI;
-  if (SI.hasAtLeastOneValue())
+  if (SI.getNumValNums())
     VNI = SI.getValNumInfo(0);
   else
     VNI = SI.getNextValue(~0U, 0, ls_->getVNInfoAllocator());

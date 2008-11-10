@@ -49,13 +49,6 @@ namespace {
 
   cl::opt<std::string>
   TargetTriple("mtriple", cl::desc("Override target triple for module"));
-
-  cl::opt<std::string>
-  EntryFunc("entry-function",
-            cl::desc("Specify the entry function (default = 'main') "
-                     "of the executable"),
-            cl::value_desc("function"),
-            cl::init("main"));
   
   cl::opt<std::string>
   FakeArgv0("fake-argv0",
@@ -147,9 +140,9 @@ int main(int argc, char **argv, char * const *envp) {
   // using the contents of Args to determine argc & argv, and the contents of
   // EnvVars to determine envp.
   //
-  Function *EntryFn = Mod->getFunction(EntryFunc);
-  if (!EntryFn) {
-    std::cerr << '\'' << EntryFunc << "\' function not found in module.\n";
+  Function *MainFn = Mod->getFunction("main");
+  if (!MainFn) {
+    std::cerr << "'main' function not found in module.\n";
     return -1;
   }
 
@@ -167,13 +160,13 @@ int main(int argc, char **argv, char * const *envp) {
   if (NoLazyCompilation) {
     for (Module::iterator I = Mod->begin(), E = Mod->end(); I != E; ++I) {
       Function *Fn = &*I;
-      if (Fn != EntryFn && !Fn->isDeclaration())
+      if (Fn != MainFn && !Fn->isDeclaration())
         EE->getPointerToFunction(Fn);
     }
   }
 
   // Run main.
-  int Result = EE->runFunctionAsMain(EntryFn, InputArgv, envp);
+  int Result = EE->runFunctionAsMain(MainFn, InputArgv, envp);
 
   // Run static destructors.
   EE->runStaticConstructorsDestructors(true);

@@ -57,7 +57,7 @@ bool InlineAsm::ConstraintInfo::Parse(const std::string &Str,
   // Initialize
   Type = isInput;
   isEarlyClobber = false;
-  MatchingInput = -1;
+  hasMatchingInput = false;
   isCommutative = false;
   isIndirect = false;
   
@@ -127,13 +127,8 @@ bool InlineAsm::ConstraintInfo::Parse(const std::string &Str,
           Type != isInput)
         return true;  // Invalid constraint number.
       
-      // If Operand N already has a matching input, reject this.  An output
-      // can't be constrained to the same value as multiple inputs.
-      if (ConstraintsSoFar[N].hasMatchingInput())
-        return true;
-      
       // Note that operand #n has a matching input.
-      ConstraintsSoFar[N].MatchingInput = ConstraintsSoFar.size();
+      ConstraintsSoFar[N].hasMatchingInput = true;
     } else {
       // Single letter constraint.
       Codes.push_back(std::string(I, I+1));

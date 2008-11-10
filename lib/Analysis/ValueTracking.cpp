@@ -509,15 +509,12 @@ void llvm::ComputeMaskedBits(Value *V, const APInt &Mask,
           ComputeMaskedBits(R, Mask2, KnownZero2, KnownOne2, TD, Depth+1);
           Mask2 = APInt::getLowBitsSet(BitWidth,
                                        KnownZero2.countTrailingOnes());
-
-          // We need to take the minimum number of known bits
-          APInt KnownZero3(KnownZero), KnownOne3(KnownOne);
-          ComputeMaskedBits(L, Mask2, KnownZero3, KnownOne3, TD, Depth+1);
-
+          KnownOne2.clear();
+          KnownZero2.clear();
+          ComputeMaskedBits(L, Mask2, KnownZero2, KnownOne2, TD, Depth+1);
           KnownZero = Mask &
                       APInt::getLowBitsSet(BitWidth,
-                                           std::min(KnownZero2.countTrailingOnes(),
-                                                    KnownZero3.countTrailingOnes()));
+                                           KnownZero2.countTrailingOnes());
           break;
         }
       }

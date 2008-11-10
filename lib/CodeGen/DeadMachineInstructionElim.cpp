@@ -126,12 +126,9 @@ bool DeadMachineInstructionElim::runOnMachineFunction(MachineFunction &MF) {
           unsigned Reg = MO.getReg();
           if (Reg != 0 && TargetRegisterInfo::isPhysicalRegister(Reg)) {
             LivePhysRegs.reset(Reg);
-            // Check the subreg set, not the alias set, because a def
-            // of a super-register may still be partially live after
-            // this def.
-            for (const unsigned *SubRegs = TRI->getSubRegisters(Reg);
-                 *SubRegs; ++SubRegs)
-              LivePhysRegs.reset(*SubRegs);
+            for (const unsigned *AliasSet = TRI->getAliasSet(Reg);
+                 *AliasSet; ++AliasSet)
+              LivePhysRegs.reset(*AliasSet);
           }
         }
       }

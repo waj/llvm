@@ -29,10 +29,17 @@ set(SHLIBEXT ${LTDL_SHLIB_EXT})
 #EXEEXT already set.
 set(OS "${CMAKE_SYSTEM}")
 set(ARCH "X86") # TODO: This gives "i686" in Linux: "${CMAKE_SYSTEM_PROCESSOR}")
-
-include(GetTargetTriple)
-get_target_triple(target)
-
+# TODO: avoid using autoconf:
+set(config_guess ${LLVM_MAIN_SRC_DIR}/autoconf/config.guess)
+execute_process(COMMAND sh ${config_guess}
+  RESULT_VARIABLE TT_RV
+  OUTPUT_VARIABLE LLVM_TARGET_TRIPLET
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+message(STATUS "Target triplet: ${LLVM_TARGET_TRIPLET}")
+if( NOT TT_RV EQUAL 0 )
+  message(FATAL_ERROR "Failed to execute ${config_guess}")
+endif( NOT TT_RV EQUAL 0 )
+set(target ${LLVM_TARGET_TRIPLET})
 foreach(c ${LLVM_TARGETS_TO_BUILD})
   set(TARGETS_BUILT "${TARGETS_BUILT} ${c}")
 endforeach(c)
@@ -63,18 +70,8 @@ set(LLVM_CONFIG_IN ${CMAKE_CURRENT_BINARY_DIR}/llvm-config.in)
 # set(LIBDEPS_TMP LibDeps.txt.tmp)
 # set(FINAL_LIBDEPS FinalLibDeps.txt)
 
-if( CMAKE_CROSSCOMPILING )
-  set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY)
-endif()
-
-find_program(NM_PATH nm PATH_SUFFIXES /bin)
-
-if( NOT NM_PATH )
-  message(FATAL_ERROR "`nm' not found")
-endif()
-
 add_custom_command(OUTPUT ${LIBDEPS_TMP}
-  COMMAND ${PERL_EXECUTABLE} ${LLVM_MAIN_SRC_DIR}/utils/GenLibDeps.pl -flat ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY} ${NM_PATH} > ${LIBDEPS_TMP}
+  COMMAND ${PERL_EXECUTABLE} ${LLVM_MAIN_SRC_DIR}/utils/GenLibDeps.pl -flat ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY} > ${LIBDEPS_TMP}
   COMMENT "Regenerating ${LIBDEPS_TMP}")
 
 add_custom_command(OUTPUT ${LIBDEPS}
@@ -107,8 +104,3 @@ add_custom_target(llvm-config.target ALL
   DEPENDS ${LLVM_CONFIG})
 
 add_dependencies(llvm-config.target ${llvm_lib_targets})
-
-install(FILES ${LLVM_CONFIG}
-  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
-  WORLD_READ WORLD_EXECUTE
-  DESTINATION bin)

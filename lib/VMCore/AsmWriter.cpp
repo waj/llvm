@@ -39,6 +39,14 @@ using namespace llvm;
 // Make virtual table appear in this compilation unit.
 AssemblyAnnotationWriter::~AssemblyAnnotationWriter() {}
 
+char PrintModulePass::ID = 0;
+static RegisterPass<PrintModulePass>
+X("print-module", "Print module to stderr");
+char PrintFunctionPass::ID = 0;
+static RegisterPass<PrintFunctionPass>
+Y("print-function","Print function to stderr");
+
+
 //===----------------------------------------------------------------------===//
 // Helper Functions
 //===----------------------------------------------------------------------===//
@@ -60,30 +68,58 @@ static const Module *getModuleFromVal(const Value *V) {
   return 0;
 }
 
-// PrintEscapedString - Print each character of the specified string, escaping
-// it if it is not printable or if it is an escape char.
-static void PrintEscapedString(const char *Str, unsigned Length,
-                               raw_ostream &Out) {
-  for (unsigned i = 0; i != Length; ++i) {
-    unsigned char C = Str[i];
-    if (isprint(C) && C != '\\' && C != '"' && isprint(C))
-      Out << C;
-    else
-      Out << '\\' << hexdigit(C >> 4) << hexdigit(C & 0x0F);
+
+/// NameNeedsQuotes - Return true if the specified llvm name should be wrapped
+/// with ""'s.
+static std::string QuoteNameIfNeeded(const std::string &Name) {
+  std::string result;
+  bool needsQuotes = Name[0] >= '0' && Name[0] <= '9';
+  // Scan the name to see if it needs quotes and to replace funky chars with
+  // their octal equivalent.
+  for (unsigned i = 0, e = Name.size(); i != e; ++i) {
+    char C = Name[i];
+    assert(C != '"' && "Illegal character in LLVM value name!");
+    if (isalnum(C) || C == '-' || C == '.' || C == '_')
+      result += C;
+    else if (C == '\\')  {
+      needsQuotes = true;
+      result += "\\\\";
+    } else if (isprint(C)) {
+      needsQuotes = true;
+      result += C;
+    } else {
+      needsQuotes = true;
+      result += "\\";
+      char hex1 = (C >> 4) & 0x0F;
+      if (hex1 < 10)
+        result += hex1 + '0';
+      else 
+        result += hex1 - 10 + 'A';
+      char hex2 = C & 0x0F;
+      if (hex2 < 10)
+        result += hex2 + '0';
+      else 
+        result += hex2 - 10 + 'A';
+    }
   }
+  if (needsQuotes) {
+    result.insert(0,"\"");
+    result += '"';
+  }
+  return result;
 }
 
-// PrintEscapedString - Print each character of the specified string, escaping
-// it if it is not printable or if it is an escape char.
-static void PrintEscapedString(const std::string &Str, raw_ostream &Out) {
-  PrintEscapedString(Str.c_str(), Str.size(), Out);
+/// getLLVMName - Turn the specified string into an 'LLVM name', which is
+/// surrounded with ""'s and escaped if it has special chars in it.
+static std::string getLLVMName(const std::string &Name) {
+  assert(!Name.empty() && "Cannot get empty name!");
+  return QuoteNameIfNeeded(Name);
 }
 
 enum PrefixType {
   GlobalPrefix,
   LabelPrefix,
-  LocalPrefix,
-  NoPrefix
+  LocalPrefix
 };
 
 /// PrintLLVMName - Turn the specified name into an 'LLVM name', which is either
@@ -94,14 +130,13 @@ static void PrintLLVMName(raw_ostream &OS, const char *NameStr,
   assert(NameStr && "Cannot get empty name!");
   switch (Prefix) {
   default: assert(0 && "Bad prefix!");
-  case NoPrefix: break;
   case GlobalPrefix: OS << '@'; break;
   case LabelPrefix:  break;
   case LocalPrefix:  OS << '%'; break;
   }      
   
   // Scan the name to see if it needs quotes first.
-  bool NeedsQuotes = isdigit(NameStr[0]);
+  bool NeedsQuotes = NameStr[0] >= '0' && NameStr[0] <= '9';
   if (!NeedsQuotes) {
     for (unsigned i = 0; i != NameLen; ++i) {
       char C = NameStr[i];
@@ -121,18 +156,28 @@ static void PrintLLVMName(raw_ostream &OS, const char *NameStr,
   // Okay, we need quotes.  Output the quotes and escape any scary characters as
   // needed.
   OS << '"';
-  PrintEscapedString(NameStr, NameLen, OS);
+  for (unsigned i = 0; i != NameLen; ++i) {
+    char C = NameStr[i];
+    assert(C != '"' && "Illegal character in LLVM value name!");
+    if (C == '\\') {
+      OS << "\\\\";
+    } else if (isprint(C)) {
+      OS << C;
+    } else {
+      OS << '\\';
+      char hex1 = (C >> 4) & 0x0F;
+      if (hex1 < 10)
+        OS << (char)(hex1 + '0');
+      else 
+        OS << (char)(hex1 - 10 + 'A');
+      char hex2 = C & 0x0F;
+      if (hex2 < 10)
+        OS << (char)(hex2 + '0');
+      else 
+        OS << (char)(hex2 - 10 + 'A');
+    }
+  }
   OS << '"';
-}
-
-/// getLLVMName - Turn the specified string into an 'LLVM name', which is
-/// surrounded with ""'s and escaped if it has special chars in it.
-static std::string getLLVMName(const std::string &Name) {
-  assert(!Name.empty() && "Cannot get empty name!");
-  std::string result;
-  raw_string_ostream OS(result);
-  PrintLLVMName(OS, Name.c_str(), Name.length(), NoPrefix);
-  return OS.str();
 }
 
 /// PrintLLVMName - Turn the specified name into an 'LLVM name', which is either
@@ -587,6 +632,21 @@ void llvm::WriteTypeSymbolic(raw_ostream &Out, const Type *Ty, const Module *M){
   }
 }
 
+// PrintEscapedString - Print each character of the specified string, escaping
+// it if it is not printable or if it is an escape char.
+static void PrintEscapedString(const std::string &Str, raw_ostream &Out) {
+  for (unsigned i = 0, e = Str.size(); i != e; ++i) {
+    unsigned char C = Str[i];
+    if (isprint(C) && C != '"' && C != '\\') {
+      Out << C;
+    } else {
+      Out << '\\'
+          << (char) ((C/16  < 10) ? ( C/16 +'0') : ( C/16 -10+'A'))
+          << (char)(((C&15) < 10) ? ((C&15)+'0') : ((C&15)-10+'A'));
+    }
+  }
+}
+
 static const char *getPredicateText(unsigned predicate) {
   const char * pred = "unknown";
   switch (predicate) {
@@ -662,8 +722,7 @@ static void WriteConstantInt(raw_ostream &Out, const Constant *CV,
       // output the string in hexadecimal format!
       assert(sizeof(double) == sizeof(uint64_t) &&
              "assuming that double is 64 bits!");
-      char Buffer[40];
-      Out << "0x" << utohex_buffer(uint64_t(DoubleToBits(Val)), Buffer+40);
+      Out << "0x" << utohexstr(DoubleToBits(Val));
       return;
     }
     
@@ -679,7 +738,7 @@ static void WriteConstantInt(raw_ostream &Out, const Constant *CV,
     else
       assert(0 && "Unsupported floating point type");
     // api needed to prevent premature destruction
-    APInt api = CFP->getValueAPF().bitcastToAPInt();
+    APInt api = CFP->getValueAPF().convertToAPInt();
     const uint64_t* p = api.getRawData();
     uint64_t word = *p;
     int shiftcount=60;

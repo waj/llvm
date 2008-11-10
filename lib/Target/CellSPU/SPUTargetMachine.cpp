@@ -24,7 +24,7 @@ using namespace llvm;
 namespace {
   // Register the targets
   RegisterTarget<SPUTargetMachine>
-  CELLSPU("cellspu", "STI CBEA Cell SPU [experimental]");
+  CELLSPU("cellspu", "  STI CBEA Cell SPU");
 }
 
 const std::pair<unsigned, int> *
@@ -36,7 +36,7 @@ SPUFrameInfo::getCalleeSaveSpillSlots(unsigned &NumEntries) const {
 const TargetAsmInfo *
 SPUTargetMachine::createTargetAsmInfo() const
 {
-  return new SPULinuxTargetAsmInfo(*this);
+  return new SPUTargetAsmInfo(*this);
 }
 
 unsigned

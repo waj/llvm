@@ -54,7 +54,7 @@ Linker::error(const std::string& message) {
 bool
 Linker::warning(const std::string& message) {
   Error = message;
-  if (!(Flags&QuietWarnings))
+  if (!(Flags&QuietErrors))
     cerr << ProgramName << ": warning: " << message << "\n";
   return false;
 }

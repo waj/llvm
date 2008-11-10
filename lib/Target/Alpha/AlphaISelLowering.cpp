@@ -52,15 +52,15 @@ AlphaTargetLowering::AlphaTargetLowering(TargetMachine &TM) : TargetLowering(TM)
   // We want to custom lower some of our intrinsics.
   setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
 
-  setLoadExtAction(ISD::EXTLOAD, MVT::i1,  Promote);
-  setLoadExtAction(ISD::EXTLOAD, MVT::f32, Expand);
+  setLoadXAction(ISD::EXTLOAD, MVT::i1,  Promote);
+  setLoadXAction(ISD::EXTLOAD, MVT::f32, Expand);
   
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i32, Expand);
+  setLoadXAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
+  setLoadXAction(ISD::ZEXTLOAD, MVT::i32, Expand);
   
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1,  Promote);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i8,  Expand);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i16, Expand);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i1,  Promote);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i8,  Expand);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i16, Expand);
 
   //  setOperationAction(ISD::BRIND,        MVT::Other,   Expand);
   setOperationAction(ISD::BR_JT,        MVT::Other, Expand);
@@ -95,8 +95,6 @@ AlphaTargetLowering::AlphaTargetLowering(TargetMachine &TM) : TargetLowering(TM)
   setOperationAction(ISD::ADDE     , MVT::i64, Expand);
   setOperationAction(ISD::SUBC     , MVT::i64, Expand);
   setOperationAction(ISD::SUBE     , MVT::i64, Expand);
-
-  setOperationAction(ISD::UMUL_LOHI, MVT::i64, Expand);
 
 
   // We don't support sin/cos/sqrt/pow
@@ -763,10 +761,4 @@ AlphaTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   F->DeleteMachineInstr(MI);   // The pseudo instruction is gone now.
 
   return sinkMBB;
-}
-
-bool
-AlphaTargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
-  // The Alpha target isn't yet aware of offsets.
-  return false;
 }

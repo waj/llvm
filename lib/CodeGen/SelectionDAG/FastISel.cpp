@@ -11,30 +11,30 @@
 //
 // "Fast" instruction selection is designed to emit very poor code quickly.
 // Also, it is not designed to be able to do much lowering, so most illegal
-// types (e.g. i64 on 32-bit targets) and operations are not supported.  It is
-// also not intended to be able to do much optimization, except in a few cases
-// where doing optimizations reduces overall compile time.  For example, folding
-// constants into immediate fields is often done, because it's cheap and it
-// reduces the number of instructions later phases have to examine.
+// types (e.g. i64 on 32-bit targets) and operations (e.g. calls) are not
+// supported. It is also not intended to be able to do much optimization,
+// except in a few cases where doing optimizations reduces overall compile
+// time (e.g. folding constants into immediate fields, because it's cheap
+// and it reduces the number of instructions later phases have to examine).
 //
 // "Fast" instruction selection is able to fail gracefully and transfer
 // control to the SelectionDAG selector for operations that it doesn't
-// support.  In many cases, this allows us to avoid duplicating a lot of
+// support. In many cases, this allows us to avoid duplicating a lot of
 // the complicated lowering logic that SelectionDAG currently has.
 //
 // The intended use for "fast" instruction selection is "-O0" mode
 // compilation, where the quality of the generated code is irrelevant when
-// weighed against the speed at which the code can be generated.  Also,
+// weighed against the speed at which the code can be generated. Also,
 // at -O0, the LLVM optimizers are not running, and this makes the
 // compile time of codegen a much higher portion of the overall compile
-// time.  Despite its limitations, "fast" instruction selection is able to
+// time. Despite its limitations, "fast" instruction selection is able to
 // handle enough code on its own to provide noticeable overall speedups
 // in -O0 compiles.
 //
 // Basic operations are supported in a target-independent way, by reading
 // the same instruction descriptions that the SelectionDAG selector reads,
 // and identifying simple arithmetic operations that can be directly selected
-// from simple operators.  More complicated operations currently require
+// from simple operators. More complicated operations currently require
 // target-specific code.
 //
 //===----------------------------------------------------------------------===//
@@ -51,7 +51,6 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
-#include "SelectionDAGBuild.h"
 using namespace llvm;
 
 unsigned FastISel::getRegForValue(Value *V) {
@@ -82,9 +81,7 @@ unsigned FastISel::getRegForValue(Value *V) {
   } else if (isa<AllocaInst>(V)) {
     Reg = TargetMaterializeAlloca(cast<AllocaInst>(V));
   } else if (isa<ConstantPointerNull>(V)) {
-    // Translate this as an integer zero so that it can be
-    // local-CSE'd with actual integer zeros.
-    Reg = getRegForValue(Constant::getNullValue(TD.getIntPtrType()));
+    Reg = FastEmit_i(VT, VT, ISD::Constant, 0);
   } else if (ConstantFP *CF = dyn_cast<ConstantFP>(V)) {
     Reg = FastEmit_f(VT, VT, ISD::ConstantFP, CF);
 
@@ -94,13 +91,12 @@ unsigned FastISel::getRegForValue(Value *V) {
 
       uint64_t x[2];
       uint32_t IntBitWidth = IntVT.getSizeInBits();
-      bool isExact;
-      (void) Flt.convertToInteger(x, IntBitWidth, /*isSigned=*/true,
-                                APFloat::rmTowardZero, &isExact);
-      if (isExact) {
+      if (!Flt.convertToInteger(x, IntBitWidth, /*isSigned=*/true,
+                                APFloat::rmTowardZero) != APFloat::opOK) {
         APInt IntVal(IntBitWidth, 2, x);
 
-        unsigned IntegerReg = getRegForValue(ConstantInt::get(IntVal));
+        unsigned IntegerReg = FastEmit_i(IntVT.getSimpleVT(), IntVT.getSimpleVT(),
+                                         ISD::Constant, IntVal.getZExtValue());
         if (IntegerReg != 0)
           Reg = FastEmit_r(IntVT.getSimpleVT(), VT, ISD::SINT_TO_FP, IntegerReg);
       }
@@ -349,14 +345,9 @@ bool FastISel::SelectCall(User *I) {
       SubprogramDesc *Subprogram = cast<SubprogramDesc>(DD);
       const CompileUnitDesc *CompileUnit = Subprogram->getFile();
       unsigned SrcFile = MMI->RecordSource(CompileUnit);
-      // Record the source line but does not create a label for the normal
-      // function start. It will be emitted at asm emission time. However,
-      // create a label if this is a beginning of inlined function.
-      unsigned LabelID = MMI->RecordSourceLine(Subprogram->getLine(), 0, SrcFile);
-      if (MMI->getSourceLines().size() != 1) {
-        const TargetInstrDesc &II = TII.get(TargetInstrInfo::DBG_LABEL);
-        BuildMI(MBB, II).addImm(LabelID);
-      }
+      // Record the source line but does create a label. It will be emitted
+      // at asm emission time.
+      MMI->RecordSourceLine(Subprogram->getLine(), 0, SrcFile);
     }
     return true;
   }
@@ -384,66 +375,6 @@ bool FastISel::SelectCall(User *I) {
       BuildMI(MBB, II).addFrameIndex(FI).addGlobalAddress(GV);
     }
     return true;
-  }
-  case Intrinsic::eh_exception: {
-    MVT VT = TLI.getValueType(I->getType());
-    switch (TLI.getOperationAction(ISD::EXCEPTIONADDR, VT)) {
-    default: break;
-    case TargetLowering::Expand: {
-      if (!MBB->isLandingPad()) {
-        // FIXME: Mark exception register as live in.  Hack for PR1508.
-        unsigned Reg = TLI.getExceptionAddressRegister();
-        if (Reg) MBB->addLiveIn(Reg);
-      }
-      unsigned Reg = TLI.getExceptionAddressRegister();
-      const TargetRegisterClass *RC = TLI.getRegClassFor(VT);
-      unsigned ResultReg = createResultReg(RC);
-      bool InsertedCopy = TII.copyRegToReg(*MBB, MBB->end(), ResultReg,
-                                           Reg, RC, RC);
-      assert(InsertedCopy && "Can't copy address registers!");
-      UpdateValueMap(I, ResultReg);
-      return true;
-    }
-    }
-    break;
-  }
-  case Intrinsic::eh_selector_i32:
-  case Intrinsic::eh_selector_i64: {
-    MVT VT = TLI.getValueType(I->getType());
-    switch (TLI.getOperationAction(ISD::EHSELECTION, VT)) {
-    default: break;
-    case TargetLowering::Expand: {
-      MVT VT = (IID == Intrinsic::eh_selector_i32 ?
-                           MVT::i32 : MVT::i64);
-
-      if (MMI) {
-        if (MBB->isLandingPad())
-          AddCatchInfo(*cast<CallInst>(I), MMI, MBB);
-        else {
-#ifndef NDEBUG
-          CatchInfoLost.insert(cast<CallInst>(I));
-#endif
-          // FIXME: Mark exception selector register as live in.  Hack for PR1508.
-          unsigned Reg = TLI.getExceptionSelectorRegister();
-          if (Reg) MBB->addLiveIn(Reg);
-        }
-
-        unsigned Reg = TLI.getExceptionSelectorRegister();
-        const TargetRegisterClass *RC = TLI.getRegClassFor(VT);
-        unsigned ResultReg = createResultReg(RC);
-        bool InsertedCopy = TII.copyRegToReg(*MBB, MBB->end(), ResultReg,
-                                             Reg, RC, RC);
-        assert(InsertedCopy && "Can't copy address registers!");
-        UpdateValueMap(I, ResultReg);
-      } else {
-        unsigned ResultReg =
-          getRegForValue(Constant::getNullValue(I->getType()));
-        UpdateValueMap(I, ResultReg);
-      }
-      return true;
-    }
-    }
-    break;
   }
   }
   return false;
@@ -673,18 +604,11 @@ FastISel::FastISel(MachineFunction &mf,
                    MachineModuleInfo *mmi,
                    DenseMap<const Value *, unsigned> &vm,
                    DenseMap<const BasicBlock *, MachineBasicBlock *> &bm,
-                   DenseMap<const AllocaInst *, int> &am
-#ifndef NDEBUG
-                   , SmallSet<Instruction*, 8> &cil
-#endif
-                   )
+                   DenseMap<const AllocaInst *, int> &am)
   : MBB(0),
     ValueMap(vm),
     MBBMap(bm),
     StaticAllocaMap(am),
-#ifndef NDEBUG
-    CatchInfoLost(cil),
-#endif
     MF(mf),
     MMI(mmi),
     MRI(MF.getRegInfo()),
@@ -786,10 +710,8 @@ unsigned FastISel::FastEmit_rf_(MVT::SimpleValueType VT, ISD::NodeType Opcode,
 
     uint64_t x[2];
     uint32_t IntBitWidth = IntVT.getSizeInBits();
-    bool isExact;
-    (void) Flt.convertToInteger(x, IntBitWidth, /*isSigned=*/true,
-                             APFloat::rmTowardZero, &isExact);
-    if (!isExact)
+    if (Flt.convertToInteger(x, IntBitWidth, /*isSigned=*/true,
+                             APFloat::rmTowardZero) != APFloat::opOK)
       return 0;
     APInt IntVal(IntBitWidth, 2, x);
 

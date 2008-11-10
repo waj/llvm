@@ -37,7 +37,7 @@ namespace {
     SimpleInliner() : Inliner(&ID) {}
     SimpleInliner(int Threshold) : Inliner(&ID, Threshold) {}
     static char ID; // Pass identification, replacement for typeid
-    InlineCost getInlineCost(CallSite CS) {
+    int getInlineCost(CallSite CS) {
       return CA.getInlineCost(CS, NeverInline);
     }
     float getInlineFudgeFactor(CallSite CS) {

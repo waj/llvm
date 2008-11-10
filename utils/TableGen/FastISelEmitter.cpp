@@ -71,7 +71,7 @@ struct OperandsSignature {
     for (unsigned i = 0, e = InstPatNode->getNumChildren(); i != e; ++i) {
       TreePatternNode *Op = InstPatNode->getChild(i);
       // For now, filter out any operand with a predicate.
-      if (!Op->getPredicateFns().empty())
+      if (!Op->getPredicateFn().empty())
         return false;
       // For now, filter out any operand with multiple values.
       if (Op->getExtTypes().size() != 1)
@@ -309,7 +309,7 @@ void FastISelMap::CollectPatterns(CodeGenDAGPatterns &CGP) {
       continue;
 
     // For now, filter out any instructions with predicates.
-    if (!InstPatNode->getPredicateFns().empty())
+    if (!InstPatNode->getPredicateFn().empty())
       continue;
 
     // Check all the operands.

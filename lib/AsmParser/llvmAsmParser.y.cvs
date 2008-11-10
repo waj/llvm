@@ -140,7 +140,6 @@ static struct PerModuleInfo {
     GlobalValue *Ret = 0;
     if (I != GlobalRefs.end()) {
       Ret = I->second;
-      I->first.second.destroy();
       GlobalRefs.erase(I);
     }
     return Ret;
@@ -308,10 +307,8 @@ static const Type *getTypeVal(const ValID &D, bool DoNotImprovise = false) {
   }
 
   std::map<ValID, PATypeHolder>::iterator I =CurModule.LateResolveTypes.find(D);
-  if (I != CurModule.LateResolveTypes.end()) {
-    D.destroy();
+  if (I != CurModule.LateResolveTypes.end())
     return I->second;
-  }
 
   Type *Typ = OpaqueType::get();
   CurModule.LateResolveTypes.insert(std::make_pair(D, Typ));
@@ -418,7 +415,6 @@ static Value *getExistingVal(const Type *Ty, const ValID &D) {
 
     {
       APSInt Tmp = *D.ConstPoolInt;
-      D.destroy();
       Tmp.extOrTrunc(Ty->getPrimitiveSizeInBits());
       return ConstantInt::get(Tmp);
     }
@@ -432,16 +428,9 @@ static Value *getExistingVal(const Type *Ty, const ValID &D) {
     // Lexer has no type info, so builds all float and double FP constants
     // as double.  Fix this here.  Long double does not need this.
     if (&D.ConstPoolFP->getSemantics() == &APFloat::IEEEdouble &&
-        Ty==Type::FloatTy) {
-      bool ignored;
-      D.ConstPoolFP->convert(APFloat::IEEEsingle, APFloat::rmNearestTiesToEven,
-                             &ignored);
-    }
-    {
-      ConstantFP *tmp = ConstantFP::get(*D.ConstPoolFP);
-      D.destroy();
-      return tmp;
-    }
+        Ty==Type::FloatTy)
+      D.ConstPoolFP->convert(APFloat::IEEEsingle, APFloat::rmNearestTiesToEven);
+    return ConstantFP::get(*D.ConstPoolFP);
 
   case ValID::ConstNullVal:      // Is it a null value?
     if (!isa<PointerType>(Ty)) {
@@ -716,7 +705,6 @@ static void ResolveTypeTo(std::string *Name, const Type *ToTy) {
     CurModule.LateResolveTypes.find(D);
   if (I != CurModule.LateResolveTypes.end()) {
     ((DerivedType*)I->second.get())->refineAbstractTypeTo(ToTy);
-    I->first.destroy();
     CurModule.LateResolveTypes.erase(I);
   }
   D.destroy();
@@ -1080,7 +1068,7 @@ Module *llvm::RunVMAsmParser(llvm::MemoryBuffer *MB) {
 
 // Built in types...
 %type  <TypeVal> Types ResultTypes
-%type  <PrimType> PrimType           // Classifications
+%type  <PrimType> IntType FPType PrimType           // Classifications
 %token <PrimType> VOID INTTYPE
 %token <PrimType> FLOAT DOUBLE X86_FP80 FP128 PPC_FP128 LABEL
 %token TYPE
@@ -1173,6 +1161,11 @@ FPredicates
   | TRUETOK { $$ = FCmpInst::FCMP_TRUE; }
   | FALSETOK { $$ = FCmpInst::FCMP_FALSE; }
   ;
+
+// These are some types that allow classification if we only want a particular
+// thing... for example, only a signed, unsigned, or integral type.
+IntType :  INTTYPE;
+FPType   : FLOAT | DOUBLE | PPC_FP128 | FP128 | X86_FP80;
 
 LocalName : LOCALVAR | STRINGCONSTANT | PCTSTRINGCONSTANT ;
 OptLocalName : LocalName | /*empty*/ { $$ = 0; };
@@ -1303,9 +1296,9 @@ FuncAttr      : NORETURN { $$ = Attribute::NoReturn; }
               | SIGNEXT  { $$ = Attribute::SExt;     }
               | READNONE { $$ = Attribute::ReadNone; }
               | READONLY { $$ = Attribute::ReadOnly; }
-              | NOINLINE { $$ = Attribute::NoInline; }
-              | ALWAYSINLINE { $$ = Attribute::AlwaysInline; }
-              | OPTSIZE { $$ = Attribute::OptimizeForSize; }
+              | NOINLINE { $$ = Attribute::NoInline }
+              | ALWAYSINLINE { $$ = Attribute::AlwaysInline }
+              | OPTSIZE { $$ = Attribute::OptimizeForSize }
               ;
 
 OptFuncAttrs  : /* empty */ { $$ = Attribute::None; }
@@ -1887,82 +1880,58 @@ ConstVal: Types '[' ConstVector ']' { // Nonempty unsized arr
     delete $1;
     CHECK_FOR_ERROR
   }
-  | Types ESINT64VAL {      // integral constants
-    if (IntegerType *IT = dyn_cast<IntegerType>($1->get())) {
-      if (!ConstantInt::isValueValidForType(IT, $2))
-        GEN_ERROR("Constant value doesn't fit in type");
-      $$ = ConstantInt::get(IT, $2, true);
-    } else {
-      GEN_ERROR("integer constant must have integer type");
-    }
-    delete $1;
+  | IntType ESINT64VAL {      // integral constants
+    if (!ConstantInt::isValueValidForType($1, $2))
+      GEN_ERROR("Constant value doesn't fit in type");
+    $$ = ConstantInt::get($1, $2, true);
     CHECK_FOR_ERROR
   }
-  | Types ESAPINTVAL {      // arbitrary precision integer constants
-    if (IntegerType *IT = dyn_cast<IntegerType>($1->get())) {
-      if ($2->getBitWidth() > IT->getBitWidth())
-        GEN_ERROR("Constant value does not fit in type");
-      $2->sextOrTrunc(IT->getBitWidth());
-      $$ = ConstantInt::get(*$2);
-    } else {
-      GEN_ERROR("integer constant must have integer type");
+  | IntType ESAPINTVAL {      // arbitrary precision integer constants
+    uint32_t BitWidth = cast<IntegerType>($1)->getBitWidth();
+    if ($2->getBitWidth() > BitWidth) {
+      GEN_ERROR("Constant value does not fit in type");
     }
-    delete $1;
+    $2->sextOrTrunc(BitWidth);
+    $$ = ConstantInt::get(*$2);
     delete $2;
     CHECK_FOR_ERROR
   }
-  | Types EUINT64VAL {      // integral constants
-    if (IntegerType *IT = dyn_cast<IntegerType>($1->get())) {
-      if (!ConstantInt::isValueValidForType(IT, $2))
-        GEN_ERROR("Constant value doesn't fit in type");
-      $$ = ConstantInt::get(IT, $2, false);
-    } else {
-      GEN_ERROR("integer constant must have integer type");
-    }
-    delete $1;
+  | IntType EUINT64VAL {      // integral constants
+    if (!ConstantInt::isValueValidForType($1, $2))
+      GEN_ERROR("Constant value doesn't fit in type");
+    $$ = ConstantInt::get($1, $2, false);
     CHECK_FOR_ERROR
   }
-  | Types EUAPINTVAL {      // arbitrary precision integer constants
-    if (IntegerType *IT = dyn_cast<IntegerType>($1->get())) {
-      if ($2->getBitWidth() > IT->getBitWidth())
-        GEN_ERROR("Constant value does not fit in type");
-      $2->zextOrTrunc(IT->getBitWidth());
-      $$ = ConstantInt::get(*$2);
-    } else {
-      GEN_ERROR("integer constant must have integer type");
+  | IntType EUAPINTVAL {      // arbitrary precision integer constants
+    uint32_t BitWidth = cast<IntegerType>($1)->getBitWidth();
+    if ($2->getBitWidth() > BitWidth) {
+      GEN_ERROR("Constant value does not fit in type");
     }
-
+    $2->zextOrTrunc(BitWidth);
+    $$ = ConstantInt::get(*$2);
     delete $2;
-    delete $1;
     CHECK_FOR_ERROR
   }
-  | Types TRUETOK {                      // Boolean constants
-    if ($1->get() != Type::Int1Ty)
+  | INTTYPE TRUETOK {                      // Boolean constants
+    if (cast<IntegerType>($1)->getBitWidth() != 1)
       GEN_ERROR("Constant true must have type i1");
     $$ = ConstantInt::getTrue();
-    delete $1;
     CHECK_FOR_ERROR
   }
-  | Types FALSETOK {                     // Boolean constants
-    if ($1->get() != Type::Int1Ty)
+  | INTTYPE FALSETOK {                     // Boolean constants
+    if (cast<IntegerType>($1)->getBitWidth() != 1)
       GEN_ERROR("Constant false must have type i1");
     $$ = ConstantInt::getFalse();
-    delete $1;
     CHECK_FOR_ERROR
   }
-  | Types FPVAL {                   // Floating point constants
-    if (!ConstantFP::isValueValidForType($1->get(), *$2))
+  | FPType FPVAL {                   // Floating point constants
+    if (!ConstantFP::isValueValidForType($1, *$2))
       GEN_ERROR("Floating point constant invalid for type");
-      
     // Lexer has no type info, so builds all float and double FP constants
     // as double.  Fix this here.  Long double is done right.
-    if (&$2->getSemantics()==&APFloat::IEEEdouble && $1->get()==Type::FloatTy) {
-      bool ignored;
-      $2->convert(APFloat::IEEEsingle, APFloat::rmNearestTiesToEven,
-                  &ignored);
-    }
+    if (&$2->getSemantics()==&APFloat::IEEEdouble && $1==Type::FloatTy)
+      $2->convert(APFloat::IEEEsingle, APFloat::rmNearestTiesToEven);
     $$ = ConstantFP::get(*$2);
-    delete $1;
     delete $2;
     CHECK_FOR_ERROR
   };
@@ -2848,7 +2817,7 @@ BBTerminatorInst :
     CHECK_FOR_ERROR
     $$ = BranchInst::Create(tmpBBA, tmpBBB, tmpVal);
   }
-  | SWITCH INTTYPE ValueRef ',' LABEL ValueRef '[' JumpTable ']' {
+  | SWITCH IntType ValueRef ',' LABEL ValueRef '[' JumpTable ']' {
     Value* tmpVal = getVal($2, $3);
     CHECK_FOR_ERROR
     BasicBlock* tmpBB = getBBVal($6);
@@ -2867,7 +2836,7 @@ BBTerminatorInst :
     delete $8;
     CHECK_FOR_ERROR
   }
-  | SWITCH INTTYPE ValueRef ',' LABEL ValueRef '[' ']' {
+  | SWITCH IntType ValueRef ',' LABEL ValueRef '[' ']' {
     Value* tmpVal = getVal($2, $3);
     CHECK_FOR_ERROR
     BasicBlock* tmpBB = getBBVal($6);
@@ -2991,7 +2960,7 @@ BBTerminatorInst :
 
 
 
-JumpTable : JumpTable INTTYPE ConstValueRef ',' LABEL ValueRef {
+JumpTable : JumpTable IntType ConstValueRef ',' LABEL ValueRef {
     $$ = $1;
     Constant *V = cast<Constant>(getExistingVal($2, $3));
     CHECK_FOR_ERROR
@@ -3002,7 +2971,7 @@ JumpTable : JumpTable INTTYPE ConstValueRef ',' LABEL ValueRef {
     CHECK_FOR_ERROR
     $$->push_back(std::make_pair(V, tmpBB));
   }
-  | INTTYPE ConstValueRef ',' LABEL ValueRef {
+  | IntType ConstValueRef ',' LABEL ValueRef {
     $$ = new std::vector<std::pair<Constant*, BasicBlock*> >();
     Constant *V = cast<Constant>(getExistingVal($1, $2));
     CHECK_FOR_ERROR

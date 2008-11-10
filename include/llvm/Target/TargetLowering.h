@@ -24,12 +24,10 @@
 
 #include "llvm/Constants.h"
 #include "llvm/InlineAsm.h"
-#include "llvm/Instructions.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/RuntimeLibcalls.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include <map>
 #include <vector>
@@ -165,10 +163,7 @@ public:
     
     LegalizeAction getTypeAction(MVT VT) const {
       if (VT.isExtended()) {
-        if (VT.isVector()) {
-          // First try vector widening
-          return Promote;
-        }
+        if (VT.isVector()) return Expand;
         if (VT.isInteger())
           // First promote to a power-of-two size, then expand if necessary.
           return VT == VT.getRoundIntegerType() ? Expand : Promote;
@@ -213,11 +208,10 @@ public:
       return NVT;
     }
 
-    if (VT.isVector()) {
-      unsigned NumElts = VT.getVectorNumElements();
-      MVT EltVT = VT.getVectorElementType();
-      return (NumElts == 1) ? EltVT : MVT::getVectorVT(EltVT, NumElts / 2);
-    } else if (VT.isInteger()) {
+    if (VT.isVector())
+      return MVT::getVectorVT(VT.getVectorElementType(),
+                              VT.getVectorNumElements() / 2);
+    if (VT.isInteger()) {
       MVT NVT = VT.getRoundIntegerType();
       if (NVT == VT)
         // Size is a power of two - expand to half the size.
@@ -264,34 +258,7 @@ public:
                                   MVT &IntermediateVT,
                                   unsigned &NumIntermediates,
                                   MVT &RegisterVT) const;
-
-  /// getTgtMemIntrinsic: Given an intrinsic, checks if on the target the
-  /// intrinsic will need to map to a MemIntrinsicNode (touches memory). If
-  /// this is the case, it returns true and store the intrinsic
-  /// information into the IntrinsicInfo that was passed to the function.
-  typedef struct IntrinsicInfo { 
-    unsigned     opc;         // target opcode
-    MVT          memVT;       // memory VT
-    const Value* ptrVal;      // value representing memory location
-    int          offset;      // offset off of ptrVal 
-    unsigned     align;       // alignment
-    bool         vol;         // is volatile?
-    bool         readMem;     // reads memory?
-    bool         writeMem;    // writes memory?
-  } IntrinisicInfo;
-
-  virtual bool getTgtMemIntrinsic(IntrinsicInfo& Info,
-                                  CallInst &I, unsigned Intrinsic) {
-    return false;
-  }
-
-  /// getWidenVectorType: given a vector type, returns the type to widen to
-  /// (e.g., v7i8 to v8i8). If the vector type is legal, it returns itself.
-  /// If there is no vector type that we want to widen to, returns MVT::Other
-  /// When and were to widen is target dependent based on the cost of
-  /// scalarizing vs using the wider vector type.
-  virtual MVT getWidenVectorType(MVT VT);
-
+  
   typedef std::vector<APFloat>::const_iterator legal_fpimm_iterator;
   legal_fpimm_iterator legal_fpimm_begin() const {
     return LegalFPImmediates.begin();
@@ -338,23 +305,23 @@ public:
        getOperationAction(Op, VT) == Custom);
   }
 
-  /// getLoadExtAction - Return how this load with extension should be treated:
+  /// getLoadXAction - Return how this load with extension should be treated:
   /// either it is legal, needs to be promoted to a larger size, needs to be
   /// expanded to some other code sequence, or the target has a custom expander
   /// for it.
-  LegalizeAction getLoadExtAction(unsigned LType, MVT VT) const {
-    assert(LType < array_lengthof(LoadExtActions) &&
-           (unsigned)VT.getSimpleVT() < sizeof(LoadExtActions[0])*4 &&
+  LegalizeAction getLoadXAction(unsigned LType, MVT VT) const {
+    assert(LType < array_lengthof(LoadXActions) &&
+           (unsigned)VT.getSimpleVT() < sizeof(LoadXActions[0])*4 &&
            "Table isn't big enough!");
-    return (LegalizeAction)((LoadExtActions[LType] >> (2*VT.getSimpleVT())) & 3);
+    return (LegalizeAction)((LoadXActions[LType] >> (2*VT.getSimpleVT())) & 3);
   }
 
-  /// isLoadExtLegal - Return true if the specified load with extension is legal
+  /// isLoadXLegal - Return true if the specified load with extension is legal
   /// on this target.
-  bool isLoadExtLegal(unsigned LType, MVT VT) const {
+  bool isLoadXLegal(unsigned LType, MVT VT) const {
     return VT.isSimple() &&
-      (getLoadExtAction(LType, VT) == Legal ||
-       getLoadExtAction(LType, VT) == Custom);
+      (getLoadXAction(LType, VT) == Legal ||
+       getLoadXAction(LType, VT) == Custom);
   }
 
   /// getTruncStoreAction - Return how this store with truncation should be
@@ -440,28 +407,6 @@ public:
       (getConvertAction(FromVT, ToVT) == Legal ||
        getConvertAction(FromVT, ToVT) == Custom);
   }
-
-  /// getCondCodeAction - Return how the condition code should be treated:
-  /// either it is legal, needs to be expanded to some other code sequence,
-  /// or the target has a custom expander for it.
-  LegalizeAction
-  getCondCodeAction(ISD::CondCode CC, MVT VT) const {
-    assert((unsigned)CC < array_lengthof(CondCodeActions) &&
-           (unsigned)VT.getSimpleVT() < sizeof(CondCodeActions[0])*4 &&
-           "Table isn't big enough!");
-    LegalizeAction Action = (LegalizeAction)
-      ((CondCodeActions[CC] >> (2*VT.getSimpleVT())) & 3);
-    assert(Action != Promote && "Can't promote condition code!");
-    return Action;
-  }
-
-  /// isCondCodeLegal - Return true if the specified condition code is legal
-  /// on this target.
-  bool isCondCodeLegal(ISD::CondCode CC, MVT VT) const {
-    return getCondCodeAction(CC, VT) == Legal ||
-           getCondCodeAction(CC, VT) == Custom;
-  }
-
 
   /// getTypeToPromoteTo - If the action for this operation is to promote, this
   /// method returns the ValueType to promote to.
@@ -685,11 +630,6 @@ public:
   virtual SDValue getPICJumpTableRelocBase(SDValue Table,
                                              SelectionDAG &DAG) const;
 
-  /// isOffsetFoldingLegal - Return true if folding a constant offset
-  /// with the given GlobalAddress is legal.  It is frequently not legal in
-  /// PIC relocation models.
-  virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const;
-
   //===--------------------------------------------------------------------===//
   // TargetLowering Optimization Methods
   //
@@ -899,15 +839,15 @@ protected:
     OpActions[Op] |= (uint64_t)Action << VT.getSimpleVT()*2;
   }
   
-  /// setLoadExtAction - Indicate that the specified load with extension does
-  /// not work with the with specified type and indicate what to do about it.
-  void setLoadExtAction(unsigned ExtType, MVT VT,
+  /// setLoadXAction - Indicate that the specified load with extension does not
+  /// work with the with specified type and indicate what to do about it.
+  void setLoadXAction(unsigned ExtType, MVT VT,
                       LegalizeAction Action) {
-    assert((unsigned)VT.getSimpleVT() < sizeof(LoadExtActions[0])*4 &&
-           ExtType < array_lengthof(LoadExtActions) &&
+    assert((unsigned)VT.getSimpleVT() < sizeof(LoadXActions[0])*4 &&
+           ExtType < array_lengthof(LoadXActions) &&
            "Table isn't big enough!");
-    LoadExtActions[ExtType] &= ~(uint64_t(3UL) << VT.getSimpleVT()*2);
-    LoadExtActions[ExtType] |= (uint64_t)Action << VT.getSimpleVT()*2;
+    LoadXActions[ExtType] &= ~(uint64_t(3UL) << VT.getSimpleVT()*2);
+    LoadXActions[ExtType] |= (uint64_t)Action << VT.getSimpleVT()*2;
   }
   
   /// setTruncStoreAction - Indicate that the specified truncating store does
@@ -960,16 +900,6 @@ protected:
                                               ToVT.getSimpleVT()*2);
     ConvertActions[FromVT.getSimpleVT()] |= (uint64_t)Action <<
       ToVT.getSimpleVT()*2;
-  }
-
-  /// setCondCodeAction - Indicate that the specified condition code is or isn't
-  /// supported on the target and indicate what to do about it.
-  void setCondCodeAction(ISD::CondCode CC, MVT VT, LegalizeAction Action) {
-    assert((unsigned)VT.getSimpleVT() < sizeof(CondCodeActions[0])*4 &&
-           (unsigned)CC < array_lengthof(CondCodeActions) &&
-           "Table isn't big enough!");
-    CondCodeActions[(unsigned)CC] &= ~(uint64_t(3UL) << VT.getSimpleVT()*2);
-    CondCodeActions[(unsigned)CC] |= (uint64_t)Action << VT.getSimpleVT()*2;
   }
 
   /// AddPromotedToType - If Opc/OrigVT is specified as being promoted, the
@@ -1194,11 +1124,7 @@ public:
                  MachineModuleInfo *,
                  DenseMap<const Value *, unsigned> &,
                  DenseMap<const BasicBlock *, MachineBasicBlock *> &,
-                 DenseMap<const AllocaInst *, int> &
-#ifndef NDEBUG
-                 , SmallSet<Instruction*, 8> &CatchInfoLost
-#endif
-                 ) {
+                 DenseMap<const AllocaInst *, int> &) {
     return 0;
   }
 
@@ -1218,8 +1144,6 @@ public:
   /// lowering.
   struct AsmOperandInfo : public InlineAsm::ConstraintInfo {
     /// ConstraintCode - This contains the actual string for the code, like "m".
-    /// TargetLowering picks the 'best' code from ConstraintInfo::Codes that
-    /// most closely matches the operand.
     std::string ConstraintCode;
 
     /// ConstraintType - Information about the constraint code, e.g. Register,
@@ -1233,14 +1157,6 @@ public:
   
     /// ConstraintVT - The ValueType for the operand value.
     MVT ConstraintVT;
-    
-    /// isMatchingInputConstraint - Return true of this is an input operand that
-    /// is a matching constraint like "4".
-    bool isMatchingInputConstraint() const;
-    
-    /// getMatchedOperand - If this is an input matching constraint, this method
-    /// returns the output operand it matches.
-    unsigned getMatchedOperand() const;
   
     AsmOperandInfo(const InlineAsm::ConstraintInfo &info)
       : InlineAsm::ConstraintInfo(info), 
@@ -1486,7 +1402,7 @@ private:
   MVT TransformToType[MVT::LAST_VALUETYPE];
 
   // Defines the capacity of the TargetLowering::OpActions table
-  static const int OpActionsCapacity = 218;
+  static const int OpActionsCapacity = 212;
 
   /// OpActions - For each operation and each value type, keep a LegalizeAction
   /// that indicates how instruction selection should deal with the operation.
@@ -1495,10 +1411,10 @@ private:
   /// non-legal value types are not described here.
   uint64_t OpActions[OpActionsCapacity];
   
-  /// LoadExtActions - For each load of load extension type and each value type,
+  /// LoadXActions - For each load of load extension type and each value type,
   /// keep a LegalizeAction that indicates how instruction selection should deal
   /// with the load.
-  uint64_t LoadExtActions[ISD::LAST_LOADEXT_TYPE];
+  uint64_t LoadXActions[ISD::LAST_LOADX_TYPE];
   
   /// TruncStoreActions - For each truncating store, keep a LegalizeAction that
   /// indicates how instruction selection should deal with the store.
@@ -1515,11 +1431,6 @@ private:
   /// Currently, this is used only for floating->floating conversions
   /// (FP_EXTEND and FP_ROUND).
   uint64_t ConvertActions[MVT::LAST_VALUETYPE];
-
-  /// CondCodeActions - For each condition code (ISD::CondCode) keep a
-  /// LegalizeAction that indicates how instruction selection should
-  /// deal with the condition code.
-  uint64_t CondCodeActions[ISD::SETCC_INVALID];
 
   ValueTypeActionImpl ValueTypeActions;
 

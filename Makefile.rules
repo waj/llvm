@@ -483,7 +483,7 @@ CPP.BaseFlags += -include llvm/System/Solaris.h
 endif
 
 LD.Flags      += -L$(LibDir) -L$(LLVMLibDir) 
-CPP.BaseFlags += -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS
+CPP.BaseFlags += -D_GNU_SOURCE -D__STDC_LIMIT_MACROS
 # All -I flags should go here, so that they don't confuse llvm-config.
 CPP.Flags     += $(sort -I$(PROJ_OBJ_DIR) -I$(PROJ_SRC_DIR) \
 	         $(patsubst %,-I%/include,\
@@ -1302,7 +1302,7 @@ $(INCTMPFiles) : $(TBLGEN) $(TDFiles)
 # INCFiles rule: All of the tblgen generated files are emitted to 
 # $(ObjDir)/%.inc.tmp, instead of emitting them directly to %.inc.  This allows
 # us to only "touch" the real file if the contents of it change.  IOW, if
-# tblgen is modified, all of the .inc.tmp files are regenerated, but no
+# tblgen is modified, all of the .inc.tmp files are regereated, but no
 # dependencies of the .inc files are, unless the contents of the .inc file
 # changes.
 $(INCFiles) : %.inc : $(ObjDir)/%.inc.tmp

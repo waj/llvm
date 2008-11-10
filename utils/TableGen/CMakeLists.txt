@@ -15,7 +15,6 @@ add_executable(tblgen
   SubtargetEmitter.cpp
   TGLexer.cpp
   TGParser.cpp
-  TGValueTypes.cpp
   TableGen.cpp
   TableGenBackend.cpp
   FastISelEmitter.cpp

@@ -16,14 +16,12 @@
 #define LLVM_LINKALLPASSES_H
 
 #include "llvm/Analysis/AliasSetTracker.h"
-#include "llvm/Analysis/EscapeAnalysis.h"
 #include "llvm/Analysis/FindUsedTypes.h"
 #include "llvm/Analysis/IntervalPartition.h"
 #include "llvm/Analysis/LoopVR.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ScalarEvolution.h"
-#include "llvm/Assembly/PrintModulePass.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Function.h"
 #include "llvm/Transforms/Instrumentation.h"
@@ -99,7 +97,6 @@ namespace {
       (void) llvm::createSCCPPass();
       (void) llvm::createScalarReplAggregatesPass();
       (void) llvm::createSimplifyLibCallsPass();
-      (void) llvm::createSimplifyHalfPowrLibCallsPass();
       (void) llvm::createSingleLoopExtractorPass();
       (void) llvm::createStripSymbolsPass();
       (void) llvm::createStripDeadPrototypesPass();
@@ -122,15 +119,11 @@ namespace {
       (void) llvm::createInstructionNamerPass();
       (void) llvm::createPartialSpecializationPass();
       (void) llvm::createAddReadAttrsPass();
-      (void) llvm::createMergeFunctionsPass();
-      (void) llvm::createPrintModulePass(0);
-      (void) llvm::createPrintFunctionPass("", 0);
 
       (void)new llvm::IntervalPartition();
       (void)new llvm::FindUsedTypes();
       (void)new llvm::ScalarEvolution();
       (void)new llvm::LoopVR();
-      (void)new llvm::EscapeAnalysis();
       ((llvm::Function*)0)->viewCFGOnly();
       llvm::AliasSetTracker X(*(llvm::AliasAnalysis*)0);
       X.add((llvm::Value*)0, 0);  // for -print-alias-sets

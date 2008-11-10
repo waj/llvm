@@ -532,12 +532,11 @@ void AsmPrinter::EmitExternalGlobal(const GlobalVariable *GV) {
 /// PrintULEB128 - Print a series of hexidecimal values (separated by commas)
 /// representing an unsigned leb128 value.
 void AsmPrinter::PrintULEB128(unsigned Value) const {
-  char Buffer[20];
   do {
-    unsigned char Byte = static_cast<unsigned char>(Value & 0x7f);
+    unsigned Byte = Value & 0x7f;
     Value >>= 7;
     if (Value) Byte |= 0x80;
-    O << "0x" << utohex_buffer(Byte, Buffer+20);
+    O << "0x" <<  utohexstr(Byte);
     if (Value) O << ", ";
   } while (Value);
 }
@@ -547,14 +546,13 @@ void AsmPrinter::PrintULEB128(unsigned Value) const {
 void AsmPrinter::PrintSLEB128(int Value) const {
   int Sign = Value >> (8 * sizeof(Value) - 1);
   bool IsMore;
-  char Buffer[20];
 
   do {
-    unsigned char Byte = static_cast<unsigned char>(Value & 0x7f);
+    unsigned Byte = Value & 0x7f;
     Value >>= 7;
     IsMore = Value != Sign || ((Byte ^ Sign) & 0x40) != 0;
     if (IsMore) Byte |= 0x80;
-    O << "0x" << utohex_buffer(Byte, Buffer+20);
+    O << "0x" << utohexstr(Byte);
     if (IsMore) O << ", ";
   } while (IsMore);
 }
@@ -566,8 +564,7 @@ void AsmPrinter::PrintSLEB128(int Value) const {
 /// PrintHex - Print a value as a hexidecimal value.
 ///
 void AsmPrinter::PrintHex(int Value) const { 
-  char Buffer[20];
-  O << "0x" << utohex_buffer(static_cast<unsigned>(Value), Buffer+20);
+  O << "0x" << utohexstr(static_cast<unsigned>(Value));
 }
 
 /// EOL - Print a newline character to asm stream.  If a comment is present
@@ -750,10 +747,7 @@ void AsmPrinter::EmitAlignment(unsigned NumBits, const GlobalValue *GV,
 
   unsigned FillValue = TAI->getTextAlignFillValue();
   UseFillExpr &= IsInTextSection && FillValue;
-  if (UseFillExpr) {
-    O << ',';
-    PrintHex(FillValue);
-  }
+  if (UseFillExpr) O << ",0x" << utohexstr(FillValue);
   O << '\n';
 }
 
@@ -975,7 +969,7 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
     // precision...
     if (CFP->getType() == Type::DoubleTy) {
       double Val = CFP->getValueAPF().convertToDouble();  // for comment only
-      uint64_t i = CFP->getValueAPF().bitcastToAPInt().getZExtValue();
+      uint64_t i = CFP->getValueAPF().convertToAPInt().getZExtValue();
       if (TAI->getData64bitsDirective())
         O << TAI->getData64bitsDirective() << i << '\t'
           << TAI->getCommentString() << " double value: " << Val << '\n';
@@ -998,19 +992,16 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
     } else if (CFP->getType() == Type::FloatTy) {
       float Val = CFP->getValueAPF().convertToFloat();  // for comment only
       O << TAI->getData32bitsDirective()
-        << CFP->getValueAPF().bitcastToAPInt().getZExtValue()
+        << CFP->getValueAPF().convertToAPInt().getZExtValue()
         << '\t' << TAI->getCommentString() << " float " << Val << '\n';
       return;
     } else if (CFP->getType() == Type::X86_FP80Ty) {
       // all long double variants are printed as hex
       // api needed to prevent premature destruction
-      APInt api = CFP->getValueAPF().bitcastToAPInt();
+      APInt api = CFP->getValueAPF().convertToAPInt();
       const uint64_t *p = api.getRawData();
-      // Convert to double so we can print the approximate val as a comment.
       APFloat DoubleVal = CFP->getValueAPF();
-      bool ignored;
-      DoubleVal.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven,
-                        &ignored);
+      DoubleVal.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven);
       if (TD->isBigEndian()) {
         O << TAI->getData16bitsDirective() << uint16_t(p[0] >> 48)
           << '\t' << TAI->getCommentString()
@@ -1051,7 +1042,7 @@ void AsmPrinter::EmitGlobalConstant(const Constant *CV) {
     } else if (CFP->getType() == Type::PPC_FP128Ty) {
       // all long double variants are printed as hex
       // api needed to prevent premature destruction
-      APInt api = CFP->getValueAPF().bitcastToAPInt();
+      APInt api = CFP->getValueAPF().convertToAPInt();
       const uint64_t *p = api.getRawData();
       if (TD->isBigEndian()) {
         O << TAI->getData32bitsDirective() << uint32_t(p[0] >> 32)
@@ -1252,17 +1243,21 @@ void AsmPrinter::printInlineAsm(const MachineInstr *MI) const {
         break;
       case '|':
         ++LastEmitted;  // consume '|' character.
-        if (CurVariant == -1)
-          O << '|';       // this is gcc's behavior for | outside a variant
-        else
-          ++CurVariant;   // We're in the next variant.
+        if (CurVariant == -1) {
+          cerr << "Found '|' character outside of variant in inline asm "
+               << "string: '" << AsmStr << "'\n";
+          exit(1);
+        }
+        ++CurVariant;   // We're in the next variant.
         break;
       case ')':         // $) -> same as GCC's } char.
         ++LastEmitted;  // consume ')' character.
-        if (CurVariant == -1)
-          O << '}';     // this is gcc's behavior for } outside a variant
-        else 
-          CurVariant = -1;
+        if (CurVariant == -1) {
+          cerr << "Found '}' character outside of variant in inline asm "
+               << "string: '" << AsmStr << "'\n";
+          exit(1);
+        }
+        CurVariant = -1;
         break;
       }
       if (Done) break;

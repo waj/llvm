@@ -39,14 +39,11 @@ namespace {
     // Use extremely low threshold. 
     AlwaysInliner() : Inliner(&ID, -2000000000) {}
     static char ID; // Pass identification, replacement for typeid
-    InlineCost getInlineCost(CallSite CS) {
+    int getInlineCost(CallSite CS) {
       return CA.getInlineCost(CS, NeverInline);
     }
     float getInlineFudgeFactor(CallSite CS) {
       return CA.getInlineFudgeFactor(CS);
-    }
-    virtual bool doFinalization(CallGraph &CG) { 
-      return removeDeadFunctions(CG, &NeverInline); 
     }
     virtual bool doInitialization(CallGraph &CG);
   };
@@ -54,13 +51,14 @@ namespace {
 
 char AlwaysInliner::ID = 0;
 static RegisterPass<AlwaysInliner>
-X("always-inline", "Inliner for always_inline functions");
+X("always-inline", "Inliner that handles always_inline functions");
 
 Pass *llvm::createAlwaysInlinerPass() { return new AlwaysInliner(); }
 
 // doInitialization - Initializes the vector of functions that have not 
 // been annotated with the "always inline" attribute.
 bool AlwaysInliner::doInitialization(CallGraph &CG) {
+  
   Module &M = CG.getModule();
   
   for (Module::iterator I = M.begin(), E = M.end();
@@ -70,3 +68,4 @@ bool AlwaysInliner::doInitialization(CallGraph &CG) {
 
   return false;
 }
+

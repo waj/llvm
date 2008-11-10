@@ -200,7 +200,7 @@ public:
   }
   
   /// RemoveBranch - Remove the branching code at the end of the specific MBB.
-  /// This is only invoked in cases where AnalyzeBranch returns success. It
+  /// this is only invoked in cases where AnalyzeBranch returns success. It
   /// returns the number of instructions that were removed.
   virtual unsigned RemoveBranch(MachineBasicBlock &MBB) const {
     assert(0 && "Target didn't implement TargetInstrInfo::RemoveBranch!"); 
@@ -220,9 +220,7 @@ public:
     return 0;
   }
   
-  /// copyRegToReg - Emit instructions to copy between a pair of registers. It
-  /// returns false if the target does not how to copy between the specified
-  /// registers.
+  /// copyRegToReg - Add a copy between a pair of registers
   virtual bool copyRegToReg(MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator MI,
                             unsigned DestReg, unsigned SrcReg,
@@ -232,11 +230,6 @@ public:
     return false;
   }
   
-  /// storeRegToStackSlot - Store the specified register of the given register
-  /// class to the specified stack frame index. The store instruction is to be
-  /// added to the given machine basic block before the specified machine
-  /// instruction. If isKill is true, the register operand is the last use and
-  /// must be marked kill.
   virtual void storeRegToStackSlot(MachineBasicBlock &MBB,
                                    MachineBasicBlock::iterator MI,
                                    unsigned SrcReg, bool isKill, int FrameIndex,
@@ -244,11 +237,6 @@ public:
     assert(0 && "Target didn't implement TargetInstrInfo::storeRegToStackSlot!");
   }
 
-  /// storeRegToAddr - Store the specified register of the given register class
-  /// to the specified address. The store instruction is to be added to the
-  /// given machine basic block before the specified machine instruction. If
-  /// isKill is true, the register operand is the last use and must be marked
-  /// kill.
   virtual void storeRegToAddr(MachineFunction &MF, unsigned SrcReg, bool isKill,
                               SmallVectorImpl<MachineOperand> &Addr,
                               const TargetRegisterClass *RC,
@@ -256,10 +244,6 @@ public:
     assert(0 && "Target didn't implement TargetInstrInfo::storeRegToAddr!");
   }
 
-  /// loadRegFromStackSlot - Load the specified register of the given register
-  /// class from the specified stack frame index. The load instruction is to be
-  /// added to the given machine basic block before the specified machine
-  /// instruction.
   virtual void loadRegFromStackSlot(MachineBasicBlock &MBB,
                                     MachineBasicBlock::iterator MI,
                                     unsigned DestReg, int FrameIndex,
@@ -267,9 +251,6 @@ public:
     assert(0 && "Target didn't implement TargetInstrInfo::loadRegFromStackSlot!");
   }
 
-  /// loadRegFromAddr - Load the specified register of the given register class
-  /// class from the specified address. The load instruction is to be added to
-  /// the given machine basic block before the specified machine instruction.
   virtual void loadRegFromAddr(MachineFunction &MF, unsigned DestReg,
                                SmallVectorImpl<MachineOperand> &Addr,
                                const TargetRegisterClass *RC,
@@ -305,7 +286,7 @@ public:
   /// stream.
   virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
                                           MachineInstr* MI,
-                                          const SmallVectorImpl<unsigned> &Ops,
+                                          SmallVectorImpl<unsigned> &Ops,
                                           int FrameIndex) const {
     return 0;
   }
@@ -315,7 +296,7 @@ public:
   /// stack slot.
   virtual MachineInstr* foldMemoryOperand(MachineFunction &MF,
                                           MachineInstr* MI,
-                                          const SmallVectorImpl<unsigned> &Ops,
+                                          SmallVectorImpl<unsigned> &Ops,
                                           MachineInstr* LoadMI) const {
     return 0;
   }
@@ -323,8 +304,8 @@ public:
   /// canFoldMemoryOperand - Returns true if the specified load / store is
   /// folding is possible.
   virtual
-  bool canFoldMemoryOperand(const MachineInstr *MI,
-                            const SmallVectorImpl<unsigned> &Ops) const {
+  bool canFoldMemoryOperand(MachineInstr *MI,
+                            SmallVectorImpl<unsigned> &Ops) const{
     return false;
   }
 
@@ -355,7 +336,7 @@ public:
   /// fall-through into its successor block.  This is primarily used when a
   /// branch is unanalyzable.  It is useful for things like unconditional
   /// indirect branches (jump tables).
-  virtual bool BlockHasNoFallThrough(const MachineBasicBlock &MBB) const {
+  virtual bool BlockHasNoFallThrough(MachineBasicBlock &MBB) const {
     return false;
   }
   
@@ -407,13 +388,6 @@ public:
     return false;
   }
 
-  /// IgnoreRegisterClassBarriers - Returns true if pre-register allocation
-  /// live interval splitting pass should ignore barriers of the specified
-  /// register class.
-  virtual bool IgnoreRegisterClassBarriers(const TargetRegisterClass *RC) const{
-    return true;
-  }
-
   /// getPointerRegClass - Returns a TargetRegisterClass used for pointer
   /// values.
   virtual const TargetRegisterClass *getPointerRegClass() const {
@@ -432,6 +406,7 @@ public:
   /// GetFunctionSizeInBytes - Returns the size of the specified MachineFunction.
   /// 
   virtual unsigned GetFunctionSizeInBytes(const MachineFunction &MF) const = 0;
+
 };
 
 /// TargetInstrInfoImpl - This is the default implementation of

@@ -52,16 +52,8 @@ public:
                        MachineModuleInfo *mmi,
                        DenseMap<const Value *, unsigned> &vm,
                        DenseMap<const BasicBlock *, MachineBasicBlock *> &bm,
-                       DenseMap<const AllocaInst *, int> &am
-#ifndef NDEBUG
-                       , SmallSet<Instruction*, 8> &cil
-#endif
-                       )
-    : FastISel(mf, mmi, vm, bm, am
-#ifndef NDEBUG
-               , cil
-#endif
-               ) {
+                       DenseMap<const AllocaInst *, int> &am)
+    : FastISel(mf, mmi, vm, bm, am) {
     Subtarget = &TM.getSubtarget<X86Subtarget>();
     StackPtr = Subtarget->is64Bit() ? X86::RSP : X86::ESP;
     X86ScalarSSEf64 = Subtarget->hasSSE2();
@@ -73,12 +65,8 @@ public:
 #include "X86GenFastISel.inc"
 
 private:
-  bool X86FastEmitCompare(Value *LHS, Value *RHS, MVT VT);
-  
   bool X86FastEmitLoad(MVT VT, const X86AddressMode &AM, unsigned &RR);
 
-  bool X86FastEmitStore(MVT VT, Value *Val,
-                        const X86AddressMode &AM);
   bool X86FastEmitStore(MVT VT, unsigned Val,
                         const X86AddressMode &AM);
 
@@ -103,6 +91,8 @@ private:
 
   bool X86SelectTrunc(Instruction *I);
  
+  unsigned X86ChooseCmpOpcode(MVT VT);
+
   bool X86SelectFPExt(Instruction *I);
   bool X86SelectFPTrunc(Instruction *I);
 
@@ -128,15 +118,19 @@ private:
       (VT == MVT::f32 && X86ScalarSSEf32);   // f32 is when SSE1
   }
 
-  bool isTypeLegal(const Type *Ty, MVT &VT, bool AllowI1 = false);
+  bool isTypeLegal(const Type *Ty, const TargetLowering &TLI, MVT &VT,
+                   bool AllowI1 = false);
 };
 
-bool X86FastISel::isTypeLegal(const Type *Ty, MVT &VT, bool AllowI1) {
-  VT = TLI.getValueType(Ty, /*HandleUnknown=*/true);
+bool X86FastISel::isTypeLegal(const Type *Ty, const TargetLowering &TLI,
+                              MVT &VT, bool AllowI1) {
+  VT = MVT::getMVT(Ty, /*HandleUnknown=*/true);
   if (VT == MVT::Other || !VT.isSimple())
     // Unhandled type. Halt "fast" selection and bail.
     return false;
-  
+  if (VT == MVT::iPTR)
+    // Use pointer type.
+    VT = TLI.getPointerTy();
   // For now, require SSE/SSE2 for performing floating-point operations,
   // since x87 requires additional work.
   if (VT == MVT::f64 && !X86ScalarSSEf64)
@@ -239,60 +233,52 @@ X86FastISel::X86FastEmitStore(MVT VT, unsigned Val,
                               const X86AddressMode &AM) {
   // Get opcode and regclass of the output for the given store instruction.
   unsigned Opc = 0;
+  const TargetRegisterClass *RC = NULL;
   switch (VT.getSimpleVT()) {
-  case MVT::f80: // No f80 support yet.
   default: return false;
-  case MVT::i8:  Opc = X86::MOV8mr;  break;
-  case MVT::i16: Opc = X86::MOV16mr; break;
-  case MVT::i32: Opc = X86::MOV32mr; break;
-  case MVT::i64: Opc = X86::MOV64mr; break; // Must be in x86-64 mode.
+  case MVT::i8:
+    Opc = X86::MOV8mr;
+    RC  = X86::GR8RegisterClass;
+    break;
+  case MVT::i16:
+    Opc = X86::MOV16mr;
+    RC  = X86::GR16RegisterClass;
+    break;
+  case MVT::i32:
+    Opc = X86::MOV32mr;
+    RC  = X86::GR32RegisterClass;
+    break;
+  case MVT::i64:
+    // Must be in x86-64 mode.
+    Opc = X86::MOV64mr;
+    RC  = X86::GR64RegisterClass;
+    break;
   case MVT::f32:
-    Opc = Subtarget->hasSSE1() ? X86::MOVSSmr : X86::ST_Fp32m;
+    if (Subtarget->hasSSE1()) {
+      Opc = X86::MOVSSmr;
+      RC  = X86::FR32RegisterClass;
+    } else {
+      Opc = X86::ST_Fp32m;
+      RC  = X86::RFP32RegisterClass;
+    }
     break;
   case MVT::f64:
-    Opc = Subtarget->hasSSE2() ? X86::MOVSDmr : X86::ST_Fp64m;
+    if (Subtarget->hasSSE2()) {
+      Opc = X86::MOVSDmr;
+      RC  = X86::FR64RegisterClass;
+    } else {
+      Opc = X86::ST_Fp64m;
+      RC  = X86::RFP64RegisterClass;
+    }
     break;
+  case MVT::f80:
+    // No f80 support yet.
+    return false;
   }
-  
+
   addFullAddress(BuildMI(MBB, TII.get(Opc)), AM).addReg(Val);
   return true;
 }
-
-bool X86FastISel::X86FastEmitStore(MVT VT, Value *Val,
-                                   const X86AddressMode &AM) {
-  // Handle 'null' like i32/i64 0.
-  if (isa<ConstantPointerNull>(Val))
-    Val = Constant::getNullValue(TD.getIntPtrType());
-  
-  // If this is a store of a simple constant, fold the constant into the store.
-  if (ConstantInt *CI = dyn_cast<ConstantInt>(Val)) {
-    unsigned Opc = 0;
-    switch (VT.getSimpleVT()) {
-    default: break;
-    case MVT::i8:  Opc = X86::MOV8mi;  break;
-    case MVT::i16: Opc = X86::MOV16mi; break;
-    case MVT::i32: Opc = X86::MOV32mi; break;
-    case MVT::i64:
-      // Must be a 32-bit sign extended value.
-      if ((int)CI->getSExtValue() == CI->getSExtValue())
-        Opc = X86::MOV64mi32;
-      break;
-    }
-    
-    if (Opc) {
-      addFullAddress(BuildMI(MBB, TII.get(Opc)), AM).addImm(CI->getSExtValue());
-      return true;
-    }
-  }
-  
-  unsigned ValReg = getRegForValue(Val);
-  if (ValReg == 0)
-    return false;    
- 
-  return X86FastEmitStore(VT, ValReg, AM);
-}
-
-
 
 /// X86FastEmitExtend - Emit a machine instruction to extend a value Src of
 /// type SrcVT to type DstVT using the specified extension opcode Opc (e.g.
@@ -490,21 +476,25 @@ bool X86FastISel::X86SelectAddress(Value *V, X86AddressMode &AM, bool isCall) {
 /// X86SelectStore - Select and emit code to implement store instructions.
 bool X86FastISel::X86SelectStore(Instruction* I) {
   MVT VT;
-  if (!isTypeLegal(I->getOperand(0)->getType(), VT))
+  if (!isTypeLegal(I->getOperand(0)->getType(), TLI, VT))
     return false;
+  unsigned Val = getRegForValue(I->getOperand(0));
+  if (Val == 0)
+    // Unhandled operand. Halt "fast" selection and bail.
+    return false;    
 
   X86AddressMode AM;
   if (!X86SelectAddress(I->getOperand(1), AM, false))
     return false;
 
-  return X86FastEmitStore(VT, I->getOperand(0), AM);
+  return X86FastEmitStore(VT, Val, AM);
 }
 
 /// X86SelectLoad - Select and emit code to implement load instructions.
 ///
 bool X86FastISel::X86SelectLoad(Instruction *I)  {
   MVT VT;
-  if (!isTypeLegal(I->getType(), VT))
+  if (!isTypeLegal(I->getType(), TLI, VT))
     return false;
 
   X86AddressMode AM;
@@ -519,137 +509,145 @@ bool X86FastISel::X86SelectLoad(Instruction *I)  {
   return false;
 }
 
-static unsigned X86ChooseCmpOpcode(MVT VT) {
+unsigned X86FastISel::X86ChooseCmpOpcode(MVT VT) {
   switch (VT.getSimpleVT()) {
-  default:       return 0;
-  case MVT::i8:  return X86::CMP8rr;
+  case MVT::i8: return X86::CMP8rr;
   case MVT::i16: return X86::CMP16rr;
   case MVT::i32: return X86::CMP32rr;
   case MVT::i64: return X86::CMP64rr;
   case MVT::f32: return X86::UCOMISSrr;
   case MVT::f64: return X86::UCOMISDrr;
+  default: break;
   }
-}
-
-/// X86ChooseCmpImmediateOpcode - If we have a comparison with RHS as the RHS
-/// of the comparison, return an opcode that works for the compare (e.g.
-/// CMP32ri) otherwise return 0.
-static unsigned X86ChooseCmpImmediateOpcode(MVT VT, ConstantInt *RHSC) {
-  switch (VT.getSimpleVT()) {
-  // Otherwise, we can't fold the immediate into this comparison.
-  default: return 0;
-  case MVT::i8: return X86::CMP8ri;
-  case MVT::i16: return X86::CMP16ri;
-  case MVT::i32: return X86::CMP32ri;
-  case MVT::i64:
-    // 64-bit comparisons are only valid if the immediate fits in a 32-bit sext
-    // field.
-    if ((int)RHSC->getSExtValue() == RHSC->getSExtValue())
-      return X86::CMP64ri32;
-    return 0;
-  }
-}
-
-bool X86FastISel::X86FastEmitCompare(Value *Op0, Value *Op1, MVT VT) {
-  unsigned Op0Reg = getRegForValue(Op0);
-  if (Op0Reg == 0) return false;
-  
-  // Handle 'null' like i32/i64 0.
-  if (isa<ConstantPointerNull>(Op1))
-    Op1 = Constant::getNullValue(TD.getIntPtrType());
-  
-  // We have two options: compare with register or immediate.  If the RHS of
-  // the compare is an immediate that we can fold into this compare, use
-  // CMPri, otherwise use CMPrr.
-  if (ConstantInt *Op1C = dyn_cast<ConstantInt>(Op1)) {
-    if (unsigned CompareImmOpc = X86ChooseCmpImmediateOpcode(VT, Op1C)) {
-      BuildMI(MBB, TII.get(CompareImmOpc)).addReg(Op0Reg)
-                                          .addImm(Op1C->getSExtValue());
-      return true;
-    }
-  }
-  
-  unsigned CompareOpc = X86ChooseCmpOpcode(VT);
-  if (CompareOpc == 0) return false;
-    
-  unsigned Op1Reg = getRegForValue(Op1);
-  if (Op1Reg == 0) return false;
-  BuildMI(MBB, TII.get(CompareOpc)).addReg(Op0Reg).addReg(Op1Reg);
-  
-  return true;
+  return 0;
 }
 
 bool X86FastISel::X86SelectCmp(Instruction *I) {
   CmpInst *CI = cast<CmpInst>(I);
 
   MVT VT;
-  if (!isTypeLegal(I->getOperand(0)->getType(), VT))
+  if (!isTypeLegal(I->getOperand(0)->getType(), TLI, VT))
     return false;
 
+  unsigned Op0Reg = getRegForValue(CI->getOperand(0));
+  if (Op0Reg == 0) return false;
+  unsigned Op1Reg = getRegForValue(CI->getOperand(1));
+  if (Op1Reg == 0) return false;
+
+  unsigned Opc = X86ChooseCmpOpcode(VT);
+
   unsigned ResultReg = createResultReg(&X86::GR8RegClass);
-  unsigned SetCCOpc;
-  bool SwapArgs;  // false -> compare Op0, Op1.  true -> compare Op1, Op0.
   switch (CI->getPredicate()) {
   case CmpInst::FCMP_OEQ: {
-    if (!X86FastEmitCompare(CI->getOperand(0), CI->getOperand(1), VT))
-      return false;
-    
     unsigned EReg = createResultReg(&X86::GR8RegClass);
     unsigned NPReg = createResultReg(&X86::GR8RegClass);
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
     BuildMI(MBB, TII.get(X86::SETEr), EReg);
     BuildMI(MBB, TII.get(X86::SETNPr), NPReg);
     BuildMI(MBB, TII.get(X86::AND8rr), ResultReg).addReg(NPReg).addReg(EReg);
-    UpdateValueMap(I, ResultReg);
-    return true;
+    break;
   }
   case CmpInst::FCMP_UNE: {
-    if (!X86FastEmitCompare(CI->getOperand(0), CI->getOperand(1), VT))
-      return false;
-
     unsigned NEReg = createResultReg(&X86::GR8RegClass);
     unsigned PReg = createResultReg(&X86::GR8RegClass);
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
     BuildMI(MBB, TII.get(X86::SETNEr), NEReg);
     BuildMI(MBB, TII.get(X86::SETPr), PReg);
     BuildMI(MBB, TII.get(X86::OR8rr), ResultReg).addReg(PReg).addReg(NEReg);
-    UpdateValueMap(I, ResultReg);
-    return true;
+    break;
   }
-  case CmpInst::FCMP_OGT: SwapArgs = false; SetCCOpc = X86::SETAr;  break;
-  case CmpInst::FCMP_OGE: SwapArgs = false; SetCCOpc = X86::SETAEr; break;
-  case CmpInst::FCMP_OLT: SwapArgs = true;  SetCCOpc = X86::SETAr;  break;
-  case CmpInst::FCMP_OLE: SwapArgs = true;  SetCCOpc = X86::SETAEr; break;
-  case CmpInst::FCMP_ONE: SwapArgs = false; SetCCOpc = X86::SETNEr; break;
-  case CmpInst::FCMP_ORD: SwapArgs = false; SetCCOpc = X86::SETNPr; break;
-  case CmpInst::FCMP_UNO: SwapArgs = false; SetCCOpc = X86::SETPr;  break;
-  case CmpInst::FCMP_UEQ: SwapArgs = false; SetCCOpc = X86::SETEr;  break;
-  case CmpInst::FCMP_UGT: SwapArgs = true;  SetCCOpc = X86::SETBr;  break;
-  case CmpInst::FCMP_UGE: SwapArgs = true;  SetCCOpc = X86::SETBEr; break;
-  case CmpInst::FCMP_ULT: SwapArgs = false; SetCCOpc = X86::SETBr;  break;
-  case CmpInst::FCMP_ULE: SwapArgs = false; SetCCOpc = X86::SETBEr; break;
-  
-  case CmpInst::ICMP_EQ:  SwapArgs = false; SetCCOpc = X86::SETEr;  break;
-  case CmpInst::ICMP_NE:  SwapArgs = false; SetCCOpc = X86::SETNEr; break;
-  case CmpInst::ICMP_UGT: SwapArgs = false; SetCCOpc = X86::SETAr;  break;
-  case CmpInst::ICMP_UGE: SwapArgs = false; SetCCOpc = X86::SETAEr; break;
-  case CmpInst::ICMP_ULT: SwapArgs = false; SetCCOpc = X86::SETBr;  break;
-  case CmpInst::ICMP_ULE: SwapArgs = false; SetCCOpc = X86::SETBEr; break;
-  case CmpInst::ICMP_SGT: SwapArgs = false; SetCCOpc = X86::SETGr;  break;
-  case CmpInst::ICMP_SGE: SwapArgs = false; SetCCOpc = X86::SETGEr; break;
-  case CmpInst::ICMP_SLT: SwapArgs = false; SetCCOpc = X86::SETLr;  break;
-  case CmpInst::ICMP_SLE: SwapArgs = false; SetCCOpc = X86::SETLEr; break;
+  case CmpInst::FCMP_OGT:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETAr), ResultReg);
+    break;
+  case CmpInst::FCMP_OGE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETAEr), ResultReg);
+    break;
+  case CmpInst::FCMP_OLT:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op1Reg).addReg(Op0Reg);
+    BuildMI(MBB, TII.get(X86::SETAr), ResultReg);
+    break;
+  case CmpInst::FCMP_OLE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op1Reg).addReg(Op0Reg);
+    BuildMI(MBB, TII.get(X86::SETAEr), ResultReg);
+    break;
+  case CmpInst::FCMP_ONE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETNEr), ResultReg);
+    break;
+  case CmpInst::FCMP_ORD:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETNPr), ResultReg);
+    break;
+  case CmpInst::FCMP_UNO:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETPr), ResultReg);
+    break;
+  case CmpInst::FCMP_UEQ:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETEr), ResultReg);
+    break;
+  case CmpInst::FCMP_UGT:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op1Reg).addReg(Op0Reg);
+    BuildMI(MBB, TII.get(X86::SETBr), ResultReg);
+    break;
+  case CmpInst::FCMP_UGE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op1Reg).addReg(Op0Reg);
+    BuildMI(MBB, TII.get(X86::SETBEr), ResultReg);
+    break;
+  case CmpInst::FCMP_ULT:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETBr), ResultReg);
+    break;
+  case CmpInst::FCMP_ULE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETBEr), ResultReg);
+    break;
+  case CmpInst::ICMP_EQ:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETEr), ResultReg);
+    break;
+  case CmpInst::ICMP_NE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETNEr), ResultReg);
+    break;
+  case CmpInst::ICMP_UGT:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETAr), ResultReg);
+    break;
+  case CmpInst::ICMP_UGE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETAEr), ResultReg);
+    break;
+  case CmpInst::ICMP_ULT:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETBr), ResultReg);
+    break;
+  case CmpInst::ICMP_ULE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETBEr), ResultReg);
+    break;
+  case CmpInst::ICMP_SGT:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETGr), ResultReg);
+    break;
+  case CmpInst::ICMP_SGE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETGEr), ResultReg);
+    break;
+  case CmpInst::ICMP_SLT:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETLr), ResultReg);
+    break;
+  case CmpInst::ICMP_SLE:
+    BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+    BuildMI(MBB, TII.get(X86::SETLEr), ResultReg);
+    break;
   default:
     return false;
   }
 
-  Value *Op0 = CI->getOperand(0), *Op1 = CI->getOperand(1);
-  if (SwapArgs)
-    std::swap(Op0, Op1);
-
-  // Emit a compare of Op0/Op1.
-  if (!X86FastEmitCompare(Op0, Op1, VT))
-    return false;
-  
-  BuildMI(MBB, TII.get(SetCCOpc), ResultReg);
   UpdateValueMap(I, ResultReg);
   return true;
 }
@@ -668,7 +666,6 @@ bool X86FastISel::X86SelectZExt(Instruction *I) {
   return false;
 }
 
-
 bool X86FastISel::X86SelectBranch(Instruction *I) {
   // Unconditional branches are selected by tablegen-generated code.
   // Handle a conditional branch.
@@ -680,6 +677,8 @@ bool X86FastISel::X86SelectBranch(Instruction *I) {
   if (CmpInst *CI = dyn_cast<CmpInst>(BI->getCondition())) {
     if (CI->hasOneUse()) {
       MVT VT = TLI.getValueType(CI->getOperand(0)->getType());
+      unsigned Opc = X86ChooseCmpOpcode(VT);
+      if (Opc == 0) return false;
 
       // Try to take advantage of fallthrough opportunities.
       CmpInst::Predicate Predicate = CI->getPredicate();
@@ -688,60 +687,105 @@ bool X86FastISel::X86SelectBranch(Instruction *I) {
         Predicate = CmpInst::getInversePredicate(Predicate);
       }
 
-      bool SwapArgs;  // false -> compare Op0, Op1.  true -> compare Op1, Op0.
-      unsigned BranchOpc; // Opcode to jump on, e.g. "X86::JA"
-
+      unsigned Op0Reg = getRegForValue(CI->getOperand(0));
+      if (Op0Reg == 0) return false;
+      unsigned Op1Reg = getRegForValue(CI->getOperand(1));
+      if (Op1Reg == 0) return false;
+      
       switch (Predicate) {
-      case CmpInst::FCMP_OEQ:
-        std::swap(TrueMBB, FalseMBB);
-        Predicate = CmpInst::FCMP_UNE;
-        // FALL THROUGH
-      case CmpInst::FCMP_UNE: SwapArgs = false; BranchOpc = X86::JNE; break;
-      case CmpInst::FCMP_OGT: SwapArgs = false; BranchOpc = X86::JA;  break;
-      case CmpInst::FCMP_OGE: SwapArgs = false; BranchOpc = X86::JAE; break;
-      case CmpInst::FCMP_OLT: SwapArgs = true;  BranchOpc = X86::JA;  break;
-      case CmpInst::FCMP_OLE: SwapArgs = true;  BranchOpc = X86::JAE; break;
-      case CmpInst::FCMP_ONE: SwapArgs = false; BranchOpc = X86::JNE; break;
-      case CmpInst::FCMP_ORD: SwapArgs = false; BranchOpc = X86::JNP; break;
-      case CmpInst::FCMP_UNO: SwapArgs = false; BranchOpc = X86::JP;  break;
-      case CmpInst::FCMP_UEQ: SwapArgs = false; BranchOpc = X86::JE;  break;
-      case CmpInst::FCMP_UGT: SwapArgs = true;  BranchOpc = X86::JB;  break;
-      case CmpInst::FCMP_UGE: SwapArgs = true;  BranchOpc = X86::JBE; break;
-      case CmpInst::FCMP_ULT: SwapArgs = false; BranchOpc = X86::JB;  break;
-      case CmpInst::FCMP_ULE: SwapArgs = false; BranchOpc = X86::JBE; break;
-          
-      case CmpInst::ICMP_EQ:  SwapArgs = false; BranchOpc = X86::JE;  break;
-      case CmpInst::ICMP_NE:  SwapArgs = false; BranchOpc = X86::JNE; break;
-      case CmpInst::ICMP_UGT: SwapArgs = false; BranchOpc = X86::JA;  break;
-      case CmpInst::ICMP_UGE: SwapArgs = false; BranchOpc = X86::JAE; break;
-      case CmpInst::ICMP_ULT: SwapArgs = false; BranchOpc = X86::JB;  break;
-      case CmpInst::ICMP_ULE: SwapArgs = false; BranchOpc = X86::JBE; break;
-      case CmpInst::ICMP_SGT: SwapArgs = false; BranchOpc = X86::JG;  break;
-      case CmpInst::ICMP_SGE: SwapArgs = false; BranchOpc = X86::JGE; break;
-      case CmpInst::ICMP_SLT: SwapArgs = false; BranchOpc = X86::JL;  break;
-      case CmpInst::ICMP_SLE: SwapArgs = false; BranchOpc = X86::JLE; break;
+      case CmpInst::FCMP_OGT:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JA)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_OGE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JAE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_OLT:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op1Reg).addReg(Op0Reg);
+        BuildMI(MBB, TII.get(X86::JA)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_OLE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op1Reg).addReg(Op0Reg);
+        BuildMI(MBB, TII.get(X86::JAE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_ONE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JNE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_ORD:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JNP)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_UNO:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JP)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_UEQ:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_UGT:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op1Reg).addReg(Op0Reg);
+        BuildMI(MBB, TII.get(X86::JB)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_UGE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op1Reg).addReg(Op0Reg);
+        BuildMI(MBB, TII.get(X86::JBE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_ULT:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JB)).addMBB(TrueMBB);
+        break;
+      case CmpInst::FCMP_ULE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JBE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_EQ:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_NE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JNE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_UGT:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JA)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_UGE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JAE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_ULT:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JB)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_ULE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JBE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_SGT:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JG)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_SGE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JGE)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_SLT:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JL)).addMBB(TrueMBB);
+        break;
+      case CmpInst::ICMP_SLE:
+        BuildMI(MBB, TII.get(Opc)).addReg(Op0Reg).addReg(Op1Reg);
+        BuildMI(MBB, TII.get(X86::JLE)).addMBB(TrueMBB);
+        break;
       default:
         return false;
       }
-      
-      Value *Op0 = CI->getOperand(0), *Op1 = CI->getOperand(1);
-      if (SwapArgs)
-        std::swap(Op0, Op1);
-
-      // Emit a compare of the LHS and RHS, setting the flags.
-      if (!X86FastEmitCompare(Op0, Op1, VT))
-        return false;
-      
-      BuildMI(MBB, TII.get(BranchOpc)).addMBB(TrueMBB);
-
-      if (Predicate == CmpInst::FCMP_UNE) {
-        // X86 requires a second branch to handle UNE (and OEQ,
-        // which is mapped to UNE above).
-        BuildMI(MBB, TII.get(X86::JP)).addMBB(TrueMBB);
-      }
-
-      FastEmitBranch(FalseMBB);
       MBB->addSuccessor(TrueMBB);
+      FastEmitBranch(FalseMBB);
       return true;
     }
   }
@@ -751,9 +795,12 @@ bool X86FastISel::X86SelectBranch(Instruction *I) {
   if (OpReg == 0) return false;
 
   BuildMI(MBB, TII.get(X86::TEST8rr)).addReg(OpReg).addReg(OpReg);
+
   BuildMI(MBB, TII.get(X86::JNE)).addMBB(TrueMBB);
-  FastEmitBranch(FalseMBB);
   MBB->addSuccessor(TrueMBB);
+
+  FastEmitBranch(FalseMBB);
+
   return true;
 }
 
@@ -800,8 +847,8 @@ bool X86FastISel::X86SelectShift(Instruction *I) {
     return false;
   }
 
-  MVT VT = TLI.getValueType(I->getType(), /*HandleUnknown=*/true);
-  if (VT == MVT::Other || !isTypeLegal(I->getType(), VT))
+  MVT VT = MVT::getMVT(I->getType(), /*HandleUnknown=*/true);
+  if (VT == MVT::Other || !isTypeLegal(I->getType(), TLI, VT))
     return false;
 
   unsigned Op0Reg = getRegForValue(I->getOperand(0));
@@ -819,39 +866,39 @@ bool X86FastISel::X86SelectShift(Instruction *I) {
   unsigned Op1Reg = getRegForValue(I->getOperand(1));
   if (Op1Reg == 0) return false;
   TII.copyRegToReg(*MBB, MBB->end(), CReg, Op1Reg, RC, RC);
-
-  // The shift instruction uses X86::CL. If we defined a super-register
-  // of X86::CL, emit an EXTRACT_SUBREG to precisely describe what
-  // we're doing here.
-  if (CReg != X86::CL)
-    BuildMI(MBB, TII.get(TargetInstrInfo::EXTRACT_SUBREG), X86::CL)
-      .addReg(CReg).addImm(X86::SUBREG_8BIT);
-
   unsigned ResultReg = createResultReg(RC);
-  BuildMI(MBB, TII.get(OpReg), ResultReg).addReg(Op0Reg);
+  BuildMI(MBB, TII.get(OpReg), ResultReg).addReg(Op0Reg)
+    // FIXME: The "Local" register allocator's physreg liveness doesn't
+    // recognize subregs. Adding the superreg of CL that's actually defined
+    // prevents it from being re-allocated for this instruction.
+    .addReg(CReg, false, true);
   UpdateValueMap(I, ResultReg);
   return true;
 }
 
 bool X86FastISel::X86SelectSelect(Instruction *I) {
-  MVT VT = TLI.getValueType(I->getType(), /*HandleUnknown=*/true);
-  if (VT == MVT::Other || !isTypeLegal(I->getType(), VT))
-    return false;
-  
+  const Type *Ty = I->getType();
+  if (isa<PointerType>(Ty))
+    Ty = TD.getIntPtrType();
+
   unsigned Opc = 0;
   const TargetRegisterClass *RC = NULL;
-  if (VT.getSimpleVT() == MVT::i16) {
+  if (Ty == Type::Int16Ty) {
     Opc = X86::CMOVE16rr;
     RC = &X86::GR16RegClass;
-  } else if (VT.getSimpleVT() == MVT::i32) {
+  } else if (Ty == Type::Int32Ty) {
     Opc = X86::CMOVE32rr;
     RC = &X86::GR32RegClass;
-  } else if (VT.getSimpleVT() == MVT::i64) {
+  } else if (Ty == Type::Int64Ty) {
     Opc = X86::CMOVE64rr;
     RC = &X86::GR64RegClass;
   } else {
     return false; 
   }
+
+  MVT VT = MVT::getMVT(Ty, /*HandleUnknown=*/true);
+  if (VT == MVT::Other || !isTypeLegal(Ty, TLI, VT))
+    return false;
 
   unsigned Op0Reg = getRegForValue(I->getOperand(0));
   if (Op0Reg == 0) return false;
@@ -868,16 +915,17 @@ bool X86FastISel::X86SelectSelect(Instruction *I) {
 }
 
 bool X86FastISel::X86SelectFPExt(Instruction *I) {
-  // fpext from float to double.
-  if (Subtarget->hasSSE2() && I->getType() == Type::DoubleTy) {
-    Value *V = I->getOperand(0);
-    if (V->getType() == Type::FloatTy) {
-      unsigned OpReg = getRegForValue(V);
-      if (OpReg == 0) return false;
-      unsigned ResultReg = createResultReg(X86::FR64RegisterClass);
-      BuildMI(MBB, TII.get(X86::CVTSS2SDrr), ResultReg).addReg(OpReg);
-      UpdateValueMap(I, ResultReg);
-      return true;
+  if (Subtarget->hasSSE2()) {
+    if (I->getType() == Type::DoubleTy) {
+      Value *V = I->getOperand(0);
+      if (V->getType() == Type::FloatTy) {
+        unsigned OpReg = getRegForValue(V);
+        if (OpReg == 0) return false;
+        unsigned ResultReg = createResultReg(X86::FR64RegisterClass);
+        BuildMI(MBB, TII.get(X86::CVTSS2SDrr), ResultReg).addReg(OpReg);
+        UpdateValueMap(I, ResultReg);
+        return true;
+      }
     }
   }
 
@@ -928,7 +976,7 @@ bool X86FastISel::X86SelectTrunc(Instruction *I) {
   BuildMI(MBB, TII.get(CopyOpc), CopyReg).addReg(InputReg);
 
   // Then issue an extract_subreg.
-  unsigned ResultReg = FastEmitInst_extractsubreg(CopyReg, X86::SUBREG_8BIT);
+  unsigned ResultReg = FastEmitInst_extractsubreg(CopyReg,1); // x86_subreg_8bit
   if (!ResultReg)
     return false;
 
@@ -969,7 +1017,7 @@ bool X86FastISel::X86SelectCall(Instruction *I) {
   MVT RetVT;
   if (RetTy == Type::VoidTy)
     RetVT = MVT::isVoid;
-  else if (!isTypeLegal(RetTy, RetVT, true))
+  else if (!isTypeLegal(RetTy, TLI, RetVT, true))
     return false;
 
   // Materialize callee address in a register. FIXME: GV address can be
@@ -996,12 +1044,10 @@ bool X86FastISel::X86SelectCall(Instruction *I) {
   }
 
   // Deal with call operands first.
-  SmallVector<Value*, 8> ArgVals;
-  SmallVector<unsigned, 8> Args;
-  SmallVector<MVT, 8> ArgVTs;
-  SmallVector<ISD::ArgFlagsTy, 8> ArgFlags;
+  SmallVector<unsigned, 4> Args;
+  SmallVector<MVT, 4> ArgVTs;
+  SmallVector<ISD::ArgFlagsTy, 4> ArgFlags;
   Args.reserve(CS.arg_size());
-  ArgVals.reserve(CS.arg_size());
   ArgVTs.reserve(CS.arg_size());
   ArgFlags.reserve(CS.arg_size());
   for (CallSite::arg_iterator i = CS.arg_begin(), e = CS.arg_end();
@@ -1025,13 +1071,12 @@ bool X86FastISel::X86SelectCall(Instruction *I) {
 
     const Type *ArgTy = (*i)->getType();
     MVT ArgVT;
-    if (!isTypeLegal(ArgTy, ArgVT))
+    if (!isTypeLegal(ArgTy, TLI, ArgVT))
       return false;
     unsigned OriginalAlignment = TD.getABITypeAlignment(ArgTy);
     Flags.setOrigAlign(OriginalAlignment);
 
     Args.push_back(Arg);
-    ArgVals.push_back(*i);
     ArgVTs.push_back(ArgVT);
     ArgFlags.push_back(Flags);
   }
@@ -1048,7 +1093,7 @@ bool X86FastISel::X86SelectCall(Instruction *I) {
   unsigned AdjStackDown = TM.getRegisterInfo()->getCallFrameSetupOpcode();
   BuildMI(MBB, TII.get(AdjStackDown)).addImm(NumBytes);
 
-  // Process argument: walk the register/memloc assignments, inserting
+  // Process argumenet: walk the register/memloc assignments, inserting
   // copies / loads.
   SmallVector<unsigned, 4> RegArgs;
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
@@ -1079,7 +1124,7 @@ bool X86FastISel::X86SelectCall(Instruction *I) {
                                        Arg, ArgVT, Arg);
       if (!Emitted)
         Emitted = X86FastEmitExtend(ISD::ZERO_EXTEND, VA.getLocVT(),
-                                    Arg, ArgVT, Arg);
+                                         Arg, ArgVT, Arg);
       if (!Emitted)
         Emitted = X86FastEmitExtend(ISD::SIGN_EXTEND, VA.getLocVT(),
                                     Arg, ArgVT, Arg);
@@ -1101,15 +1146,7 @@ bool X86FastISel::X86SelectCall(Instruction *I) {
       X86AddressMode AM;
       AM.Base.Reg = StackPtr;
       AM.Disp = LocMemOffset;
-      Value *ArgVal = ArgVals[VA.getValNo()];
-      
-      // If this is a really simple value, emit this with the Value* version of
-      // X86FastEmitStore.  If it isn't simple, we don't want to do this, as it
-      // can cause us to reevaluate the argument.
-      if (isa<ConstantInt>(ArgVal) || isa<ConstantPointerNull>(ArgVal))
-        X86FastEmitStore(ArgVT, ArgVal, AM);
-      else
-        X86FastEmitStore(ArgVT, Arg, AM);
+      X86FastEmitStore(ArgVT, Arg, AM);
     }
   }
 
@@ -1139,8 +1176,10 @@ bool X86FastISel::X86SelectCall(Instruction *I) {
     MIB.addReg(X86::EBX);
 
   // Add implicit physical register uses to the call.
-  for (unsigned i = 0, e = RegArgs.size(); i != e; ++i)
-    MIB.addReg(RegArgs[i]);
+  while (!RegArgs.empty()) {
+    MIB.addReg(RegArgs.back());
+    RegArgs.pop_back();
+  }
 
   // Issue CALLSEQ_END
   unsigned AdjStackUp = TM.getRegisterInfo()->getCallFrameDestroyOpcode();
@@ -1239,7 +1278,7 @@ X86FastISel::TargetSelectInstruction(Instruction *I)  {
 
 unsigned X86FastISel::TargetMaterializeConstant(Constant *C) {
   MVT VT;
-  if (!isTypeLegal(C->getType(), VT))
+  if (!isTypeLegal(C->getType(), TLI, VT))
     return false;
   
   // Get opcode and regclass of the output for the given load instruction.
@@ -1351,15 +1390,7 @@ namespace llvm {
                         MachineModuleInfo *mmi,
                         DenseMap<const Value *, unsigned> &vm,
                         DenseMap<const BasicBlock *, MachineBasicBlock *> &bm,
-                        DenseMap<const AllocaInst *, int> &am
-#ifndef NDEBUG
-                        , SmallSet<Instruction*, 8> &cil
-#endif
-                        ) {
-    return new X86FastISel(mf, mmi, vm, bm, am
-#ifndef NDEBUG
-                           , cil
-#endif
-                           );
+                        DenseMap<const AllocaInst *, int> &am) {
+    return new X86FastISel(mf, mmi, vm, bm, am);
   }
 }

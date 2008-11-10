@@ -49,7 +49,7 @@
 using namespace llvm;
 
 // Register the target.
-static RegisterTarget<CTargetMachine> X("c", "C backend");
+static RegisterTarget<CTargetMachine> X("c", "  C backend");
 
 namespace {
   /// CBackendNameAllUsedStructsAndMergeFunctions - This pass inserts names for
@@ -836,13 +836,12 @@ void CWriter::printConstantVector(ConstantVector *CP, bool Static) {
 // only deal in IEEE FP).
 //
 static bool isFPCSafeToPrint(const ConstantFP *CFP) {
-  bool ignored;
   // Do long doubles in hex for now.
   if (CFP->getType() != Type::FloatTy && CFP->getType() != Type::DoubleTy)
     return false;
   APFloat APF = APFloat(CFP->getValueAPF());  // copy
   if (CFP->getType() == Type::FloatTy)
-    APF.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven, &ignored);
+    APF.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven);
 #if HAVE_PRINTF_A && ENABLE_CBE_PRINTF_A
   char Buffer[100];
   sprintf(Buffer, "%a", APF.convertToDouble());
@@ -1143,8 +1142,7 @@ void CWriter::printConstant(Constant *CPV, bool Static) {
         // This is not awesome, but it at least makes the CBE output somewhat
         // useful.
         APFloat Tmp = FPC->getValueAPF();
-        bool LosesInfo;
-        Tmp.convert(APFloat::IEEEdouble, APFloat::rmTowardZero, &LosesInfo);
+        Tmp.convert(APFloat::IEEEdouble, APFloat::rmTowardZero);
         V = Tmp.convertToDouble();
       }
       
@@ -2061,20 +2059,20 @@ void CWriter::printFloatingPointConstants(const Constant *C) {
   
   if (FPC->getType() == Type::DoubleTy) {
     double Val = FPC->getValueAPF().convertToDouble();
-    uint64_t i = FPC->getValueAPF().bitcastToAPInt().getZExtValue();
+    uint64_t i = FPC->getValueAPF().convertToAPInt().getZExtValue();
     Out << "static const ConstantDoubleTy FPConstant" << FPCounter++
     << " = 0x" << utohexstr(i)
     << "ULL;    /* " << Val << " */\n";
   } else if (FPC->getType() == Type::FloatTy) {
     float Val = FPC->getValueAPF().convertToFloat();
-    uint32_t i = (uint32_t)FPC->getValueAPF().bitcastToAPInt().
+    uint32_t i = (uint32_t)FPC->getValueAPF().convertToAPInt().
     getZExtValue();
     Out << "static const ConstantFloatTy FPConstant" << FPCounter++
     << " = 0x" << utohexstr(i)
     << "U;    /* " << Val << " */\n";
   } else if (FPC->getType() == Type::X86_FP80Ty) {
     // api needed to prevent premature destruction
-    APInt api = FPC->getValueAPF().bitcastToAPInt();
+    APInt api = FPC->getValueAPF().convertToAPInt();
     const uint64_t *p = api.getRawData();
     Out << "static const ConstantFP80Ty FPConstant" << FPCounter++
     << " = { 0x"
@@ -2082,7 +2080,7 @@ void CWriter::printFloatingPointConstants(const Constant *C) {
     << "ULL, 0x" << utohexstr((uint16_t)(p[0] >> 48)) << ",{0,0,0}"
     << "}; /* Long double constant */\n";
   } else if (FPC->getType() == Type::PPC_FP128Ty) {
-    APInt api = FPC->getValueAPF().bitcastToAPInt();
+    APInt api = FPC->getValueAPF().convertToAPInt();
     const uint64_t *p = api.getRawData();
     Out << "static const ConstantFP128Ty FPConstant" << FPCounter++
     << " = { 0x"

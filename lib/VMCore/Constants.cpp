@@ -373,8 +373,7 @@ ConstantFP *ConstantFP::get(const APFloat &V) {
 /// 2.0/1.0 etc, that are known-valid both as double and as the target format.
 ConstantFP *ConstantFP::get(const Type *Ty, double V) {
   APFloat FV(V);
-  bool ignored;
-  FV.convert(*TypeToFloatSemantics(Ty), APFloat::rmNearestTiesToEven, &ignored);
+  FV.convert(*TypeToFloatSemantics(Ty), APFloat::rmNearestTiesToEven);
   return get(FV);
 }
 
@@ -956,25 +955,20 @@ bool ConstantInt::isValueValidForType(const Type *Ty, int64_t Val) {
 bool ConstantFP::isValueValidForType(const Type *Ty, const APFloat& Val) {
   // convert modifies in place, so make a copy.
   APFloat Val2 = APFloat(Val);
-  bool losesInfo;
   switch (Ty->getTypeID()) {
   default:
     return false;         // These can't be represented as floating point!
 
   // FIXME rounding mode needs to be more flexible
-  case Type::FloatTyID: {
-    if (&Val2.getSemantics() == &APFloat::IEEEsingle)
-      return true;
-    Val2.convert(APFloat::IEEEsingle, APFloat::rmNearestTiesToEven, &losesInfo);
-    return !losesInfo;
-  }
-  case Type::DoubleTyID: {
-    if (&Val2.getSemantics() == &APFloat::IEEEsingle ||
-        &Val2.getSemantics() == &APFloat::IEEEdouble)
-      return true;
-    Val2.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven, &losesInfo);
-    return !losesInfo;
-  }
+  case Type::FloatTyID:
+    return &Val2.getSemantics() == &APFloat::IEEEsingle ||
+           Val2.convert(APFloat::IEEEsingle, APFloat::rmNearestTiesToEven) == 
+              APFloat::opOK;
+  case Type::DoubleTyID:
+    return &Val2.getSemantics() == &APFloat::IEEEsingle || 
+           &Val2.getSemantics() == &APFloat::IEEEdouble ||
+           Val2.convert(APFloat::IEEEdouble, APFloat::rmNearestTiesToEven) == 
+             APFloat::opOK;
   case Type::X86_FP80TyID:
     return &Val2.getSemantics() == &APFloat::IEEEsingle || 
            &Val2.getSemantics() == &APFloat::IEEEdouble ||
@@ -1658,7 +1652,7 @@ struct ExprMapKeyType {
   bool operator==(const ExprMapKeyType& that) const {
     return this->opcode == that.opcode &&
            this->predicate == that.predicate &&
-           this->operands == that.operands &&
+           this->operands == that.operands;
            this->indices == that.indices;
   }
   bool operator<(const ExprMapKeyType & that) const {
@@ -1923,10 +1917,8 @@ Constant *ConstantExpr::getFPExtend(Constant *C, const Type *Ty) {
 }
 
 Constant *ConstantExpr::getUIToFP(Constant *C, const Type *Ty) {
-#ifndef NDEBUG
   bool fromVec = C->getType()->getTypeID() == Type::VectorTyID;
   bool toVec = Ty->getTypeID() == Type::VectorTyID;
-#endif
   assert((fromVec == toVec) && "Cannot convert from scalar to/from vector");
   assert(C->getType()->isIntOrIntVector() && Ty->isFPOrFPVector() &&
          "This is an illegal uint to floating point cast!");
@@ -1934,10 +1926,8 @@ Constant *ConstantExpr::getUIToFP(Constant *C, const Type *Ty) {
 }
 
 Constant *ConstantExpr::getSIToFP(Constant *C, const Type *Ty) {
-#ifndef NDEBUG
   bool fromVec = C->getType()->getTypeID() == Type::VectorTyID;
   bool toVec = Ty->getTypeID() == Type::VectorTyID;
-#endif
   assert((fromVec == toVec) && "Cannot convert from scalar to/from vector");
   assert(C->getType()->isIntOrIntVector() && Ty->isFPOrFPVector() &&
          "This is an illegal sint to floating point cast!");
@@ -1945,10 +1935,8 @@ Constant *ConstantExpr::getSIToFP(Constant *C, const Type *Ty) {
 }
 
 Constant *ConstantExpr::getFPToUI(Constant *C, const Type *Ty) {
-#ifndef NDEBUG
   bool fromVec = C->getType()->getTypeID() == Type::VectorTyID;
   bool toVec = Ty->getTypeID() == Type::VectorTyID;
-#endif
   assert((fromVec == toVec) && "Cannot convert from scalar to/from vector");
   assert(C->getType()->isFPOrFPVector() && Ty->isIntOrIntVector() &&
          "This is an illegal floating point to uint cast!");
@@ -1956,10 +1944,8 @@ Constant *ConstantExpr::getFPToUI(Constant *C, const Type *Ty) {
 }
 
 Constant *ConstantExpr::getFPToSI(Constant *C, const Type *Ty) {
-#ifndef NDEBUG
   bool fromVec = C->getType()->getTypeID() == Type::VectorTyID;
   bool toVec = Ty->getTypeID() == Type::VectorTyID;
-#endif
   assert((fromVec == toVec) && "Cannot convert from scalar to/from vector");
   assert(C->getType()->isFPOrFPVector() && Ty->isIntOrIntVector() &&
          "This is an illegal floating point to sint cast!");
@@ -1981,7 +1967,6 @@ Constant *ConstantExpr::getIntToPtr(Constant *C, const Type *DstTy) {
 Constant *ConstantExpr::getBitCast(Constant *C, const Type *DstTy) {
   // BitCast implies a no-op cast of type only. No bits change.  However, you 
   // can't cast pointers to anything but pointers.
-#ifndef NDEBUG
   const Type *SrcTy = C->getType();
   assert((isa<PointerType>(SrcTy) == isa<PointerType>(DstTy)) &&
          "BitCast cannot cast pointer to non-pointer and vice versa");
@@ -1991,7 +1976,6 @@ Constant *ConstantExpr::getBitCast(Constant *C, const Type *DstTy) {
   // destination bit widths are identical.
   unsigned SrcBitSize = SrcTy->getPrimitiveSizeInBits();
   unsigned DstBitSize = DstTy->getPrimitiveSizeInBits();
-#endif
   assert(SrcBitSize == DstBitSize && "BitCast requies types of same width");
   return getFoldedCast(Instruction::BitCast, C, DstTy);
 }
@@ -2375,10 +2359,8 @@ Constant *ConstantExpr::getInsertValue(Constant *Agg, Constant *Val,
          "Tried to create insertelement operation on non-first-class type!");
 
   const Type *ReqTy = Agg->getType();
-#ifndef NDEBUG
   const Type *ValTy =
     ExtractValueInst::getIndexedType(Agg->getType(), IdxList, IdxList+NumIdx);
-#endif
   assert(ValTy == Val->getType() && "insertvalue indices invalid!");
   return getInsertValueTy(ReqTy, Agg, Val, IdxList, NumIdx);
 }

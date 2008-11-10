@@ -15,7 +15,6 @@ add_llvm_library(LLVMipo
   IPConstantPropagation.cpp
   LoopExtractor.cpp
   LowerSetJmp.cpp
-  MergeFunctions.cpp
   PartialSpecialization.cpp
   PruneEH.cpp
   RaiseAllocations.cpp

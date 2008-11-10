@@ -61,6 +61,13 @@ def i64immSExt8  : PatLeaf<(i64 imm), [{
   return (int64_t)N->getZExtValue() == (int8_t)N->getZExtValue();
 }]>;
 
+def i64immFFFFFFFF  : PatLeaf<(i64 imm), [{
+  // i64immFFFFFFFF - True if this is a specific constant we can't write in
+  // tblgen files.
+  return N->getZExtValue() == 0x00000000FFFFFFFFULL;
+}]>;
+
+
 def sextloadi64i8  : PatFrag<(ops node:$ptr), (i64 (sextloadi8 node:$ptr))>;
 def sextloadi64i16 : PatFrag<(ops node:$ptr), (i64 (sextloadi16 node:$ptr))>;
 def sextloadi64i32 : PatFrag<(ops node:$ptr), (i64 (sextloadi32 node:$ptr))>;
@@ -1316,22 +1323,8 @@ def : Pat<(i32 (anyext GR8:$src)),
 // Some peepholes
 //===----------------------------------------------------------------------===//
 
-// Odd encoding trick: -128 fits into an 8-bit immediate field while
-// +128 doesn't, so in this special case use a sub instead of an add.
-def : Pat<(add GR64:$src1, 128),
-          (SUB64ri8 GR64:$src1, -128)>;
-def : Pat<(store (add (loadi64 addr:$dst), 128), addr:$dst),
-          (SUB64mi8 addr:$dst, -128)>;
-
-// The same trick applies for 32-bit immediate fields in 64-bit
-// instructions.
-def : Pat<(add GR64:$src1, 0x0000000080000000),
-          (SUB64ri32 GR64:$src1, 0xffffffff80000000)>;
-def : Pat<(store (add (loadi64 addr:$dst), 0x00000000800000000), addr:$dst),
-          (SUB64mi32 addr:$dst, 0xffffffff80000000)>;
-
 // r & (2^32-1) ==> movz
-def : Pat<(and GR64:$src, 0x00000000FFFFFFFF),
+def : Pat<(and GR64:$src, i64immFFFFFFFF),
           (MOVZX64rr32 (i32 (EXTRACT_SUBREG GR64:$src, x86_subreg_32bit)))>;
 // r & (2^16-1) ==> movz
 def : Pat<(and GR64:$src, 0xffff),
@@ -1404,22 +1397,6 @@ def : Pat<(store (or (srl (loadi64 addr:$dst), CL:$amt),
                      (shl GR64:$src2, (sub 64, CL:$amt))), addr:$dst),
           (SHRD64mrCL addr:$dst, GR64:$src2)>;
 
-def : Pat<(or (srl GR64:$src1, (i8 (trunc RCX:$amt))),
-              (shl GR64:$src2, (i8 (trunc (sub 64, RCX:$amt))))),
-          (SHRD64rrCL GR64:$src1, GR64:$src2)>;
-
-def : Pat<(store (or (srl (loadi64 addr:$dst), (i8 (trunc RCX:$amt))),
-                     (shl GR64:$src2, (i8 (trunc (sub 64, RCX:$amt))))),
-                 addr:$dst),
-          (SHRD64mrCL addr:$dst, GR64:$src2)>;
-
-def : Pat<(shrd GR64:$src1, (i8 imm:$amt1), GR64:$src2, (i8 imm:$amt2)),
-          (SHRD64rri8 GR64:$src1, GR64:$src2, (i8 imm:$amt1))>;
-
-def : Pat<(store (shrd (loadi64 addr:$dst), (i8 imm:$amt1),
-                       GR64:$src2, (i8 imm:$amt2)), addr:$dst),
-          (SHRD64mri8 addr:$dst, GR64:$src2, (i8 imm:$amt1))>;
-
 // (or (x << c) | (y >> (64 - c))) ==> (shld64 x, y, c)
 def : Pat<(or (shl GR64:$src1, CL:$amt),
               (srl GR64:$src2, (sub 64, CL:$amt))),
@@ -1428,22 +1405,6 @@ def : Pat<(or (shl GR64:$src1, CL:$amt),
 def : Pat<(store (or (shl (loadi64 addr:$dst), CL:$amt),
                      (srl GR64:$src2, (sub 64, CL:$amt))), addr:$dst),
           (SHLD64mrCL addr:$dst, GR64:$src2)>;
-
-def : Pat<(or (shl GR64:$src1, (i8 (trunc RCX:$amt))),
-              (srl GR64:$src2, (i8 (trunc (sub 64, RCX:$amt))))),
-          (SHLD64rrCL GR64:$src1, GR64:$src2)>;
-
-def : Pat<(store (or (shl (loadi64 addr:$dst), (i8 (trunc RCX:$amt))),
-                     (srl GR64:$src2, (i8 (trunc (sub 64, RCX:$amt))))),
-                 addr:$dst),
-          (SHLD64mrCL addr:$dst, GR64:$src2)>;
-
-def : Pat<(shld GR64:$src1, (i8 imm:$amt1), GR64:$src2, (i8 imm:$amt2)),
-          (SHLD64rri8 GR64:$src1, GR64:$src2, (i8 imm:$amt1))>;
-
-def : Pat<(store (shld (loadi64 addr:$dst), (i8 imm:$amt1),
-                       GR64:$src2, (i8 imm:$amt2)), addr:$dst),
-          (SHLD64mri8 addr:$dst, GR64:$src2, (i8 imm:$amt1))>;
 
 // X86 specific add which produces a flag.
 def : Pat<(addc GR64:$src1, GR64:$src2),
@@ -1500,7 +1461,7 @@ def MOVSDto64mr  : RPDI<0x7E, MRMDestMem, (outs), (ins i64mem:$dst, FR64:$src),
 
 /// SS41I_extract32 - SSE 4.1 extract 32 bits to int reg or memory destination
 multiclass SS41I_extract64<bits<8> opc, string OpcodeStr> {
-  def rr : SS4AIi8<opc, MRMDestReg, (outs GR64:$dst),
+  def rr : SS4AIi8<opc, MRMSrcReg, (outs GR64:$dst),
                  (ins VR128:$src1, i32i8imm:$src2),
                  !strconcat(OpcodeStr, 
                   "\t{$src2, $src1, $dst|$dst, $src1, $src2}"),

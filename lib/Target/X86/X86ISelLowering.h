@@ -486,13 +486,6 @@ namespace llvm {
       (VT == MVT::f32 && X86ScalarSSEf32);   // f32 is when SSE1
     }
 
-    /// getWidenVectorType: given a vector type, returns the type to widen
-    /// to (e.g., v7i8 to v8i8). If the vector type is legal, it returns itself.
-    /// If there is no vector type that we want to widen to, returns MVT::Other
-    /// When and were to widen is target dependent based on the cost of
-    /// scalarizing vs using the wider vector type.
-    virtual MVT getWidenVectorType(MVT VT);
-
     /// createFastISel - This method returns a target specific FastISel object,
     /// or null if the target does not support "fast" ISel.
     virtual FastISel *
@@ -500,11 +493,7 @@ namespace llvm {
                    MachineModuleInfo *mmi,
                    DenseMap<const Value *, unsigned> &,
                    DenseMap<const BasicBlock *, MachineBasicBlock *> &,
-                   DenseMap<const AllocaInst *, int> &
-#ifndef NDEBUG
-                   , SmallSet<Instruction*, 8> &
-#endif
-                   );
+                   DenseMap<const AllocaInst *, int> &);
     
   private:
     /// Subtarget - Keep a pointer to the X86Subtarget around so that we can
@@ -558,14 +547,12 @@ namespace llvm {
     SDValue LowerINSERT_VECTOR_ELT_SSE4(SDValue Op, SelectionDAG &DAG);
     SDValue LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG);
     SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG);
-    SDValue LowerGlobalAddress(const GlobalValue *GV, int64_t Offset,
-                               SelectionDAG &DAG) const;
+    SDValue LowerGlobalAddress(const GlobalValue *GV, SelectionDAG &DAG) const;
     SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG);
     SDValue LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG);
     SDValue LowerExternalSymbol(SDValue Op, SelectionDAG &DAG);
     SDValue LowerShift(SDValue Op, SelectionDAG &DAG);
     SDValue LowerSINT_TO_FP(SDValue Op, SelectionDAG &DAG);
-    SDValue LowerUINT_TO_FP(SDValue Op, SelectionDAG &DAG);
     SDValue LowerFP_TO_SINT(SDValue Op, SelectionDAG &DAG);
     SDValue LowerFABS(SDValue Op, SelectionDAG &DAG);
     SDValue LowerFNEG(SDValue Op, SelectionDAG &DAG);
@@ -651,11 +638,7 @@ namespace llvm {
                            MachineModuleInfo *mmi,
                            DenseMap<const Value *, unsigned> &,
                            DenseMap<const BasicBlock *, MachineBasicBlock *> &,
-                           DenseMap<const AllocaInst *, int> &
-#ifndef NDEBUG
-                           , SmallSet<Instruction*, 8> &
-#endif
-                           );
+                           DenseMap<const AllocaInst *, int> &);
   }
 }
 

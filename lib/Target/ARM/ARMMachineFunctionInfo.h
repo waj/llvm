@@ -87,8 +87,6 @@ class ARMFunctionInfo : public MachineFunctionInfo {
   ///
   unsigned JumpTableUId;
 
-  unsigned ConstPoolEntryUId;
-
 public:
   ARMFunctionInfo() :
     isThumb(false), 
@@ -98,7 +96,7 @@ public:
     FramePtrSpillOffset(0), GPRCS1Offset(0), GPRCS2Offset(0), DPRCSOffset(0),
     GPRCS1Size(0), GPRCS2Size(0), DPRCSSize(0),
     GPRCS1Frames(0), GPRCS2Frames(0), DPRCSFrames(0),
-    JumpTableUId(0), ConstPoolEntryUId(0) {}
+    JumpTableUId(0) {}
 
   ARMFunctionInfo(MachineFunction &MF) :
     isThumb(MF.getTarget().getSubtarget<ARMSubtarget>().isThumb()),
@@ -109,7 +107,7 @@ public:
     GPRCS1Size(0), GPRCS2Size(0), DPRCSSize(0),
     GPRCS1Frames(32), GPRCS2Frames(32), DPRCSFrames(32),
     SpilledCSRegs(MF.getTarget().getRegisterInfo()->getNumRegs()),
-    JumpTableUId(0), ConstPoolEntryUId(0) {}
+    JumpTableUId(0) {}
 
   bool isThumbFunction() const { return isThumb; }
 
@@ -205,7 +203,7 @@ public:
     SpilledCSRegs.set(Reg);
   }
 
-  bool isCSRegisterSpilled(unsigned Reg) const {
+  bool isCSRegisterSpilled(unsigned Reg) {
     return SpilledCSRegs[Reg];
   }
 
@@ -215,22 +213,6 @@ public:
 
   unsigned createJumpTableUId() {
     return JumpTableUId++;
-  }
-
-  unsigned getNumJumpTables() const {
-    return JumpTableUId;
-  }
-
-  void initConstPoolEntryUId(unsigned UId) {
-    ConstPoolEntryUId = UId;
-  }
-
-  unsigned getNumConstPoolEntries() const {
-    return ConstPoolEntryUId;
-  }
-
-  unsigned createConstPoolEntryUId() {
-    return ConstPoolEntryUId++;
   }
 };
 } // End llvm namespace

@@ -37,7 +37,6 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/BitVector.h"
@@ -77,10 +76,7 @@ namespace {
       AU.addPreserved<LiveVariables>();
       AU.addPreservedID(MachineLoopInfoID);
       AU.addPreservedID(MachineDominatorsID);
-      if (StrongPHIElim)
-        AU.addPreservedID(StrongPHIEliminationID);
-      else
-        AU.addPreservedID(PHIEliminationID);
+      AU.addPreservedID(PHIEliminationID);
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 

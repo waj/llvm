@@ -12,13 +12,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "PIC16TargetAsmInfo.h"
-#include "PIC16TargetMachine.h"
 
 using namespace llvm;
 
 PIC16TargetAsmInfo::
-PIC16TargetAsmInfo(const PIC16TargetMachine &TM)
-  : TargetAsmInfo(TM) {
+PIC16TargetAsmInfo(const PIC16TargetMachine &TM) 
+{
   Data16bitsDirective = "\t.half\t";
   Data32bitsDirective = "\t.word\t";
   CommentString = ";";

@@ -10,7 +10,7 @@ tablegen(ARMGenAsmWriter.inc -gen-asm-writer)
 tablegen(ARMGenDAGISel.inc -gen-dag-isel)
 tablegen(ARMGenSubtarget.inc -gen-subtarget)
 
-add_llvm_target(ARMCodeGen
+add_llvm_target(ARM
   ARMCodeEmitter.cpp
   ARMConstantIslandPass.cpp
   ARMConstantPoolValue.cpp

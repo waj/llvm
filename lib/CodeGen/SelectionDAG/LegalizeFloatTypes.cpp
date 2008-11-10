@@ -66,7 +66,6 @@ void DAGTypeLegalizer::SoftenFloatResult(SDNode *N, unsigned ResNo) {
     case ISD::FMUL:        R = SoftenFloatRes_FMUL(N); break;
     case ISD::FP_EXTEND:   R = SoftenFloatRes_FP_EXTEND(N); break;
     case ISD::FP_ROUND:    R = SoftenFloatRes_FP_ROUND(N); break;
-    case ISD::FPOW:        R = SoftenFloatRes_FPOW(N); break;
     case ISD::FPOWI:       R = SoftenFloatRes_FPOWI(N); break;
     case ISD::FSUB:        R = SoftenFloatRes_FSUB(N); break;
     case ISD::LOAD:        R = SoftenFloatRes_LOAD(N); break;
@@ -94,7 +93,7 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_BUILD_PAIR(SDNode *N) {
 }
 
 SDValue DAGTypeLegalizer::SoftenFloatRes_ConstantFP(ConstantFPSDNode *N) {
-  return DAG.getConstant(N->getValueAPF().bitcastToAPInt(),
+  return DAG.getConstant(N->getValueAPF().convertToAPInt(),
                          TLI.getTypeToTransformTo(N->getValueType(0)));
 }
 
@@ -112,7 +111,7 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_FABS(SDNode *N) {
 SDValue DAGTypeLegalizer::SoftenFloatRes_FADD(SDNode *N) {
   MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
   SDValue Ops[2] = { GetSoftenedFloat(N->getOperand(0)),
-                     GetSoftenedFloat(N->getOperand(1)) };
+                       GetSoftenedFloat(N->getOperand(1)) };
   return MakeLibCall(GetFPLibCall(N->getValueType(0),
                                   RTLIB::ADD_F32,
                                   RTLIB::ADD_F64,
@@ -163,7 +162,7 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_FCOPYSIGN(SDNode *N) {
 SDValue DAGTypeLegalizer::SoftenFloatRes_FDIV(SDNode *N) {
   MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
   SDValue Ops[2] = { GetSoftenedFloat(N->getOperand(0)),
-                     GetSoftenedFloat(N->getOperand(1)) };
+                       GetSoftenedFloat(N->getOperand(1)) };
   return MakeLibCall(GetFPLibCall(N->getValueType(0),
                                   RTLIB::DIV_F32,
                                   RTLIB::DIV_F64,
@@ -175,7 +174,7 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_FDIV(SDNode *N) {
 SDValue DAGTypeLegalizer::SoftenFloatRes_FMUL(SDNode *N) {
   MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
   SDValue Ops[2] = { GetSoftenedFloat(N->getOperand(0)),
-                     GetSoftenedFloat(N->getOperand(1)) };
+                       GetSoftenedFloat(N->getOperand(1)) };
   return MakeLibCall(GetFPLibCall(N->getValueType(0),
                                   RTLIB::MUL_F32,
                                   RTLIB::MUL_F64,
@@ -200,18 +199,6 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_FP_ROUND(SDNode *N) {
   return MakeLibCall(LC, NVT, &Op, 1, false);
 }
 
-SDValue DAGTypeLegalizer::SoftenFloatRes_FPOW(SDNode *N) {
-  MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
-  SDValue Ops[2] = { GetSoftenedFloat(N->getOperand(0)),
-                     GetSoftenedFloat(N->getOperand(1)) };
-  return MakeLibCall(GetFPLibCall(N->getValueType(0),
-                                  RTLIB::POW_F32,
-                                  RTLIB::POW_F64,
-                                  RTLIB::POW_F80,
-                                  RTLIB::POW_PPCF128),
-                     NVT, Ops, 2, false);
-}
-
 SDValue DAGTypeLegalizer::SoftenFloatRes_FPOWI(SDNode *N) {
   MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
   SDValue Ops[2] = { GetSoftenedFloat(N->getOperand(0)), N->getOperand(1) };
@@ -226,7 +213,7 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_FPOWI(SDNode *N) {
 SDValue DAGTypeLegalizer::SoftenFloatRes_FSUB(SDNode *N) {
   MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
   SDValue Ops[2] = { GetSoftenedFloat(N->getOperand(0)),
-                     GetSoftenedFloat(N->getOperand(1)) };
+                       GetSoftenedFloat(N->getOperand(1)) };
   return MakeLibCall(GetFPLibCall(N->getValueType(0),
                                   RTLIB::SUB_F32,
                                   RTLIB::SUB_F64,
@@ -575,31 +562,15 @@ void DAGTypeLegalizer::ExpandFloatResult(SDNode *N, unsigned ResNo) {
   case ISD::BUILD_PAIR:         ExpandRes_BUILD_PAIR(N, Lo, Hi); break;
   case ISD::EXTRACT_ELEMENT:    ExpandRes_EXTRACT_ELEMENT(N, Lo, Hi); break;
   case ISD::EXTRACT_VECTOR_ELT: ExpandRes_EXTRACT_VECTOR_ELT(N, Lo, Hi); break;
-  case ISD::VAARG:              ExpandRes_VAARG(N, Lo, Hi); break;
 
   case ISD::ConstantFP: ExpandFloatRes_ConstantFP(N, Lo, Hi); break;
   case ISD::FABS:       ExpandFloatRes_FABS(N, Lo, Hi); break;
   case ISD::FADD:       ExpandFloatRes_FADD(N, Lo, Hi); break;
-  case ISD::FCEIL:      ExpandFloatRes_FCEIL(N, Lo, Hi); break;
-  case ISD::FCOS:       ExpandFloatRes_FCOS(N, Lo, Hi); break;
   case ISD::FDIV:       ExpandFloatRes_FDIV(N, Lo, Hi); break;
-  case ISD::FEXP:       ExpandFloatRes_FEXP(N, Lo, Hi); break;
-  case ISD::FEXP2:      ExpandFloatRes_FEXP2(N, Lo, Hi); break;
-  case ISD::FFLOOR:     ExpandFloatRes_FFLOOR(N, Lo, Hi); break;
-  case ISD::FLOG:       ExpandFloatRes_FLOG(N, Lo, Hi); break;
-  case ISD::FLOG2:      ExpandFloatRes_FLOG2(N, Lo, Hi); break;
-  case ISD::FLOG10:     ExpandFloatRes_FLOG10(N, Lo, Hi); break;
   case ISD::FMUL:       ExpandFloatRes_FMUL(N, Lo, Hi); break;
-  case ISD::FNEARBYINT: ExpandFloatRes_FNEARBYINT(N, Lo, Hi); break;
   case ISD::FNEG:       ExpandFloatRes_FNEG(N, Lo, Hi); break;
   case ISD::FP_EXTEND:  ExpandFloatRes_FP_EXTEND(N, Lo, Hi); break;
-  case ISD::FPOW:       ExpandFloatRes_FPOW(N, Lo, Hi); break;
-  case ISD::FPOWI:      ExpandFloatRes_FPOWI(N, Lo, Hi); break;
-  case ISD::FRINT:      ExpandFloatRes_FRINT(N, Lo, Hi); break;
-  case ISD::FSIN:       ExpandFloatRes_FABS(N, Lo, Hi); break;
-  case ISD::FSQRT:      ExpandFloatRes_FSQRT(N, Lo, Hi); break;
   case ISD::FSUB:       ExpandFloatRes_FSUB(N, Lo, Hi); break;
-  case ISD::FTRUNC:     ExpandFloatRes_FTRUNC(N, Lo, Hi); break;
   case ISD::LOAD:       ExpandFloatRes_LOAD(N, Lo, Hi); break;
   case ISD::SINT_TO_FP:
   case ISD::UINT_TO_FP: ExpandFloatRes_XINT_TO_FP(N, Lo, Hi); break;
@@ -615,11 +586,25 @@ void DAGTypeLegalizer::ExpandFloatRes_ConstantFP(SDNode *N, SDValue &Lo,
   MVT NVT = TLI.getTypeToTransformTo(N->getValueType(0));
   assert(NVT.getSizeInBits() == integerPartWidth &&
          "Do not know how to expand this float constant!");
-  APInt C = cast<ConstantFPSDNode>(N)->getValueAPF().bitcastToAPInt();
+  APInt C = cast<ConstantFPSDNode>(N)->getValueAPF().convertToAPInt();
   Lo = DAG.getConstantFP(APFloat(APInt(integerPartWidth, 1,
                                        &C.getRawData()[1])), NVT);
   Hi = DAG.getConstantFP(APFloat(APInt(integerPartWidth, 1,
                                        &C.getRawData()[0])), NVT);
+}
+
+void DAGTypeLegalizer::ExpandFloatRes_FADD(SDNode *N, SDValue &Lo,
+                                           SDValue &Hi) {
+  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
+  SDValue Call = MakeLibCall(GetFPLibCall(N->getValueType(0),
+                                            RTLIB::ADD_F32,
+                                            RTLIB::ADD_F64,
+                                            RTLIB::ADD_F80,
+                                            RTLIB::ADD_PPCF128),
+                               N->getValueType(0), Ops, 2,
+                               false);
+  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR && "Call lowered wrongly!");
+  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FABS(SDNode *N, SDValue &Lo,
@@ -635,116 +620,17 @@ void DAGTypeLegalizer::ExpandFloatRes_FABS(SDNode *N, SDValue &Lo,
                    DAG.getCondCode(ISD::SETEQ));
 }
 
-void DAGTypeLegalizer::ExpandFloatRes_FADD(SDNode *N, SDValue &Lo,
-                                           SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::ADD_F32, RTLIB::ADD_F64,
-                                         RTLIB::ADD_F80, RTLIB::ADD_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FCEIL(SDNode *N,
-                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::CEIL_F32, RTLIB::CEIL_F64,
-                                         RTLIB::CEIL_F80, RTLIB::CEIL_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FCOS(SDNode *N,
-                                           SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::COS_F32, RTLIB::COS_F64,
-                                         RTLIB::COS_F80, RTLIB::COS_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
 void DAGTypeLegalizer::ExpandFloatRes_FDIV(SDNode *N, SDValue &Lo,
                                            SDValue &Hi) {
   SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
   SDValue Call = MakeLibCall(GetFPLibCall(N->getValueType(0),
-                                          RTLIB::DIV_F32,
-                                          RTLIB::DIV_F64,
-                                          RTLIB::DIV_F80,
-                                          RTLIB::DIV_PPCF128),
-                             N->getValueType(0), Ops, 2, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FEXP(SDNode *N,
-                                           SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::EXP_F32, RTLIB::EXP_F64,
-                                         RTLIB::EXP_F80, RTLIB::EXP_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FEXP2(SDNode *N,
-                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::EXP2_F32, RTLIB::EXP2_F64,
-                                         RTLIB::EXP2_F80, RTLIB::EXP2_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FFLOOR(SDNode *N,
-                                             SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::FLOOR_F32,RTLIB::FLOOR_F64,
-                                         RTLIB::FLOOR_F80,RTLIB::FLOOR_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FLOG(SDNode *N,
-                                           SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::LOG_F32, RTLIB::LOG_F64,
-                                         RTLIB::LOG_F80, RTLIB::LOG_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FLOG2(SDNode *N,
-                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::LOG2_F32, RTLIB::LOG2_F64,
-                                         RTLIB::LOG2_F80, RTLIB::LOG2_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FLOG10(SDNode *N,
-                                             SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::LOG10_F32,RTLIB::LOG10_F64,
-                                         RTLIB::LOG10_F80,RTLIB::LOG10_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
+                                            RTLIB::DIV_F32,
+                                            RTLIB::DIV_F64,
+                                            RTLIB::DIV_F80,
+                                            RTLIB::DIV_PPCF128),
+                               N->getValueType(0), Ops, 2,
+                               false);
+  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR && "Call lowered wrongly!");
   Lo = Call.getOperand(0); Hi = Call.getOperand(1);
 }
 
@@ -752,26 +638,13 @@ void DAGTypeLegalizer::ExpandFloatRes_FMUL(SDNode *N, SDValue &Lo,
                                            SDValue &Hi) {
   SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
   SDValue Call = MakeLibCall(GetFPLibCall(N->getValueType(0),
-                                          RTLIB::MUL_F32,
-                                          RTLIB::MUL_F64,
-                                          RTLIB::MUL_F80,
-                                          RTLIB::MUL_PPCF128),
-                             N->getValueType(0), Ops, 2, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FNEARBYINT(SDNode *N,
-                                                 SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::NEARBYINT_F32,
-                                         RTLIB::NEARBYINT_F64,
-                                         RTLIB::NEARBYINT_F80,
-                                         RTLIB::NEARBYINT_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
+                                            RTLIB::MUL_F32,
+                                            RTLIB::MUL_F64,
+                                            RTLIB::MUL_F80,
+                                            RTLIB::MUL_PPCF128),
+                               N->getValueType(0), Ops, 2,
+                               false);
+  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR && "Call lowered wrongly!");
   Lo = Call.getOperand(0); Hi = Call.getOperand(1);
 }
 
@@ -789,83 +662,17 @@ void DAGTypeLegalizer::ExpandFloatRes_FP_EXTEND(SDNode *N, SDValue &Lo,
   Lo = DAG.getConstantFP(APFloat(APInt(NVT.getSizeInBits(), 0)), NVT);
 }
 
-void DAGTypeLegalizer::ExpandFloatRes_FPOW(SDNode *N,
-                                           SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::POW_F32, RTLIB::POW_F64,
-                                         RTLIB::POW_F80, RTLIB::POW_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FPOWI(SDNode *N,
-                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::POWI_F32, RTLIB::POWI_F64,
-                                         RTLIB::POWI_F80, RTLIB::POWI_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FRINT(SDNode *N,
-                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::RINT_F32, RTLIB::RINT_F64,
-                                         RTLIB::RINT_F80, RTLIB::RINT_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FSIN(SDNode *N,
-                                           SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::SIN_F32, RTLIB::SIN_F64,
-                                         RTLIB::SIN_F80, RTLIB::SIN_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FSQRT(SDNode *N,
-                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::SQRT_F32, RTLIB::SQRT_F64,
-                                         RTLIB::SQRT_F80, RTLIB::SQRT_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
 void DAGTypeLegalizer::ExpandFloatRes_FSUB(SDNode *N, SDValue &Lo,
                                            SDValue &Hi) {
   SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
   SDValue Call = MakeLibCall(GetFPLibCall(N->getValueType(0),
-                                          RTLIB::SUB_F32,
-                                          RTLIB::SUB_F64,
-                                          RTLIB::SUB_F80,
-                                          RTLIB::SUB_PPCF128),
-                             N->getValueType(0), Ops, 2, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
-  Lo = Call.getOperand(0); Hi = Call.getOperand(1);
-}
-
-void DAGTypeLegalizer::ExpandFloatRes_FTRUNC(SDNode *N,
-                                             SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::TRUNC_F32, RTLIB::TRUNC_F64,
-                                         RTLIB::TRUNC_F80, RTLIB::TRUNC_PPCF128),
-                            N, false);
-  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-         "Call lowered wrongly!");
+                                            RTLIB::SUB_F32,
+                                            RTLIB::SUB_F64,
+                                            RTLIB::SUB_F80,
+                                            RTLIB::SUB_PPCF128),
+                               N->getValueType(0), Ops, 2,
+                               false);
+  assert(Call.getNode()->getOpcode() == ISD::BUILD_PAIR && "Call lowered wrongly!");
   Lo = Call.getOperand(0); Hi = Call.getOperand(1);
 }
 
@@ -885,16 +692,16 @@ void DAGTypeLegalizer::ExpandFloatRes_LOAD(SDNode *N, SDValue &Lo,
   assert(NVT.isByteSized() && "Expanded type not byte sized!");
   assert(LD->getMemoryVT().bitsLE(NVT) && "Float type not round?");
 
-  Hi = DAG.getExtLoad(LD->getExtensionType(), NVT, Chain, Ptr,
+  Lo = DAG.getExtLoad(LD->getExtensionType(), NVT, Chain, Ptr,
                       LD->getSrcValue(), LD->getSrcValueOffset(),
                       LD->getMemoryVT(),
                       LD->isVolatile(), LD->getAlignment());
 
   // Remember the chain.
-  Chain = Hi.getValue(1);
+  Chain = Lo.getValue(1);
 
-  // The low part is zero.
-  Lo = DAG.getConstantFP(APFloat(APInt(NVT.getSizeInBits(), 0)), NVT);
+  // The high part is undefined.
+  Hi = DAG.getNode(ISD::UNDEF, NVT);
 
   // Modified the chain - switch anything that used the old chain to use the
   // new one.
@@ -927,8 +734,7 @@ void DAGTypeLegalizer::ExpandFloatRes_XINT_TO_FP(SDNode *N, SDValue &Lo,
     assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported XINT_TO_FP!");
 
     Hi = MakeLibCall(LC, VT, &Src, 1, true);
-    assert(Hi.getNode()->getOpcode() == ISD::BUILD_PAIR &&
-           "Call lowered wrongly!");
+    assert(Hi.getNode()->getOpcode() == ISD::BUILD_PAIR && "Call lowered wrongly!");
     Lo = Hi.getOperand(0); Hi = Hi.getOperand(1);
   }
 
@@ -950,13 +756,10 @@ void DAGTypeLegalizer::ExpandFloatRes_XINT_TO_FP(SDNode *N, SDValue &Lo,
     assert(false && "Unsupported UINT_TO_FP!");
   case MVT::i32:
     Parts = TwoE32;
-    break;
   case MVT::i64:
     Parts = TwoE64;
-    break;
   case MVT::i128:
     Parts = TwoE128;
-    break;
   }
 
   Lo = DAG.getNode(ISD::FADD, VT, Hi,
@@ -964,8 +767,10 @@ void DAGTypeLegalizer::ExpandFloatRes_XINT_TO_FP(SDNode *N, SDValue &Lo,
                                      MVT::ppcf128));
   Lo = DAG.getNode(ISD::SELECT_CC, VT, Src, DAG.getConstant(0, SrcVT), Lo, Hi,
                    DAG.getCondCode(ISD::SETLT));
-  Hi = DAG.getNode(ISD::EXTRACT_ELEMENT, NVT, Lo, DAG.getIntPtrConstant(1));
-  Lo = DAG.getNode(ISD::EXTRACT_ELEMENT, NVT, Lo, DAG.getIntPtrConstant(0));
+  Hi = DAG.getNode(ISD::EXTRACT_ELEMENT, NVT, Lo,
+                   DAG.getConstant(1, TLI.getPointerTy()));
+  Lo = DAG.getNode(ISD::EXTRACT_ELEMENT, NVT, Lo,
+                   DAG.getConstant(0, TLI.getPointerTy()));
 }
 
 
@@ -983,7 +788,7 @@ bool DAGTypeLegalizer::ExpandFloatOperand(SDNode *N, unsigned OpNo) {
 
   if (TLI.getOperationAction(N->getOpcode(), N->getOperand(OpNo).getValueType())
       == TargetLowering::Custom)
-    Res = TLI.LowerOperation(SDValue(N, 0), DAG);
+    Res = TLI.LowerOperation(SDValue(N, OpNo), DAG);
 
   if (Res.getNode() == 0) {
     switch (N->getOpcode()) {
@@ -1042,15 +847,15 @@ void DAGTypeLegalizer::FloatExpandSetCCOperands(SDValue &NewLHS,
   assert(VT == MVT::ppcf128 && "Unsupported setcc type!");
 
   // FIXME:  This generated code sucks.  We want to generate
-  //         FCMPU crN, hi1, hi2
+  //         FCMP crN, hi1, hi2
   //         BNE crN, L:
-  //         FCMPU crN, lo1, lo2
+  //         FCMP crN, lo1, lo2
   // The following can be improved, but not that much.
   SDValue Tmp1, Tmp2, Tmp3;
-  Tmp1 = DAG.getSetCC(TLI.getSetCCResultType(LHSHi), LHSHi, RHSHi, ISD::SETOEQ);
+  Tmp1 = DAG.getSetCC(TLI.getSetCCResultType(LHSHi), LHSHi, RHSHi, ISD::SETEQ);
   Tmp2 = DAG.getSetCC(TLI.getSetCCResultType(LHSLo), LHSLo, RHSLo, CCCode);
   Tmp3 = DAG.getNode(ISD::AND, Tmp1.getValueType(), Tmp1, Tmp2);
-  Tmp1 = DAG.getSetCC(TLI.getSetCCResultType(LHSHi), LHSHi, RHSHi, ISD::SETUNE);
+  Tmp1 = DAG.getSetCC(TLI.getSetCCResultType(LHSHi), LHSHi, RHSHi, ISD::SETNE);
   Tmp2 = DAG.getSetCC(TLI.getSetCCResultType(LHSHi), LHSHi, RHSHi, CCCode);
   Tmp1 = DAG.getNode(ISD::AND, Tmp1.getValueType(), Tmp1, Tmp2);
   NewLHS = DAG.getNode(ISD::OR, Tmp1.getValueType(), Tmp1, Tmp3);
@@ -1086,18 +891,6 @@ SDValue DAGTypeLegalizer::ExpandFloatOp_FP_ROUND(SDNode *N) {
 
 SDValue DAGTypeLegalizer::ExpandFloatOp_FP_TO_SINT(SDNode *N) {
   MVT RVT = N->getValueType(0);
-
-  // Expand ppcf128 to i32 by hand for the benefit of llvm-gcc bootstrap on
-  // PPC (the libcall is not available).  FIXME: Do this in a less hacky way.
-  if (RVT == MVT::i32) {
-    assert(N->getOperand(0).getValueType() == MVT::ppcf128 &&
-           "Logic only correct for ppcf128!");
-    SDValue Res = DAG.getNode(ISD::FP_ROUND_INREG, MVT::ppcf128,
-                              N->getOperand(0), DAG.getValueType(MVT::f64));
-    Res = DAG.getNode(ISD::FP_ROUND, MVT::f64, Res, DAG.getIntPtrConstant(1));
-    return DAG.getNode(ISD::FP_TO_SINT, MVT::i32, Res);
-  }
-
   RTLIB::Libcall LC = RTLIB::getFPTOSINT(N->getOperand(0).getValueType(), RVT);
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported FP_TO_SINT!");
   return MakeLibCall(LC, RVT, &N->getOperand(0), 1, false);
@@ -1105,29 +898,6 @@ SDValue DAGTypeLegalizer::ExpandFloatOp_FP_TO_SINT(SDNode *N) {
 
 SDValue DAGTypeLegalizer::ExpandFloatOp_FP_TO_UINT(SDNode *N) {
   MVT RVT = N->getValueType(0);
-
-  // Expand ppcf128 to i32 by hand for the benefit of llvm-gcc bootstrap on
-  // PPC (the libcall is not available).  FIXME: Do this in a less hacky way.
-  if (RVT == MVT::i32) {
-    assert(N->getOperand(0).getValueType() == MVT::ppcf128 &&
-           "Logic only correct for ppcf128!");
-    const uint64_t TwoE31[] = {0x41e0000000000000LL, 0};
-    APFloat APF = APFloat(APInt(128, 2, TwoE31));
-    SDValue Tmp = DAG.getConstantFP(APF, MVT::ppcf128);
-    //  X>=2^31 ? (int)(X-2^31)+0x80000000 : (int)X
-    // FIXME: generated code sucks.
-    return DAG.getNode(ISD::SELECT_CC, MVT::i32, N->getOperand(0), Tmp,
-                       DAG.getNode(ISD::ADD, MVT::i32,
-                                   DAG.getNode(ISD::FP_TO_SINT, MVT::i32,
-                                               DAG.getNode(ISD::FSUB,
-                                                           MVT::ppcf128,
-                                                           N->getOperand(0),
-                                                           Tmp)),
-                                   DAG.getConstant(0x80000000, MVT::i32)),
-                       DAG.getNode(ISD::FP_TO_SINT, MVT::i32, N->getOperand(0)),
-                       DAG.getCondCode(ISD::SETGE));
-  }
-
   RTLIB::Libcall LC = RTLIB::getFPTOUINT(N->getOperand(0).getValueType(), RVT);
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported FP_TO_UINT!");
   return MakeLibCall(LC, N->getValueType(0), &N->getOperand(0), 1, false);
@@ -1186,7 +956,7 @@ SDValue DAGTypeLegalizer::ExpandFloatOp_STORE(SDNode *N, unsigned OpNo) {
   SDValue Lo, Hi;
   GetExpandedOp(ST->getValue(), Lo, Hi);
 
-  return DAG.getTruncStore(Chain, Hi, Ptr,
+  return DAG.getTruncStore(Chain, Lo, Ptr,
                            ST->getSrcValue(), ST->getSrcValueOffset(),
                            ST->getMemoryVT(),
                            ST->isVolatile(), ST->getAlignment());

@@ -45,7 +45,7 @@ namespace {
 }
 
 
-static RegisterTarget<MSILTarget> X("msil", "MSIL backend");
+static RegisterTarget<MSILTarget> X("msil", "  MSIL backend");
 
 bool MSILModule::runOnModule(Module &M) {
   ModulePtr = &M;
@@ -432,10 +432,10 @@ void MSILWriter::printConstLoad(const Constant* C) {
     uint64_t X;
     unsigned Size;
     if (FP->getType()->getTypeID()==Type::FloatTyID) {
-      X = (uint32_t)FP->getValueAPF().bitcastToAPInt().getZExtValue();
+      X = (uint32_t)FP->getValueAPF().convertToAPInt().getZExtValue();
       Size = 4;  
     } else {
-      X = FP->getValueAPF().bitcastToAPInt().getZExtValue();
+      X = FP->getValueAPF().convertToAPInt().getZExtValue();
       Size = 8;  
     }
     Out << "\tldc.r" << Size << "\t( " << utohexstr(X) << ')';
@@ -1477,10 +1477,10 @@ void MSILWriter::printStaticConstant(const Constant* C, uint64_t& Offset) {
     const ConstantFP* FP = cast<ConstantFP>(C);
     if (Ty->getTypeID() == Type::FloatTyID)
       Out << "int32 (" << 
-        (uint32_t)FP->getValueAPF().bitcastToAPInt().getZExtValue() << ')';
+        (uint32_t)FP->getValueAPF().convertToAPInt().getZExtValue() << ')';
     else
       Out << "int64 (" << 
-        FP->getValueAPF().bitcastToAPInt().getZExtValue() << ')';
+        FP->getValueAPF().convertToAPInt().getZExtValue() << ')';
     break;
   }
   case Type::ArrayTyID:

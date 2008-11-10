@@ -171,7 +171,7 @@ public:
   bool isCommutative() const { return isCommutative(getOpcode()); }
   static bool isCommutative(unsigned op);
 
-  /// isTrapping - Return true if the instruction may trap.
+  /// isTrappingInstruction - Return true if the instruction may trap.
   ///
   bool isTrapping() const {
     return isTrapping(getOpcode());

@@ -14,20 +14,12 @@
 #include "DAGISelEmitter.h"
 #include "Record.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/Streams.h"
 #include <algorithm>
 #include <deque>
 using namespace llvm;
-
-namespace {
-  cl::opt<bool>
-  GenDebug("gen-debug", cl::desc("Generate debug code"),
-              cl::init(false));
-}
 
 //===----------------------------------------------------------------------===//
 // DAGISelEmitter Helper methods
@@ -84,7 +76,7 @@ static unsigned getPatternSize(TreePatternNode *P, CodeGenDAGPatterns &CGP) {
 
   // If this node has some predicate function that must match, it adds to the
   // complexity of this node.
-  if (!P->getPredicateFns().empty())
+  if (!P->getPredicateFn().empty())
     ++Size;
   
   // Count children in the count if they are also nodes.
@@ -97,7 +89,7 @@ static unsigned getPatternSize(TreePatternNode *P, CodeGenDAGPatterns &CGP) {
         Size += 5;  // Matches a ConstantSDNode (+3) and a specific value (+2).
       else if (NodeIsComplexPattern(Child))
         Size += getPatternSize(Child, CGP);
-      else if (!Child->getPredicateFns().empty())
+      else if (!Child->getPredicateFn().empty())
         ++Size;
     }
   }
@@ -148,15 +140,8 @@ struct PatternSortingPredicate {
   PatternSortingPredicate(CodeGenDAGPatterns &cgp) : CGP(cgp) {}
   CodeGenDAGPatterns &CGP;
 
-  typedef std::pair<unsigned, std::string> CodeLine;
-  typedef std::vector<CodeLine> CodeList;
-  typedef std::vector<std::pair<const PatternToMatch*, CodeList> > PatternList;
-
-  bool operator()(const std::pair<const PatternToMatch*, CodeList> &LHSPair,
-                  const std::pair<const PatternToMatch*, CodeList> &RHSPair) {
-    const PatternToMatch *LHS = LHSPair.first;
-    const PatternToMatch *RHS = RHSPair.first;
-
+  bool operator()(const PatternToMatch *LHS,
+                  const PatternToMatch *RHS) {
     unsigned LHSSize = getPatternSize(LHS->getSrcPattern(), CGP);
     unsigned RHSSize = getPatternSize(RHS->getSrcPattern(), CGP);
     LHSSize += LHS->getAddedComplexity();
@@ -452,8 +437,7 @@ public:
     if (N->isLeaf()) {
       if (IntInit *II = dynamic_cast<IntInit*>(N->getLeafValue())) {
         emitCheck("cast<ConstantSDNode>(" + RootName +
-                  ")->getSExtValue() == INT64_C(" +
-                  itostr(II->getValue()) + ")");
+                  ")->getSExtValue() == " + itostr(II->getValue()));
         return;
       } else if (!NodeIsComplexPattern(N)) {
         assert(0 && "Cannot match this as a leaf value!");
@@ -557,10 +541,11 @@ public:
       }
     }
 
-    // If there are node predicates for this, emit the calls.
-    for (unsigned i = 0, e = N->getPredicateFns().size(); i != e; ++i)
-      emitCheck(N->getPredicateFns()[i] + "(" + RootName + ".getNode())");
+    // If there is a node predicate for this, emit the call.
+    if (!N->getPredicateFn().empty())
+      emitCheck(N->getPredicateFn() + "(" + RootName + ".getNode())");
 
+    
     // If this is an 'and R, 1234' where the operation is AND/OR and the RHS is
     // a constant without a predicate fn that has more that one bit set, handle
     // this as a special case.  This is usually for targets that have special
@@ -575,7 +560,7 @@ public:
         (N->getOperator()->getName() == "and" || 
          N->getOperator()->getName() == "or") &&
         N->getChild(1)->isLeaf() &&
-        N->getChild(1)->getPredicateFns().empty()) {
+        N->getChild(1)->getPredicateFn().empty()) {
       if (IntInit *II = dynamic_cast<IntInit*>(N->getChild(1)->getLeafValue())) {
         if (!isPowerOf2_32(II->getValue())) {  // Don't bother with single bits.
           emitInit("SDValue " + RootName + "0" + " = " +
@@ -587,7 +572,7 @@ public:
           const char *MaskPredicate = N->getOperator()->getName() == "or"
             ? "CheckOrMask(" : "CheckAndMask(";
           emitCheck(MaskPredicate + RootName + "0, cast<ConstantSDNode>(" +
-                    RootName + "1), INT64_C(" + itostr(II->getValue()) + "))");
+                    RootName + "1), " + itostr(II->getValue()) + ")");
           
           EmitChildMatchCode(N->getChild(0), N, RootName + utostr(0), RootName,
                              ChainSuffix + utostr(0), FoundChain);
@@ -732,9 +717,9 @@ public:
           assert(0 && "Unknown leaf type!");
         }
         
-        // If there are node predicates for this, emit the calls.
-        for (unsigned i = 0, e = Child->getPredicateFns().size(); i != e; ++i)
-          emitCheck(Child->getPredicateFns()[i] + "(" + RootName +
+        // If there is a node predicate for this, emit the call.
+        if (!Child->getPredicateFn().empty())
+          emitCheck(Child->getPredicateFn() + "(" + RootName +
                     ".getNode())");
       } else if (IntInit *II =
                  dynamic_cast<IntInit*>(Child->getLeafValue())) {
@@ -743,8 +728,7 @@ public:
         emitCode("int64_t CN"+utostr(CTmp)+" = cast<ConstantSDNode>("+
                  RootName + ")->getSExtValue();");
         
-        emitCheck("CN" + utostr(CTmp) + " == "
-                  "INT64_C(" +itostr(II->getValue()) + ")");
+        emitCheck("CN" + utostr(CTmp) + " == " +itostr(II->getValue()));
       } else {
 #ifndef NDEBUG
         Child->dump();
@@ -856,12 +840,14 @@ public:
         NodeOps.push_back(Val);
       } else if (N->isLeaf() && (CP = NodeGetComplexPattern(N, CGP))) {
         for (unsigned i = 0; i < CP->getNumOperands(); ++i) {
+          emitCode("AddToISelQueue(CPTmp" + utostr(i) + ");");
           NodeOps.push_back("CPTmp" + utostr(i));
         }
       } else {
         // This node, probably wrapped in a SDNodeXForm, behaves like a leaf
         // node even if it isn't one. Don't select it.
         if (!LikeLeaf) {
+          emitCode("AddToISelQueue(" + Val + ");");
           if (isRoot && N->isLeaf()) {
             emitCode("ReplaceUses(N, " + Val + ");");
             emitCode("return NULL;");
@@ -967,16 +953,14 @@ public:
         for (unsigned i = 0, e = OrigChains.size(); i < e; ++i) {
           emitCode("if (" + OrigChains[i].first + ".getNode() != " +
                    OrigChains[i].second + ".getNode()) {");
+          emitCode("  AddToISelQueue(" + OrigChains[i].first + ");");
           emitCode("  InChains.push_back(" + OrigChains[i].first + ");");
           emitCode("}");
         }
+        emitCode("AddToISelQueue(" + ChainName + ");");
         emitCode("InChains.push_back(" + ChainName + ");");
         emitCode(ChainName + " = CurDAG->getNode(ISD::TokenFactor, MVT::Other, "
                  "&InChains[0], InChains.size());");
-        if (GenDebug) {
-          emitCode("CurDAG->setSubgraphColor(" + ChainName +".getNode(), \"yellow\");");
-          emitCode("CurDAG->setSubgraphColor(" + ChainName +".getNode(), \"black\");");
-        }
       }
 
       // Loop over all of the operands of the instruction pattern, emitting code
@@ -1016,6 +1000,8 @@ public:
 
       // Emit all the chain and CopyToReg stuff.
       bool ChainEmitted = NodeHasChain;
+      if (NodeHasChain)
+        emitCode("AddToISelQueue(" + ChainName + ");");
       if (NodeHasInFlag || HasImpInputs)
         EmitInFlagSelectCode(Pattern, "N", ChainEmitted,
                              InFlagDecled, ResNodeDecled, true);
@@ -1027,6 +1013,7 @@ public:
         if (NodeHasOptInFlag) {
           emitCode("if (HasInFlag) {");
           emitCode("  InFlag = N.getOperand(N.getNumOperands()-1);");
+          emitCode("  AddToISelQueue(InFlag);");
           emitCode("}");
         }
       }
@@ -1091,6 +1078,7 @@ public:
         emitCode("for (unsigned i = NumInputRootOps + " + utostr(NodeHasChain) +
                  ", e = N.getNumOperands()" + EndAdjust + "; i != e; ++i) {");
 
+        emitCode("  AddToISelQueue(N.getOperand(i));");
         emitCode("  Ops" + utostr(OpsNo) + ".push_back(N.getOperand(i));");
         emitCode("}");
       }
@@ -1100,18 +1088,13 @@ public:
       if (II.isSimpleLoad | II.mayLoad | II.mayStore) {
         std::vector<std::string>::const_iterator mi, mie;
         for (mi = LSI.begin(), mie = LSI.end(); mi != mie; ++mi) {
-          std::string LSIName = "LSI_" + *mi;
-          emitCode("SDValue " + LSIName + " = "
+          emitCode("SDValue LSI_" + *mi + " = "
                    "CurDAG->getMemOperand(cast<MemSDNode>(" +
                    *mi + ")->getMemOperand());");
-          if (GenDebug) {
-            emitCode("CurDAG->setSubgraphColor(" + LSIName +".getNode(), \"yellow\");");
-            emitCode("CurDAG->setSubgraphColor(" + LSIName +".getNode(), \"black\");");
-          }
           if (IsVariadic)
-            emitCode("Ops" + utostr(OpsNo) + ".push_back(" + LSIName + ");");
+            emitCode("Ops" + utostr(OpsNo) + ".push_back(LSI_" + *mi + ");");
           else
-            AllOps.push_back(LSIName);
+            AllOps.push_back("LSI_" + *mi);
         }
       }
 
@@ -1278,24 +1261,11 @@ public:
       }
 
       emitCode(CodePrefix + Code + ");");
-
-      if (GenDebug) {
-        if (!isRoot) {
-          emitCode("CurDAG->setSubgraphColor(" + NodeName +".getNode(), \"yellow\");");
-          emitCode("CurDAG->setSubgraphColor(" + NodeName +".getNode(), \"black\");");
-        }
-        else {
-          emitCode("CurDAG->setSubgraphColor(" + NodeName +", \"yellow\");");
-          emitCode("CurDAG->setSubgraphColor(" + NodeName +", \"black\");");
-        }
-      }
-
       for (unsigned i = 0, e = After.size(); i != e; ++i)
         emitCode(After[i]);
 
       return NodeOps;
-    }
-    if (Op->isSubClassOf("SDNodeXForm")) {
+    } else if (Op->isSubClassOf("SDNodeXForm")) {
       assert(N->getNumChildren() == 1 && "node xform should have one child!");
       // PatLeaf node - the operand may or may not be a leaf node. But it should
       // behave like one.
@@ -1309,11 +1279,11 @@ public:
       if (isRoot)
         emitCode("return Tmp" + utostr(ResNo) + ".getNode();");
       return NodeOps;
+    } else {
+      N->dump();
+      cerr << "\n";
+      throw std::string("Unknown node in result pattern!");
     }
-
-    N->dump();
-    cerr << "\n";
-    throw std::string("Unknown node in result pattern!");
   }
 
   /// InsertOneTypeCheck - Insert a type-check for an unresolved type in 'Pat'
@@ -1375,12 +1345,14 @@ private:
                 InFlagDecled = true;
               } else
                 emitCode("InFlag = " + RootName + utostr(OpNo) + ";");
+              emitCode("AddToISelQueue(InFlag);");
             } else {
               if (!ChainEmitted) {
                 emitCode("SDValue Chain = CurDAG->getEntryNode();");
                 ChainName = "Chain";
                 ChainEmitted = true;
               }
+              emitCode("AddToISelQueue(" + RootName + utostr(OpNo) + ");");
               if (!InFlagDecled) {
                 emitCode("SDValue InFlag(0, 0);");
                 InFlagDecled = true;
@@ -1406,6 +1378,7 @@ private:
       } else
         emitCode("InFlag = " + RootName +
                ".getOperand(" + utostr(OpNo) + ");");
+      emitCode("AddToISelQueue(InFlag);");
     }
   }
 };
@@ -1668,6 +1641,12 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
     std::vector<const PatternToMatch*> &PatternsOfOp = PBOI->second;
     assert(!PatternsOfOp.empty() && "No patterns but map has entry?");
 
+    // We want to emit all of the matching code now.  However, we want to emit
+    // the matches in order of minimal cost.  Sort the patterns so the least
+    // cost one is at the start.
+    std::stable_sort(PatternsOfOp.begin(), PatternsOfOp.end(),
+                     PatternSortingPredicate(CGP));
+
     // Split them into groups by type.
     std::map<MVT::SimpleValueType,
              std::vector<const PatternToMatch*> > PatternsByType;
@@ -1683,9 +1662,8 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
          ++II) {
       MVT::SimpleValueType OpVT = II->first;
       std::vector<const PatternToMatch*> &Patterns = II->second;
-      typedef std::pair<unsigned, std::string> CodeLine;
-      typedef std::vector<CodeLine> CodeList;
-      typedef CodeList::iterator CodeListI;
+      typedef std::vector<std::pair<unsigned,std::string> > CodeList;
+      typedef std::vector<std::pair<unsigned,std::string> >::iterator CodeListI;
     
       std::vector<std::pair<const PatternToMatch*, CodeList> > CodeForPatterns;
       std::vector<std::vector<std::string> > PatternOpcodes;
@@ -1711,6 +1689,30 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
         NumInputRootOpsCounts.push_back(NumInputRootOps);
       }
     
+      // Scan the code to see if all of the patterns are reachable and if it is
+      // possible that the last one might not match.
+      bool mightNotMatch = true;
+      for (unsigned i = 0, e = CodeForPatterns.size(); i != e; ++i) {
+        CodeList &GeneratedCode = CodeForPatterns[i].second;
+        mightNotMatch = false;
+
+        for (unsigned j = 0, e = GeneratedCode.size(); j != e; ++j) {
+          if (GeneratedCode[j].first == 1) { // predicate.
+            mightNotMatch = true;
+            break;
+          }
+        }
+      
+        // If this pattern definitely matches, and if it isn't the last one, the
+        // patterns after it CANNOT ever match.  Error out.
+        if (mightNotMatch == false && i != CodeForPatterns.size()-1) {
+          cerr << "Pattern '";
+          CodeForPatterns[i].first->getSrcPattern()->print(*cerr.stream());
+          cerr << "' is impossible to select!\n";
+          exit(1);
+        }
+      }
+
       // Factor target node emission code (emitted by EmitResultCode) into
       // separate functions. Uniquing and share them among all instruction
       // selection routines.
@@ -1784,19 +1786,8 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
 
         // Replace the emission code within selection routines with calls to the
         // emission functions.
-        if (GenDebug) {
-          GeneratedCode.push_back(std::make_pair(0, "CurDAG->setSubgraphColor(N.getNode(), \"red\");"));
-        }
-        CallerCode = "SDNode *Result = Emit_" + utostr(EmitFuncNum) + CallerCode;
-        GeneratedCode.push_back(std::make_pair(3, CallerCode));
-        if (GenDebug) {
-          GeneratedCode.push_back(std::make_pair(0, "if(Result) {"));
-          GeneratedCode.push_back(std::make_pair(0, "  CurDAG->setSubgraphColor(Result, \"yellow\");"));
-          GeneratedCode.push_back(std::make_pair(0, "  CurDAG->setSubgraphColor(Result, \"black\");"));
-          GeneratedCode.push_back(std::make_pair(0, "}"));
-          //GeneratedCode.push_back(std::make_pair(0, "CurDAG->setSubgraphColor(N.getNode(), \"black\");"));
-        }
-        GeneratedCode.push_back(std::make_pair(0, "return Result;"));
+        CallerCode = "return Emit_" + utostr(EmitFuncNum) + CallerCode;
+        GeneratedCode.push_back(std::make_pair(false, CallerCode));
       }
 
       // Print function.
@@ -1823,36 +1814,6 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
 
       OS << "SDNode *Select_" << getLegalCName(OpName)
          << OpVTStr << "(const SDValue &N) {\n";    
-
-      // We want to emit all of the matching code now.  However, we want to emit
-      // the matches in order of minimal cost.  Sort the patterns so the least
-      // cost one is at the start.
-      std::stable_sort(CodeForPatterns.begin(), CodeForPatterns.end(),
-                       PatternSortingPredicate(CGP));
-
-      // Scan the code to see if all of the patterns are reachable and if it is
-      // possible that the last one might not match.
-      bool mightNotMatch = true;
-      for (unsigned i = 0, e = CodeForPatterns.size(); i != e; ++i) {
-        CodeList &GeneratedCode = CodeForPatterns[i].second;
-        mightNotMatch = false;
-
-        for (unsigned j = 0, e = GeneratedCode.size(); j != e; ++j) {
-          if (GeneratedCode[j].first == 1) { // predicate.
-            mightNotMatch = true;
-            break;
-          }
-        }
-      
-        // If this pattern definitely matches, and if it isn't the last one, the
-        // patterns after it CANNOT ever match.  Error out.
-        if (mightNotMatch == false && i != CodeForPatterns.size()-1) {
-          cerr << "Pattern '";
-          CodeForPatterns[i].first->getSrcPattern()->print(*cerr.stream());
-          cerr << "' is impossible to select!\n";
-          exit(1);
-        }
-      }
 
       // Loop through and reverse all of the CodeList vectors, as we will be
       // accessing them from their logical front, but accessing the end of a
@@ -1890,6 +1851,10 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "  std::vector<SDValue> Ops(N.getNode()->op_begin(), N.getNode()->op_end());\n"
      << "  SelectInlineAsmMemoryOperands(Ops);\n\n"
     
+     << "  // Ensure that the asm operands are themselves selected.\n"
+     << "  for (unsigned j = 0, e = Ops.size(); j != e; ++j)\n"
+     << "    AddToISelQueue(Ops[j]);\n\n"
+    
      << "  std::vector<MVT> VTs;\n"
      << "  VTs.push_back(MVT::Other);\n"
      << "  VTs.push_back(MVT::Flag);\n"
@@ -1907,6 +1872,7 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "  SDValue Chain = N.getOperand(0);\n"
      << "  unsigned C = cast<LabelSDNode>(N)->getLabelID();\n"
      << "  SDValue Tmp = CurDAG->getTargetConstant(C, MVT::i32);\n"
+     << "  AddToISelQueue(Chain);\n"
      << "  return CurDAG->SelectNodeTo(N.getNode(), TargetInstrInfo::DBG_LABEL,\n"
      << "                              MVT::Other, Tmp, Chain);\n"
      << "}\n\n";
@@ -1915,6 +1881,7 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "  SDValue Chain = N.getOperand(0);\n"
      << "  unsigned C = cast<LabelSDNode>(N)->getLabelID();\n"
      << "  SDValue Tmp = CurDAG->getTargetConstant(C, MVT::i32);\n"
+     << "  AddToISelQueue(Chain);\n"
      << "  return CurDAG->SelectNodeTo(N.getNode(), TargetInstrInfo::EH_LABEL,\n"
      << "                              MVT::Other, Tmp, Chain);\n"
      << "}\n\n";
@@ -1932,6 +1899,7 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "CurDAG->getTargetFrameIndex(FI, TLI.getPointerTy());\n"
      << "  SDValue Tmp2 = "
      << "CurDAG->getTargetGlobalAddress(GV, TLI.getPointerTy());\n"
+     << "  AddToISelQueue(Chain);\n"
      << "  return CurDAG->SelectNodeTo(N.getNode(), TargetInstrInfo::DECLARE,\n"
      << "                              MVT::Other, Tmp1, Tmp2, Chain);\n"
      << "}\n\n";
@@ -1941,6 +1909,7 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "  SDValue N1 = N.getOperand(1);\n"
      << "  unsigned C = cast<ConstantSDNode>(N1)->getZExtValue();\n"
      << "  SDValue Tmp = CurDAG->getTargetConstant(C, MVT::i32);\n"
+     << "  AddToISelQueue(N0);\n"
      << "  return CurDAG->SelectNodeTo(N.getNode(), TargetInstrInfo::EXTRACT_SUBREG,\n"
      << "                              N.getValueType(), N0, Tmp);\n"
      << "}\n\n";
@@ -1951,19 +1920,21 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "  SDValue N2 = N.getOperand(2);\n"
      << "  unsigned C = cast<ConstantSDNode>(N2)->getZExtValue();\n"
      << "  SDValue Tmp = CurDAG->getTargetConstant(C, MVT::i32);\n"
+     << "  AddToISelQueue(N1);\n"
+     << "  AddToISelQueue(N0);\n"
      << "  return CurDAG->SelectNodeTo(N.getNode(), TargetInstrInfo::INSERT_SUBREG,\n"
      << "                              N.getValueType(), N0, N1, Tmp);\n"
      << "}\n\n";
 
   OS << "// The main instruction selector code.\n"
      << "SDNode *SelectCode(SDValue N) {\n"
+     << "  if (N.isMachineOpcode()) {\n"
+     << "    return NULL;   // Already selected.\n"
+     << "  }\n\n"
      << "  MVT::SimpleValueType NVT = N.getNode()->getValueType(0).getSimpleVT();\n"
      << "  switch (N.getOpcode()) {\n"
-     << "  default:\n"
-     << "    assert(!N.isMachineOpcode() && \"Node already selected!\");\n"
-     << "    break;\n"
-     << "  case ISD::EntryToken:       // These nodes remain the same.\n"
-     << "  case ISD::MEMOPERAND:\n"
+     << "  default: break;\n"
+     << "  case ISD::EntryToken:       // These leaves remain the same.\n"
      << "  case ISD::BasicBlock:\n"
      << "  case ISD::Register:\n"
      << "  case ISD::HANDLENODE:\n"
@@ -1974,15 +1945,20 @@ void DAGISelEmitter::EmitInstructionSelector(std::ostream &OS) {
      << "  case ISD::TargetExternalSymbol:\n"
      << "  case ISD::TargetJumpTable:\n"
      << "  case ISD::TargetGlobalTLSAddress:\n"
-     << "  case ISD::TargetGlobalAddress:\n"
-     << "  case ISD::TokenFactor:\n"
-     << "  case ISD::CopyFromReg:\n"
-     << "  case ISD::CopyToReg: {\n"
+     << "  case ISD::TargetGlobalAddress: {\n"
      << "    return NULL;\n"
      << "  }\n"
      << "  case ISD::AssertSext:\n"
      << "  case ISD::AssertZext: {\n"
+     << "    AddToISelQueue(N.getOperand(0));\n"
      << "    ReplaceUses(N, N.getOperand(0));\n"
+     << "    return NULL;\n"
+     << "  }\n"
+     << "  case ISD::TokenFactor:\n"
+     << "  case ISD::CopyFromReg:\n"
+     << "  case ISD::CopyToReg: {\n"
+     << "    for (unsigned i = 0, e = N.getNumOperands(); i != e; ++i)\n"
+     << "      AddToISelQueue(N.getOperand(i));\n"
      << "    return NULL;\n"
      << "  }\n"
      << "  case ISD::INLINEASM: return Select_INLINEASM(N);\n"

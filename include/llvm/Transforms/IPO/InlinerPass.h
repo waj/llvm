@@ -18,13 +18,12 @@
 #define INLINER_H
 
 #include "llvm/CallGraphSCCPass.h"
-#include "llvm/Transforms/Utils/InlineCost.h"
 
 namespace llvm {
   class CallSite;
 
 /// Inliner - This class contains all of the helper code which is used to
-/// perform the inlining operations that do not depend on the policy.
+/// perform the inlining operations that does not depend on the policy.
 ///
 struct Inliner : public CallGraphSCCPass {
   explicit Inliner(void *ID);
@@ -54,24 +53,16 @@ struct Inliner : public CallGraphSCCPass {
   /// returned is greater than the current inline threshold, the call site is
   /// not inlined.
   ///
-  virtual InlineCost getInlineCost(CallSite CS) = 0;
+  virtual int getInlineCost(CallSite CS) = 0;
 
   // getInlineFudgeFactor - Return a > 1.0 factor if the inliner should use a
   // higher threshold to determine if the function call should be inlined.
   ///
   virtual float getInlineFudgeFactor(CallSite CS) = 0;
 
-  /// removeDeadFunctions - Remove dead functions that are not included in
-  /// DNR (Do Not Remove) list.
-  bool removeDeadFunctions(CallGraph &CG, 
-                           SmallPtrSet<const Function *, 16> *DNR = NULL);
 private:
   // InlineThreshold - Cache the value here for easy access.
   unsigned InlineThreshold;
-
-  /// shouldInline - Return true if the inliner should attempt to
-  /// inline at the given CallSite.
-  bool shouldInline(CallSite CS);
 };
 
 } // End llvm namespace

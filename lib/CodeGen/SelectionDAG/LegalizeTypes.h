@@ -35,9 +35,9 @@ class VISIBILITY_HIDDEN DAGTypeLegalizer {
   TargetLowering &TLI;
   SelectionDAG &DAG;
 public:
-  // NodeIdFlags - This pass uses the NodeId on the SDNodes to hold information
+  // NodeIDFlags - This pass uses the NodeID on the SDNodes to hold information
   // about the state of the node.  The enum has all the values.
-  enum NodeIdFlags {
+  enum NodeIDFlags {
     /// ReadyToProcess - All operands have been processed, so this node is ready
     /// to be handled.
     ReadyToProcess = 0,
@@ -79,16 +79,7 @@ private:
     case TargetLowering::Legal:
       return Legal;
     case TargetLowering::Promote:
-      // Promote can mean
-      //   1) For integers, use a larger integer type (e.g. i8 -> i32).
-      //   2) For vectors, use a wider vector type (e.g. v3i32 -> v4i32).
-      if (!VT.isVector())
-        return PromoteInteger;
-      else if (VT.getVectorNumElements() == 1)
-        return ScalarizeVector;
-      else
-        // TODO: move widen code to LegalizeTypes.
-        return SplitVector;
+      return PromoteInteger;
     case TargetLowering::Expand:
       // Expand can mean
       // 1) split scalar in half, 2) convert a float to an integer,
@@ -143,9 +134,9 @@ private:
   /// which operands are the expanded version of the input.
   DenseMap<SDValue, std::pair<SDValue, SDValue> > SplitVectors;
 
-  /// ReplacedValues - For values that have been replaced with another,
-  /// indicates the replacement value to use.
-  DenseMap<SDValue, SDValue> ReplacedValues;
+  /// ReplacedNodes - For nodes that have been replaced with another,
+  /// indicates the replacement node to use.
+  DenseMap<SDValue, SDValue> ReplacedNodes;
 
   /// Worklist - This defines a worklist of nodes to process.  In order to be
   /// pushed onto this worklist, all operands of a node must have already been
@@ -162,36 +153,34 @@ public:
 
   void run();
 
-  /// ReanalyzeNode - Recompute the NodeId and correct processed operands
+  /// ReanalyzeNode - Recompute the NodeID and correct processed operands
   /// for the specified node, adding it to the worklist if ready.
-  void ReanalyzeNode(SDNode *N) {
+  SDNode *ReanalyzeNode(SDNode *N) {
     N->setNodeId(NewNode);
-    AnalyzeNewNode(N);
-    // The node may have changed but we don't care.
+    return AnalyzeNewNode(N);
   }
 
   void NoteDeletion(SDNode *Old, SDNode *New) {
     ExpungeNode(Old);
     ExpungeNode(New);
     for (unsigned i = 0, e = Old->getNumValues(); i != e; ++i)
-      ReplacedValues[SDValue(Old, i)] = SDValue(New, i);
+      ReplacedNodes[SDValue(Old, i)] = SDValue(New, i);
   }
 
 private:
+  void AnalyzeNewNode(SDValue &Val);
   SDNode *AnalyzeNewNode(SDNode *N);
-  void AnalyzeNewValue(SDValue &Val);
 
   void ReplaceValueWith(SDValue From, SDValue To);
   void ReplaceNodeWith(SDNode *From, SDNode *To);
 
-  void RemapValue(SDValue &N);
+  void RemapNode(SDValue &N);
   void ExpungeNode(SDNode *N);
 
   // Common routines.
   SDValue CreateStackStoreLoad(SDValue Op, MVT DestVT);
   SDValue MakeLibCall(RTLIB::Libcall LC, MVT RetVT,
-                      const SDValue *Ops, unsigned NumOps, bool isSigned);
-  SDValue LibCallify(RTLIB::Libcall LC, SDNode *N, bool isSigned);
+                        const SDValue *Ops, unsigned NumOps, bool isSigned);
 
   SDValue BitConvertToInteger(SDValue Op);
   SDValue JoinIntegers(SDValue Lo, SDValue Hi);
@@ -199,7 +188,8 @@ private:
   void SplitInteger(SDValue Op, MVT LoVT, MVT HiVT,
                     SDValue &Lo, SDValue &Hi);
 
-  SDValue GetVectorElementPointer(SDValue VecPtr, MVT EltVT, SDValue Index);
+  SDValue GetVectorElementPointer(SDValue VecPtr, MVT EltVT,
+                                    SDValue Index);
 
   //===--------------------------------------------------------------------===//
   // Integer Promotion Support: LegalizeIntegerTypes.cpp
@@ -207,7 +197,7 @@ private:
 
   SDValue GetPromotedInteger(SDValue Op) {
     SDValue &PromotedOp = PromotedIntegers[Op];
-    RemapValue(PromotedOp);
+    RemapNode(PromotedOp);
     assert(PromotedOp.getNode() && "Operand wasn't promoted?");
     return PromotedOp;
   }
@@ -225,8 +215,6 @@ private:
   void PromoteIntegerResult(SDNode *N, unsigned ResNo);
   SDValue PromoteIntRes_AssertSext(SDNode *N);
   SDValue PromoteIntRes_AssertZext(SDNode *N);
-  SDValue PromoteIntRes_Atomic1(AtomicSDNode *N);
-  SDValue PromoteIntRes_Atomic2(AtomicSDNode *N);
   SDValue PromoteIntRes_BIT_CONVERT(SDNode *N);
   SDValue PromoteIntRes_BSWAP(SDNode *N);
   SDValue PromoteIntRes_BUILD_PAIR(SDNode *N);
@@ -336,7 +324,7 @@ private:
 
   SDValue GetSoftenedFloat(SDValue Op) {
     SDValue &SoftenedOp = SoftenedFloats[Op];
-    RemapValue(SoftenedOp);
+    RemapNode(SoftenedOp);
     assert(SoftenedOp.getNode() && "Operand wasn't converted to integer?");
     return SoftenedOp;
   }
@@ -354,7 +342,6 @@ private:
   SDValue SoftenFloatRes_FMUL(SDNode *N);
   SDValue SoftenFloatRes_FP_EXTEND(SDNode *N);
   SDValue SoftenFloatRes_FP_ROUND(SDNode *N);
-  SDValue SoftenFloatRes_FPOW(SDNode *N);
   SDValue SoftenFloatRes_FPOWI(SDNode *N);
   SDValue SoftenFloatRes_FSUB(SDNode *N);
   SDValue SoftenFloatRes_LOAD(SDNode *N);
@@ -389,26 +376,11 @@ private:
   void ExpandFloatRes_ConstantFP(SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandFloatRes_FABS      (SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandFloatRes_FADD      (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FCEIL     (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FCOS      (SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandFloatRes_FDIV      (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FEXP      (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FEXP2     (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FFLOOR    (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FLOG      (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FLOG2     (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FLOG10    (SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandFloatRes_FMUL      (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FNEARBYINT(SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandFloatRes_FNEG      (SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandFloatRes_FP_EXTEND (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FPOW      (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FPOWI     (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FRINT     (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FSIN      (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FSQRT     (SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandFloatRes_FSUB      (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandFloatRes_FTRUNC    (SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandFloatRes_LOAD      (SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandFloatRes_XINT_TO_FP(SDNode *N, SDValue &Lo, SDValue &Hi);
 
@@ -431,7 +403,7 @@ private:
 
   SDValue GetScalarizedVector(SDValue Op) {
     SDValue &ScalarizedOp = ScalarizedVectors[Op];
-    RemapValue(ScalarizedOp);
+    RemapNode(ScalarizedOp);
     assert(ScalarizedOp.getNode() && "Operand wasn't scalarized?");
     return ScalarizedOp;
   }
@@ -443,12 +415,10 @@ private:
   SDValue ScalarizeVecRes_UnaryOp(SDNode *N);
 
   SDValue ScalarizeVecRes_BIT_CONVERT(SDNode *N);
-  SDValue ScalarizeVecRes_EXTRACT_SUBVECTOR(SDNode *N);
   SDValue ScalarizeVecRes_FPOWI(SDNode *N);
   SDValue ScalarizeVecRes_INSERT_VECTOR_ELT(SDNode *N);
   SDValue ScalarizeVecRes_LOAD(LoadSDNode *N);
   SDValue ScalarizeVecRes_SELECT(SDNode *N);
-  SDValue ScalarizeVecRes_SELECT_CC(SDNode *N);
   SDValue ScalarizeVecRes_UNDEF(SDNode *N);
   SDValue ScalarizeVecRes_VECTOR_SHUFFLE(SDNode *N);
   SDValue ScalarizeVecRes_VSETCC(SDNode *N);
@@ -456,7 +426,6 @@ private:
   // Vector Operand Scalarization: <1 x ty> -> ty.
   bool ScalarizeVectorOperand(SDNode *N, unsigned OpNo);
   SDValue ScalarizeVecOp_BIT_CONVERT(SDNode *N);
-  SDValue ScalarizeVecOp_CONCAT_VECTORS(SDNode *N);
   SDValue ScalarizeVecOp_EXTRACT_VECTOR_ELT(SDNode *N);
   SDValue ScalarizeVecOp_STORE(StoreSDNode *N, unsigned OpNo);
 
@@ -476,7 +445,6 @@ private:
   void SplitVecRes_BUILD_PAIR(SDNode *N, SDValue &Lo, SDValue &Hi);
   void SplitVecRes_BUILD_VECTOR(SDNode *N, SDValue &Lo, SDValue &Hi);
   void SplitVecRes_CONCAT_VECTORS(SDNode *N, SDValue &Lo, SDValue &Hi);
-  void SplitVecRes_EXTRACT_SUBVECTOR(SDNode *N, SDValue &Lo, SDValue &Hi);
   void SplitVecRes_FPOWI(SDNode *N, SDValue &Lo, SDValue &Hi);
   void SplitVecRes_INSERT_VECTOR_ELT(SDNode *N, SDValue &Lo, SDValue &Hi);
   void SplitVecRes_LOAD(LoadSDNode *N, SDValue &Lo, SDValue &Hi);
@@ -486,7 +454,6 @@ private:
 
   // Vector Operand Splitting: <128 x ty> -> 2 x <64 x ty>.
   bool SplitVectorOperand(SDNode *N, unsigned OpNo);
-  SDValue SplitVecOp_UnaryOp(SDNode *N);
 
   SDValue SplitVecOp_BIT_CONVERT(SDNode *N);
   SDValue SplitVecOp_EXTRACT_SUBVECTOR(SDNode *N);
@@ -543,7 +510,6 @@ private:
   void ExpandRes_EXTRACT_ELEMENT   (SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandRes_EXTRACT_VECTOR_ELT(SDNode *N, SDValue &Lo, SDValue &Hi);
   void ExpandRes_NormalLoad        (SDNode *N, SDValue &Lo, SDValue &Hi);
-  void ExpandRes_VAARG             (SDNode *N, SDValue &Lo, SDValue &Hi);
 
   // Generic Operand Expansion.
   SDValue ExpandOp_BIT_CONVERT    (SDNode *N);

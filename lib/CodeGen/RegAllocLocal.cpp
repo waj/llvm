@@ -37,7 +37,7 @@ STATISTIC(NumStores, "Number of stores added");
 STATISTIC(NumLoads , "Number of loads added");
 
 static RegisterRegAlloc
-  localRegAlloc("local", "local register allocator",
+  localRegAlloc("local", "  local register allocator",
                 createLocalRegisterAllocator);
 
 namespace {
@@ -575,26 +575,8 @@ void RALocal::ComputeLocalLiveness(MachineBasicBlock& MBB) {
       // them for later.  Also, we have to process these
       // _before_ processing the defs, since an instr
       // uses regs before it defs them.
-      if (MO.isReg() && MO.getReg() && MO.isUse()) {
+      if (MO.isReg() && MO.getReg() && MO.isUse())
         LastUseDef[MO.getReg()] = std::make_pair(I, i);
-        
-        
-        if (TargetRegisterInfo::isVirtualRegister(MO.getReg())) continue;
-        
-        const unsigned* subregs = TRI->getAliasSet(MO.getReg());
-        if (subregs) {
-          while (*subregs) {
-            DenseMap<unsigned, std::pair<MachineInstr*, unsigned> >::iterator
-              alias = LastUseDef.find(*subregs);
-            
-            if (alias != LastUseDef.end() &&
-                alias->second.first != I)
-              LastUseDef[*subregs] = std::make_pair(I, i);
-            
-            ++subregs;
-          }
-        }
-      }
     }
     
     for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i) {

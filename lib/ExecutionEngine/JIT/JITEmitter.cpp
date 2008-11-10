@@ -35,12 +35,9 @@
 #include "llvm/System/Disassembler.h"
 #include "llvm/System/Memory.h"
 #include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
 #include <algorithm>
-#ifndef NDEBUG
-#include <iomanip>
-#endif
+#include <set>
 using namespace llvm;
 
 STATISTIC(NumBytes, "Number of bytes of machine code compiled");
@@ -62,9 +59,9 @@ namespace {
     /// corresponds to.
     std::map<void*, Function*> StubToFunctionMap;
 
-    /// GlobalToIndirectSymMap - Keep track of the indirect symbol created for a
+    /// GlobalToLazyPtrMap - Keep track of the lazy pointer created for a
     /// particular GlobalVariable so that we can reuse them if necessary.
-    std::map<GlobalValue*, void*> GlobalToIndirectSymMap;
+    std::map<GlobalValue*, void*> GlobalToLazyPtrMap;
 
   public:
     std::map<Function*, void*>& getFunctionToStubMap(const MutexGuard& locked) {
@@ -78,9 +75,9 @@ namespace {
     }
 
     std::map<GlobalValue*, void*>&
-    getGlobalToIndirectSymMap(const MutexGuard& locked) {
+    getGlobalToLazyPtrMap(const MutexGuard& locked) {
       assert(locked.holds(TheJIT->lock));
-      return GlobalToIndirectSymMap;
+      return GlobalToLazyPtrMap;
     }
   };
 
@@ -123,9 +120,9 @@ namespace {
     /// specified address, created lazily on demand.
     void *getExternalFunctionStub(void *FnAddr);
 
-    /// getGlobalValueIndirectSym - Return an indirect symbol containing the
-    /// specified GV address.
-    void *getGlobalValueIndirectSym(GlobalValue *V, void *GVAddress);
+    /// getGlobalValueLazyPtr - Return a lazy pointer containing the specified
+    /// GV address.
+    void *getGlobalValueLazyPtr(GlobalValue *V, void *GVAddress);
 
     /// AddCallbackAtLocation - If the target is capable of rewriting an
     /// instruction without the use of a stub, record the location of the use so
@@ -187,23 +184,23 @@ void *JITResolver::getFunctionStub(Function *F) {
   return Stub;
 }
 
-/// getGlobalValueIndirectSym - Return a lazy pointer containing the specified
+/// getGlobalValueLazyPtr - Return a lazy pointer containing the specified
 /// GV address.
-void *JITResolver::getGlobalValueIndirectSym(GlobalValue *GV, void *GVAddress) {
+void *JITResolver::getGlobalValueLazyPtr(GlobalValue *GV, void *GVAddress) {
   MutexGuard locked(TheJIT->lock);
 
   // If we already have a stub for this global variable, recycle it.
-  void *&IndirectSym = state.getGlobalToIndirectSymMap(locked)[GV];
-  if (IndirectSym) return IndirectSym;
+  void *&LazyPtr = state.getGlobalToLazyPtrMap(locked)[GV];
+  if (LazyPtr) return LazyPtr;
 
   // Otherwise, codegen a new lazy pointer.
-  IndirectSym = TheJIT->getJITInfo().emitGlobalValueIndirectSym(GV, GVAddress,
-                                                     *TheJIT->getCodeEmitter());
+  LazyPtr = TheJIT->getJITInfo().emitGlobalValueLazyPtr(GV, GVAddress,
+                                                    *TheJIT->getCodeEmitter());
 
-  DOUT << "JIT: Indirect symbol emitted at [" << IndirectSym << "] for GV '"
+  DOUT << "JIT: Stub emitted at [" << LazyPtr << "] for GV '"
        << GV->getName() << "'\n";
 
-  return IndirectSym;
+  return LazyPtr;
 }
 
 /// getExternalFunctionStub - Return a stub for the function at the
@@ -226,7 +223,7 @@ unsigned JITResolver::getGOTIndexForAddr(void* addr) {
   if (!idx) {
     idx = ++nextGOTIndex;
     revGOTMap[addr] = idx;
-    DOUT << "JIT: Adding GOT entry " << idx << " for addr [" << addr << "]\n";
+    DOUT << "Adding GOT entry " << idx << " for addr " << addr << "\n";
   }
   return idx;
 }
@@ -485,7 +482,7 @@ namespace {
     MachineModuleInfo* MMI;
 
     // GVSet - a set to keep track of which globals have been seen
-    SmallPtrSet<const GlobalVariable*, 8> GVSet;
+    std::set<const GlobalVariable*> GVSet;
 
   public:
     JITEmitter(JIT &jit, JITMemoryManager *JMM) : Resolver(jit) {
@@ -517,13 +514,9 @@ namespace {
     void initJumpTableInfo(MachineJumpTableInfo *MJTI);
     void emitJumpTableInfo(MachineJumpTableInfo *MJTI);
     
-    virtual void startGVStub(const GlobalValue* GV, unsigned StubSize,
+    virtual void startFunctionStub(const GlobalValue* F, unsigned StubSize,
                                    unsigned Alignment = 1);
-    virtual void* finishGVStub(const GlobalValue *GV);
-
-    /// allocateSpace - Reserves space in the current block if any, or
-    /// allocate a new one of the given size.
-    virtual void *allocateSpace(intptr_t Size, unsigned Alignment);
+    virtual void* finishFunctionStub(const GlobalValue *F);
 
     virtual void addRelocation(const MachineRelocation &MR) {
       Relocations.push_back(MR);
@@ -533,8 +526,6 @@ namespace {
       if (MBBLocations.size() <= (unsigned)MBB->getNumber())
         MBBLocations.resize((MBB->getNumber()+1)*2);
       MBBLocations[MBB->getNumber()] = getCurrentPCValue();
-      DOUT << "JIT: Emitting BB" << MBB->getNumber() << " at ["
-           << (void*) getCurrentPCValue() << "]\n";
     }
 
     virtual intptr_t getConstantPoolEntryAddress(unsigned Entry) const;
@@ -575,8 +566,8 @@ namespace {
 
   private:
     void *getPointerToGlobal(GlobalValue *GV, void *Reference, bool NoNeedStub);
-    void *getPointerToGVIndirectSym(GlobalValue *V, void *Reference,
-                                   bool NoNeedStub);
+    void *getPointerToGVLazyPtr(GlobalValue *V, void *Reference,
+                                bool NoNeedStub);
     unsigned addSizeOfGlobal(const GlobalVariable *GV, unsigned Size);
     unsigned addSizeOfGlobalsInConstantVal(const Constant *C, unsigned Size);
     unsigned addSizeOfGlobalsInInitializer(const Constant *Init, unsigned Size);
@@ -618,13 +609,13 @@ void *JITEmitter::getPointerToGlobal(GlobalValue *V, void *Reference,
   return Resolver.getFunctionStub(F);
 }
 
-void *JITEmitter::getPointerToGVIndirectSym(GlobalValue *V, void *Reference,
+void *JITEmitter::getPointerToGVLazyPtr(GlobalValue *V, void *Reference,
                                         bool DoesntNeedStub) {
   // Make sure GV is emitted first.
   // FIXME: For now, if the GV is an external function we force the JIT to
-  // compile it so the indirect symbol will contain the fully resolved address.
+  // compile it so the lazy pointer will contain the fully resolved address.
   void *GVAddress = getPointerToGlobal(V, Reference, true);
-  return Resolver.getGlobalValueIndirectSym(V, GVAddress);
+  return Resolver.getGlobalValueLazyPtr(V, GVAddress);
 }
 
 static unsigned GetConstantPoolSizeInBytes(MachineConstantPool *MCP) {
@@ -666,7 +657,7 @@ unsigned JITEmitter::addSizeOfGlobal(const GlobalVariable *GV, unsigned Size) {
   size_t GVSize = (size_t)TheJIT->getTargetData()->getABITypeSize(ElTy);
   size_t GVAlign = 
       (size_t)TheJIT->getTargetData()->getPreferredAlignment(GV);
-  DOUT << "JIT: Adding in size " << GVSize << " alignment " << GVAlign;
+  DOUT << "Adding in size " << GVSize << " alignment " << GVAlign;
   DEBUG(GV->dump());
   // Assume code section ends with worst possible alignment, so first
   // variable needs maximal padding.
@@ -730,7 +721,7 @@ unsigned JITEmitter::addSizeOfGlobalsInConstantVal(const Constant *C,
 
   if (C->getType()->getTypeID() == Type::PointerTyID)
     if (const GlobalVariable* GV = dyn_cast<GlobalVariable>(C))
-      if (GVSet.insert(GV))
+      if (GVSet.insert(GV).second)
         Size = addSizeOfGlobal(GV, Size);
 
   return Size;
@@ -782,17 +773,17 @@ unsigned JITEmitter::GetSizeOfGlobalsInBytes(MachineFunction &MF) {
           // assuming the addresses of the new globals in this module
           // start at 0 (or something) and adjusting them after codegen
           // complete.  Another possibility is to grab a marker bit in GV.
-          if (GVSet.insert(GV))
+          if (GVSet.insert(GV).second)
             // A variable as yet unseen.  Add in its size.
             Size = addSizeOfGlobal(GV, Size);
         }
       }
     }
   }
-  DOUT << "JIT: About to look through initializers\n";
+  DOUT << "About to look through initializers\n";
   // Look for more globals that are referenced only from initializers.
   // GVSet.end is computed each time because the set can grow as we go.
-  for (SmallPtrSet<const GlobalVariable *, 8>::iterator I = GVSet.begin(); 
+  for (std::set<const GlobalVariable *>::iterator I = GVSet.begin(); 
        I != GVSet.end(); I++) {
     const GlobalVariable* GV = *I;
     if (GV->hasInitializer())
@@ -803,14 +794,11 @@ unsigned JITEmitter::GetSizeOfGlobalsInBytes(MachineFunction &MF) {
 }
 
 void JITEmitter::startFunction(MachineFunction &F) {
-  DOUT << "JIT: Starting CodeGen of Function "
-       << F.getFunction()->getName() << "\n";
-
   uintptr_t ActualSize = 0;
   // Set the memory writable, if it's not already
   MemMgr->setMemoryWritable();
   if (MemMgr->NeedsExactSize()) {
-    DOUT << "JIT: ExactSize\n";
+    DOUT << "ExactSize\n";
     const TargetInstrInfo* TII = F.getTarget().getInstrInfo();
     MachineJumpTableInfo *MJTI = F.getJumpTableInfo();
     MachineConstantPool *MCP = F.getConstantPool();
@@ -838,12 +826,12 @@ void JITEmitter::startFunction(MachineFunction &F) {
     // Add the function size
     ActualSize += TII->GetFunctionSizeInBytes(F);
 
-    DOUT << "JIT: ActualSize before globals " << ActualSize << "\n";
+    DOUT << "ActualSize before globals " << ActualSize << "\n";
     // Add the size of the globals that will be allocated after this function.
     // These are all the ones referenced from this function that were not
     // previously allocated.
     ActualSize += GetSizeOfGlobalsInBytes(F);
-    DOUT << "JIT: ActualSize after globals " << ActualSize << "\n";
+    DOUT << "ActualSize after globals " << ActualSize << "\n";
   }
 
   BufferBegin = CurBufferPtr = MemMgr->startFunctionBody(F.getFunction(),
@@ -883,35 +871,31 @@ bool JITEmitter::finishFunction(MachineFunction &F) {
     // Resolve the relocations to concrete pointers.
     for (unsigned i = 0, e = Relocations.size(); i != e; ++i) {
       MachineRelocation &MR = Relocations[i];
-      void *ResultPtr = 0;
-      if (!MR.letTargetResolve()) {
-        if (MR.isExternalSymbol()) {
-          ResultPtr = TheJIT->getPointerToNamedFunction(MR.getExternalSymbol());
-          DOUT << "JIT: Map \'" << MR.getExternalSymbol() << "\' to ["
-               << ResultPtr << "]\n";  
+      void *ResultPtr;
+      if (MR.isString()) {
+        ResultPtr = TheJIT->getPointerToNamedFunction(MR.getString());
 
-          // If the target REALLY wants a stub for this function, emit it now.
-          if (!MR.doesntNeedStub())
-            ResultPtr = Resolver.getExternalFunctionStub(ResultPtr);
-        } else if (MR.isGlobalValue()) {
-          ResultPtr = getPointerToGlobal(MR.getGlobalValue(),
-                                         BufferBegin+MR.getMachineCodeOffset(),
-                                         MR.doesntNeedStub());
-        } else if (MR.isIndirectSymbol()) {
-          ResultPtr = getPointerToGVIndirectSym(MR.getGlobalValue(),
+        // If the target REALLY wants a stub for this function, emit it now.
+        if (!MR.doesntNeedStub())
+          ResultPtr = Resolver.getExternalFunctionStub(ResultPtr);
+      } else if (MR.isGlobalValue()) {
+        ResultPtr = getPointerToGlobal(MR.getGlobalValue(),
+                                       BufferBegin+MR.getMachineCodeOffset(),
+                                       MR.doesntNeedStub());
+      } else if (MR.isGlobalValueLazyPtr()) {
+        ResultPtr = getPointerToGVLazyPtr(MR.getGlobalValue(),
                                           BufferBegin+MR.getMachineCodeOffset(),
                                           MR.doesntNeedStub());
-        } else if (MR.isBasicBlock()) {
-          ResultPtr = (void*)getMachineBasicBlockAddress(MR.getBasicBlock());
-        } else if (MR.isConstantPoolIndex()) {
-          ResultPtr = (void*)getConstantPoolEntryAddress(MR.getConstantPoolIndex());
-        } else {
-          assert(MR.isJumpTableIndex());
-          ResultPtr=(void*)getJumpTableEntryAddress(MR.getJumpTableIndex());
-        }
-
-        MR.setResultPointer(ResultPtr);
+      } else if (MR.isBasicBlock()) {
+        ResultPtr = (void*)getMachineBasicBlockAddress(MR.getBasicBlock());
+      } else if (MR.isConstantPoolIndex()) {
+        ResultPtr=(void*)getConstantPoolEntryAddress(MR.getConstantPoolIndex());
+      } else {
+        assert(MR.isJumpTableIndex());
+        ResultPtr=(void*)getJumpTableEntryAddress(MR.getJumpTableIndex());
       }
+
+      MR.setResultPointer(ResultPtr);
 
       // if we are managing the GOT and the relocation wants an index,
       // give it one
@@ -919,7 +903,7 @@ bool JITEmitter::finishFunction(MachineFunction &F) {
         unsigned idx = Resolver.getGOTIndexForAddr(ResultPtr);
         MR.setGOTIndex(idx);
         if (((void**)MemMgr->getGOTBase())[idx] != ResultPtr) {
-          DOUT << "JIT: GOT was out of date for " << ResultPtr
+          DOUT << "GOT was out of date for " << ResultPtr
                << " pointing at " << ((void**)MemMgr->getGOTBase())[idx]
                << "\n";
           ((void**)MemMgr->getGOTBase())[idx] = ResultPtr;
@@ -931,21 +915,20 @@ bool JITEmitter::finishFunction(MachineFunction &F) {
                                   Relocations.size(), MemMgr->getGOTBase());
   }
 
+  unsigned char *FnEnd   = CurBufferPtr;
+  
+  MemMgr->endFunctionBody(F.getFunction(), BufferBegin, FnEnd);
+  NumBytes += FnEnd-FnStart;
+
   // Update the GOT entry for F to point to the new code.
   if (MemMgr->isManagingGOT()) {
     unsigned idx = Resolver.getGOTIndexForAddr((void*)BufferBegin);
     if (((void**)MemMgr->getGOTBase())[idx] != (void*)BufferBegin) {
-      DOUT << "JIT: GOT was out of date for " << (void*)BufferBegin
+      DOUT << "GOT was out of date for " << (void*)BufferBegin
            << " pointing at " << ((void**)MemMgr->getGOTBase())[idx] << "\n";
       ((void**)MemMgr->getGOTBase())[idx] = (void*)BufferBegin;
     }
   }
-
-  unsigned char *FnEnd = CurBufferPtr;
-
-  MemMgr->endFunctionBody(F.getFunction(), BufferBegin, FnEnd);
-  BufferBegin = CurBufferPtr = 0;
-  NumBytes += FnEnd-FnStart;
 
   // Invalidate the icache if necessary.
   sys::Memory::InvalidateInstructionCache(FnStart, FnEnd-FnStart);
@@ -965,23 +948,20 @@ bool JITEmitter::finishFunction(MachineFunction &F) {
 
 #ifndef NDEBUG
   {
-    DOUT << "JIT: Disassembled code:\n";
-    if (sys::hasDisassembler())
-      DOUT << sys::disassembleBuffer(FnStart, FnEnd-FnStart, (uintptr_t)FnStart);
-    else {
-      DOUT << std::hex;
-      int i;
-      unsigned char* q = FnStart;
-      for (i=1; q!=FnEnd; q++, i++) {
-        if (i%8==1)
-          DOUT << "JIT: 0x" << (long)q << ": ";
-        DOUT<< std::setw(2) << std::setfill('0') << (unsigned short)*q << " ";
-        if (i%8==0)
-          DOUT << '\n';
-      }
-      DOUT << std::dec;
-      DOUT<< '\n';
-    }
+  DOUT << std::hex;
+  int i;
+  unsigned char* q = FnStart;
+  for (i=1; q!=FnEnd; q++, i++) {
+    if (i%8==1)
+      DOUT << "0x" << (long)q << ": ";
+    DOUT<< (unsigned short)*q << " ";
+    if (i%8==0)
+      DOUT<<"\n";
+  }
+  DOUT << std::dec;
+  if (sys::hasDisassembler())
+    DOUT << "Disassembled code:\n"
+         << sys::disassembleBuffer(FnStart, FnEnd-FnStart, (uintptr_t)FnStart);
   }
 #endif
   if (ExceptionHandling) {
@@ -1013,22 +993,7 @@ bool JITEmitter::finishFunction(MachineFunction &F) {
   return false;
 }
 
-void* JITEmitter::allocateSpace(intptr_t Size, unsigned Alignment) {
-  if (BufferBegin)
-    return MachineCodeEmitter::allocateSpace(Size, Alignment);
-
-  // create a new memory block if there is no active one.
-  // care must be taken so that BufferBegin is invalidated when a
-  // block is trimmed
-  BufferBegin = CurBufferPtr = MemMgr->allocateSpace(Size, Alignment);
-  BufferEnd = BufferBegin+Size;
-  return CurBufferPtr;
-}
-
 void JITEmitter::emitConstantPool(MachineConstantPool *MCP) {
-  if (TheJIT->getJITInfo().hasCustomConstantPool())
-    return;
-
   const std::vector<MachineConstantPoolEntry> &Constants = MCP->getConstants();
   if (Constants.empty()) return;
 
@@ -1062,9 +1027,6 @@ void JITEmitter::emitConstantPool(MachineConstantPool *MCP) {
 }
 
 void JITEmitter::initJumpTableInfo(MachineJumpTableInfo *MJTI) {
-  if (TheJIT->getJITInfo().hasCustomJumpTables())
-    return;
-
   const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
   if (JT.empty()) return;
   
@@ -1082,9 +1044,6 @@ void JITEmitter::initJumpTableInfo(MachineJumpTableInfo *MJTI) {
 }
 
 void JITEmitter::emitJumpTableInfo(MachineJumpTableInfo *MJTI) {
-  if (TheJIT->getJITInfo().hasCustomJumpTables())
-    return;
-
   const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
   if (JT.empty() || JumpTableBase == 0) return;
   
@@ -1121,18 +1080,22 @@ void JITEmitter::emitJumpTableInfo(MachineJumpTableInfo *MJTI) {
   }
 }
 
-void JITEmitter::startGVStub(const GlobalValue* GV, unsigned StubSize,
-                             unsigned Alignment) {
+void JITEmitter::startFunctionStub(const GlobalValue* F, unsigned StubSize,
+                                   unsigned Alignment) {
   SavedBufferBegin = BufferBegin;
   SavedBufferEnd = BufferEnd;
   SavedCurBufferPtr = CurBufferPtr;
   
-  BufferBegin = CurBufferPtr = MemMgr->allocateStub(GV, StubSize, Alignment);
+  BufferBegin = CurBufferPtr = MemMgr->allocateStub(F, StubSize, Alignment);
   BufferEnd = BufferBegin+StubSize+1;
 }
 
-void *JITEmitter::finishGVStub(const GlobalValue* GV) {
+void *JITEmitter::finishFunctionStub(const GlobalValue* F) {
   NumBytes += getCurrentPCOffset();
+
+  // Invalidate the icache if necessary.
+  sys::Memory::InvalidateInstructionCache(BufferBegin, NumBytes);
+
   std::swap(SavedBufferBegin, BufferBegin);
   BufferEnd = SavedBufferEnd;
   CurBufferPtr = SavedCurBufferPtr;

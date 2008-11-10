@@ -59,7 +59,6 @@ class Proc<string Name, list<SubtargetFeature> Features>
 def : Proc<"generic",         []>;
 def : Proc<"i386",            []>;
 def : Proc<"i486",            []>;
-def : Proc<"i586",            []>;
 def : Proc<"pentium",         []>;
 def : Proc<"pentium-mmx",     [FeatureMMX]>;
 def : Proc<"i686",            []>;
@@ -117,7 +116,6 @@ def X86InstrInfo : InstrInfo {
                        "ImmTypeBits",
                        "FPFormBits",
                        "hasLockPrefix",
-                       "SegOvrBits",
                        "Opcode"];
   let TSFlagsShifts = [0,
                        6,
@@ -127,7 +125,6 @@ def X86InstrInfo : InstrInfo {
                        13,
                        16,
                        19,
-                       20,
                        24];
 }
 

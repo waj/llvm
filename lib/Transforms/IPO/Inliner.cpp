@@ -72,44 +72,6 @@ static bool InlineCallIfPossible(CallSite CS, CallGraph &CG,
   }
   return true;
 }
-        
-/// shouldInline - Return true if the inliner should attempt to inline
-/// at the given CallSite.
-bool Inliner::shouldInline(CallSite CS) {
-  InlineCost IC = getInlineCost(CS);
-  float FudgeFactor = getInlineFudgeFactor(CS);
-  
-  if (IC.isAlways()) {
-    DOUT << "    Inlining: cost=always"
-         << ", Call: " << *CS.getInstruction();
-    return true;
-  }
-  
-  if (IC.isNever()) {
-    DOUT << "    NOT Inlining: cost=never"
-         << ", Call: " << *CS.getInstruction();
-    return false;
-  }
-  
-  int Cost = IC.getValue();
-  int CurrentThreshold = InlineThreshold;
-  Function *Fn = CS.getCaller();
-  if (Fn && !Fn->isDeclaration() 
-      && Fn->hasFnAttr(Attribute::OptimizeForSize)
-      && InlineThreshold != 50) {
-    CurrentThreshold = 50;
-  }
-  
-  if (Cost >= (int)(CurrentThreshold * FudgeFactor)) {
-    DOUT << "    NOT Inlining: cost=" << Cost
-         << ", Call: " << *CS.getInstruction();
-    return false;
-  } else {
-    DOUT << "    Inlining: cost=" << Cost
-         << ", Call: " << *CS.getInstruction();
-    return true;
-  }
-}
 
 bool Inliner::runOnSCC(const std::vector<CallGraphNode*> &SCC) {
   CallGraph &CG = getAnalysis<CallGraph>();
@@ -174,7 +136,24 @@ bool Inliner::runOnSCC(const std::vector<CallGraphNode*> &SCC) {
         // If the policy determines that we should inline this function,
         // try to do so.
         CallSite CS = CallSites[CSi];
-        if (shouldInline(CS)) {
+        int InlineCost = getInlineCost(CS);
+        float FudgeFactor = getInlineFudgeFactor(CS);
+        
+        int CurrentThreshold = InlineThreshold;
+        Function *Fn = CS.getCaller();
+        if (Fn && !Fn->isDeclaration() 
+            && Fn->hasFnAttr(Attribute::OptimizeForSize)
+            && InlineThreshold != 50) {
+          CurrentThreshold = 50;
+        }
+        
+        if (InlineCost >= (int)(CurrentThreshold * FudgeFactor)) {
+          DOUT << "    NOT Inlining: cost=" << InlineCost
+               << ", Call: " << *CS.getInstruction();
+        } else {
+          DOUT << "    Inlining: cost=" << InlineCost
+               << ", Call: " << *CS.getInstruction();
+
           // Attempt to inline the function...
           if (InlineCallIfPossible(CS, CG, SCCFunctions, 
                                    getAnalysis<TargetData>())) {
@@ -204,13 +183,6 @@ bool Inliner::runOnSCC(const std::vector<CallGraphNode*> &SCC) {
 // doFinalization - Remove now-dead linkonce functions at the end of
 // processing to avoid breaking the SCC traversal.
 bool Inliner::doFinalization(CallGraph &CG) {
-  return removeDeadFunctions(CG);
-}
-
-  /// removeDeadFunctions - Remove dead functions that are not included in
-  /// DNR (Do Not Remove) list.
-bool Inliner::removeDeadFunctions(CallGraph &CG, 
-                                 SmallPtrSet<const Function *, 16> *DNR) {
   std::set<CallGraphNode*> FunctionsToRemove;
 
   // Scan for all of the functions, looking for ones that should now be removed
@@ -221,9 +193,6 @@ bool Inliner::removeDeadFunctions(CallGraph &CG,
       // If the only remaining users of the function are dead constants, remove
       // them.
       F->removeDeadConstantUsers();
-
-      if (DNR && DNR->count(F))
-        continue;
 
       if ((F->hasLinkOnceLinkage() || F->hasInternalLinkage()) &&
           F->use_empty()) {

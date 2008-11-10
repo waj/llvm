@@ -14,7 +14,6 @@
 #ifndef TGLEXER_H
 #define TGLEXER_H
 
-#include "llvm/Support/DataTypes.h"
 #include <vector>
 #include <string>
 #include <iosfwd>
@@ -63,7 +62,7 @@ class TGLexer {
   const char *TokStart;
   tgtok::TokKind CurCode;
   std::string CurStrVal;  // This is valid for ID, STRVAL, VARNAME, CODEFRAGMENT
-  int64_t CurIntVal;      // This is valid for INTVAL.
+  int CurIntVal;          // This is valid for INTVAL.
   
   /// IncludeRec / IncludeStack - This captures the current set of include
   /// directives we are nested within.
@@ -99,7 +98,7 @@ public:
            "This token doesn't have a string value");
     return CurStrVal;
   }
-  int64_t getCurIntVal() const {
+  int getCurIntVal() const {
     assert(CurCode == tgtok::IntVal && "This token isn't an integer");
     return CurIntVal;
   }

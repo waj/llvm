@@ -75,16 +75,19 @@ public:
   ///
   virtual bool finishFunction(MachineFunction &F) = 0;
   
-  /// startGVStub - This callback is invoked when the JIT needs the
-  /// address of a GV (e.g. function) that has not been code generated yet.
-  /// The StubSize specifies the total size required by the stub.
+  /// startFunctionStub - This callback is invoked when the JIT needs the
+  /// address of a function that has not been code generated yet.  The StubSize
+  /// specifies the total size required by the stub.  Stubs are not allowed to
+  /// have constant pools, the can only use the other emitByte*/emitWord*
+  /// methods.
   ///
-  virtual void startGVStub(const GlobalValue* GV, unsigned StubSize,
-                           unsigned Alignment = 1) = 0;
+  virtual void startFunctionStub(const GlobalValue* F, unsigned StubSize,
+                                 unsigned Alignment = 1) = 0;
 
-  /// finishGVStub - This callback is invoked to terminate a GV stub.
+  /// finishFunctionStub - This callback is invoked to terminate a function
+  /// stub.
   ///
-  virtual void *finishGVStub(const GlobalValue* F) = 0;
+  virtual void *finishFunctionStub(const GlobalValue* F) = 0;
 
   /// emitByte - This callback is invoked when a byte needs to be written to the
   /// output stream.
@@ -113,42 +116,6 @@ public:
   ///
   void emitWordBE(unsigned W) {
     if (CurBufferPtr+4 <= BufferEnd) {
-      *CurBufferPtr++ = (unsigned char)(W >> 24);
-      *CurBufferPtr++ = (unsigned char)(W >> 16);
-      *CurBufferPtr++ = (unsigned char)(W >>  8);
-      *CurBufferPtr++ = (unsigned char)(W >>  0);
-    } else {
-      CurBufferPtr = BufferEnd;
-    }
-  }
-
-  /// emitDWordLE - This callback is invoked when a 64-bit word needs to be
-  /// written to the output stream in little-endian format.
-  ///
-  void emitDWordLE(uint64_t W) {
-    if (CurBufferPtr+8 <= BufferEnd) {
-      *CurBufferPtr++ = (unsigned char)(W >>  0);
-      *CurBufferPtr++ = (unsigned char)(W >>  8);
-      *CurBufferPtr++ = (unsigned char)(W >> 16);
-      *CurBufferPtr++ = (unsigned char)(W >> 24);
-      *CurBufferPtr++ = (unsigned char)(W >> 32);
-      *CurBufferPtr++ = (unsigned char)(W >> 40);
-      *CurBufferPtr++ = (unsigned char)(W >> 48);
-      *CurBufferPtr++ = (unsigned char)(W >> 56);
-    } else {
-      CurBufferPtr = BufferEnd;
-    }
-  }
-  
-  /// emitDWordBE - This callback is invoked when a 64-bit word needs to be
-  /// written to the output stream in big-endian format.
-  ///
-  void emitDWordBE(uint64_t W) {
-    if (CurBufferPtr+8 <= BufferEnd) {
-      *CurBufferPtr++ = (unsigned char)(W >> 56);
-      *CurBufferPtr++ = (unsigned char)(W >> 48);
-      *CurBufferPtr++ = (unsigned char)(W >> 40);
-      *CurBufferPtr++ = (unsigned char)(W >> 32);
       *CurBufferPtr++ = (unsigned char)(W >> 24);
       *CurBufferPtr++ = (unsigned char)(W >> 16);
       *CurBufferPtr++ = (unsigned char)(W >>  8);
@@ -240,7 +207,7 @@ public:
   /// allocateSpace - Allocate a block of space in the current output buffer,
   /// returning null (and setting conditions to indicate buffer overflow) on
   /// failure.  Alignment is the alignment in bytes of the buffer desired.
-  virtual void *allocateSpace(intptr_t Size, unsigned Alignment) {
+  void *allocateSpace(intptr_t Size, unsigned Alignment) {
     emitAlignment(Alignment);
     void *Result = CurBufferPtr;
     

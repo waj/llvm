@@ -25,7 +25,6 @@
 #include "llvm/Instructions.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/IntrinsicInst.h"
-#include "llvm/Module.h"
 #include "llvm/CodeGen/FastISel.h"
 #include "llvm/CodeGen/GCStrategy.h"
 #include "llvm/CodeGen/GCMetadata.h"
@@ -35,7 +34,6 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetData.h"
@@ -392,17 +390,14 @@ static SDValue getCopyFromParts(SelectionDAG &DAG,
         ValueVT : MVT::getIntegerVT(RoundBits);
       SDValue Lo, Hi;
 
-      MVT HalfVT = ValueVT.isInteger() ?
-        MVT::getIntegerVT(RoundBits/2) :
-        MVT::getFloatingPointVT(RoundBits/2);
-
       if (RoundParts > 2) {
+        MVT HalfVT = MVT::getIntegerVT(RoundBits/2);
         Lo = getCopyFromParts(DAG, Parts, RoundParts/2, PartVT, HalfVT);
         Hi = getCopyFromParts(DAG, Parts+RoundParts/2, RoundParts/2,
                               PartVT, HalfVT);
       } else {
-        Lo = DAG.getNode(ISD::BIT_CONVERT, HalfVT, Parts[0]);
-        Hi = DAG.getNode(ISD::BIT_CONVERT, HalfVT, Parts[1]);
+        Lo = Parts[0];
+        Hi = Parts[1];
       }
       if (TLI.isBigEndian())
         std::swap(Lo, Hi);
@@ -517,8 +512,11 @@ static SDValue getCopyFromParts(SelectionDAG &DAG,
 /// getCopyToParts - Create a series of nodes that contain the specified value
 /// split into legal parts.  If the parts contain more bits than Val, then, for
 /// integers, ExtendKind can be used to specify how to generate the extra bits.
-static void getCopyToParts(SelectionDAG &DAG, SDValue Val,
-                           SDValue *Parts, unsigned NumParts, MVT PartVT,
+static void getCopyToParts(SelectionDAG &DAG,
+                           SDValue Val,
+                           SDValue *Parts,
+                           unsigned NumParts,
+                           MVT PartVT,
                            ISD::NodeType ExtendKind = ISD::ANY_EXTEND) {
   TargetLowering &TLI = DAG.getTargetLoweringInfo();
   MVT PtrVT = TLI.getPointerTy();
@@ -1000,104 +998,6 @@ static bool InBlock(const Value *V, const BasicBlock *BB) {
   return true;
 }
 
-/// getFCmpCondCode - Return the ISD condition code corresponding to
-/// the given LLVM IR floating-point condition code.  This includes
-/// consideration of global floating-point math flags.
-///
-static ISD::CondCode getFCmpCondCode(FCmpInst::Predicate Pred) {
-  ISD::CondCode FPC, FOC;
-  switch (Pred) {
-  case FCmpInst::FCMP_FALSE: FOC = FPC = ISD::SETFALSE; break;
-  case FCmpInst::FCMP_OEQ:   FOC = ISD::SETEQ; FPC = ISD::SETOEQ; break;
-  case FCmpInst::FCMP_OGT:   FOC = ISD::SETGT; FPC = ISD::SETOGT; break;
-  case FCmpInst::FCMP_OGE:   FOC = ISD::SETGE; FPC = ISD::SETOGE; break;
-  case FCmpInst::FCMP_OLT:   FOC = ISD::SETLT; FPC = ISD::SETOLT; break;
-  case FCmpInst::FCMP_OLE:   FOC = ISD::SETLE; FPC = ISD::SETOLE; break;
-  case FCmpInst::FCMP_ONE:   FOC = ISD::SETNE; FPC = ISD::SETONE; break;
-  case FCmpInst::FCMP_ORD:   FOC = FPC = ISD::SETO;   break;
-  case FCmpInst::FCMP_UNO:   FOC = FPC = ISD::SETUO;  break;
-  case FCmpInst::FCMP_UEQ:   FOC = ISD::SETEQ; FPC = ISD::SETUEQ; break;
-  case FCmpInst::FCMP_UGT:   FOC = ISD::SETGT; FPC = ISD::SETUGT; break;
-  case FCmpInst::FCMP_UGE:   FOC = ISD::SETGE; FPC = ISD::SETUGE; break;
-  case FCmpInst::FCMP_ULT:   FOC = ISD::SETLT; FPC = ISD::SETULT; break;
-  case FCmpInst::FCMP_ULE:   FOC = ISD::SETLE; FPC = ISD::SETULE; break;
-  case FCmpInst::FCMP_UNE:   FOC = ISD::SETNE; FPC = ISD::SETUNE; break;
-  case FCmpInst::FCMP_TRUE:  FOC = FPC = ISD::SETTRUE; break;
-  default:
-    assert(0 && "Invalid FCmp predicate opcode!");
-    FOC = FPC = ISD::SETFALSE;
-    break;
-  }
-  if (FiniteOnlyFPMath())
-    return FOC;
-  else 
-    return FPC;
-}
-
-/// getICmpCondCode - Return the ISD condition code corresponding to
-/// the given LLVM IR integer condition code.
-///
-static ISD::CondCode getICmpCondCode(ICmpInst::Predicate Pred) {
-  switch (Pred) {
-  case ICmpInst::ICMP_EQ:  return ISD::SETEQ;
-  case ICmpInst::ICMP_NE:  return ISD::SETNE;
-  case ICmpInst::ICMP_SLE: return ISD::SETLE;
-  case ICmpInst::ICMP_ULE: return ISD::SETULE;
-  case ICmpInst::ICMP_SGE: return ISD::SETGE;
-  case ICmpInst::ICMP_UGE: return ISD::SETUGE;
-  case ICmpInst::ICMP_SLT: return ISD::SETLT;
-  case ICmpInst::ICMP_ULT: return ISD::SETULT;
-  case ICmpInst::ICMP_SGT: return ISD::SETGT;
-  case ICmpInst::ICMP_UGT: return ISD::SETUGT;
-  default:
-    assert(0 && "Invalid ICmp predicate opcode!");
-    return ISD::SETNE;
-  }
-}
-
-/// EmitBranchForMergedCondition - Helper method for FindMergedConditions.
-/// This function emits a branch and is used at the leaves of an OR or an
-/// AND operator tree.
-///
-void
-SelectionDAGLowering::EmitBranchForMergedCondition(Value *Cond,
-                                                   MachineBasicBlock *TBB,
-                                                   MachineBasicBlock *FBB,
-                                                   MachineBasicBlock *CurBB) {
-  const BasicBlock *BB = CurBB->getBasicBlock();
-
-  // If the leaf of the tree is a comparison, merge the condition into
-  // the caseblock.
-  if (CmpInst *BOp = dyn_cast<CmpInst>(Cond)) {
-    // The operands of the cmp have to be in this block.  We don't know
-    // how to export them from some other block.  If this is the first block
-    // of the sequence, no exporting is needed.
-    if (CurBB == CurMBB ||
-        (isExportableFromCurrentBlock(BOp->getOperand(0), BB) &&
-         isExportableFromCurrentBlock(BOp->getOperand(1), BB))) {
-      ISD::CondCode Condition;
-      if (ICmpInst *IC = dyn_cast<ICmpInst>(Cond)) {
-        Condition = getICmpCondCode(IC->getPredicate());
-      } else if (FCmpInst *FC = dyn_cast<FCmpInst>(Cond)) {
-        Condition = getFCmpCondCode(FC->getPredicate());
-      } else {
-        Condition = ISD::SETEQ; // silence warning.
-        assert(0 && "Unknown compare instruction");
-      }
-
-      CaseBlock CB(Condition, BOp->getOperand(0),
-                   BOp->getOperand(1), NULL, TBB, FBB, CurBB);
-      SwitchCases.push_back(CB);
-      return;
-    }
-  }
-
-  // Create a CaseBlock record representing this branch.
-  CaseBlock CB(ISD::SETEQ, Cond, ConstantInt::getTrue(),
-               NULL, TBB, FBB, CurBB);
-  SwitchCases.push_back(CB);
-}
-
 /// FindMergedConditions - If Cond is an expression like 
 void SelectionDAGLowering::FindMergedConditions(Value *Cond,
                                                 MachineBasicBlock *TBB,
@@ -1106,14 +1006,82 @@ void SelectionDAGLowering::FindMergedConditions(Value *Cond,
                                                 unsigned Opc) {
   // If this node is not part of the or/and tree, emit it as a branch.
   Instruction *BOp = dyn_cast<Instruction>(Cond);
+
   if (!BOp || !(isa<BinaryOperator>(BOp) || isa<CmpInst>(BOp)) || 
       (unsigned)BOp->getOpcode() != Opc || !BOp->hasOneUse() ||
       BOp->getParent() != CurBB->getBasicBlock() ||
       !InBlock(BOp->getOperand(0), CurBB->getBasicBlock()) ||
       !InBlock(BOp->getOperand(1), CurBB->getBasicBlock())) {
-    EmitBranchForMergedCondition(Cond, TBB, FBB, CurBB);
+    const BasicBlock *BB = CurBB->getBasicBlock();
+    
+    // If the leaf of the tree is a comparison, merge the condition into 
+    // the caseblock.
+    if ((isa<ICmpInst>(Cond) || isa<FCmpInst>(Cond)) &&
+        // The operands of the cmp have to be in this block.  We don't know
+        // how to export them from some other block.  If this is the first block
+        // of the sequence, no exporting is needed.
+        (CurBB == CurMBB ||
+         (isExportableFromCurrentBlock(BOp->getOperand(0), BB) &&
+          isExportableFromCurrentBlock(BOp->getOperand(1), BB)))) {
+      BOp = cast<Instruction>(Cond);
+      ISD::CondCode Condition;
+      if (ICmpInst *IC = dyn_cast<ICmpInst>(Cond)) {
+        switch (IC->getPredicate()) {
+        default: assert(0 && "Unknown icmp predicate opcode!");
+        case ICmpInst::ICMP_EQ:  Condition = ISD::SETEQ;  break;
+        case ICmpInst::ICMP_NE:  Condition = ISD::SETNE;  break;
+        case ICmpInst::ICMP_SLE: Condition = ISD::SETLE;  break;
+        case ICmpInst::ICMP_ULE: Condition = ISD::SETULE; break;
+        case ICmpInst::ICMP_SGE: Condition = ISD::SETGE;  break;
+        case ICmpInst::ICMP_UGE: Condition = ISD::SETUGE; break;
+        case ICmpInst::ICMP_SLT: Condition = ISD::SETLT;  break;
+        case ICmpInst::ICMP_ULT: Condition = ISD::SETULT; break;
+        case ICmpInst::ICMP_SGT: Condition = ISD::SETGT;  break;
+        case ICmpInst::ICMP_UGT: Condition = ISD::SETUGT; break;
+        }
+      } else if (FCmpInst *FC = dyn_cast<FCmpInst>(Cond)) {
+        ISD::CondCode FPC, FOC;
+        switch (FC->getPredicate()) {
+        default: assert(0 && "Unknown fcmp predicate opcode!");
+        case FCmpInst::FCMP_FALSE: FOC = FPC = ISD::SETFALSE; break;
+        case FCmpInst::FCMP_OEQ:   FOC = ISD::SETEQ; FPC = ISD::SETOEQ; break;
+        case FCmpInst::FCMP_OGT:   FOC = ISD::SETGT; FPC = ISD::SETOGT; break;
+        case FCmpInst::FCMP_OGE:   FOC = ISD::SETGE; FPC = ISD::SETOGE; break;
+        case FCmpInst::FCMP_OLT:   FOC = ISD::SETLT; FPC = ISD::SETOLT; break;
+        case FCmpInst::FCMP_OLE:   FOC = ISD::SETLE; FPC = ISD::SETOLE; break;
+        case FCmpInst::FCMP_ONE:   FOC = ISD::SETNE; FPC = ISD::SETONE; break;
+        case FCmpInst::FCMP_ORD:   FOC = FPC = ISD::SETO;   break;
+        case FCmpInst::FCMP_UNO:   FOC = FPC = ISD::SETUO;  break;
+        case FCmpInst::FCMP_UEQ:   FOC = ISD::SETEQ; FPC = ISD::SETUEQ; break;
+        case FCmpInst::FCMP_UGT:   FOC = ISD::SETGT; FPC = ISD::SETUGT; break;
+        case FCmpInst::FCMP_UGE:   FOC = ISD::SETGE; FPC = ISD::SETUGE; break;
+        case FCmpInst::FCMP_ULT:   FOC = ISD::SETLT; FPC = ISD::SETULT; break;
+        case FCmpInst::FCMP_ULE:   FOC = ISD::SETLE; FPC = ISD::SETULE; break;
+        case FCmpInst::FCMP_UNE:   FOC = ISD::SETNE; FPC = ISD::SETUNE; break;
+        case FCmpInst::FCMP_TRUE:  FOC = FPC = ISD::SETTRUE; break;
+        }
+        if (FiniteOnlyFPMath())
+          Condition = FOC;
+        else 
+          Condition = FPC;
+      } else {
+        Condition = ISD::SETEQ; // silence warning.
+        assert(0 && "Unknown compare instruction");
+      }
+      
+      CaseBlock CB(Condition, BOp->getOperand(0), 
+                   BOp->getOperand(1), NULL, TBB, FBB, CurBB);
+      SwitchCases.push_back(CB);
+      return;
+    }
+    
+    // Create a CaseBlock record representing this branch.
+    CaseBlock CB(ISD::SETEQ, Cond, ConstantInt::getTrue(),
+                 NULL, TBB, FBB, CurBB);
+    SwitchCases.push_back(CB);
     return;
   }
+  
   
   //  Create TmpBB after CurBB.
   MachineFunction::iterator BBI = CurBB;
@@ -2101,7 +2069,23 @@ void SelectionDAGLowering::visitICmp(User &I) {
     predicate = ICmpInst::Predicate(IC->getPredicate());
   SDValue Op1 = getValue(I.getOperand(0));
   SDValue Op2 = getValue(I.getOperand(1));
-  ISD::CondCode Opcode = getICmpCondCode(predicate);
+  ISD::CondCode Opcode;
+  switch (predicate) {
+    case ICmpInst::ICMP_EQ  : Opcode = ISD::SETEQ; break;
+    case ICmpInst::ICMP_NE  : Opcode = ISD::SETNE; break;
+    case ICmpInst::ICMP_UGT : Opcode = ISD::SETUGT; break;
+    case ICmpInst::ICMP_UGE : Opcode = ISD::SETUGE; break;
+    case ICmpInst::ICMP_ULT : Opcode = ISD::SETULT; break;
+    case ICmpInst::ICMP_ULE : Opcode = ISD::SETULE; break;
+    case ICmpInst::ICMP_SGT : Opcode = ISD::SETGT; break;
+    case ICmpInst::ICMP_SGE : Opcode = ISD::SETGE; break;
+    case ICmpInst::ICMP_SLT : Opcode = ISD::SETLT; break;
+    case ICmpInst::ICMP_SLE : Opcode = ISD::SETLE; break;
+    default:
+      assert(!"Invalid ICmp predicate value");
+      Opcode = ISD::SETEQ;
+      break;
+  }
   setValue(&I, DAG.getSetCC(MVT::i1, Op1, Op2, Opcode));
 }
 
@@ -2113,7 +2097,33 @@ void SelectionDAGLowering::visitFCmp(User &I) {
     predicate = FCmpInst::Predicate(FC->getPredicate());
   SDValue Op1 = getValue(I.getOperand(0));
   SDValue Op2 = getValue(I.getOperand(1));
-  ISD::CondCode Condition = getFCmpCondCode(predicate);
+  ISD::CondCode Condition, FOC, FPC;
+  switch (predicate) {
+    case FCmpInst::FCMP_FALSE: FOC = FPC = ISD::SETFALSE; break;
+    case FCmpInst::FCMP_OEQ:   FOC = ISD::SETEQ; FPC = ISD::SETOEQ; break;
+    case FCmpInst::FCMP_OGT:   FOC = ISD::SETGT; FPC = ISD::SETOGT; break;
+    case FCmpInst::FCMP_OGE:   FOC = ISD::SETGE; FPC = ISD::SETOGE; break;
+    case FCmpInst::FCMP_OLT:   FOC = ISD::SETLT; FPC = ISD::SETOLT; break;
+    case FCmpInst::FCMP_OLE:   FOC = ISD::SETLE; FPC = ISD::SETOLE; break;
+    case FCmpInst::FCMP_ONE:   FOC = ISD::SETNE; FPC = ISD::SETONE; break;
+    case FCmpInst::FCMP_ORD:   FOC = FPC = ISD::SETO;   break;
+    case FCmpInst::FCMP_UNO:   FOC = FPC = ISD::SETUO;  break;
+    case FCmpInst::FCMP_UEQ:   FOC = ISD::SETEQ; FPC = ISD::SETUEQ; break;
+    case FCmpInst::FCMP_UGT:   FOC = ISD::SETGT; FPC = ISD::SETUGT; break;
+    case FCmpInst::FCMP_UGE:   FOC = ISD::SETGE; FPC = ISD::SETUGE; break;
+    case FCmpInst::FCMP_ULT:   FOC = ISD::SETLT; FPC = ISD::SETULT; break;
+    case FCmpInst::FCMP_ULE:   FOC = ISD::SETLE; FPC = ISD::SETULE; break;
+    case FCmpInst::FCMP_UNE:   FOC = ISD::SETNE; FPC = ISD::SETUNE; break;
+    case FCmpInst::FCMP_TRUE:  FOC = FPC = ISD::SETTRUE; break;
+    default:
+      assert(!"Invalid FCmp predicate value");
+      FOC = FPC = ISD::SETFALSE;
+      break;
+  }
+  if (FiniteOnlyFPMath())
+    Condition = FOC;
+  else 
+    Condition = FPC;
   setValue(&I, DAG.getSetCC(MVT::i1, Op1, Op2, Condition));
 }
 
@@ -2125,7 +2135,23 @@ void SelectionDAGLowering::visitVICmp(User &I) {
     predicate = ICmpInst::Predicate(IC->getPredicate());
   SDValue Op1 = getValue(I.getOperand(0));
   SDValue Op2 = getValue(I.getOperand(1));
-  ISD::CondCode Opcode = getICmpCondCode(predicate);
+  ISD::CondCode Opcode;
+  switch (predicate) {
+    case ICmpInst::ICMP_EQ  : Opcode = ISD::SETEQ; break;
+    case ICmpInst::ICMP_NE  : Opcode = ISD::SETNE; break;
+    case ICmpInst::ICMP_UGT : Opcode = ISD::SETUGT; break;
+    case ICmpInst::ICMP_UGE : Opcode = ISD::SETUGE; break;
+    case ICmpInst::ICMP_ULT : Opcode = ISD::SETULT; break;
+    case ICmpInst::ICMP_ULE : Opcode = ISD::SETULE; break;
+    case ICmpInst::ICMP_SGT : Opcode = ISD::SETGT; break;
+    case ICmpInst::ICMP_SGE : Opcode = ISD::SETGE; break;
+    case ICmpInst::ICMP_SLT : Opcode = ISD::SETLT; break;
+    case ICmpInst::ICMP_SLE : Opcode = ISD::SETLE; break;
+    default:
+      assert(!"Invalid ICmp predicate value");
+      Opcode = ISD::SETEQ;
+      break;
+  }
   setValue(&I, DAG.getVSetCC(Op1.getValueType(), Op1, Op2, Opcode));
 }
 
@@ -2137,7 +2163,34 @@ void SelectionDAGLowering::visitVFCmp(User &I) {
     predicate = FCmpInst::Predicate(FC->getPredicate());
   SDValue Op1 = getValue(I.getOperand(0));
   SDValue Op2 = getValue(I.getOperand(1));
-  ISD::CondCode Condition = getFCmpCondCode(predicate);
+  ISD::CondCode Condition, FOC, FPC;
+  switch (predicate) {
+    case FCmpInst::FCMP_FALSE: FOC = FPC = ISD::SETFALSE; break;
+    case FCmpInst::FCMP_OEQ:   FOC = ISD::SETEQ; FPC = ISD::SETOEQ; break;
+    case FCmpInst::FCMP_OGT:   FOC = ISD::SETGT; FPC = ISD::SETOGT; break;
+    case FCmpInst::FCMP_OGE:   FOC = ISD::SETGE; FPC = ISD::SETOGE; break;
+    case FCmpInst::FCMP_OLT:   FOC = ISD::SETLT; FPC = ISD::SETOLT; break;
+    case FCmpInst::FCMP_OLE:   FOC = ISD::SETLE; FPC = ISD::SETOLE; break;
+    case FCmpInst::FCMP_ONE:   FOC = ISD::SETNE; FPC = ISD::SETONE; break;
+    case FCmpInst::FCMP_ORD:   FOC = FPC = ISD::SETO;   break;
+    case FCmpInst::FCMP_UNO:   FOC = FPC = ISD::SETUO;  break;
+    case FCmpInst::FCMP_UEQ:   FOC = ISD::SETEQ; FPC = ISD::SETUEQ; break;
+    case FCmpInst::FCMP_UGT:   FOC = ISD::SETGT; FPC = ISD::SETUGT; break;
+    case FCmpInst::FCMP_UGE:   FOC = ISD::SETGE; FPC = ISD::SETUGE; break;
+    case FCmpInst::FCMP_ULT:   FOC = ISD::SETLT; FPC = ISD::SETULT; break;
+    case FCmpInst::FCMP_ULE:   FOC = ISD::SETLE; FPC = ISD::SETULE; break;
+    case FCmpInst::FCMP_UNE:   FOC = ISD::SETNE; FPC = ISD::SETUNE; break;
+    case FCmpInst::FCMP_TRUE:  FOC = FPC = ISD::SETTRUE; break;
+    default:
+      assert(!"Invalid VFCmp predicate value");
+      FOC = FPC = ISD::SETFALSE;
+      break;
+  }
+  if (FiniteOnlyFPMath())
+    Condition = FOC;
+  else 
+    Condition = FPC;
+    
   MVT DestVT = TLI.getValueType(I.getType());
     
   setValue(&I, DAG.getVSetCC(DestVT, Op1, Op2, Condition));
@@ -2223,7 +2276,7 @@ void SelectionDAGLowering::visitUIToFP(User &I) {
 }
 
 void SelectionDAGLowering::visitSIToFP(User &I){ 
-  // SIToFP is never a no-op cast, no need to check
+  // UIToFP is never a no-op cast, no need to check
   SDValue N = getValue(I.getOperand(0));
   MVT DestVT = TLI.getValueType(I.getType());
   setValue(&I, DAG.getNode(ISD::SINT_TO_FP, DestVT, N));
@@ -2288,180 +2341,14 @@ void SelectionDAGLowering::visitExtractElement(User &I) {
                            TLI.getValueType(I.getType()), InVec, InIdx));
 }
 
-
-// Utility for visitShuffleVector - Returns true if the mask is mask starting
-// from SIndx and increasing to the element length (undefs are allowed).
-static bool SequentialMask(SDValue Mask, unsigned SIndx) {
-  unsigned NumElems = Mask.getNumOperands();
-  for (unsigned i = 0; i != NumElems; ++i) {
-    if (Mask.getOperand(i).getOpcode() != ISD::UNDEF) {
-      unsigned Idx = cast<ConstantSDNode>(Mask.getOperand(i))->getZExtValue();
-      if (Idx != i + SIndx)
-        return false;
-    }
-  }
-  return true;
-}
-
 void SelectionDAGLowering::visitShuffleVector(User &I) {
   SDValue V1   = getValue(I.getOperand(0));
   SDValue V2   = getValue(I.getOperand(1));
   SDValue Mask = getValue(I.getOperand(2));
 
-  MVT VT = TLI.getValueType(I.getType());
-  MVT VT1 = V1.getValueType();
-  unsigned MaskNumElts = Mask.getNumOperands();
-  unsigned Src1NumElts = VT1.getVectorNumElements();
-
-  if (Src1NumElts == MaskNumElts) {
-    setValue(&I, DAG.getNode(ISD::VECTOR_SHUFFLE, VT, V1, V2, Mask));
-    return;
-  }
-
-  // Normalize the shuffle vector since mask and vector length don't match.
-  if (Src1NumElts < MaskNumElts && MaskNumElts % Src1NumElts == 0) {
-    // We can concat vectors to make the mask and input vector match.
-    if (Src1NumElts*2 == MaskNumElts && SequentialMask(Mask, 0)) {
-      // The shuffle is concatenating two vectors.
-      setValue(&I, DAG.getNode(ISD::CONCAT_VECTORS, VT, V1, V2));
-      return;
-    }
-
-    // Pad both vectors with undefs to the same size as the mask.
-    unsigned NumConcat = MaskNumElts / Src1NumElts;
-    std::vector<SDValue> UnOps(Src1NumElts,
-                               DAG.getNode(ISD::UNDEF, 
-                                           VT1.getVectorElementType()));
-    SDValue UndefVal = DAG.getNode(ISD::BUILD_VECTOR, VT1,
-                                   &UnOps[0], UnOps.size());
-
-    SmallVector<SDValue, 8> MOps1, MOps2;
-    MOps1.push_back(V1);
-    MOps2.push_back(V2);
-    for (unsigned i = 1; i != NumConcat; ++i) {
-      MOps1.push_back(UndefVal);
-      MOps2.push_back(UndefVal);
-    }
-    V1 = DAG.getNode(ISD::CONCAT_VECTORS, VT, &MOps1[0], MOps1.size());
-    V2 = DAG.getNode(ISD::CONCAT_VECTORS, VT, &MOps2[0], MOps2.size());
-    
-    // Readjust mask for new input vector length.
-    SmallVector<SDValue, 8> MappedOps;
-    for (unsigned i = 0; i != MaskNumElts; ++i) {
-      if (Mask.getOperand(i).getOpcode() == ISD::UNDEF) {
-        MappedOps.push_back(Mask.getOperand(i));
-      } else {
-        unsigned Idx = cast<ConstantSDNode>(Mask.getOperand(i))->getZExtValue();
-        if (Idx < Src1NumElts) {
-          MappedOps.push_back(DAG.getConstant(Idx,
-                                           Mask.getOperand(i).getValueType()));
-        } else {
-          MappedOps.push_back(DAG.getConstant(Idx + MaskNumElts - Src1NumElts,
-                                           Mask.getOperand(i).getValueType()));
-        } 
-      }
-    }
-    Mask = DAG.getNode(ISD::BUILD_VECTOR, Mask.getValueType(),
-                       &MappedOps[0], MappedOps.size());
-
-    setValue(&I, DAG.getNode(ISD::VECTOR_SHUFFLE, VT, V1, V2, Mask));
-    return;
-  }
-
-  if (Src1NumElts > MaskNumElts) {
-    // Resulting vector is shorter than the incoming vector.
-    if (Src1NumElts == MaskNumElts && SequentialMask(Mask,0)) {
-      // Shuffle extracts 1st vector.
-      setValue(&I, V1);
-      return;
-    }
-
-    if (Src1NumElts == MaskNumElts && SequentialMask(Mask,MaskNumElts)) {
-      // Shuffle extracts 2nd vector.
-      setValue(&I, V2);
-      return;
-    }
-
-    // Analyze the access pattern of the vector to see if we can extract each
-    // subvector and then do the shuffle. The analysis is done by calculating
-    // the range of elements the mask access on both vectors. If it is useful,
-    // we could do better by considering separate what elements are accessed
-    // in each vector (i.e., have min/max for each vector).
-    int MinRange = Src1NumElts+1;
-    int MaxRange = -1;
-    for (unsigned i = 0; i != MaskNumElts; ++i) {
-      SDValue Arg = Mask.getOperand(i);
-      if (Arg.getOpcode() != ISD::UNDEF) {
-        assert(isa<ConstantSDNode>(Arg) && "Invalid VECTOR_SHUFFLE mask!");
-        int Idx = cast<ConstantSDNode>(Mask.getOperand(i))->getZExtValue();
-        if (Idx > (int) Src1NumElts)
-          Idx -= Src1NumElts;
-        if (Idx > MaxRange)
-          MaxRange = Idx;
-        if (Idx < MinRange)
-          MinRange = Idx;
-      }
-    }
-    // Adjust MinRange to start at an even boundary since this give us
-    // better quality splits later.
-    if ((unsigned) MinRange < Src1NumElts && MinRange%2 != 0)
-      MinRange = MinRange - 1;
-    if (MaxRange - MinRange < (int) MaskNumElts) {
-      // Extract subvector because the range is less than the new vector length
-      unsigned StartIdx = (MinRange/MaskNumElts)*MaskNumElts;
-      if (MaxRange - StartIdx < MaskNumElts) {
-        V1 = DAG.getNode(ISD::EXTRACT_SUBVECTOR, VT, V1,
-                         DAG.getIntPtrConstant(MinRange));
-        V2 = DAG.getNode(ISD::EXTRACT_SUBVECTOR, VT, V2,
-                         DAG.getIntPtrConstant(MinRange));
-        // Readjust mask for new input vector length.
-        SmallVector<SDValue, 8> MappedOps;
-        for (unsigned i = 0; i != MaskNumElts; ++i) {
-          if (Mask.getOperand(i).getOpcode() == ISD::UNDEF) {
-            MappedOps.push_back(Mask.getOperand(i));
-          } else {
-            unsigned Idx =
-              cast<ConstantSDNode>(Mask.getOperand(i))->getZExtValue();
-            if (Idx < Src1NumElts) {
-              MappedOps.push_back(DAG.getConstant(Idx - StartIdx,
-                                         Mask.getOperand(i).getValueType()));
-            } else {
-              Idx = Idx - Src1NumElts - StartIdx + MaskNumElts;
-              MappedOps.push_back(DAG.getConstant(Idx,
-                                        Mask.getOperand(i).getValueType()));
-            } 
-          }
-        }
-        Mask = DAG.getNode(ISD::BUILD_VECTOR, Mask.getValueType(),
-                           &MappedOps[0], MappedOps.size());
-
-        setValue(&I, DAG.getNode(ISD::VECTOR_SHUFFLE, VT, V1, V2, Mask));
-        return;
-      }
-    }
-  }
-
-  // We can't use either concat vectors or extract subvectors so we fall back
-  // to insert and extracts.
-  MVT EltVT = VT.getVectorElementType();
-  MVT PtrVT = TLI.getPointerTy();
-  SmallVector<SDValue,8> Ops;
-  for (unsigned i = 0; i != MaskNumElts; ++i) {
-    SDValue Arg = Mask.getOperand(i);
-    if (Arg.getOpcode() == ISD::UNDEF) {
-      Ops.push_back(DAG.getNode(ISD::UNDEF, EltVT));
-    } else {
-      assert(isa<ConstantSDNode>(Arg) && "Invalid VECTOR_SHUFFLE mask!");
-      unsigned Idx = cast<ConstantSDNode>(Arg)->getZExtValue();
-      if (Idx < Src1NumElts)
-        Ops.push_back(DAG.getNode(ISD::EXTRACT_VECTOR_ELT, EltVT, V1,
-                                  DAG.getConstant(Idx, PtrVT)));
-      else
-        Ops.push_back(DAG.getNode(ISD::EXTRACT_VECTOR_ELT, EltVT, V2,
-                                  DAG.getConstant(Idx - Src1NumElts, PtrVT)));
-    }
-  }
-  setValue(&I, DAG.getNode(ISD::BUILD_VECTOR, VT, &Ops[0], Ops.size()));
+  setValue(&I, DAG.getNode(ISD::VECTOR_SHUFFLE,
+                           TLI.getValueType(I.getType()),
+                           V1, V2, Mask));
 }
 
 void SelectionDAGLowering::visitInsertValue(InsertValueInst &I) {
@@ -2745,14 +2632,9 @@ void SelectionDAGLowering::visitTargetIntrinsic(CallInst &I,
       Ops.push_back(getRoot());
     }
   }
-
-  // Info is set by getTgtMemInstrinsic
-  TargetLowering::IntrinsicInfo Info;
-  bool IsTgtIntrinsic = TLI.getTgtMemIntrinsic(Info, I, Intrinsic);
-
-  // Add the intrinsic ID as an integer operand if it's not a target intrinsic.  
-  if (!IsTgtIntrinsic)
-    Ops.push_back(DAG.getConstant(Intrinsic, TLI.getPointerTy()));
+  
+  // Add the intrinsic ID as an integer operand.
+  Ops.push_back(DAG.getConstant(Intrinsic, TLI.getPointerTy()));
 
   // Add all operands of the call to the operand list.
   for (unsigned i = 1, e = I.getNumOperands(); i != e; ++i) {
@@ -2783,15 +2665,7 @@ void SelectionDAGLowering::visitTargetIntrinsic(CallInst &I,
 
   // Create the node.
   SDValue Result;
-  if (IsTgtIntrinsic) {
-    // This is target intrinsic that touches memory
-    Result = DAG.getMemIntrinsicNode(Info.opc, VTList, VTs.size(),
-                                     &Ops[0], Ops.size(),
-                                     Info.memVT, Info.ptrVal, Info.offset,
-                                     Info.align, Info.vol,
-                                     Info.readMem, Info.writeMem);
-  }
-  else if (!HasChain)
+  if (!HasChain)
     Result = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, VTList, VTs.size(),
                          &Ops[0], Ops.size());
   else if (I.getType() != Type::VoidTy)
@@ -3274,7 +3148,6 @@ SelectionDAGLowering::visitLog2(CallInst &I) {
 void
 SelectionDAGLowering::visitLog10(CallInst &I) {
   SDValue result;
-
   if (getValue(I.getOperand(1)).getValueType() == MVT::f32 &&
       LimitFloatPrecision > 0 && LimitFloatPrecision <= 18) {
     SDValue Op = getValue(I.getOperand(1));
@@ -3724,12 +3597,9 @@ SelectionDAGLowering::visitIntrinsicCall(CallInst &I, unsigned Intrinsic) {
       SubprogramDesc *Subprogram = cast<SubprogramDesc>(DD);
       const CompileUnitDesc *CompileUnit = Subprogram->getFile();
       unsigned SrcFile = MMI->RecordSource(CompileUnit);
-      // Record the source line but does not create a label for the normal
-      // function start. It will be emitted at asm emission time. However,
-      // create a label if this is a beginning of inlined function.
-      unsigned LabelID = MMI->RecordSourceLine(Subprogram->getLine(), 0, SrcFile);
-      if (MMI->getSourceLines().size() != 1)
-        DAG.setRoot(DAG.getLabel(ISD::DBG_LABEL, getRoot(), LabelID));
+      // Record the source line but does create a label. It will be emitted
+      // at asm emission time.
+      MMI->RecordSourceLine(Subprogram->getLine(), 0, SrcFile);
     }
 
     return 0;
@@ -3959,41 +3829,6 @@ SelectionDAGLowering::visitIntrinsicCall(CallInst &I, unsigned Intrinsic) {
   case Intrinsic::stackrestore: {
     SDValue Tmp = getValue(I.getOperand(1));
     DAG.setRoot(DAG.getNode(ISD::STACKRESTORE, MVT::Other, getRoot(), Tmp));
-    return 0;
-  }
-  case Intrinsic::stackprotector_create: {
-    // Emit code into the DAG to store the stack guard onto the stack.
-    MachineFunction &MF = DAG.getMachineFunction();
-    MachineFrameInfo *MFI = MF.getFrameInfo();
-    MVT PtrTy = TLI.getPointerTy();
-
-    SDValue Src = getValue(I.getOperand(1));   // The guard's value.
-    AllocaInst *Slot = cast<AllocaInst>(I.getOperand(2));
-
-    int FI = FuncInfo.StaticAllocaMap[Slot];
-    MFI->setStackProtectorIndex(FI);
-
-    SDValue FIN = DAG.getFrameIndex(FI, PtrTy);
-
-    // Store the stack protector onto the stack.
-    SDValue Result = DAG.getStore(getRoot(), Src, FIN,
-                                  PseudoSourceValue::getFixedStack(FI),
-                                  0, true);
-    setValue(&I, Result);
-    DAG.setRoot(Result);
-    return 0;
-  }
-  case Intrinsic::stackprotector_check: {
-    // Emit code into the DAG to retrieve the stack guard off of the stack.
-    MachineFunction &MF = DAG.getMachineFunction();
-    MachineFrameInfo *MFI = MF.getFrameInfo();
-    MVT PtrTy = TLI.getPointerTy();
-
-    // Load the value stored on the stack.
-    int FI = MFI->getStackProtectorIndex();
-    SDValue FIN = DAG.getFrameIndex(MFI->getStackProtectorIndex(), PtrTy);
-    setValue(&I, DAG.getLoad(PtrTy, getRoot(), FIN,
-                             PseudoSourceValue::getFixedStack(FI), 0, true));
     return 0;
   }
   case Intrinsic::var_annotation:
@@ -4455,13 +4290,13 @@ SDValue RegsForValue::getCopyFromRegs(SelectionDAG &DAG,
           else if (NumZeroBits >= RegSize-9)
             isSExt = false, FromVT = MVT::i8;  // ASSERT ZEXT 8
           else if (NumSignBits > RegSize-16)
-            isSExt = true, FromVT = MVT::i16;  // ASSERT SEXT 16
+            isSExt = true, FromVT = MVT::i16;   // ASSERT SEXT 16
           else if (NumZeroBits >= RegSize-17)
-            isSExt = false, FromVT = MVT::i16; // ASSERT ZEXT 16
+            isSExt = false, FromVT = MVT::i16;  // ASSERT ZEXT 16
           else if (NumSignBits > RegSize-32)
-            isSExt = true, FromVT = MVT::i32;  // ASSERT SEXT 32
+            isSExt = true, FromVT = MVT::i32;   // ASSERT SEXT 32
           else if (NumZeroBits >= RegSize-33)
-            isSExt = false, FromVT = MVT::i32; // ASSERT ZEXT 32
+            isSExt = false, FromVT = MVT::i32;  // ASSERT ZEXT 32
           
           if (FromVT != MVT::Other) {
             P = DAG.getNode(isSExt ? ISD::AssertSext : ISD::AssertZext,
@@ -4542,10 +4377,8 @@ void RegsForValue::AddInlineAsmOperands(unsigned Code, SelectionDAG &DAG,
   for (unsigned Value = 0, Reg = 0, e = ValueVTs.size(); Value != e; ++Value) {
     unsigned NumRegs = TLI->getNumRegisters(ValueVTs[Value]);
     MVT RegisterVT = RegVTs[Value];
-    for (unsigned i = 0; i != NumRegs; ++i) {
-      assert(Reg < Regs.size() && "Mismatch in # registers expected");
+    for (unsigned i = 0; i != NumRegs; ++i)
       Ops.push_back(DAG.getRegister(Regs[Reg++], RegisterVT));
-    }
   }
 }
 
@@ -4631,43 +4464,6 @@ struct VISIBILITY_HIDDEN SDISelAsmOperandInfo :
         MarkRegAndAliases(AssignedRegs.Regs[i], InputRegs, TRI);
     }
   }
-      
-  /// getCallOperandValMVT - Return the MVT of the Value* that this operand
-  /// corresponds to.  If there is no Value* for this operand, it returns
-  /// MVT::Other.
-  MVT getCallOperandValMVT(const TargetLowering &TLI,
-                           const TargetData *TD) const {
-    if (CallOperandVal == 0) return MVT::Other;
-    
-    if (isa<BasicBlock>(CallOperandVal))
-      return TLI.getPointerTy();
-    
-    const llvm::Type *OpTy = CallOperandVal->getType();
-    
-    // If this is an indirect operand, the operand is a pointer to the
-    // accessed type.
-    if (isIndirect)
-      OpTy = cast<PointerType>(OpTy)->getElementType();
-    
-    // If OpTy is not a single value, it may be a struct/union that we
-    // can tile with integers.
-    if (!OpTy->isSingleValueType() && OpTy->isSized()) {
-      unsigned BitSize = TD->getTypeSizeInBits(OpTy);
-      switch (BitSize) {
-      default: break;
-      case 1:
-      case 8:
-      case 16:
-      case 32:
-      case 64:
-      case 128:
-        OpTy = IntegerType::get(BitSize);
-        break;
-      }
-    }
-    
-    return TLI.getValueType(OpTy, true);
-  }
   
 private:
   /// MarkRegAndAliases - Mark the specified register and all aliases in the
@@ -4707,7 +4503,7 @@ GetRegistersForValue(SDISelAsmOperandInfo &OpInfo,
     
     // If there is an input constraint that matches this, we need to reserve 
     // the input register so no other inputs allocate to it.
-    isInReg = OpInfo.hasMatchingInput();
+    isInReg = OpInfo.hasMatchingInput;
     break;
   case InlineAsm::isInput:
     isInReg = true;
@@ -4730,37 +4526,11 @@ GetRegistersForValue(SDISelAsmOperandInfo &OpInfo,
                                      OpInfo.ConstraintVT);
 
   unsigned NumRegs = 1;
-  if (OpInfo.ConstraintVT != MVT::Other) {
-    // If this is a FP input in an integer register (or visa versa) insert a bit
-    // cast of the input value.  More generally, handle any case where the input
-    // value disagrees with the register class we plan to stick this in.
-    if (OpInfo.Type == InlineAsm::isInput &&
-        PhysReg.second && !PhysReg.second->hasType(OpInfo.ConstraintVT)) {
-      // Try to convert to the first MVT that the reg class contains.  If the
-      // types are identical size, use a bitcast to convert (e.g. two differing
-      // vector types).
-      MVT RegVT = *PhysReg.second->vt_begin();
-      if (RegVT.getSizeInBits() == OpInfo.ConstraintVT.getSizeInBits()) {
-        OpInfo.CallOperand = DAG.getNode(ISD::BIT_CONVERT, RegVT,
-                                         OpInfo.CallOperand);
-        OpInfo.ConstraintVT = RegVT;
-      } else if (RegVT.isInteger() && OpInfo.ConstraintVT.isFloatingPoint()) {
-        // If the input is a FP value and we want it in FP registers, do a
-        // bitcast to the corresponding integer type.  This turns an f64 value
-        // into i64, which can be passed with two i32 values on a 32-bit
-        // machine.
-        RegVT = MVT::getIntegerVT(OpInfo.ConstraintVT.getSizeInBits());
-        OpInfo.CallOperand = DAG.getNode(ISD::BIT_CONVERT, RegVT,
-                                         OpInfo.CallOperand);
-        OpInfo.ConstraintVT = RegVT;
-      }
-    }
-    
+  if (OpInfo.ConstraintVT != MVT::Other)
     NumRegs = TLI.getNumRegisters(OpInfo.ConstraintVT);
-  }
-  
   MVT RegVT;
   MVT ValueVT = OpInfo.ConstraintVT;
+  
 
   // If this is a constraint for a specific physical register, like {r17},
   // assign it now.
@@ -4801,10 +4571,9 @@ GetRegistersForValue(SDISelAsmOperandInfo &OpInfo,
   const TargetRegisterClass *RC = PhysReg.second;
   if (RC) {
     // If this is a tied register, our regalloc doesn't know how to maintain 
-    // the constraint, so we have to pick a register to pin the input/output to.
-    // If it isn't a matched constraint, go ahead and create vreg and let the
-    // regalloc do its thing.
-    if (!OpInfo.hasMatchingInput()) {
+    // the constraint.  If it isn't, go ahead and create vreg
+    // and let the regalloc do the right thing.
+    if (!OpInfo.hasMatchingInput) {
       RegVT = *PhysReg.second->vt_begin();
       if (OpInfo.ConstraintVT == MVT::Other)
         ValueVT = RegVT;
@@ -4927,7 +4696,6 @@ void SelectionDAGLowering::visitInlineAsm(CallSite CS) {
         OpInfo.CallOperandVal = CS.getArgument(ArgNo++);
         break;
       }
-        
       // The return value of the call is this value.  As such, there is no
       // corresponding argument.
       assert(CS.getType() != Type::VoidTy && "Bad inline asm!");
@@ -4950,40 +4718,37 @@ void SelectionDAGLowering::visitInlineAsm(CallSite CS) {
     // If this is an input or an indirect output, process the call argument.
     // BasicBlocks are labels, currently appearing only in asm's.
     if (OpInfo.CallOperandVal) {
-      if (BasicBlock *BB = dyn_cast<BasicBlock>(OpInfo.CallOperandVal)) {
+      if (BasicBlock *BB = dyn_cast<BasicBlock>(OpInfo.CallOperandVal))
         OpInfo.CallOperand = DAG.getBasicBlock(FuncInfo.MBBMap[BB]);
-      } else {
+      else {
         OpInfo.CallOperand = getValue(OpInfo.CallOperandVal);
+        const Type *OpTy = OpInfo.CallOperandVal->getType();
+        // If this is an indirect operand, the operand is a pointer to the
+        // accessed type.
+        if (OpInfo.isIndirect)
+          OpTy = cast<PointerType>(OpTy)->getElementType();
+
+        // If OpTy is not a single value, it may be a struct/union that we
+        // can tile with integers.
+        if (!OpTy->isSingleValueType() && OpTy->isSized()) {
+          unsigned BitSize = TD->getTypeSizeInBits(OpTy);
+          switch (BitSize) {
+          default: break;
+          case 1:
+          case 8:
+          case 16:
+          case 32:
+          case 64:
+            OpTy = IntegerType::get(BitSize);
+            break;
+          }
+        }
+
+        OpVT = TLI.getValueType(OpTy, true);
       }
-      
-      OpVT = OpInfo.getCallOperandValMVT(TLI, TD);
     }
     
     OpInfo.ConstraintVT = OpVT;
-  }
-  
-  // Second pass over the constraints: compute which constraint option to use
-  // and assign registers to constraints that want a specific physreg.
-  for (unsigned i = 0, e = ConstraintInfos.size(); i != e; ++i) {
-    SDISelAsmOperandInfo &OpInfo = ConstraintOperands[i];
-    
-    // If this is an output operand with a matching input operand, look up the
-    // matching input.  It might have a different type (e.g. the output might be
-    // i32 and the input i64) and we need to pick the larger width to ensure we
-    // reserve the right number of registers.  
-    if (OpInfo.hasMatchingInput()) {
-      SDISelAsmOperandInfo &Input = ConstraintOperands[OpInfo.MatchingInput];
-      if (OpInfo.ConstraintVT != Input.ConstraintVT) {
-        assert(OpInfo.ConstraintVT.isInteger() &&
-               Input.ConstraintVT.isInteger() &&
-               "Asm constraints must be the same or different sized integers");
-        if (OpInfo.ConstraintVT.getSizeInBits() < 
-            Input.ConstraintVT.getSizeInBits())
-          OpInfo.ConstraintVT = Input.ConstraintVT;
-        else
-          Input.ConstraintVT = OpInfo.ConstraintVT;
-      }
-    }
     
     // Compute the constraint code and ConstraintType to use.
     TLI.ComputeConstraintToUse(OpInfo, OpInfo.CallOperand, hasMemory, &DAG);
@@ -5034,7 +4799,7 @@ void SelectionDAGLowering::visitInlineAsm(CallSite CS) {
   
   
   // Second pass - Loop over all of the operands, assigning virtual or physregs
-  // to register class operands.
+  // to registerclass operands.
   for (unsigned i = 0, e = ConstraintOperands.size(); i != e; ++i) {
     SDISelAsmOperandInfo &OpInfo = ConstraintOperands[i];
     
@@ -5109,10 +4874,10 @@ void SelectionDAGLowering::visitInlineAsm(CallSite CS) {
     case InlineAsm::isInput: {
       SDValue InOperandVal = OpInfo.CallOperand;
       
-      if (OpInfo.isMatchingInputConstraint()) {   // Matching constraint?
+      if (isdigit(OpInfo.ConstraintCode[0])) {    // Matching constraint?
         // If this is required to match an output register we have already set,
         // just use its register.
-        unsigned OperandNo = OpInfo.getMatchedOperand();
+        unsigned OperandNo = atoi(OpInfo.ConstraintCode.c_str());
         
         // Scan until we find the definition we already emitted of this operand.
         // When we find it, create a RegsForValue operand.
@@ -5233,28 +4998,22 @@ void SelectionDAGLowering::visitInlineAsm(CallSite CS) {
   // and set it as the value of the call.
   if (!RetValRegs.Regs.empty()) {
     SDValue Val = RetValRegs.getCopyFromRegs(DAG, Chain, &Flag);
-    
-    // FIXME: Why don't we do this for inline asms with MRVs?
-    if (CS.getType()->isSingleValueType() && CS.getType()->isSized()) {
-      MVT ResultType = TLI.getValueType(CS.getType());
-    
-      // If any of the results of the inline asm is a vector, it may have the
-      // wrong width/num elts.  This can happen for register classes that can
-      // contain multiple different value types.  The preg or vreg allocated may
-      // not have the same VT as was expected.  Convert it to the right type
-      // with bit_convert.
-      if (ResultType != Val.getValueType() && Val.getValueType().isVector()) {
-        Val = DAG.getNode(ISD::BIT_CONVERT, ResultType, Val);
 
-      } else if (ResultType != Val.getValueType() && 
-                 ResultType.isInteger() && Val.getValueType().isInteger()) {
-        // If a result value was tied to an input value, the computed result may
-        // have a wider width than the expected result.  Extract the relevant
-        // portion.
-        Val = DAG.getNode(ISD::TRUNCATE, ResultType, Val);
+    // If any of the results of the inline asm is a vector, it may have the
+    // wrong width/num elts.  This can happen for register classes that can
+    // contain multiple different value types.  The preg or vreg allocated may
+    // not have the same VT as was expected.  Convert it to the right type with
+    // bit_convert.
+    if (const StructType *ResSTy = dyn_cast<StructType>(CS.getType())) {
+      for (unsigned i = 0, e = ResSTy->getNumElements(); i != e; ++i) {
+        if (Val.getNode()->getValueType(i).isVector())
+          Val = DAG.getNode(ISD::BIT_CONVERT,
+                            TLI.getValueType(ResSTy->getElementType(i)), Val);
       }
-    
-      assert(ResultType == Val.getValueType() && "Asm result value mismatch!");
+    } else {
+      if (Val.getValueType().isVector())
+        Val = DAG.getNode(ISD::BIT_CONVERT, TLI.getValueType(CS.getType()),
+                          Val);
     }
 
     setValue(CS.getInstruction(), Val);
@@ -5510,8 +5269,7 @@ TargetLowering::LowerCallTo(SDValue Chain, const Type *RetTy,
          Value != NumValues; ++Value) {
       MVT VT = ValueVTs[Value];
       const Type *ArgTy = VT.getTypeForMVT();
-      SDValue Op = SDValue(Args[i].Node.getNode(),
-                           Args[i].Node.getResNo() + Value);
+      SDValue Op = SDValue(Args[i].Node.getNode(), Args[i].Node.getResNo() + Value);
       ISD::ArgFlagsTy Flags;
       unsigned OriginalAlignment =
         getTargetData()->getABITypeAlignment(ArgTy);

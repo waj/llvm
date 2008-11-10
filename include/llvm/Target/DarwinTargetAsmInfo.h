@@ -26,7 +26,6 @@ namespace llvm {
 
   struct DarwinTargetAsmInfo: public TargetAsmInfo {
     const Section* TextCoalSection;
-    const Section* ConstTextCoalSection;
     const Section* ConstDataCoalSection;
     const Section* ConstDataSection;
     const Section* DataCoalSection;
@@ -44,6 +43,8 @@ namespace llvm {
     const Section* MergeableConstSection(const Type *Ty) const;
     const Section* MergeableStringSection(const GlobalVariable *GV) const;
     const Section* SelectSectionForMachineConst(const Type *Ty) const;
+  protected:
+    const TargetMachine* DTM;
   };
 }
 

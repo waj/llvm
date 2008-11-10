@@ -23,12 +23,8 @@ namespace llvm {
   class X86JITInfo : public TargetJITInfo {
     X86TargetMachine &TM;
     intptr_t PICBase;
-    char* TLSOffset;
   public:
-    explicit X86JITInfo(X86TargetMachine &tm) : TM(tm) {
-      useGOT = 0;
-      TLSOffset = 0;
-    }
+    explicit X86JITInfo(X86TargetMachine &tm) : TM(tm) {useGOT = 0;}
 
     /// replaceMachineCodeForFunction - Make it so that calling the function
     /// whose machine code is at OLD turns into a call to NEW, perhaps by
@@ -37,11 +33,10 @@ namespace llvm {
     ///
     virtual void replaceMachineCodeForFunction(void *Old, void *New);
 
-    /// emitGlobalValueIndirectSym - Use the specified MachineCodeEmitter object
-    /// to emit an indirect symbol which contains the address of the specified
-    /// ptr.
-    virtual void *emitGlobalValueIndirectSym(const GlobalValue* GV, void *ptr,
-                                             MachineCodeEmitter &MCE);
+    /// emitGlobalValueLazyPtr - Use the specified MachineCodeEmitter object to
+    /// emit a lazy pointer which contains the address of the specified ptr.
+    virtual void *emitGlobalValueLazyPtr(const GlobalValue* GV, void *ptr,
+                                         MachineCodeEmitter &MCE);
 
     /// emitFunctionStub - Use the specified MachineCodeEmitter object to emit a
     /// small native function that simply calls the function at the specified
@@ -61,11 +56,6 @@ namespace llvm {
     /// referenced global symbols.
     virtual void relocate(void *Function, MachineRelocation *MR,
                           unsigned NumRelocs, unsigned char* GOTBase);
-    
-    /// allocateThreadLocalMemory - Each target has its own way of
-    /// handling thread local variables. This method returns a value only
-    /// meaningful to the target.
-    virtual char* allocateThreadLocalMemory(size_t size);
 
     /// setPICBase / getPICBase - Getter / setter of PICBase, used to compute
     /// PIC jumptable entry.

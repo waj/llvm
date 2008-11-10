@@ -29,8 +29,8 @@ static cl::opt<bool> DisableIfConversion("disable-arm-if-conversion",cl::Hidden,
                               cl::desc("Disable if-conversion pass"));
 
 // Register the target.
-static RegisterTarget<ARMTargetMachine>   X("arm",   "ARM");
-static RegisterTarget<ThumbTargetMachine> Y("thumb", "Thumb");
+static RegisterTarget<ARMTargetMachine>   X("arm",   "  ARM");
+static RegisterTarget<ThumbTargetMachine> Y("thumb", "  Thumb");
 
 // No assembler printer by default
 ARMTargetMachine::AsmPrinterCtorFn ARMTargetMachine::AsmPrinterCtor = 0;
@@ -84,10 +84,8 @@ ARMTargetMachine::ARMTargetMachine(const Module &M, const std::string &FS,
            std::string("e-p:32:32-f64:64:64-i64:64:64"))),
     InstrInfo(Subtarget),
     FrameInfo(Subtarget),
-    JITInfo(),
-    TLInfo(*this) {
-  DefRelocModel = getRelocationModel();
-}
+    JITInfo(*this),
+    TLInfo(*this) {}
 
 unsigned ARMTargetMachine::getJITMatchQuality() {
 #if defined(__arm__)
@@ -159,8 +157,7 @@ bool ARMTargetMachine::addAssemblyEmitter(PassManagerBase &PM, bool Fast,
 bool ARMTargetMachine::addCodeEmitter(PassManagerBase &PM, bool Fast,
                                       bool DumpAsm, MachineCodeEmitter &MCE) {
   // FIXME: Move this to TargetJITInfo!
-  if (DefRelocModel == Reloc::Default)
-    setRelocationModel(Reloc::Static);
+  setRelocationModel(Reloc::Static);
 
   // Machine code emitter pass for ARM.
   PM.add(createARMCodeEmitterPass(*this, MCE));

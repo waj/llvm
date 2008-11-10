@@ -36,7 +36,6 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include <cstdio>
 using namespace llvm;
 
 STATISTIC(NumGVNInstr, "Number of instructions deleted");
@@ -739,7 +738,6 @@ namespace {
     bool performPRE(Function& F);
     Value* lookupNumber(BasicBlock* BB, uint32_t num);
     bool mergeBlockIntoPredecessor(BasicBlock* BB);
-    void cleanupGlobalSets();
   };
   
   char GVN::ID = 0;
@@ -1130,9 +1128,7 @@ bool GVN::runOnFunction(Function& F) {
       changed |= PREChanged;
     }
   }
-
-  cleanupGlobalSets();
-
+  
   return changed;
 }
 
@@ -1335,9 +1331,16 @@ bool GVN::performPRE(Function& F) {
 
 // iterateOnFunction - Executes one iteration of GVN
 bool GVN::iterateOnFunction(Function &F) {
-  DominatorTree &DT = getAnalysis<DominatorTree>();
-
-  cleanupGlobalSets();
+  // Clean out global sets from any previous functions
+  VN.clear();
+  phiMap.clear();
+  
+  for (DenseMap<BasicBlock*, ValueNumberScope*>::iterator
+       I = localAvail.begin(), E = localAvail.end(); I != E; ++I)
+    delete I->second;
+  localAvail.clear();
+  
+  DominatorTree &DT = getAnalysis<DominatorTree>();   
 
   // Top-down walk of the dominator tree
   bool changed = false;
@@ -1346,14 +1349,4 @@ bool GVN::iterateOnFunction(Function &F) {
     changed |= processBlock(*DI);
   
   return changed;
-}
-
-void GVN::cleanupGlobalSets() {
-  VN.clear();
-  phiMap.clear();
-
-  for (DenseMap<BasicBlock*, ValueNumberScope*>::iterator
-       I = localAvail.begin(), E = localAvail.end(); I != E; ++I)
-    delete I->second;
-  localAvail.clear();
 }

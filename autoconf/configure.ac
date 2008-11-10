@@ -31,7 +31,7 @@ dnl===
 dnl===-----------------------------------------------------------------------===
 dnl Initialize autoconf and define the package name, version number and
 dnl email address for reporting bugs.
-AC_INIT([[llvm]],[[2.5svn]],[llvmbugs@cs.uiuc.edu])
+AC_INIT([[llvm]],[[2.4]],[llvmbugs@cs.uiuc.edu])
 
 dnl Provide a copyright substitution and ensure the copyright notice is included
 dnl in the output of --version option of the generated configure script.
@@ -225,7 +225,6 @@ AC_CACHE_CHECK([target architecture],[llvm_cv_target_arch],
   arm-*)                  llvm_cv_target_arch="ARM" ;;
   mips-*)                 llvm_cv_target_arch="Mips" ;;
   pic16-*)                llvm_cv_target_arch="PIC16" ;;
-  xcore-*)                llvm_cv_target_arch="XCore" ;;
   *)                      llvm_cv_target_arch="Unknown" ;;
 esac])
 
@@ -333,7 +332,6 @@ else
     ARM)     AC_SUBST(TARGET_HAS_JIT,0) ;;
     Mips)    AC_SUBST(TARGET_HAS_JIT,0) ;;
     PIC16)   AC_SUBST(TARGET_HAS_JIT,0) ;;
-    XCore)   AC_SUBST(TARGET_HAS_JIT,0) ;;
     *)       AC_SUBST(TARGET_HAS_JIT,0) ;;
   esac
 fi
@@ -383,7 +381,7 @@ AC_ARG_ENABLE([targets],AS_HELP_STRING([--enable-targets],
     [Build specific host targets: all,host-only,{target-name} (default=all)]),,
     enableval=all)
 case "$enableval" in
-  all) TARGETS_TO_BUILD="X86 Sparc PowerPC Alpha IA64 ARM Mips CellSPU PIC16 XCore CBackend MSIL CppBackend" ;;
+  all) TARGETS_TO_BUILD="X86 Sparc PowerPC Alpha IA64 ARM Mips CellSPU PIC16 CBackend MSIL CppBackend" ;;
   host-only)
     case "$llvm_cv_target_arch" in
       x86)     TARGETS_TO_BUILD="X86" ;;
@@ -396,7 +394,6 @@ case "$enableval" in
       Mips)    TARGETS_TO_BUILD="Mips" ;;
       CellSPU|SPU) TARGETS_TO_BUILD="CellSPU" ;;
       PIC16)   TARGETS_TO_BUILD="PIC16" ;;
-      XCore)   TARGETS_TO_BUILD="XCore" ;;
       *)       AC_MSG_ERROR([Can not set target to build]) ;;
     esac
     ;;
@@ -412,7 +409,6 @@ case "$enableval" in
         mips)    TARGETS_TO_BUILD="Mips $TARGETS_TO_BUILD" ;;
         spu)     TARGETS_TO_BUILD="CellSPU $TARGETS_TO_BUILD" ;;
         pic16)   TARGETS_TO_BUILD="PIC16 $TARGETS_TO_BUILD" ;;
-        xcore)   TARGETS_TO_BUILD="XCore $TARGETS_TO_BUILD" ;;
         cbe)     TARGETS_TO_BUILD="CBackend $TARGETS_TO_BUILD" ;;
         msil)    TARGETS_TO_BUILD="MSIL $TARGETS_TO_BUILD" ;;
         cpp)     TARGETS_TO_BUILD="CppBackend $TARGETS_TO_BUILD" ;;
@@ -618,7 +614,6 @@ AC_PATH_PROGS(OCAMLC, [ocamlc])
 AC_PATH_PROGS(OCAMLOPT, [ocamlopt])
 AC_PATH_PROGS(OCAMLDEP, [ocamldep])
 AC_PATH_PROGS(OCAMLDOC, [ocamldoc])
-AC_PATH_PROGS(GAS, [gas as])
 
 dnl Determine if the linker supports the -R option.
 AC_LINK_USE_R
@@ -877,7 +872,7 @@ if test "$llvm_cv_llvmgcc_sanity" = "yes" ; then
   llvmgccmajvers=[`echo $llvmgccversion | sed 's/^\([0-9]\).*/\1/'`]
   AC_SUBST(LLVMGCC_VERSION,$llvmgccversion)
   AC_SUBST(LLVMGCC_MAJVERS,$llvmgccmajvers)
-  llvmgcclangs=[`"$LLVMGCC" -v --help 2>&1 | grep '^Configured with:' | sed 's/^.*--enable-languages=\([^ ]*\).*/\1/'`]
+  llvmgcclangs=[`"$LLVMGCC" -v --help 2>&1 | grep '^Configured with:' | sed 's/^.*--enable-languages=\([^ ]*\).*/\1/'`]  
   AC_SUBST(LLVMGCC_LANGS,$llvmgcclangs)
   AC_MSG_RESULT([ok])
 fi

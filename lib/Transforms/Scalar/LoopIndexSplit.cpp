@@ -205,7 +205,7 @@ char LoopIndexSplit::ID = 0;
 static RegisterPass<LoopIndexSplit>
 X("loop-index-split", "Index Split Loops");
 
-Pass *llvm::createLoopIndexSplitPass() {
+LoopPass *llvm::createLoopIndexSplitPass() {
   return new LoopIndexSplit();
 }
 
@@ -585,7 +585,16 @@ bool LoopIndexSplit::processOneIterationLoop(SplitInfo &SD) {
   // only when index variable is equal to split value.
   IndVar->replaceAllUsesWith(SD.SplitValue);
 
-  Instruction *LTerminator = Latch->getTerminator();
+  // Remove Latch to Header edge.
+  BasicBlock *LatchSucc = NULL;
+  Header->removePredecessor(Latch);
+  for (succ_iterator SI = succ_begin(Latch), E = succ_end(Latch);
+       SI != E; ++SI) {
+    if (Header != *SI)
+      LatchSucc = *SI;
+  }
+  BR->setUnconditionalDest(LatchSucc);
+
   Instruction *Terminator = Header->getTerminator();
   Value *ExitValue = ExitCondition->getOperand(ExitValueNum);
 
@@ -597,14 +606,12 @@ bool LoopIndexSplit::processOneIterationLoop(SplitInfo &SD) {
   //      c2 = icmp ult i32 SplitValue, ExitValue
   //      and i32 c1, c2 
   bool SignedPredicate = ExitCondition->isSignedPredicate();
-  CmpInst::Predicate C2Predicate = ExitCondition->getPredicate();
-  if (LTerminator->getOperand(0) != Header)
-    C2Predicate = CmpInst::getInversePredicate(C2Predicate);
   Instruction *C1 = new ICmpInst(SignedPredicate ? 
                                  ICmpInst::ICMP_SGE : ICmpInst::ICMP_UGE,
                                  SD.SplitValue, StartValue, "lisplit", 
                                  Terminator);
-  Instruction *C2 = new ICmpInst(C2Predicate,
+  Instruction *C2 = new ICmpInst(SignedPredicate ? 
+                                 ICmpInst::ICMP_SLT : ICmpInst::ICMP_ULT,
                                  SD.SplitValue, ExitValue, "lisplit", 
                                  Terminator);
   Instruction *NSplitCond = BinaryOperator::CreateAnd(C1, C2, "lisplit", 
@@ -612,18 +619,9 @@ bool LoopIndexSplit::processOneIterationLoop(SplitInfo &SD) {
   SD.SplitCondition->replaceAllUsesWith(NSplitCond);
   SD.SplitCondition->eraseFromParent();
 
-  // Remove Latch to Header edge.
-  BasicBlock *LatchSucc = NULL;
-  Header->removePredecessor(Latch);
-  for (succ_iterator SI = succ_begin(Latch), E = succ_end(Latch);
-       SI != E; ++SI) {
-    if (Header != *SI)
-      LatchSucc = *SI;
-  }
-  BR->setUnconditionalDest(LatchSucc);
-
   // Now, clear latch block. Remove instructions that are responsible
   // to increment induction variable. 
+  Instruction *LTerminator = Latch->getTerminator();
   for (BasicBlock::iterator LB = Latch->begin(), LE = Latch->end();
        LB != LE; ) {
     Instruction *I = LB;

@@ -32,9 +32,9 @@ int X86TargetMachineModule = 0;
 
 // Register the target.
 static RegisterTarget<X86_32TargetMachine>
-X("x86",    "32-bit X86: Pentium-Pro and above");
+X("x86",    "  32-bit X86: Pentium-Pro and above");
 static RegisterTarget<X86_64TargetMachine>
-Y("x86-64", "64-bit X86: EM64T and AMD64");
+Y("x86-64", "  64-bit X86: EM64T and AMD64");
 
 // No assembler printer by default
 X86TargetMachine::AsmPrinterCtorFn X86TargetMachine::AsmPrinterCtor = 0;
@@ -143,15 +143,6 @@ X86TargetMachine::X86TargetMachine(const Module &M, const std::string &FS,
     else
       setRelocationModel(Reloc::Static);
   }
-
-  // ELF doesn't have a distinct dynamic-no-PIC model. Dynamic-no-PIC
-  // is defined as a model for code which may be used in static or
-  // dynamic executables but not necessarily a shared library. On ELF
-  // implement this by using the Static model.
-  if (Subtarget.isTargetELF() &&
-      getRelocationModel() == Reloc::DynamicNoPIC)
-    setRelocationModel(Reloc::Static);
-
   if (Subtarget.is64Bit()) {
     // No DynamicNoPIC support under X86-64.
     if (getRelocationModel() == Reloc::DynamicNoPIC)

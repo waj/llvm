@@ -24,7 +24,6 @@
 #include "llvm/ValueSymbolTable.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Streams.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/System/Program.h"
 using namespace llvm;
 
@@ -543,15 +542,15 @@ static void WriteConstants(unsigned FirstVal, unsigned LastVal,
       Code = bitc::CST_CODE_FLOAT;
       const Type *Ty = CFP->getType();
       if (Ty == Type::FloatTy || Ty == Type::DoubleTy) {
-        Record.push_back(CFP->getValueAPF().bitcastToAPInt().getZExtValue());
+        Record.push_back(CFP->getValueAPF().convertToAPInt().getZExtValue());
       } else if (Ty == Type::X86_FP80Ty) {
         // api needed to prevent premature destruction
-        APInt api = CFP->getValueAPF().bitcastToAPInt();
+        APInt api = CFP->getValueAPF().convertToAPInt();
         const uint64_t *p = api.getRawData();
         Record.push_back(p[0]);
         Record.push_back((uint16_t)p[1]);
       } else if (Ty == Type::FP128Ty || Ty == Type::PPC_FP128Ty) {
-        APInt api = CFP->getValueAPF().bitcastToAPInt();
+        APInt api = CFP->getValueAPF().convertToAPInt();
         const uint64_t *p = api.getRawData();
         Record.push_back(p[0]);
         Record.push_back(p[1]);
@@ -1331,16 +1330,6 @@ static void EmitDarwinBCTrailer(BitstreamWriter &Stream, unsigned BufferSize) {
 /// WriteBitcodeToFile - Write the specified module to the specified output
 /// stream.
 void llvm::WriteBitcodeToFile(const Module *M, std::ostream &Out) {
-  raw_os_ostream RawOut(Out);
-  // If writing to stdout, set binary mode.
-  if (llvm::cout == Out)
-    sys::Program::ChangeStdoutToBinary();
-  WriteBitcodeToFile(M, RawOut);
-}
-
-/// WriteBitcodeToFile - Write the specified module to the specified output
-/// stream.
-void llvm::WriteBitcodeToFile(const Module *M, raw_ostream &Out) {
   std::vector<unsigned char> Buffer;
   BitstreamWriter Stream(Buffer);
   
@@ -1367,7 +1356,7 @@ void llvm::WriteBitcodeToFile(const Module *M, raw_ostream &Out) {
 
   
   // If writing to stdout, set binary mode.
-  if (&llvm::outs() == &Out)
+  if (llvm::cout == Out)
     sys::Program::ChangeStdoutToBinary();
 
   // Write the generated bitstream to "Out".

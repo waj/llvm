@@ -131,27 +131,27 @@ SPUTargetLowering::SPUTargetLowering(SPUTargetMachine &TM)
   addRegisterClass(MVT::i128, SPU::GPRCRegisterClass);
 
   // SPU has no sign or zero extended loads for i1, i8, i16:
-  setLoadExtAction(ISD::EXTLOAD,  MVT::i1, Promote);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i1, Promote);
+  setLoadXAction(ISD::EXTLOAD,  MVT::i1, Promote);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i1, Promote);
+  setLoadXAction(ISD::ZEXTLOAD, MVT::i1, Promote);
   setTruncStoreAction(MVT::i8, MVT::i1, Custom);
   setTruncStoreAction(MVT::i16, MVT::i1, Custom);
   setTruncStoreAction(MVT::i32, MVT::i1, Custom);
   setTruncStoreAction(MVT::i64, MVT::i1, Custom);
   setTruncStoreAction(MVT::i128, MVT::i1, Custom);
 
-  setLoadExtAction(ISD::EXTLOAD,  MVT::i8, Custom);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i8, Custom);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i8, Custom);
+  setLoadXAction(ISD::EXTLOAD,  MVT::i8, Custom);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i8, Custom);
+  setLoadXAction(ISD::ZEXTLOAD, MVT::i8, Custom);
   setTruncStoreAction(MVT::i8  , MVT::i8, Custom);
   setTruncStoreAction(MVT::i16 , MVT::i8, Custom);
   setTruncStoreAction(MVT::i32 , MVT::i8, Custom);
   setTruncStoreAction(MVT::i64 , MVT::i8, Custom);
   setTruncStoreAction(MVT::i128, MVT::i8, Custom);
 
-  setLoadExtAction(ISD::EXTLOAD,  MVT::i16, Custom);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i16, Custom);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i16, Custom);
+  setLoadXAction(ISD::EXTLOAD,  MVT::i16, Custom);
+  setLoadXAction(ISD::SEXTLOAD, MVT::i16, Custom);
+  setLoadXAction(ISD::ZEXTLOAD, MVT::i16, Custom);
 
   // SPU constant load actions are custom lowered:
   setOperationAction(ISD::Constant,   MVT::i64, Custom);
@@ -460,7 +460,10 @@ SPUTargetLowering::getTargetNodeName(unsigned Opcode) const
 
 MVT SPUTargetLowering::getSetCCResultType(const SDValue &Op) const {
   MVT VT = Op.getValueType();
-  return (VT.isInteger() ? VT : MVT(MVT::i32));
+  if (VT.isInteger())
+    return VT;
+  else
+    return MVT::i32;
 }
 
 //===----------------------------------------------------------------------===//
@@ -923,7 +926,7 @@ LowerFORMAL_ARGUMENTS(SDValue Op, SelectionDAG &DAG, int &VarArgsFrameIndex)
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
-  SmallVector<SDValue, 48> ArgValues;
+  SmallVector<SDValue, 8> ArgValues;
   SDValue Root = Op.getOperand(0);
   bool isVarArg = cast<ConstantSDNode>(Op.getOperand(2))->getZExtValue() != 0;
 
@@ -939,57 +942,98 @@ LowerFORMAL_ARGUMENTS(SDValue Op, SelectionDAG &DAG, int &VarArgsFrameIndex)
   // Add DAG nodes to load the arguments or copy them out of registers.
   for (unsigned ArgNo = 0, e = Op.getNode()->getNumValues() - 1;
        ArgNo != e; ++ArgNo) {
+    SDValue ArgVal;
+    bool needsLoad = false;
     MVT ObjectVT = Op.getValue(ArgNo).getValueType();
     unsigned ObjSize = ObjectVT.getSizeInBits()/8;
-    SDValue ArgVal;
 
-    if (ArgRegIdx < NumArgRegs) {
-      const TargetRegisterClass *ArgRegClass;
-
-      switch (ObjectVT.getSimpleVT()) {
-      default: {
-	cerr << "LowerFORMAL_ARGUMENTS Unhandled argument type: "
-	     << ObjectVT.getMVTString()
-	     << "\n";
-	abort();
+    switch (ObjectVT.getSimpleVT()) {
+    default: {
+      cerr << "LowerFORMAL_ARGUMENTS Unhandled argument type: "
+           << ObjectVT.getMVTString()
+           << "\n";
+      abort();
+    }
+    case MVT::i8:
+      if (!isVarArg && ArgRegIdx < NumArgRegs) {
+        unsigned VReg = RegInfo.createVirtualRegister(&SPU::R8CRegClass);
+        RegInfo.addLiveIn(ArgRegs[ArgRegIdx], VReg);
+        ArgVal = DAG.getCopyFromReg(Root, VReg, MVT::i8);
+        ++ArgRegIdx;
+      } else {
+        needsLoad = true;
       }
-      case MVT::i8:
-	ArgRegClass = &SPU::R8CRegClass;
-	break;
-      case MVT::i16:
-	ArgRegClass = &SPU::R16CRegClass;
-	break;
-      case MVT::i32:
-	ArgRegClass = &SPU::R32CRegClass;
-	break;
-      case MVT::i64:
-	ArgRegClass = &SPU::R64CRegClass;
-	break;
-      case MVT::f32:
-	ArgRegClass = &SPU::R32FPRegClass;
-	break;
-      case MVT::f64:
-	ArgRegClass = &SPU::R64FPRegClass;
-	break;
-      case MVT::v2f64:
-      case MVT::v4f32:
-      case MVT::v2i64:
-      case MVT::v4i32:
-      case MVT::v8i16:
-      case MVT::v16i8:
-	ArgRegClass = &SPU::VECREGRegClass;
-	++ArgRegIdx;
-	break;
+      break;
+    case MVT::i16:
+      if (!isVarArg && ArgRegIdx < NumArgRegs) {
+        unsigned VReg = RegInfo.createVirtualRegister(&SPU::R16CRegClass);
+        RegInfo.addLiveIn(ArgRegs[ArgRegIdx], VReg);
+        ArgVal = DAG.getCopyFromReg(Root, VReg, MVT::i16);
+        ++ArgRegIdx;
+      } else {
+        needsLoad = true;
       }
+      break;
+    case MVT::i32:
+      if (!isVarArg && ArgRegIdx < NumArgRegs) {
+        unsigned VReg = RegInfo.createVirtualRegister(&SPU::R32CRegClass);
+        RegInfo.addLiveIn(ArgRegs[ArgRegIdx], VReg);
+        ArgVal = DAG.getCopyFromReg(Root, VReg, MVT::i32);
+        ++ArgRegIdx;
+      } else {
+        needsLoad = true;
+      }
+      break;
+    case MVT::i64:
+      if (!isVarArg && ArgRegIdx < NumArgRegs) {
+        unsigned VReg = RegInfo.createVirtualRegister(&SPU::R64CRegClass);
+        RegInfo.addLiveIn(ArgRegs[ArgRegIdx], VReg);
+        ArgVal = DAG.getCopyFromReg(Root, VReg, MVT::i64);
+        ++ArgRegIdx;
+      } else {
+        needsLoad = true;
+      }
+      break;
+    case MVT::f32:
+      if (!isVarArg && ArgRegIdx < NumArgRegs) {
+        unsigned VReg = RegInfo.createVirtualRegister(&SPU::R32FPRegClass);
+        RegInfo.addLiveIn(ArgRegs[ArgRegIdx], VReg);
+        ArgVal = DAG.getCopyFromReg(Root, VReg, MVT::f32);
+        ++ArgRegIdx;
+      } else {
+        needsLoad = true;
+      }
+      break;
+    case MVT::f64:
+      if (!isVarArg && ArgRegIdx < NumArgRegs) {
+        unsigned VReg = RegInfo.createVirtualRegister(&SPU::R64FPRegClass);
+        RegInfo.addLiveIn(ArgRegs[ArgRegIdx], VReg);
+        ArgVal = DAG.getCopyFromReg(Root, VReg, MVT::f64);
+        ++ArgRegIdx;
+      } else {
+        needsLoad = true;
+      }
+      break;
+    case MVT::v2f64:
+    case MVT::v4f32:
+    case MVT::v2i64:
+    case MVT::v4i32:
+    case MVT::v8i16:
+    case MVT::v16i8:
+      if (!isVarArg && ArgRegIdx < NumArgRegs) {
+        unsigned VReg = RegInfo.createVirtualRegister(&SPU::VECREGRegClass);
+        RegInfo.addLiveIn(ArgRegs[ArgRegIdx], VReg);
+        ArgVal = DAG.getCopyFromReg(Root, VReg, ObjectVT);
+        ++ArgRegIdx;
+      } else {
+        needsLoad = true;
+      }
+      break;
+    }
 
-      unsigned VReg = RegInfo.createVirtualRegister(ArgRegClass);
-      RegInfo.addLiveIn(ArgRegs[ArgRegIdx], VReg);
-      ArgVal = DAG.getCopyFromReg(Root, VReg, ObjectVT);
-      ++ArgRegIdx;
-    } else {
-      // We need to load the argument to a virtual register if we determined
-      // above that we ran out of physical registers of the appropriate type
-      // or we're forced to do vararg
+    // We need to load the argument to a virtual register if we determined above
+    // that we ran out of physical registers of the appropriate type
+    if (needsLoad) {
       int FI = MFI->CreateFixedObject(ObjSize, ArgOffset);
       SDValue FIN = DAG.getFrameIndex(FI, PtrVT);
       ArgVal = DAG.getLoad(ObjectVT, Root, FIN, NULL, 0);
@@ -997,31 +1041,30 @@ LowerFORMAL_ARGUMENTS(SDValue Op, SelectionDAG &DAG, int &VarArgsFrameIndex)
     }
 
     ArgValues.push_back(ArgVal);
-    // Update the chain
-    Root = ArgVal.getOperand(0);
   }
 
-  // vararg handling:
+  // If the function takes variable number of arguments, make a frame index for
+  // the start of the first vararg value... for expansion of llvm.va_start.
   if (isVarArg) {
-    // unsigned int ptr_size = PtrVT.getSizeInBits() / 8;
-    // We will spill (79-3)+1 registers to the stack
-    SmallVector<SDValue, 79-3+1> MemOps;
-
-    // Create the frame slot
-
+    VarArgsFrameIndex = MFI->CreateFixedObject(PtrVT.getSizeInBits()/8,
+                                               ArgOffset);
+    SDValue FIN = DAG.getFrameIndex(VarArgsFrameIndex, PtrVT);
+    // If this function is vararg, store any remaining integer argument regs to
+    // their spots on the stack so that they may be loaded by deferencing the
+    // result of va_next.
+    SmallVector<SDValue, 8> MemOps;
     for (; ArgRegIdx != NumArgRegs; ++ArgRegIdx) {
-      VarArgsFrameIndex = MFI->CreateFixedObject(StackSlotSize, ArgOffset);
-      SDValue FIN = DAG.getFrameIndex(VarArgsFrameIndex, PtrVT);
-      SDValue ArgVal = DAG.getRegister(ArgRegs[ArgRegIdx], MVT::v16i8);
-      SDValue Store = DAG.getStore(Root, ArgVal, FIN, NULL, 0);
-      Root = Store.getOperand(0);
+      unsigned VReg = RegInfo.createVirtualRegister(&SPU::GPRCRegClass);
+      RegInfo.addLiveIn(ArgRegs[ArgRegIdx], VReg);
+      SDValue Val = DAG.getCopyFromReg(Root, VReg, PtrVT);
+      SDValue Store = DAG.getStore(Val.getValue(1), Val, FIN, NULL, 0);
       MemOps.push_back(Store);
-
-      // Increment address by stack slot size for the next stored argument
-      ArgOffset += StackSlotSize;
+      // Increment the address by four for the next argument to store
+      SDValue PtrOff = DAG.getConstant(PtrVT.getSizeInBits()/8, PtrVT);
+      FIN = DAG.getNode(ISD::ADD, PtrOff.getValueType(), FIN, PtrOff);
     }
     if (!MemOps.empty())
-      Root = DAG.getNode(ISD::TokenFactor,MVT::Other,&MemOps[0],MemOps.size());
+      Root = DAG.getNode(ISD::TokenFactor, MVT::Other,&MemOps[0],MemOps.size());
   }
 
   ArgValues.push_back(Root);
@@ -1050,6 +1093,10 @@ SDValue
 LowerCALL(SDValue Op, SelectionDAG &DAG, const SPUSubtarget *ST) {
   CallSDNode *TheCall = cast<CallSDNode>(Op.getNode());
   SDValue Chain = TheCall->getChain();
+#if 0
+  bool isVarArg   = TheCall->isVarArg();
+  bool isTailCall = TheCall->isTailCall();
+#endif
   SDValue Callee    = TheCall->getCallee();
   unsigned NumOps     = TheCall->getNumArgs();
   unsigned StackSlotSize = SPUFrameInfo::stackSlotSize();
@@ -1332,7 +1379,7 @@ SDValue SPU::get_vec_u18imm(SDNode *N, SelectionDAG &DAG,
       Value = Value >> 32;
     }
     if (Value <= 0x3ffff)
-      return DAG.getTargetConstant(Value, ValueType);
+      return DAG.getConstant(Value, ValueType);
   }
 
   return SDValue();
@@ -1354,7 +1401,7 @@ SDValue SPU::get_vec_i16imm(SDNode *N, SelectionDAG &DAG,
       Value = Value >> 32;
     }
     if (Value >= -(1 << 15) && Value <= ((1 << 15) - 1)) {
-      return DAG.getTargetConstant(Value, ValueType);
+      return DAG.getConstant(Value, ValueType);
     }
   }
 
@@ -1377,7 +1424,7 @@ SDValue SPU::get_vec_i10imm(SDNode *N, SelectionDAG &DAG,
       Value = Value >> 32;
     }
     if (isS10Constant(Value))
-      return DAG.getTargetConstant(Value, ValueType);
+      return DAG.getConstant(Value, ValueType);
   }
 
   return SDValue();
@@ -1397,10 +1444,10 @@ SDValue SPU::get_vec_i8imm(SDNode *N, SelectionDAG &DAG,
     if (ValueType == MVT::i16
         && Value <= 0xffff                 /* truncated from uint64_t */
         && ((short) Value >> 8) == ((short) Value & 0xff))
-      return DAG.getTargetConstant(Value & 0xff, ValueType);
+      return DAG.getConstant(Value & 0xff, ValueType);
     else if (ValueType == MVT::i8
              && (Value & 0xff) == Value)
-      return DAG.getTargetConstant(Value, ValueType);
+      return DAG.getConstant(Value, ValueType);
   }
 
   return SDValue();
@@ -1416,7 +1463,7 @@ SDValue SPU::get_ILHUvec_imm(SDNode *N, SelectionDAG &DAG,
     if ((ValueType == MVT::i32
           && ((unsigned) Value & 0xffff0000) == (unsigned) Value)
         || (ValueType == MVT::i64 && (Value & 0xffff0000) == Value))
-      return DAG.getTargetConstant(Value >> 16, ValueType);
+      return DAG.getConstant(Value >> 16, ValueType);
   }
 
   return SDValue();
@@ -1425,7 +1472,7 @@ SDValue SPU::get_ILHUvec_imm(SDNode *N, SelectionDAG &DAG,
 /// get_v4i32_imm - Catch-all for general 32-bit constant vectors
 SDValue SPU::get_v4i32_imm(SDNode *N, SelectionDAG &DAG) {
   if (ConstantSDNode *CN = getVecImm(N)) {
-    return DAG.getTargetConstant((unsigned) CN->getZExtValue(), MVT::i32);
+    return DAG.getConstant((unsigned) CN->getZExtValue(), MVT::i32);
   }
 
   return SDValue();
@@ -1434,7 +1481,7 @@ SDValue SPU::get_v4i32_imm(SDNode *N, SelectionDAG &DAG) {
 /// get_v4i32_imm - Catch-all for general 64-bit constant vectors
 SDValue SPU::get_v2i64_imm(SDNode *N, SelectionDAG &DAG) {
   if (ConstantSDNode *CN = getVecImm(N)) {
-    return DAG.getTargetConstant((unsigned) CN->getZExtValue(), MVT::i64);
+    return DAG.getConstant((unsigned) CN->getZExtValue(), MVT::i64);
   }
 
   return SDValue();
@@ -2175,17 +2222,17 @@ static SDValue LowerI8Math(SDValue Op, SelectionDAG &DAG, unsigned Opc)
           ? DAG.getNode(ISD::ZERO_EXTEND, MVT::i16, N0)
           : DAG.getConstant(cast<ConstantSDNode>(N0)->getZExtValue(),
                             MVT::i16));
-    N1Opc = N1.getValueType().bitsLT(MVT::i32)
+    N1Opc = N1.getValueType().bitsLT(MVT::i16)
             ? ISD::ZERO_EXTEND
             : ISD::TRUNCATE;
     N1 = (N1.getOpcode() != ISD::Constant
-          ? DAG.getNode(N1Opc, MVT::i32, N1)
+          ? DAG.getNode(N1Opc, MVT::i16, N1)
           : DAG.getConstant(cast<ConstantSDNode>(N1)->getZExtValue(),
-                            MVT::i32));
+                            MVT::i16));
     SDValue ExpandArg =
       DAG.getNode(ISD::OR, MVT::i16, N0,
                   DAG.getNode(ISD::SHL, MVT::i16,
-                              N0, DAG.getConstant(8, MVT::i32)));
+                              N0, DAG.getConstant(8, MVT::i16)));
     return DAG.getNode(ISD::TRUNCATE, MVT::i8,
                        DAG.getNode(Opc, MVT::i16, ExpandArg, N1));
   }
@@ -2526,7 +2573,7 @@ static SDValue LowerCTPOP(SDValue Op, SelectionDAG &DAG) {
     SDValue N = Op.getOperand(0);
     SDValue Elt0 = DAG.getConstant(0, MVT::i16);
     SDValue Mask0 = DAG.getConstant(0x0f, MVT::i16);
-    SDValue Shift1 = DAG.getConstant(8, MVT::i32);
+    SDValue Shift1 = DAG.getConstant(8, MVT::i16);
 
     SDValue Promote = DAG.getNode(SPUISD::PROMOTE_SCALAR, vecVT, N, N);
     SDValue CNTB = DAG.getNode(SPUISD::CNTB, vecVT, Promote);
@@ -3009,11 +3056,5 @@ bool SPUTargetLowering::isLegalAddressImmediate(int64_t V,
 }
 
 bool SPUTargetLowering::isLegalAddressImmediate(llvm::GlobalValue* GV) const {
-  return false;
-}
-
-bool
-SPUTargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
-  // The SPU target isn't yet aware of offsets.
   return false;
 }

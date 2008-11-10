@@ -296,13 +296,13 @@ ARMInstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   }
   
   // Transfer LiveVariables states, kill / dead info.
-  if (LV) {
-    for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
-      MachineOperand &MO = MI->getOperand(i);
-      if (MO.isReg() && MO.getReg() &&
-          TargetRegisterInfo::isVirtualRegister(MO.getReg())) {
-        unsigned Reg = MO.getReg();
+  for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
+    MachineOperand &MO = MI->getOperand(i);
+    if (MO.isReg() && MO.getReg() &&
+        TargetRegisterInfo::isVirtualRegister(MO.getReg())) {
+      unsigned Reg = MO.getReg();
       
+      if (LV) {
         LiveVariables::VarInfo &VI = LV->getVarInfo(Reg);
         if (MO.isDef()) {
           MachineInstr *NewMI = (Reg == WBReg) ? UpdateMI : MemMI;
@@ -663,7 +663,7 @@ bool ARMInstrInfo::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 
 MachineInstr *ARMInstrInfo::foldMemoryOperand(MachineFunction &MF,
                                               MachineInstr *MI,
-                                        const SmallVectorImpl<unsigned> &Ops,
+                                              SmallVectorImpl<unsigned> &Ops,
                                               int FI) const {
   if (Ops.size() != 1) return NULL;
 
@@ -747,8 +747,8 @@ MachineInstr *ARMInstrInfo::foldMemoryOperand(MachineFunction &MF,
   return NewMI;
 }
 
-bool ARMInstrInfo::canFoldMemoryOperand(const MachineInstr *MI,
-                                  const SmallVectorImpl<unsigned> &Ops) const {
+bool ARMInstrInfo::canFoldMemoryOperand(MachineInstr *MI,
+                                        SmallVectorImpl<unsigned> &Ops) const {
   if (Ops.size() != 1) return false;
 
   unsigned OpNum = Ops[0];
@@ -780,7 +780,7 @@ bool ARMInstrInfo::canFoldMemoryOperand(const MachineInstr *MI,
   return false;
 }
 
-bool ARMInstrInfo::BlockHasNoFallThrough(const MachineBasicBlock &MBB) const {
+bool ARMInstrInfo::BlockHasNoFallThrough(MachineBasicBlock &MBB) const {
   if (MBB.empty()) return false;
   
   switch (MBB.back().getOpcode()) {

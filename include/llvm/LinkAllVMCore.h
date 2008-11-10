@@ -44,10 +44,9 @@ namespace {
       // to know that getenv() never returns -1, this will do the job.
       if (std::getenv("bar") != (char*) -1)
         return;
-      llvm::Module* M = new llvm::Module("");
+      (void)new llvm::Module("");
       (void)new llvm::UnreachableInst();
       (void)    llvm::createVerifierPass(); 
-      (void) new llvm::Mangler(*M,"");
     }
   } ForceVMCoreLinking;
 }

@@ -294,8 +294,8 @@ bool TGParser::ParseRangePiece(std::vector<unsigned> &Ranges) {
     TokError("expected integer or bitrange");
     return true;
   }
-  int64_t Start = Lex.getCurIntVal();
-  int64_t End;
+  int Start = Lex.getCurIntVal();
+  int End;
   
   if (Start < 0)
     return TokError("invalid range, cannot be negative");
@@ -426,7 +426,7 @@ RecTy *TGParser::ParseType() {
       TokError("expected integer in bits<n> type");
       return 0;
     }
-    uint64_t Val = Lex.getCurIntVal();
+    unsigned Val = Lex.getCurIntVal();
     if (Lex.Lex() != tgtok::greater) {  // Eat count.
       TokError("expected '>' at end of bits<n> type");
       return 0;
