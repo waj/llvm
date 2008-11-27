@@ -1,0 +1,118 @@
+//===- Tools.td - Tools description for LLVMC2 -------------*- tablegen -*-===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+// This file contains descriptions of the various build tools run by llvmc2.
+//
+//===----------------------------------------------------------------------===//
+
+class llvm_gcc_based <string cmd_prefix, string in_lang> : Tool<
+[(in_language in_lang),
+ (out_language "llvm-bitcode"),
+ (output_suffix "bc"),
+ (cmd_line (case
+            (switch_on "E"),
+              (case (not_empty "o"),
+                    !strconcat(cmd_prefix, " -E $INFILE -o $OUTFILE"),
+                    (default),
+                    !strconcat(cmd_prefix, " -E $INFILE")),
+            (switch_on "fsyntax-only"),
+              !strconcat(cmd_prefix, " -fsyntax-only $INFILE"),
+            (default),
+              !strconcat(cmd_prefix, " -c $INFILE -o $OUTFILE -emit-llvm"))),
+ (switch_option "emit-llvm", (stop_compilation),
+   (help "Emit LLVM intermediate files instead of native object files")),
+ (switch_option "E", (stop_compilation),
+   (help "Stop after the preprocessing stage, do not run the compiler")),
+ (switch_option "fsyntax-only", (stop_compilation),
+   (help "Stop after checking the input for syntax errors")),
+ (parameter_list_option "include", (forward),
+   (help "Include the named file prior to preprocessing")),
+ (prefix_list_option "I", (forward),
+   (help "Add a directory to include path")),
+ (sink)
+]>;
+
+def llvm_gcc_c : llvm_gcc_based<"llvm-gcc -x c", "c">;
+def llvm_gcc_cpp : llvm_gcc_based<"llvm-g++ -x c++", "c++">;
+def llvm_gcc_m : llvm_gcc_based<"llvm-gcc -x objective-c", "objective-c">;
+def llvm_gcc_mxx : llvm_gcc_based<"llvm-gcc -x objective-c++", "objective-c++">;
+
+def opt : Tool<
+[(in_language "llvm-bitcode"),
+ (out_language "llvm-bitcode"),
+ (switch_option "opt", (help "Enable opt")),
+ (output_suffix "bc"),
+ (cmd_line "opt -f $INFILE -o $OUTFILE")
+]>;
+
+def llvm_as : Tool<
+[(in_language "llvm-assembler"),
+ (out_language "llvm-bitcode"),
+ (output_suffix "bc"),
+ (cmd_line "llvm-as $INFILE -o $OUTFILE")
+]>;
+
+def llc : Tool<
+[(in_language "llvm-bitcode"),
+ (out_language "assembler"),
+ (output_suffix "s"),
+ (switch_option "S", (stop_compilation),
+                (help "Stop after compilation, do not assemble")),
+ (cmd_line "llc -f $INFILE -o $OUTFILE")
+]>;
+
+def llvm_gcc_assembler : Tool<
+[(in_language "assembler"),
+ (out_language "object-code"),
+ (output_suffix "o"),
+ (cmd_line "llvm-gcc -c -x assembler $INFILE -o $OUTFILE"),
+ (switch_option "c", (stop_compilation),
+                (help "Compile and assemble, but do not link")),
+ (prefix_list_option "Wa,", (unpack_values), (help "Pass options to assembler"))
+]>;
+
+// Default linker
+def llvm_gcc_linker : Tool<
+[(in_language "object-code"),
+ (out_language "executable"),
+ (output_suffix "out"),
+ (cmd_line "llvm-gcc $INFILE -o $OUTFILE"),
+ (join),
+ (prefix_list_option "L", (forward), (help "Add a directory to link path")),
+ (prefix_list_option "l", (forward), (help "Search a library when linking")),
+ (prefix_list_option "Wl,", (unpack_values), (help "Pass options to linker"))
+]>;
+
+// Alternative linker for C++
+def llvm_gcc_cpp_linker : Tool<
+[(in_language "object-code"),
+ (out_language "executable"),
+ (output_suffix "out"),
+ (cmd_line "llvm-g++ $INFILE -o $OUTFILE"),
+ (join),
+ (parameter_option "linker",
+                   (help "Choose linker (possible values: gcc, g++)")),
+ (prefix_list_option "L", (forward)),
+ (prefix_list_option "l", (forward)),
+ (prefix_list_option "Wl,", (unpack_values))
+]>;
+
+// Language map
+
+def LanguageMap : LanguageMap<
+    [LangToSuffixes<"c++", ["cc", "cp", "cxx", "cpp", "CPP", "c++", "C"]>,
+     LangToSuffixes<"c", ["c"]>,
+     LangToSuffixes<"objective-c++", ["mm"]>,
+     LangToSuffixes<"objective-c", ["m"]>,
+     LangToSuffixes<"assembler", ["s"]>,
+     LangToSuffixes<"llvm-assembler", ["ll"]>,
+     LangToSuffixes<"llvm-bitcode", ["bc"]>,
+     LangToSuffixes<"object-code", ["o"]>,
+     LangToSuffixes<"executable", ["out"]>
+     ]>;
