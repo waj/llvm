@@ -22,7 +22,6 @@
 #include "llvm/Module.h"
 #include "llvm/Type.h"
 #include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/CodeGen/DwarfWriter.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetMachine.h"
@@ -34,12 +33,12 @@ using namespace llvm;
 STATISTIC(EmittedInsts, "Number of machine instrs printed");
 
 namespace {
-  class IA64AsmPrinter : public AsmPrinter {
+  struct IA64AsmPrinter : public AsmPrinter {
     std::set<std::string> ExternalFunctionNames, ExternalObjectNames;
-  public:
-    IA64AsmPrinter(raw_ostream &O, TargetMachine &TM,
-                   const TargetAsmInfo *T, bool F)
-      : AsmPrinter(O, TM, T, F) {}
+
+    IA64AsmPrinter(raw_ostream &O, TargetMachine &TM, const TargetAsmInfo *T)
+      : AsmPrinter(O, TM, T) {
+    }
 
     virtual const char *getPassName() const {
       return "IA64 Assembly Printer";
@@ -124,8 +123,6 @@ namespace {
 /// method to print assembly for each instruction.
 ///
 bool IA64AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
-  this->MF = &MF;
-
   SetupMachineFunction(MF);
   O << "\n\n";
 
@@ -367,7 +364,6 @@ bool IA64AsmPrinter::doFinalization(Module &M) {
 /// the given target machine description.
 ///
 FunctionPass *llvm::createIA64CodePrinterPass(raw_ostream &o,
-                                              IA64TargetMachine &tm,
-                                              bool fast) {
-  return new IA64AsmPrinter(o, tm, tm.getTargetAsmInfo(), fast);
+                                              IA64TargetMachine &tm) {
+  return new IA64AsmPrinter(o, tm, tm.getTargetAsmInfo());
 }

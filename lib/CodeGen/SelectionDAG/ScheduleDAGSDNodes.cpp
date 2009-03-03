@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "pre-RA-sched"
-#include "ScheduleDAGSDNodes.h"
+#include "llvm/CodeGen/ScheduleDAGSDNodes.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -24,14 +24,6 @@ using namespace llvm;
 
 ScheduleDAGSDNodes::ScheduleDAGSDNodes(MachineFunction &mf)
   : ScheduleDAG(mf) {
-}
-
-/// Run - perform scheduling.
-///
-void ScheduleDAGSDNodes::Run(SelectionDAG *dag, MachineBasicBlock *bb,
-                             MachineBasicBlock::iterator insertPos) {
-  DAG = dag;
-  ScheduleDAG::Run(bb, insertPos);
 }
 
 SUnit *ScheduleDAGSDNodes::Clone(SUnit *Old) {

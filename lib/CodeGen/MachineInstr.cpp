@@ -874,15 +874,6 @@ void MachineInstr::print(raw_ostream &OS, const TargetMachine *TM) const {
     }
   }
 
-  if (!debugLoc.isUnknown()) {
-    const MachineFunction *MF = getParent()->getParent();
-    DebugLocTuple DLT = MF->getDebugLocTuple(debugLoc);
-    OS << " [dbg: "
-       << DLT.Src  << ","
-       << DLT.Line << ","
-       << DLT.Col  << "]";
-  }
-
   OS << "\n";
 }
 

@@ -48,7 +48,6 @@
   <li>I've built LLVM and am testing it, but the tests freeze.</li>
   <li>Why do test results differ when I perform different types of builds?</li>
   <li>Compiling LLVM with GCC 3.3.2 fails, what should I do?</li>
-  <li>Compiling LLVM with GCC succeeds, but the resulting tools do not work, what can be wrong?</li>
   <li>When I use the test suite, all of the C Backend tests fail.  What is
       wrong?</li>
   <li>After Subversion update, rebuilding gives the error "No rule to make
@@ -87,8 +86,6 @@
     </li>
 
     <li><a href="#translatecxx">Can I use LLVM to convert C++ code to C code?</a></li>
-
-    <li><a href="#platformindependent">Can I compile C or C++ code to platform-independent LLVM bitcode?</a></li>
 
   </ol>
   </li>
@@ -352,19 +349,8 @@ build.</p>
 </div>
 
 <div class="answer">
-<p>This is <a href="http://gcc.gnu.org/bugzilla/show_bug.cgi?id=13392">a bug in GCC</a>, and 
+<p>This is <a href="http://gcc.gnu.org/PR?13392">a bug in GCC</a>, and 
 affects projects other than LLVM.  Try upgrading or downgrading your GCC.</p>
-</div>
-
-<div class="question">
-<p>Compiling LLVM with GCC succeeds, but the resulting tools do not work, what can be wrong?</p>
-</div>
-
-<div class="answer">
-<p>Several versions of GCC have shown a weakness in miscompiling the LLVM codebase. Please
-consult your compiler version (<tt>gcc --version</tt>) to find out whether it is
-<a href="GettingStarted.html#brokengcc">broken</a>. If so, your only option is to upgrade
-GCC to a known good version.</p>
 </div>
 
 <div class="question">
@@ -640,31 +626,6 @@ cause it to produce code that does not fully conform to the C++ ABI on
 most platforms. Some of the C++ programs in LLVM's test suite are known
 to fail when compiled with the C back end because of ABI incompatiblities
 with standard C++ libraries.</p>
-
-</div>
-
-<div class="question">
-<p>
-<a name="platformindependent">Can I compile C or C++ code to platform-independent LLVM bitcode?</a>
-</p>
-</div>
-
-<div class="answer">
-
-<p>No. C and C++ are inherently platform-dependent languages. The most
-obvious example of this is the preprocessor. A very common way that C code
-is made portable is by using the preprocessor to include platform-specific
-code. In practice, information about other platforms is lost after
-preprocessing, so the result is inherently dependent on the platform that
-the preprocessing was targetting.</p>
-
-<p>Another example is <tt>sizeof</tt>. It's common for <tt>sizeof(long)</tt>
-to vary between platforms. In most C front-ends, <tt>sizeof</tt> is expanded
-to a constant immediately, thus hardwaring a platform-specific detail.</p>
-
-<p>Also, since many platforms define their ABIs in terms of C, and since
-LLVM is lower-level than C, front-ends currently must emit platform-specific
-IR in order to have the result conform to the platform ABI.</p>
 
 </div>
 

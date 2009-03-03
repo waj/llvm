@@ -1422,12 +1422,7 @@ class EmitActionHandler {
     if (ActionName == "append_cmd") {
       checkNumberOfArguments(&Dag, 1);
       const std::string& Cmd = InitPtrToString(Dag.getArg(0));
-      StrVector Out;
-      llvm::SplitString(Cmd, Out);
-
-      for (StrVector::const_iterator B = Out.begin(), E = Out.end();
-           B != E; ++B)
-        O << IndentLevel << "vec.push_back(\"" << *B << "\");\n";
+      O << IndentLevel << "vec.push_back(\"" << Cmd << "\");\n";
     }
     else if (ActionName == "error") {
       O << IndentLevel << "throw std::runtime_error(\"" <<

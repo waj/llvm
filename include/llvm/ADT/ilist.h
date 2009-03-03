@@ -69,29 +69,21 @@ struct ilist_sentinel_traits {
   static void destroySentinel(NodeTy *N) { delete N; }
 };
 
-/// ilist_node_traits - A fragment for template traits for intrusive list
-/// that provides default node related operations.
-///
-template<typename NodeTy>
-struct ilist_node_traits {
-  static NodeTy *createNode(const NodeTy &V) { return new NodeTy(V); }
-  static void deleteNode(NodeTy *V) { delete V; }
-
-  void addNodeToList(NodeTy *) {}
-  void removeNodeFromList(NodeTy *) {}
-  void transferNodesFromList(ilist_node_traits &    /*SrcTraits*/,
-                             ilist_iterator<NodeTy> /*first*/,
-                             ilist_iterator<NodeTy> /*last*/) {}
-};
-
 /// ilist_default_traits - Default template traits for intrusive list.
 /// By inheriting from this, you can easily use default implementations
 /// for all common operations.
 ///
 template<typename NodeTy>
 struct ilist_default_traits : ilist_nextprev_traits<NodeTy>,
-                              ilist_sentinel_traits<NodeTy>,
-                              ilist_node_traits<NodeTy> {
+                              ilist_sentinel_traits<NodeTy> {
+  static NodeTy *createNode(const NodeTy &V) { return new NodeTy(V); }
+  static void deleteNode(NodeTy *V) { delete V; }
+
+  void addNodeToList(NodeTy *) {}
+  void removeNodeFromList(NodeTy *) {}
+  void transferNodesFromList(ilist_default_traits & /*SrcTraits*/,
+                             ilist_iterator<NodeTy> /*first*/,
+                             ilist_iterator<NodeTy> /*last*/) {}
 };
 
 // Template traits for intrusive list.  By specializing this template class, you
@@ -378,8 +370,7 @@ public:
   }
 
   iterator insert(iterator where, NodeTy *New) {
-    NodeTy *CurNode = where.getNodePtrUnchecked();
-    NodeTy *PrevNode = this->getPrev(CurNode);
+    NodeTy *CurNode = where.getNodePtrUnchecked(), *PrevNode = this->getPrev(CurNode);
     this->setNext(New, CurNode);
     this->setPrev(New, PrevNode);
 
@@ -394,7 +385,7 @@ public:
   }
 
   iterator insertAfter(iterator where, NodeTy *New) {
-    if (empty())
+    if (empty()) 
       return insert(begin(), New);
     else
       return insert(++where, New);
@@ -491,7 +482,14 @@ public:
 
   size_type size() const {
     if (Head == 0) return 0; // Don't require construction of sentinel if empty.
+#if __GNUC__ == 2
+    // GCC 2.95 has a broken std::distance
+    size_type Result = 0;
+    std::distance(begin(), end(), Result);
+    return Result;
+#else
     return std::distance(begin(), end());
+#endif
   }
 
   iterator erase(iterator first, iterator last) {
@@ -609,10 +607,14 @@ struct ilist : public iplist<NodeTy> {
     insert(this->begin(), first, last);
   }
 
-  // bring hidden functions into scope
-  using iplist<NodeTy>::insert;
-  using iplist<NodeTy>::push_front;
-  using iplist<NodeTy>::push_back;
+
+  // Forwarding functions: A workaround for GCC 2.95 which does not correctly
+  // support 'using' declarations to bring a hidden member into scope.
+  //
+  iterator insert(iterator a, NodeTy *b){ return iplist<NodeTy>::insert(a, b); }
+  void push_front(NodeTy *a) { iplist<NodeTy>::push_front(a); }
+  void push_back(NodeTy *a)  { iplist<NodeTy>::push_back(a); }
+
 
   // Main implementation here - Insert for a node passed by value...
   iterator insert(iterator where, const NodeTy &val) {

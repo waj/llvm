@@ -66,7 +66,6 @@
 #include "llvm/GlobalVariable.h"
 #include "llvm/Instructions.h"
 #include "llvm/Analysis/ConstantFolding.h"
-#include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Transforms/Scalar.h"
@@ -206,10 +205,6 @@ SCEVTruncateExpr::~SCEVTruncateExpr() {
   SCEVTruncates->erase(std::make_pair(Op, Ty));
 }
 
-bool SCEVTruncateExpr::dominates(BasicBlock *BB, DominatorTree *DT) const {
-  return Op->dominates(BB, DT);
-}
-
 void SCEVTruncateExpr::print(std::ostream &OS) const {
   OS << "(truncate " << *Op << " to " << *Ty << ")";
 }
@@ -232,10 +227,6 @@ SCEVZeroExtendExpr::~SCEVZeroExtendExpr() {
   SCEVZeroExtends->erase(std::make_pair(Op, Ty));
 }
 
-bool SCEVZeroExtendExpr::dominates(BasicBlock *BB, DominatorTree *DT) const {
-  return Op->dominates(BB, DT);
-}
-
 void SCEVZeroExtendExpr::print(std::ostream &OS) const {
   OS << "(zeroextend " << *Op << " to " << *Ty << ")";
 }
@@ -256,10 +247,6 @@ SCEVSignExtendExpr::SCEVSignExtendExpr(const SCEVHandle &op, const Type *ty)
 
 SCEVSignExtendExpr::~SCEVSignExtendExpr() {
   SCEVSignExtends->erase(std::make_pair(Op, Ty));
-}
-
-bool SCEVSignExtendExpr::dominates(BasicBlock *BB, DominatorTree *DT) const {
-  return Op->dominates(BB, DT);
 }
 
 void SCEVSignExtendExpr::print(std::ostream &OS) const {
@@ -319,14 +306,6 @@ replaceSymbolicValuesWithConcrete(const SCEVHandle &Sym,
   return this;
 }
 
-bool SCEVCommutativeExpr::dominates(BasicBlock *BB, DominatorTree *DT) const {
-  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
-    if (!getOperand(i)->dominates(BB, DT))
-      return false;
-  }
-  return true;
-}
-
 
 // SCEVUDivs - Only allow the creation of one SCEVUDivExpr for any particular
 // input.  Don't use a SCEVHandle here, or else the object will never be
@@ -336,10 +315,6 @@ static ManagedStatic<std::map<std::pair<SCEV*, SCEV*>,
 
 SCEVUDivExpr::~SCEVUDivExpr() {
   SCEVUDivs->erase(std::make_pair(LHS, RHS));
-}
-
-bool SCEVUDivExpr::dominates(BasicBlock *BB, DominatorTree *DT) const {
-  return LHS->dominates(BB, DT) && RHS->dominates(BB, DT);
 }
 
 void SCEVUDivExpr::print(std::ostream &OS) const {
@@ -361,15 +336,6 @@ SCEVAddRecExpr::~SCEVAddRecExpr() {
                                         std::vector<SCEV*>(Operands.begin(),
                                                            Operands.end())));
 }
-
-bool SCEVAddRecExpr::dominates(BasicBlock *BB, DominatorTree *DT) const {
-  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
-    if (!getOperand(i)->dominates(BB, DT))
-      return false;
-  }
-  return true;
-}
-
 
 SCEVHandle SCEVAddRecExpr::
 replaceSymbolicValuesWithConcrete(const SCEVHandle &Sym,
@@ -422,12 +388,6 @@ bool SCEVUnknown::isLoopInvariant(const Loop *L) const {
   // invariant if they are not contained in the specified loop.
   if (Instruction *I = dyn_cast<Instruction>(V))
     return !L->contains(I->getParent());
-  return true;
-}
-
-bool SCEVUnknown::dominates(BasicBlock *BB, DominatorTree *DT) const {
-  if (Instruction *I = dyn_cast<Instruction>(getValue()))
-    return DT->dominates(I->getParent(), BB);
   return true;
 }
 
@@ -625,7 +585,17 @@ static SCEVHandle BinomialCoefficient(SCEVHandle It, unsigned K,
   }
 
   // We need at least W + T bits for the multiplication step
-  unsigned CalculationBits = W + T;
+  // FIXME: A temporary hack; we round up the bitwidths
+  // to the nearest power of 2 to be nice to the code generator.
+  unsigned CalculationBits = 1U << Log2_32_Ceil(W + T);
+  // FIXME: Temporary hack to avoid generating integers that are too wide.
+  // Although, it's not completely clear how to determine how much
+  // widening is safe; for example, on X86, we can't really widen
+  // beyond 64 because we need to be able to do multiplication
+  // that's CalculationBits wide, but on X86-64, we can safely widen up to
+  // 128 bits.
+  if (CalculationBits > 64)
+    return new SCEVCouldNotCompute();
 
   // Calcuate 2^T, at width T+W.
   APInt DivFactor = APInt(CalculationBits, 1).shl(T);
@@ -753,21 +723,6 @@ SCEVHandle ScalarEvolution::getTruncateOrZeroExtend(const SCEVHandle &V,
   if (SrcTy->getPrimitiveSizeInBits() > Ty->getPrimitiveSizeInBits())
     return getTruncateExpr(V, Ty);
   return getZeroExtendExpr(V, Ty);
-}
-
-/// getTruncateOrSignExtend - Return a SCEV corresponding to a conversion
-/// of the input value to the specified type.  If the type must be
-/// extended, it is sign extended.
-SCEVHandle ScalarEvolution::getTruncateOrSignExtend(const SCEVHandle &V,
-                                                    const Type *Ty) {
-  const Type *SrcTy = V->getType();
-  assert(SrcTy->isInteger() && Ty->isInteger() &&
-         "Cannot truncate or sign extend with non-integer arguments!");
-  if (SrcTy->getPrimitiveSizeInBits() == Ty->getPrimitiveSizeInBits())
-    return V;  // No conversion
-  if (SrcTy->getPrimitiveSizeInBits() > Ty->getPrimitiveSizeInBits())
-    return getTruncateExpr(V, Ty);
-  return getSignExtendExpr(V, Ty);
 }
 
 // get - Get a canonical add expression, or something simpler if possible.
@@ -1419,9 +1374,9 @@ namespace {
     ///
     std::map<Value*, SCEVHandle> Scalars;
 
-    /// BackedgeTakenCounts - Cache the backedge-taken count of the loops for
-    /// this function as they are computed.
-    std::map<const Loop*, SCEVHandle> BackedgeTakenCounts;
+    /// IterationCounts - Cache the iteration count of the loops for this
+    /// function as they are computed.
+    std::map<const Loop*, SCEVHandle> IterationCounts;
 
     /// ConstantEvolutionLoopExitValue - This map contains entries for all of
     /// the PHI instructions that we attempt to compute constant evolutions for.
@@ -1459,33 +1414,14 @@ namespace {
     SCEVHandle getSCEVAtScope(SCEV *V, const Loop *L);
 
 
-    /// isLoopGuardedByCond - Test whether entry to the loop is protected by
-    /// a conditional between LHS and RHS.
-    bool isLoopGuardedByCond(const Loop *L, ICmpInst::Predicate Pred,
-                             SCEV *LHS, SCEV *RHS);
+    /// hasLoopInvariantIterationCount - Return true if the specified loop has
+    /// an analyzable loop-invariant iteration count.
+    bool hasLoopInvariantIterationCount(const Loop *L);
 
-    /// hasLoopInvariantBackedgeTakenCount - Return true if the specified loop
-    /// has an analyzable loop-invariant backedge-taken count.
-    bool hasLoopInvariantBackedgeTakenCount(const Loop *L);
-
-    /// forgetLoopBackedgeTakenCount - This method should be called by the
-    /// client when it has changed a loop in a way that may effect
-    /// ScalarEvolution's ability to compute a trip count, or if the loop
-    /// is deleted.
-    void forgetLoopBackedgeTakenCount(const Loop *L);
-
-    /// getBackedgeTakenCount - If the specified loop has a predictable
-    /// backedge-taken count, return it, otherwise return a SCEVCouldNotCompute
-    /// object. The backedge-taken count is the number of times the loop header
-    /// will be branched to from within the loop. This is one less than the
-    /// trip count of the loop, since it doesn't count the first iteration,
-    /// when the header is branched to from outside the loop.
-    ///
-    /// Note that it is not valid to call this method on a loop without a
-    /// loop-invariant backedge-taken count (see
-    /// hasLoopInvariantBackedgeTakenCount).
-    ///
-    SCEVHandle getBackedgeTakenCount(const Loop *L);
+    /// getIterationCount - If the specified loop has a predictable iteration
+    /// count, return it.  Note that it is not valid to call this method on a
+    /// loop without a loop-invariant iteration count.
+    SCEVHandle getIterationCount(const Loop *L);
 
     /// deleteValueFromRecords - This method should be called by the
     /// client before it removes a value from the program, to make sure
@@ -1509,25 +1445,24 @@ namespace {
                                           const SCEVHandle &SymName,
                                           const SCEVHandle &NewVal);
 
-    /// ComputeBackedgeTakenCount - Compute the number of times the specified
-    /// loop will iterate.
-    SCEVHandle ComputeBackedgeTakenCount(const Loop *L);
+    /// ComputeIterationCount - Compute the number of times the specified loop
+    /// will iterate.
+    SCEVHandle ComputeIterationCount(const Loop *L);
 
-    /// ComputeLoadConstantCompareBackedgeTakenCount - Given an exit condition
-    /// of 'icmp op load X, cst', try to see if we can compute the trip count.
-    SCEVHandle
-      ComputeLoadConstantCompareBackedgeTakenCount(LoadInst *LI,
-                                                   Constant *RHS,
-                                                   const Loop *L,
-                                                   ICmpInst::Predicate p);
+    /// ComputeLoadConstantCompareIterationCount - Given an exit condition of
+    /// 'icmp op load X, cst', try to see if we can compute the trip count.
+    SCEVHandle ComputeLoadConstantCompareIterationCount(LoadInst *LI,
+                                                        Constant *RHS,
+                                                        const Loop *L,
+                                                        ICmpInst::Predicate p);
 
-    /// ComputeBackedgeTakenCountExhaustively - If the trip is known to execute
-    /// a constant number of times (the condition evolves only from constants),
+    /// ComputeIterationCountExhaustively - If the trip is known to execute a
+    /// constant number of times (the condition evolves only from constants),
     /// try to evaluate a few iterations of the loop until we get the exit
     /// condition gets a value of ExitWhen (true or false).  If we cannot
     /// evaluate the trip count of the loop, return UnknownValue.
-    SCEVHandle ComputeBackedgeTakenCountExhaustively(const Loop *L, Value *Cond,
-                                                     bool ExitWhen);
+    SCEVHandle ComputeIterationCountExhaustively(const Loop *L, Value *Cond,
+                                                 bool ExitWhen);
 
     /// HowFarToZero - Return the number of times a backedge comparing the
     /// specified value to zero will execute.  If not computable, return
@@ -1551,11 +1486,15 @@ namespace {
     /// found.
     BasicBlock* getPredecessorWithUniqueSuccessorForBB(BasicBlock *BB);
 
+    /// executesAtLeastOnce - Test whether entry to the loop is protected by
+    /// a conditional between LHS and RHS.
+    bool executesAtLeastOnce(const Loop *L, bool isSigned, SCEV *LHS, SCEV *RHS);
+
     /// getConstantEvolutionLoopExitValue - If we know that the specified Phi is
     /// in the header of its containing loop, we know the loop executes a
     /// constant number of times, and the PHI node is just a recurrence
     /// involving constants, fold it.
-    Constant *getConstantEvolutionLoopExitValue(PHINode *PN, const APInt& BEs,
+    Constant *getConstantEvolutionLoopExitValue(PHINode *PN, const APInt& Its,
                                                 const Loop *L);
   };
 }
@@ -1941,22 +1880,14 @@ SCEVHandle ScalarEvolutionsImpl::createSCEV(Value *V) {
 //                   Iteration Count Computation Code
 //
 
-/// getBackedgeTakenCount - If the specified loop has a predictable
-/// backedge-taken count, return it, otherwise return a SCEVCouldNotCompute
-/// object. The backedge-taken count is the number of times the loop header
-/// will be branched to from within the loop. This is one less than the
-/// trip count of the loop, since it doesn't count the first iteration,
-/// when the header is branched to from outside the loop.
-///
-/// Note that it is not valid to call this method on a loop without a
-/// loop-invariant backedge-taken count (see
-/// hasLoopInvariantBackedgeTakenCount).
-///
-SCEVHandle ScalarEvolutionsImpl::getBackedgeTakenCount(const Loop *L) {
-  std::map<const Loop*, SCEVHandle>::iterator I = BackedgeTakenCounts.find(L);
-  if (I == BackedgeTakenCounts.end()) {
-    SCEVHandle ItCount = ComputeBackedgeTakenCount(L);
-    I = BackedgeTakenCounts.insert(std::make_pair(L, ItCount)).first;
+/// getIterationCount - If the specified loop has a predictable iteration
+/// count, return it.  Note that it is not valid to call this method on a
+/// loop without a loop-invariant iteration count.
+SCEVHandle ScalarEvolutionsImpl::getIterationCount(const Loop *L) {
+  std::map<const Loop*, SCEVHandle>::iterator I = IterationCounts.find(L);
+  if (I == IterationCounts.end()) {
+    SCEVHandle ItCount = ComputeIterationCount(L);
+    I = IterationCounts.insert(std::make_pair(L, ItCount)).first;
     if (ItCount != UnknownValue) {
       assert(ItCount->isLoopInvariant(L) &&
              "Computed trip count isn't loop invariant for loop!");
@@ -1969,17 +1900,9 @@ SCEVHandle ScalarEvolutionsImpl::getBackedgeTakenCount(const Loop *L) {
   return I->second;
 }
 
-/// forgetLoopBackedgeTakenCount - This method should be called by the
-/// client when it has changed a loop in a way that may effect
-/// ScalarEvolution's ability to compute a trip count, or if the loop
-/// is deleted.
-void ScalarEvolutionsImpl::forgetLoopBackedgeTakenCount(const Loop *L) {
-  BackedgeTakenCounts.erase(L);
-}
-
-/// ComputeBackedgeTakenCount - Compute the number of times the backedge
-/// of the specified loop will execute.
-SCEVHandle ScalarEvolutionsImpl::ComputeBackedgeTakenCount(const Loop *L) {
+/// ComputeIterationCount - Compute the number of times the specified loop
+/// will iterate.
+SCEVHandle ScalarEvolutionsImpl::ComputeIterationCount(const Loop *L) {
   // If the loop has a non-one exit block count, we can't analyze it.
   SmallVector<BasicBlock*, 8> ExitBlocks;
   L->getExitBlocks(ExitBlocks);
@@ -2029,7 +1952,7 @@ SCEVHandle ScalarEvolutionsImpl::ComputeBackedgeTakenCount(const Loop *L) {
   // Note that ICmpInst deals with pointer comparisons too so we must check
   // the type of the operand.
   if (ExitCond == 0 || isa<PointerType>(ExitCond->getOperand(0)->getType()))
-    return ComputeBackedgeTakenCountExhaustively(L, ExitBr->getCondition(),
+    return ComputeIterationCountExhaustively(L, ExitBr->getCondition(),
                                           ExitBr->getSuccessor(0) == ExitBlock);
 
   // If the condition was exit on true, convert the condition to exit on false
@@ -2043,7 +1966,7 @@ SCEVHandle ScalarEvolutionsImpl::ComputeBackedgeTakenCount(const Loop *L) {
   if (LoadInst *LI = dyn_cast<LoadInst>(ExitCond->getOperand(0)))
     if (Constant *RHS = dyn_cast<Constant>(ExitCond->getOperand(1))) {
       SCEVHandle ItCnt =
-        ComputeLoadConstantCompareBackedgeTakenCount(LI, RHS, L, Cond);
+        ComputeLoadConstantCompareIterationCount(LI, RHS, L, Cond);
       if (!isa<SCEVCouldNotCompute>(ItCnt)) return ItCnt;
     }
 
@@ -2126,7 +2049,7 @@ SCEVHandle ScalarEvolutionsImpl::ComputeBackedgeTakenCount(const Loop *L) {
   }
   default:
 #if 0
-    cerr << "ComputeBackedgeTakenCount ";
+    cerr << "ComputeIterationCount ";
     if (ExitCond->getOperand(0)->getType()->isUnsigned())
       cerr << "[unsigned] ";
     cerr << *LHS << "   "
@@ -2135,9 +2058,8 @@ SCEVHandle ScalarEvolutionsImpl::ComputeBackedgeTakenCount(const Loop *L) {
 #endif
     break;
   }
-  return
-    ComputeBackedgeTakenCountExhaustively(L, ExitCond,
-                                          ExitBr->getSuccessor(0) == ExitBlock);
+  return ComputeIterationCountExhaustively(L, ExitCond,
+                                       ExitBr->getSuccessor(0) == ExitBlock);
 }
 
 static ConstantInt *
@@ -2184,13 +2106,12 @@ GetAddressedElementFromGlobal(GlobalVariable *GV,
   return Init;
 }
 
-/// ComputeLoadConstantCompareBackedgeTakenCount - Given an exit condition of
-/// 'icmp op load X, cst', try to see if we can compute the backedge
-/// execution count.
+/// ComputeLoadConstantCompareIterationCount - Given an exit condition of
+/// 'icmp op load X, cst', try to see if we can compute the trip count.
 SCEVHandle ScalarEvolutionsImpl::
-ComputeLoadConstantCompareBackedgeTakenCount(LoadInst *LI, Constant *RHS,
-                                             const Loop *L,
-                                             ICmpInst::Predicate predicate) {
+ComputeLoadConstantCompareIterationCount(LoadInst *LI, Constant *RHS,
+                                         const Loop *L, 
+                                         ICmpInst::Predicate predicate) {
   if (LI->isVolatile()) return UnknownValue;
 
   // Check to see if the loaded pointer is a getelementptr of a global.
@@ -2347,13 +2268,13 @@ static Constant *EvaluateExpression(Value *V, Constant *PHIVal) {
 /// constant number of times, and the PHI node is just a recurrence
 /// involving constants, fold it.
 Constant *ScalarEvolutionsImpl::
-getConstantEvolutionLoopExitValue(PHINode *PN, const APInt& BEs, const Loop *L){
+getConstantEvolutionLoopExitValue(PHINode *PN, const APInt& Its, const Loop *L){
   std::map<PHINode*, Constant*>::iterator I =
     ConstantEvolutionLoopExitValue.find(PN);
   if (I != ConstantEvolutionLoopExitValue.end())
     return I->second;
 
-  if (BEs.ugt(APInt(BEs.getBitWidth(),MaxBruteForceIterations)))
+  if (Its.ugt(APInt(Its.getBitWidth(),MaxBruteForceIterations)))
     return ConstantEvolutionLoopExitValue[PN] = 0;  // Not going to evaluate it.
 
   Constant *&RetVal = ConstantEvolutionLoopExitValue[PN];
@@ -2373,10 +2294,10 @@ getConstantEvolutionLoopExitValue(PHINode *PN, const APInt& BEs, const Loop *L){
     return RetVal = 0;  // Not derived from same PHI.
 
   // Execute the loop symbolically to determine the exit value.
-  if (BEs.getActiveBits() >= 32)
+  if (Its.getActiveBits() >= 32)
     return RetVal = 0; // More than 2^32-1 iterations?? Not doing it!
 
-  unsigned NumIterations = BEs.getZExtValue(); // must be in range
+  unsigned NumIterations = Its.getZExtValue(); // must be in range
   unsigned IterationNum = 0;
   for (Constant *PHIVal = StartCST; ; ++IterationNum) {
     if (IterationNum == NumIterations)
@@ -2392,13 +2313,13 @@ getConstantEvolutionLoopExitValue(PHINode *PN, const APInt& BEs, const Loop *L){
   }
 }
 
-/// ComputeBackedgeTakenCountExhaustively - If the trip is known to execute a
+/// ComputeIterationCountExhaustively - If the trip is known to execute a
 /// constant number of times (the condition evolves only from constants),
 /// try to evaluate a few iterations of the loop until we get the exit
 /// condition gets a value of ExitWhen (true or false).  If we cannot
 /// evaluate the trip count of the loop, return UnknownValue.
 SCEVHandle ScalarEvolutionsImpl::
-ComputeBackedgeTakenCountExhaustively(const Loop *L, Value *Cond, bool ExitWhen) {
+ComputeIterationCountExhaustively(const Loop *L, Value *Cond, bool ExitWhen) {
   PHINode *PN = getConstantEvolvingPHI(Cond, L);
   if (PN == 0) return UnknownValue;
 
@@ -2461,17 +2382,15 @@ SCEVHandle ScalarEvolutionsImpl::getSCEVAtScope(SCEV *V, const Loop *L) {
         if (PHINode *PN = dyn_cast<PHINode>(I))
           if (PN->getParent() == LI->getHeader()) {
             // Okay, there is no closed form solution for the PHI node.  Check
-            // to see if the loop that contains it has a known backedge-taken
-            // count.  If so, we may be able to force computation of the exit
-            // value.
-            SCEVHandle BackedgeTakenCount = getBackedgeTakenCount(LI);
-            if (SCEVConstant *BTCC =
-                  dyn_cast<SCEVConstant>(BackedgeTakenCount)) {
+            // to see if the loop that contains it has a known iteration count.
+            // If so, we may be able to force computation of the exit value.
+            SCEVHandle IterationCount = getIterationCount(LI);
+            if (SCEVConstant *ICC = dyn_cast<SCEVConstant>(IterationCount)) {
               // Okay, we know how many times the containing loop executes.  If
               // this is a constant evolving PHI node, get the final value at
               // the specified iteration number.
               Constant *RV = getConstantEvolutionLoopExitValue(PN,
-                                                   BTCC->getValue()->getValue(),
+                                                    ICC->getValue()->getValue(),
                                                                LI);
               if (RV) return SE.getUnknown(RV);
             }
@@ -2575,11 +2494,11 @@ SCEVHandle ScalarEvolutionsImpl::getSCEVAtScope(SCEV *V, const Loop *L) {
     if (!L || !AddRec->getLoop()->contains(L->getHeader())) {
       // To evaluate this recurrence, we need to know how many times the AddRec
       // loop iterates.  Compute this now.
-      SCEVHandle BackedgeTakenCount = getBackedgeTakenCount(AddRec->getLoop());
-      if (BackedgeTakenCount == UnknownValue) return UnknownValue;
+      SCEVHandle IterationCount = getIterationCount(AddRec->getLoop());
+      if (IterationCount == UnknownValue) return UnknownValue;
 
       // Then, evaluate the AddRec.
-      return AddRec->evaluateAtIteration(BackedgeTakenCount, SE);
+      return AddRec->evaluateAtIteration(IterationCount, SE);
     }
     return UnknownValue;
   }
@@ -2817,10 +2736,9 @@ ScalarEvolutionsImpl::getPredecessorWithUniqueSuccessorForBB(BasicBlock *BB) {
   return 0;
 }
 
-/// isLoopGuardedByCond - Test whether entry to the loop is protected by
+/// executesAtLeastOnce - Test whether entry to the loop is protected by
 /// a conditional between LHS and RHS.
-bool ScalarEvolutionsImpl::isLoopGuardedByCond(const Loop *L,
-                                               ICmpInst::Predicate Pred,
+bool ScalarEvolutionsImpl::executesAtLeastOnce(const Loop *L, bool isSigned,
                                                SCEV *LHS, SCEV *RHS) {
   BasicBlock *Preheader = L->getLoopPreheader();
   BasicBlock *PreheaderDest = L->getHeader();
@@ -2851,62 +2769,26 @@ bool ScalarEvolutionsImpl::isLoopGuardedByCond(const Loop *L,
     else
       Cond = ICI->getInversePredicate();
 
-    if (Cond == Pred)
-      ; // An exact match.
-    else if (!ICmpInst::isTrueWhenEqual(Cond) && Pred == ICmpInst::ICMP_NE)
-      ; // The actual condition is beyond sufficient.
-    else
-      // Check a few special cases.
-      switch (Cond) {
-      case ICmpInst::ICMP_UGT:
-        if (Pred == ICmpInst::ICMP_ULT) {
-          std::swap(PreCondLHS, PreCondRHS);
-          Cond = ICmpInst::ICMP_ULT;
-          break;
-        }
-        continue;
-      case ICmpInst::ICMP_SGT:
-        if (Pred == ICmpInst::ICMP_SLT) {
-          std::swap(PreCondLHS, PreCondRHS);
-          Cond = ICmpInst::ICMP_SLT;
-          break;
-        }
-        continue;
-      case ICmpInst::ICMP_NE:
-        // Expressions like (x >u 0) are often canonicalized to (x != 0),
-        // so check for this case by checking if the NE is comparing against
-        // a minimum or maximum constant.
-        if (!ICmpInst::isTrueWhenEqual(Pred))
-          if (ConstantInt *CI = dyn_cast<ConstantInt>(PreCondRHS)) {
-            const APInt &A = CI->getValue();
-            switch (Pred) {
-            case ICmpInst::ICMP_SLT:
-              if (A.isMaxSignedValue()) break;
-              continue;
-            case ICmpInst::ICMP_SGT:
-              if (A.isMinSignedValue()) break;
-              continue;
-            case ICmpInst::ICMP_ULT:
-              if (A.isMaxValue()) break;
-              continue;
-            case ICmpInst::ICMP_UGT:
-              if (A.isMinValue()) break;
-              continue;
-            default:
-              continue;
-            }
-            Cond = ICmpInst::ICMP_NE;
-            // NE is symmetric but the original comparison may not be. Swap
-            // the operands if necessary so that they match below.
-            if (isa<SCEVConstant>(LHS))
-              std::swap(PreCondLHS, PreCondRHS);
-            break;
-          }
-        continue;
-      default:
-        // We weren't able to reconcile the condition.
-        continue;
-      }
+    switch (Cond) {
+    case ICmpInst::ICMP_UGT:
+      if (isSigned) continue;
+      std::swap(PreCondLHS, PreCondRHS);
+      Cond = ICmpInst::ICMP_ULT;
+      break;
+    case ICmpInst::ICMP_SGT:
+      if (!isSigned) continue;
+      std::swap(PreCondLHS, PreCondRHS);
+      Cond = ICmpInst::ICMP_SLT;
+      break;
+    case ICmpInst::ICMP_ULT:
+      if (isSigned) continue;
+      break;
+    case ICmpInst::ICMP_SLT:
+      if (!isSigned) continue;
+      break;
+    default:
+      continue;
+    }
 
     if (!PreCondLHS->getType()->isInteger()) continue;
 
@@ -2947,8 +2829,7 @@ HowManyLessThans(SCEV *LHS, SCEV *RHS, const Loop *L, bool isSigned) {
     // First, we get the value of the LHS in the first iteration: n
     SCEVHandle Start = AddRec->getOperand(0);
 
-    if (isLoopGuardedByCond(L,
-                            isSigned ? ICmpInst::ICMP_SLT : ICmpInst::ICMP_ULT,
+    if (executesAtLeastOnce(L, isSigned,
                             SE.getMinusSCEV(AddRec->getOperand(0), One), RHS)) {
       // Since we know that the condition is true in order to enter the loop,
       // we know that it will run exactly m-n times.
@@ -3126,23 +3007,12 @@ void ScalarEvolution::setSCEV(Value *V, const SCEVHandle &H) {
 }
 
 
-bool ScalarEvolution::isLoopGuardedByCond(const Loop *L,
-                                          ICmpInst::Predicate Pred,
-                                          SCEV *LHS, SCEV *RHS) {
-  return ((ScalarEvolutionsImpl*)Impl)->isLoopGuardedByCond(L, Pred,
-                                                            LHS, RHS);
+SCEVHandle ScalarEvolution::getIterationCount(const Loop *L) const {
+  return ((ScalarEvolutionsImpl*)Impl)->getIterationCount(L);
 }
 
-SCEVHandle ScalarEvolution::getBackedgeTakenCount(const Loop *L) const {
-  return ((ScalarEvolutionsImpl*)Impl)->getBackedgeTakenCount(L);
-}
-
-bool ScalarEvolution::hasLoopInvariantBackedgeTakenCount(const Loop *L) const {
-  return !isa<SCEVCouldNotCompute>(getBackedgeTakenCount(L));
-}
-
-void ScalarEvolution::forgetLoopBackedgeTakenCount(const Loop *L) {
-  return ((ScalarEvolutionsImpl*)Impl)->forgetLoopBackedgeTakenCount(L);
+bool ScalarEvolution::hasLoopInvariantIterationCount(const Loop *L) const {
+  return !isa<SCEVCouldNotCompute>(getIterationCount(L));
 }
 
 SCEVHandle ScalarEvolution::getSCEVAtScope(Value *V, const Loop *L) const {
@@ -3166,10 +3036,10 @@ static void PrintLoopInfo(std::ostream &OS, const ScalarEvolution *SE,
   if (ExitBlocks.size() != 1)
     OS << "<multiple exits> ";
 
-  if (SE->hasLoopInvariantBackedgeTakenCount(L)) {
-    OS << "backedge-taken count is " << *SE->getBackedgeTakenCount(L);
+  if (SE->hasLoopInvariantIterationCount(L)) {
+    OS << *SE->getIterationCount(L) << " iterations! ";
   } else {
-    OS << "Unpredictable backedge-taken count. ";
+    OS << "Unpredictable iteration count. ";
   }
 
   OS << "\n";

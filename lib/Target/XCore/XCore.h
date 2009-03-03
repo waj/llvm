@@ -23,8 +23,7 @@ namespace llvm {
 
   FunctionPass *createXCoreISelDag(XCoreTargetMachine &TM);
   FunctionPass *createXCoreCodePrinterPass(raw_ostream &OS,
-                                           XCoreTargetMachine &TM,
-                                           bool Fast);
+                                           XCoreTargetMachine &TM);
 } // end namespace llvm;
 
 // Defines symbolic names for XCore registers.  This defines a mapping from

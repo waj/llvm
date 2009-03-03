@@ -135,13 +135,8 @@ bool CGPassManager::doInitialization(CallGraph &CG) {
   bool Changed = false;
   for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {  
     Pass *P = getContainedPass(Index);
-    if (CallGraphSCCPass *CGSP = dynamic_cast<CallGraphSCCPass *>(P)) {
+    if (CallGraphSCCPass *CGSP = dynamic_cast<CallGraphSCCPass *>(P)) 
       Changed |= CGSP->doInitialization(CG);
-    } else {
-      FPPassManager *FP = dynamic_cast<FPPassManager *>(P);
-      assert (FP && "Invalid CGPassManager member");
-      Changed |= FP->doInitialization(CG.getModule());
-    }
   }
   return Changed;
 }
@@ -151,13 +146,8 @@ bool CGPassManager::doFinalization(CallGraph &CG) {
   bool Changed = false;
   for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {  
     Pass *P = getContainedPass(Index);
-    if (CallGraphSCCPass *CGSP = dynamic_cast<CallGraphSCCPass *>(P)) {
+    if (CallGraphSCCPass *CGSP = dynamic_cast<CallGraphSCCPass *>(P)) 
       Changed |= CGSP->doFinalization(CG);
-    } else {
-      FPPassManager *FP = dynamic_cast<FPPassManager *>(P);
-      assert (FP && "Invalid CGPassManager member");
-      Changed |= FP->doFinalization(CG.getModule());
-    }
   }
   return Changed;
 }

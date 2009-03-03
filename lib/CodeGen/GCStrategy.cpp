@@ -313,7 +313,7 @@ FunctionPass *llvm::createGCMachineCodeAnalysisPass() {
 char MachineCodeAnalysis::ID = 0;
 
 MachineCodeAnalysis::MachineCodeAnalysis()
-  : MachineFunctionPass(&ID) {}
+  : MachineFunctionPass(intptr_t(&ID)) {}
 
 const char *MachineCodeAnalysis::getPassName() const {
   return "Analyze Machine Code For Garbage Collection";
@@ -329,7 +329,6 @@ void MachineCodeAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
 unsigned MachineCodeAnalysis::InsertLabel(MachineBasicBlock &MBB, 
                                      MachineBasicBlock::iterator MI) const {
   unsigned Label = MMI->NextLabelID();
-  // N.B. we assume that MI is *not* equal to the "end()" iterator.
   BuildMI(MBB, MI, MI->getDebugLoc(),
           TII->get(TargetInstrInfo::GC_LABEL)).addImm(Label);
   return Label;

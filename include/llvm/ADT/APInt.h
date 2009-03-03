@@ -1125,13 +1125,13 @@ public:
   /// Considers the APInt to be unsigned and converts it into a string in the
   /// radix given. The radix can be 2, 8, 10 or 16.
   void toStringUnsigned(SmallVectorImpl<char> &Str, unsigned Radix = 10) const {
-    toString(Str, Radix, false);
+    return toString(Str, Radix, false);
   }
 
   /// Considers the APInt to be signed and converts it into a string in the
   /// radix given. The radix can be 2, 8, 10 or 16.
   void toStringSigned(SmallVectorImpl<char> &Str, unsigned Radix = 10) const {
-    toString(Str, Radix, true);
+    return toString(Str, Radix, true);
   }
 
   /// toString - This returns the APInt as a std::string.  Note that this is an
@@ -1275,8 +1275,7 @@ public:
   /// srcLSB, to DST, of dstCOUNT parts, such that the bit srcLSB
   /// becomes the least significant bit of DST.  All high bits above
   /// srcBITS in DST are zero-filled.
-  static void tcExtract(integerPart *, unsigned int dstCount,
-                        const integerPart *,
+  static void tcExtract(integerPart *, unsigned int dstCount, const integerPart *,
                         unsigned int srcBits, unsigned int srcLSB);
 
   /// Set the given bit of a bignum.  Zero-based.

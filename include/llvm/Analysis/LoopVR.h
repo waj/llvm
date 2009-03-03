@@ -30,7 +30,7 @@ class LoopVR : public FunctionPass {
 public:
   static char ID; // Class identification, replacement for typeinfo
 
-  LoopVR() : FunctionPass(&ID) {}
+  LoopVR() : FunctionPass(intptr_t(&ID)) {}
 
   bool runOnFunction(Function &F);
   virtual void print(std::ostream &os, const Module *) const;

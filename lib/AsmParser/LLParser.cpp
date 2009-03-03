@@ -331,10 +331,8 @@ bool LLParser::ParseGlobalType(bool &IsConstant) {
     IsConstant = true;
   else if (Lex.getKind() == lltok::kw_global)
     IsConstant = false;
-  else {
-    IsConstant = false;
+  else
     return TokError("expected 'global' or 'constant'");
-  }
   Lex.Lex();
   return false;
 }
@@ -467,8 +465,8 @@ bool LLParser::ParseGlobal(const std::string &Name, LocTy NameLoc,
       return true;
   }
 
-  if (isa<FunctionType>(Ty) || Ty == Type::LabelTy || Ty == Type::VoidTy)
-    return Error(TyLoc, "invalid type for global variable");
+  if (isa<FunctionType>(Ty) || Ty == Type::LabelTy)
+    return Error(TyLoc, "invald type for global variable");
   
   GlobalVariable *GV = 0;
 
@@ -1026,8 +1024,6 @@ bool LLParser::ParseTypeRec(PATypeHolder &Result) {
     case lltok::star:
       if (Result.get() == Type::LabelTy)
         return TokError("basic block pointers are invalid");
-      if (Result.get() == Type::VoidTy)
-        return TokError("pointers to void are invalid; use i8* instead");
       Result = HandleUpRefs(PointerType::getUnqual(Result.get()));
       Lex.Lex();
       break;
@@ -1036,8 +1032,6 @@ bool LLParser::ParseTypeRec(PATypeHolder &Result) {
     case lltok::kw_addrspace: {
       if (Result.get() == Type::LabelTy)
         return TokError("basic block pointers are invalid");
-      if (Result.get() == Type::VoidTy)
-        return TokError("pointers to void are invalid; use i8* instead");
       unsigned AddrSpace;
       if (ParseOptionalAddrSpace(AddrSpace) ||
           ParseToken(lltok::star, "expected '*' in address space"))
@@ -1262,8 +1256,6 @@ bool LLParser::ParseArrayVectorType(PATypeHolder &Result, bool isVector) {
     return true;
   
   if (isVector) {
-    if (Size == 0)
-      return Error(SizeLoc, "zero element vector is illegal");
     if ((unsigned)Size != Size)
       return Error(SizeLoc, "size too large for vector");
     if (!EltTy->isFloatingPoint() && !EltTy->isInteger())
@@ -2096,21 +2088,11 @@ bool LLParser::ParseFunctionHeader(Function *&Fn, bool isDefine) {
       isa<OpaqueType>(RetType))
     return Error(RetTypeLoc, "invalid function return type");
   
-  LocTy NameLoc = Lex.getLoc();
-
-  std::string FunctionName;
-  if (Lex.getKind() == lltok::GlobalVar) {
-    FunctionName = Lex.getStrVal();
-  } else if (Lex.getKind() == lltok::GlobalID) {     // @42 is ok.
-    unsigned NameID = Lex.getUIntVal();
-
-    if (NameID != NumberedVals.size())
-      return TokError("function expected to be numbered '%" +
-                      utostr(NumberedVals.size()) + "'");
-  } else {
+  if (Lex.getKind() != lltok::GlobalVar)
     return TokError("expected function name");
-  }
   
+  LocTy NameLoc = Lex.getLoc();
+  std::string FunctionName = Lex.getStrVal();
   Lex.Lex();
   
   if (Lex.getKind() != lltok::lparen)
@@ -2325,7 +2307,6 @@ bool LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
   if (Token == lltok::Eof)
     return TokError("found end of file when expecting more instructions");
   LocTy Loc = Lex.getLoc();
-  unsigned KeywordVal = Lex.getUIntVal();
   Lex.Lex();  // Eat the keyword.
   
   switch (Token) {
@@ -2340,24 +2321,24 @@ bool LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
   // Binary Operators.
   case lltok::kw_add:
   case lltok::kw_sub:
-  case lltok::kw_mul:    return ParseArithmetic(Inst, PFS, KeywordVal, 0);
+  case lltok::kw_mul:    return ParseArithmetic(Inst, PFS, Lex.getUIntVal(), 0);
       
   case lltok::kw_udiv:
   case lltok::kw_sdiv:
   case lltok::kw_urem:
-  case lltok::kw_srem:   return ParseArithmetic(Inst, PFS, KeywordVal, 1);
+  case lltok::kw_srem:   return ParseArithmetic(Inst, PFS, Lex.getUIntVal(), 1);
   case lltok::kw_fdiv:
-  case lltok::kw_frem:   return ParseArithmetic(Inst, PFS, KeywordVal, 2);
+  case lltok::kw_frem:   return ParseArithmetic(Inst, PFS, Lex.getUIntVal(), 2);
   case lltok::kw_shl:
   case lltok::kw_lshr:
   case lltok::kw_ashr:
   case lltok::kw_and:
   case lltok::kw_or:
-  case lltok::kw_xor:    return ParseLogical(Inst, PFS, KeywordVal);
+  case lltok::kw_xor:    return ParseLogical(Inst, PFS, Lex.getUIntVal());
   case lltok::kw_icmp:
   case lltok::kw_fcmp:
   case lltok::kw_vicmp:
-  case lltok::kw_vfcmp:  return ParseCompare(Inst, PFS, KeywordVal);
+  case lltok::kw_vfcmp:  return ParseCompare(Inst, PFS, Lex.getUIntVal());
   // Casts.
   case lltok::kw_trunc:
   case lltok::kw_zext:
@@ -2370,7 +2351,7 @@ bool LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
   case lltok::kw_fptoui:
   case lltok::kw_fptosi: 
   case lltok::kw_inttoptr:
-  case lltok::kw_ptrtoint:       return ParseCast(Inst, PFS, KeywordVal);
+  case lltok::kw_ptrtoint:       return ParseCast(Inst, PFS, Lex.getUIntVal());
   // Other.
   case lltok::kw_select:         return ParseSelect(Inst, PFS);
   case lltok::kw_va_arg:         return ParseVA_Arg(Inst, PFS);
@@ -2382,7 +2363,7 @@ bool LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
   case lltok::kw_tail:           return ParseCall(Inst, PFS, true);
   // Memory.
   case lltok::kw_alloca:
-  case lltok::kw_malloc:         return ParseAlloc(Inst, PFS, KeywordVal);
+  case lltok::kw_malloc:         return ParseAlloc(Inst, PFS, Lex.getUIntVal());
   case lltok::kw_free:           return ParseFree(Inst, PFS);
   case lltok::kw_load:           return ParseLoad(Inst, PFS, false);
   case lltok::kw_store:          return ParseStore(Inst, PFS, false);
@@ -2783,12 +2764,10 @@ bool LLParser::ParseCast(Instruction *&Inst, PerFunctionState &PFS,
       ParseType(DestTy))
     return true;
   
-  if (!CastInst::castIsValid((Instruction::CastOps)Opc, Op, DestTy)) {
-    CastInst::castIsValid((Instruction::CastOps)Opc, Op, DestTy);
+  if (!CastInst::castIsValid((Instruction::CastOps)Opc, Op, DestTy))
     return Error(Loc, "invalid cast opcode for cast from '" +
                  Op->getType()->getDescription() + "' to '" +
                  DestTy->getDescription() + "'");
-  }
   Inst = CastInst::Create((Instruction::CastOps)Opc, Op, DestTy);
   return false;
 }
@@ -2969,6 +2948,15 @@ bool LLParser::ParseCall(Instruction *&Inst, PerFunctionState &PFS,
   // Look up the callee.
   Value *Callee;
   if (ConvertValIDToValue(PFTy, CalleeID, Callee, PFS)) return true;
+  
+  // Check for call to invalid intrinsic to avoid crashing later.
+  if (Function *F = dyn_cast<Function>(Callee)) {
+    if (F->hasName() && F->getNameLen() >= 5 &&
+        !strncmp(F->getValueName()->getKeyData(), "llvm.", 5) &&
+        !F->getIntrinsicID(true))
+      return Error(CallLoc, "Call to invalid LLVM intrinsic function '" +
+                   F->getNameStr() + "'");
+  }
   
   // FIXME: In LLVM 3.0, stop accepting zext, sext and inreg as optional
   // function attributes.

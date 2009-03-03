@@ -25,27 +25,12 @@ class TerminatorInst;
 
 template<> struct ilist_traits<Instruction>
   : public SymbolTableListTraits<Instruction, BasicBlock> {
-  // createSentinel is used to get hold of a node that marks the end of
-  // the list...
-  // The sentinel is relative to this instance, so we use a non-static
-  // method.
-  Instruction *createSentinel() const {
-    // since i(p)lists always publicly derive from the corresponding
-    // traits, placing a data member in this class will augment i(p)list.
-    // But since the NodeTy is expected to publicly derive from
-    // ilist_node<NodeTy>, there is a legal viable downcast from it
-    // to NodeTy. We use this trick to superpose i(p)list with a "ghostly"
-    // NodeTy, which becomes the sentinel. Dereferencing the sentinel is
-    // forbidden (save the ilist_node<NodeTy>) so no one will ever notice
-    // the superposition.
-    return static_cast<Instruction*>(&Sentinel);
-  }
-  static void destroySentinel(Instruction*) {}
+  // createSentinel is used to create a node that marks the end of the list...
+  static Instruction *createSentinel();
+  static void destroySentinel(Instruction *I) { delete I; }
   static iplist<Instruction> &getList(BasicBlock *BB);
   static ValueSymbolTable *getSymTab(BasicBlock *ItemParent);
   static int getListOffset();
-private:
-  mutable ilist_node<Instruction> Sentinel;
 };
 
 /// This represents a single basic block in LLVM. A basic block is simply a
@@ -64,10 +49,9 @@ private:
 /// @brief LLVM Basic Block Representation
 class BasicBlock : public Value, // Basic blocks are data objects also
                    public ilist_node<BasicBlock> {
-
 public:
   typedef iplist<Instruction> InstListType;
-private:
+private :
   InstListType InstList;
   Function *Parent;
 

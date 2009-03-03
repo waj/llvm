@@ -88,7 +88,7 @@ namespace llvm {
     virtual const char *getTargetNodeName(unsigned Opcode) const;
 
     virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                  MachineBasicBlock *MBB) const;
+                                                       MachineBasicBlock *MBB);
 
     /// isLegalAddressingMode - Return true if the addressing mode represented
     /// by AM is legal for this target, for a load/store of the specified type.
@@ -149,7 +149,7 @@ namespace llvm {
     SDValue LowerFORMAL_ARGUMENTS(SDValue Op, SelectionDAG &DAG);
     SDValue LowerBR_JT(SDValue Op, SelectionDAG &DAG);
 
-    SDValue EmitTargetCodeForMemcpy(SelectionDAG &DAG, DebugLoc dl,
+    SDValue EmitTargetCodeForMemcpy(SelectionDAG &DAG,
                                       SDValue Chain,
                                       SDValue Dst, SDValue Src,
                                       SDValue Size, unsigned Align,

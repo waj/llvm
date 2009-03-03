@@ -36,6 +36,7 @@ char MachineModuleInfo::ID = 0;
   
 MachineModuleInfo::MachineModuleInfo()
 : ImmutablePass(&ID)
+, Lines()
 , LabelIDList()
 , FrameMoves()
 , LandingPads()

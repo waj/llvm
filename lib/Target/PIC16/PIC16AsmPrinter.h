@@ -24,9 +24,8 @@
 
 namespace llvm {
   struct VISIBILITY_HIDDEN PIC16AsmPrinter : public AsmPrinter {
-    PIC16AsmPrinter(raw_ostream &O, TargetMachine &TM,
-                    const TargetAsmInfo *T, bool F)
-      : AsmPrinter(O, TM, T, F) {
+    PIC16AsmPrinter(raw_ostream &O, TargetMachine &TM, const TargetAsmInfo *T)
+      : AsmPrinter(O, TM, T) {
       CurrentBankselLabelInBasicBlock = "";
       IsRomData = false;
     }

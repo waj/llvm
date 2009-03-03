@@ -1,4 +1,4 @@
-//===- InlineCost.cpp - Cost analysis for inliner -------------------------===//
+//===- InlineCoast.cpp - Cost analysis for inliner ------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

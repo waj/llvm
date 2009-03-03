@@ -285,13 +285,13 @@ namespace llvm {
                                                 unsigned Depth = 0) const;
 
     virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                  MachineBasicBlock *MBB) const;
+                                                        MachineBasicBlock *MBB);
     MachineBasicBlock *EmitAtomicBinary(MachineInstr *MI, 
                                         MachineBasicBlock *MBB, bool is64Bit,
-                                        unsigned BinOpcode) const;
+                                        unsigned BinOpcode);
     MachineBasicBlock *EmitPartwordAtomicBinary(MachineInstr *MI, 
                                                 MachineBasicBlock *MBB, 
-                                            bool is8bit, unsigned Opcode) const;
+                                                bool is8bit, unsigned Opcode);
     
     ConstraintType getConstraintType(const std::string &Constraint) const;
     std::pair<unsigned, const TargetRegisterClass*> 
@@ -340,11 +340,10 @@ namespace llvm {
     SDValue getReturnAddrFrameIndex(SelectionDAG & DAG) const;
 
     SDValue EmitTailCallLoadFPAndRetAddr(SelectionDAG & DAG,
-                                         int SPDiff,
-                                         SDValue Chain,
-                                         SDValue &LROpOut,
-                                         SDValue &FPOpOut,
-                                         DebugLoc dl);
+                                           int SPDiff,
+                                           SDValue Chain,
+                                           SDValue &LROpOut,
+                                           SDValue &FPOpOut);
 
     SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG);
     SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG);
@@ -375,7 +374,7 @@ namespace llvm {
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG,
                                       const PPCSubtarget &Subtarget);
     SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG);
-    SDValue LowerFP_TO_SINT(SDValue Op, SelectionDAG &DAG, DebugLoc dl);
+    SDValue LowerFP_TO_SINT(SDValue Op, SelectionDAG &DAG);
     SDValue LowerSINT_TO_FP(SDValue Op, SelectionDAG &DAG);
     SDValue LowerFLT_ROUNDS_(SDValue Op, SelectionDAG &DAG);
     SDValue LowerSHL_PARTS(SDValue Op, SelectionDAG &DAG);

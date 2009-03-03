@@ -31,6 +31,7 @@ namespace llvm {
   class MachineInstr;
   class TargetRegisterInfo;
   class ScheduleDAG;
+  class SelectionDAG;
   class SDNode;
   class TargetInstrInfo;
   class TargetInstrDesc;
@@ -217,7 +218,7 @@ namespace llvm {
   };
 
   /// SUnit - Scheduling unit. This is a node in the scheduling DAG.
-  class SUnit {
+  struct SUnit {
   private:
     SDNode *Node;                       // Representative node.
     MachineInstr *Instr;                // Alternatively, a MachineInstr.
@@ -274,16 +275,6 @@ namespace llvm {
     /// a MachineInstr.
     SUnit(MachineInstr *instr, unsigned nodenum)
       : Node(0), Instr(instr), OrigNode(0), NodeNum(nodenum), NodeQueueId(0),
-        Latency(0), NumPreds(0), NumSuccs(0), NumPredsLeft(0), NumSuccsLeft(0),
-        isTwoAddress(false), isCommutable(false), hasPhysRegDefs(false),
-        isPending(false), isAvailable(false), isScheduled(false),
-        isScheduleHigh(false), isCloned(false),
-        isDepthCurrent(false), isHeightCurrent(false), Depth(0), Height(0),
-        CopyDstRC(NULL), CopySrcRC(NULL) {}
-
-    /// SUnit - Construct a placeholder SUnit.
-    SUnit()
-      : Node(0), Instr(0), OrigNode(0), NodeNum(~0u), NodeQueueId(0),
         Latency(0), NumPreds(0), NumSuccs(0), NumPredsLeft(0), NumSuccsLeft(0),
         isTwoAddress(false), isCommutable(false), hasPhysRegDefs(false),
         isPending(false), isAvailable(false), isScheduled(false),
@@ -425,20 +416,20 @@ namespace llvm {
 
   class ScheduleDAG {
   public:
-    MachineBasicBlock *BB;                // The block in which to insert instructions.
-    MachineBasicBlock::iterator InsertPos;// The position to insert instructions.
+    SelectionDAG *DAG;                    // DAG of the current basic block
+    MachineBasicBlock *BB;                // Current basic block
+    MachineBasicBlock::iterator Begin;    // The beginning of the range to be scheduled.
+    MachineBasicBlock::iterator End;      // The end of the range to be scheduled.
     const TargetMachine &TM;              // Target processor
     const TargetInstrInfo *TII;           // Target instruction information
     const TargetRegisterInfo *TRI;        // Target processor register info
-    const TargetLowering *TLI;            // Target lowering info
+    TargetLowering *TLI;                  // Target lowering info
     MachineFunction &MF;                  // Machine function
     MachineRegisterInfo &MRI;             // Virtual/real register map
     MachineConstantPool *ConstPool;       // Target constant pool
     std::vector<SUnit*> Sequence;         // The schedule. Null SUnit*'s
                                           // represent noop instructions.
     std::vector<SUnit> SUnits;            // The scheduling units.
-    SUnit EntrySU;                        // Special node for the region entry.
-    SUnit ExitSU;                         // Special node for the region exit.
 
     explicit ScheduleDAG(MachineFunction &mf);
 
@@ -449,12 +440,35 @@ namespace llvm {
     ///
     void viewGraph();
   
-    /// EmitSchedule - Insert MachineInstrs into the MachineBasicBlock
-    /// according to the order specified in Sequence.
+    /// Run - perform scheduling.
     ///
+    void Run(SelectionDAG *DAG, MachineBasicBlock *MBB,
+             MachineBasicBlock::iterator Begin,
+             MachineBasicBlock::iterator End);
+
+    /// BuildSchedGraph - Build SUnits and set up their Preds and Succs
+    /// to form the scheduling dependency graph.
+    ///
+    virtual void BuildSchedGraph() = 0;
+
+    /// ComputeLatency - Compute node latency.
+    ///
+    virtual void ComputeLatency(SUnit *SU) = 0;
+
+  protected:
+    /// EmitNoop - Emit a noop instruction.
+    ///
+    void EmitNoop();
+
+  public:
     virtual MachineBasicBlock *EmitSchedule() = 0;
 
     void dumpSchedule() const;
+
+    /// Schedule - Order nodes according to selected style, filling
+    /// in the Sequence member.
+    ///
+    virtual void Schedule() = 0;
 
     virtual void dumpNode(const SUnit *SU) const = 0;
 
@@ -473,36 +487,14 @@ namespace llvm {
 #endif
 
   protected:
-    /// Run - perform scheduling.
-    ///
-    void Run(MachineBasicBlock *bb, MachineBasicBlock::iterator insertPos);
+    void AddMemOperand(MachineInstr *MI, const MachineMemOperand &MO);
 
-    /// BuildSchedGraph - Build SUnits and set up their Preds and Succs
-    /// to form the scheduling dependency graph.
-    ///
-    virtual void BuildSchedGraph() = 0;
-
-    /// ComputeLatency - Compute node latency.
-    ///
-    virtual void ComputeLatency(SUnit *SU) = 0;
-
-    /// Schedule - Order nodes according to selected style, filling
-    /// in the Sequence member.
-    ///
-    virtual void Schedule() = 0;
+    void EmitPhysRegCopy(SUnit *SU, DenseMap<SUnit*, unsigned> &VRBaseMap);
 
     /// ForceUnitLatencies - Return true if all scheduling edges should be given a
     /// latency value of one.  The default is to return false; schedulers may
     /// override this as needed.
     virtual bool ForceUnitLatencies() const { return false; }
-
-    /// EmitNoop - Emit a noop instruction.
-    ///
-    void EmitNoop();
-
-    void AddMemOperand(MachineInstr *MI, const MachineMemOperand &MO);
-
-    void EmitPhysRegCopy(SUnit *SU, DenseMap<SUnit*, unsigned> &VRBaseMap);
 
   private:
     /// EmitLiveInCopy - Emit a copy for a live in physical register. If the

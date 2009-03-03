@@ -88,14 +88,14 @@ bool AlphaTargetMachine::addPreEmitPass(PassManagerBase &PM, bool Fast) {
 bool AlphaTargetMachine::addAssemblyEmitter(PassManagerBase &PM, bool Fast, 
                                             raw_ostream &Out) {
   PM.add(createAlphaLLRPPass(*this));
-  PM.add(createAlphaCodePrinterPass(Out, *this, Fast));
+  PM.add(createAlphaCodePrinterPass(Out, *this));
   return false;
 }
 bool AlphaTargetMachine::addCodeEmitter(PassManagerBase &PM, bool Fast,
                                         bool DumpAsm, MachineCodeEmitter &MCE) {
   PM.add(createAlphaCodeEmitterPass(*this, MCE));
   if (DumpAsm)
-    PM.add(createAlphaCodePrinterPass(errs(), *this, Fast));
+    PM.add(createAlphaCodePrinterPass(errs(), *this));
   return false;
 }
 bool AlphaTargetMachine::addSimpleCodeEmitter(PassManagerBase &PM,

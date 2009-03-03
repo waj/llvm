@@ -120,22 +120,19 @@ let isCall = 1 in
 
 
 let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
-def TCRETURNdi64 : I<0, Pseudo, (outs), (ins i64imm:$dst, i32imm:$offset,
-                                         variable_ops),
+def TCRETURNdi64 : I<0, Pseudo, (outs), (ins i64imm:$dst, i32imm:$offset, variable_ops),
                  "#TC_RETURN $dst $offset",
                  []>;
 
 let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
-def TCRETURNri64 : I<0, Pseudo, (outs), (ins GR64:$dst, i32imm:$offset,
-                                         variable_ops),
+def TCRETURNri64 : I<0, Pseudo, (outs), (ins GR64:$dst, i32imm:$offset, variable_ops),
                  "#TC_RETURN $dst $offset",
                  []>;
 
 
 let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
-  def TAILJMPr64 : I<0xFF, MRM4r, (outs), (ins GR64:$dst),
-                   "jmp{q}\t{*}$dst  # TAILCALL",
-                   []>;     
+  def TAILJMPr64 : I<0xFF, MRM4r, (outs), (ins GR64:$dst), "jmp{q}\t{*}$dst  # TAILCALL",
+                 []>;     
 
 // Branches
 let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1 in {
@@ -1232,7 +1229,7 @@ def MOV64r0  : I<0x31, MRMInitReg,  (outs GR64:$dst), (ins),
                 [(set GR64:$dst, 0)]>;
 
 // Materialize i64 constant where top 32-bits are zero.
-let AddedComplexity = 1, isReMaterializable = 1, isAsCheapAsAMove = 1 in
+let AddedComplexity = 1, isReMaterializable = 1 in
 def MOV64ri64i32 : Ii32<0xB8, AddRegFrm, (outs GR64:$dst), (ins i64i32imm:$src),
                         "mov{l}\t{$src, ${dst:subreg32}|${dst:subreg32}, $src}",
                         [(set GR64:$dst, i64immZExt32:$src)]>;

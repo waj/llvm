@@ -51,22 +51,20 @@ namespace llvm {
     ///
     unsigned FunctionNumber;
 
+    /// DW -This is needed because printDeclare() has to insert
+    /// DbgVariable entries into the dwarf table. This is a short term hack
+    /// that ought be fixed soon.
+    DwarfWriter *DW;
+    
     // GCMetadataPrinters - The garbage collection metadata printer table.
     typedef DenseMap<GCStrategy*,GCMetadataPrinter*> gcp_map_type;
     typedef gcp_map_type::iterator gcp_iterator;
     gcp_map_type GCMetadataPrinters;
     
   protected:
-    /// DW -This is needed because printDeclare() has to insert
-    /// DbgVariable entries into the dwarf table. This is a short term hack
-    /// that ought be fixed soon.
-    DwarfWriter *DW;
-    
     // Necessary for external weak linkage support
     std::set<const GlobalValue*> ExtWeakSymbols;
 
-    /// Fast - Generating code via fast instruction selection.
-    bool Fast;
   public:
     /// Output stream on which we're printing assembly code.
     ///
@@ -83,9 +81,6 @@ namespace llvm {
     /// Target Register Information.
     ///
     const TargetRegisterInfo *TRI;
-
-    /// The current machine function.
-    const MachineFunction *MF;
 
     /// Name-mangler for global names.
     ///
@@ -106,8 +101,7 @@ namespace llvm {
     bool IsInTextSection;
   
   protected:
-    AsmPrinter(raw_ostream &o, TargetMachine &TM,
-               const TargetAsmInfo *T, bool F);
+    AsmPrinter(raw_ostream &o, TargetMachine &TM, const TargetAsmInfo *T);
     
   public:
     virtual ~AsmPrinter();

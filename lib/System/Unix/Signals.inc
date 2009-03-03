@@ -78,7 +78,7 @@ static void PrintStackTrace() {
   for (int i = 0; i < depth; ++i) {
     Dl_info dlinfo;
     dladdr(StackTrace[i], &dlinfo);
-    const char* name = strrchr(dlinfo.dli_fname, '/');
+    char* name = strrchr(dlinfo.dli_fname, '/');
 
     int nwidth;
     if (name == NULL) nwidth = strlen(dlinfo.dli_fname);
@@ -93,7 +93,7 @@ static void PrintStackTrace() {
 
     fprintf(stderr, "%-3d", i);
 
-    const char* name = strrchr(dlinfo.dli_fname, '/');
+    char* name = strrchr(dlinfo.dli_fname, '/');
     if (name == NULL) fprintf(stderr, " %-*s", width, dlinfo.dli_fname);
     else              fprintf(stderr, " %-*s", width, name+1);
 

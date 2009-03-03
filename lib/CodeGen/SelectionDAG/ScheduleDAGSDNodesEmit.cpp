@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "pre-RA-sched"
-#include "ScheduleDAGSDNodes.h"
+#include "llvm/CodeGen/ScheduleDAGSDNodes.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -32,13 +32,14 @@ using namespace llvm;
 /// instruction of the specified TargetInstrDesc.
 static const TargetRegisterClass*
 getInstrOperandRegClass(const TargetRegisterInfo *TRI, 
-                        const TargetInstrDesc &II, unsigned Op) {
+                        const TargetInstrInfo *TII, const TargetInstrDesc &II,
+                        unsigned Op) {
   if (Op >= II.getNumOperands()) {
     assert(II.isVariadic() && "Invalid operand # of instruction");
     return NULL;
   }
   if (II.OpInfo[Op].isLookupPtrRegClass())
-    return TRI->getPointerRegClass();
+    return TII->getPointerRegClass();
   return TRI->getRegClass(II.OpInfo[Op].RegClass);
 }
 
@@ -90,7 +91,7 @@ void ScheduleDAGSDNodes::EmitCopyFromReg(SDNode *Node, unsigned ResNo,
           if (User->isMachineOpcode()) {
             const TargetInstrDesc &II = TII->get(User->getMachineOpcode());
             const TargetRegisterClass *RC =
-              getInstrOperandRegClass(TRI, II, i+II.getNumDefs());
+              getInstrOperandRegClass(TRI,TII,II,i+II.getNumDefs());
             if (!UseRC)
               UseRC = RC;
             else if (RC)
@@ -125,12 +126,10 @@ void ScheduleDAGSDNodes::EmitCopyFromReg(SDNode *Node, unsigned ResNo,
   } else {
     // Create the reg, emit the copy.
     VRBase = MRI.createVirtualRegister(DstRC);
-    bool Emitted = TII->copyRegToReg(*BB, InsertPos, VRBase, SrcReg,
-                                     DstRC, SrcRC);
-    if (!Emitted) {
-      cerr << "Unable to issue a copy instruction!\n";
-      abort();
-    }
+    bool Emitted =
+      TII->copyRegToReg(*BB, End, VRBase, SrcReg, DstRC, SrcRC);
+    Emitted = Emitted; // Silence compiler warning.
+    assert(Emitted && "Unable to issue a copy instruction!");
   }
 
   SDValue Op(Node, ResNo);
@@ -191,7 +190,7 @@ void ScheduleDAGSDNodes::CreateVirtualRegisters(SDNode *Node, MachineInstr *MI,
     // Create the result registers for this node and add the result regs to
     // the machine instruction.
     if (VRBase == 0) {
-      const TargetRegisterClass *RC = getInstrOperandRegClass(TRI, II, i);
+      const TargetRegisterClass *RC = getInstrOperandRegClass(TRI, TII, II, i);
       assert(RC && "Isn't a register operand!");
       VRBase = MRI.createVirtualRegister(RC);
       MI->addOperand(MachineOperand::CreateReg(VRBase, true));
@@ -259,7 +258,8 @@ void ScheduleDAGSDNodes::AddOperand(MachineInstr *MI, SDValue Op,
       // There may be no register class for this operand if it is a variadic
       // argument (RC will be NULL in this case).  In this case, we just assume
       // the regclass is ok.
-      const TargetRegisterClass *RC= getInstrOperandRegClass(TRI, *II, IIOpNum);
+      const TargetRegisterClass *RC =
+                          getInstrOperandRegClass(TRI, TII, *II, IIOpNum);
       assert((RC || II->isVariadic()) && "Expected reg class info!");
       const TargetRegisterClass *VRC = MRI.getRegClass(VReg);
       if (RC && VRC != RC) {
@@ -327,7 +327,7 @@ void ScheduleDAGSDNodes::AddOperand(MachineInstr *MI, SDValue Op,
     // an FP vreg on x86.
     assert(TargetRegisterInfo::isVirtualRegister(VReg) && "Not a vreg?");
     if (II && !II->isVariadic()) {
-      assert(getInstrOperandRegClass(TRI, *II, IIOpNum) &&
+      assert(getInstrOperandRegClass(TRI, TII, *II, IIOpNum) &&
              "Don't have operand info for this instruction!");
     }
   }  
@@ -382,7 +382,7 @@ void ScheduleDAGSDNodes::EmitSubregNode(SDNode *Node,
     MI->addOperand(MachineOperand::CreateReg(VRBase, true));
     AddOperand(MI, Node->getOperand(0), 0, 0, VRBaseMap);
     MI->addOperand(MachineOperand::CreateImm(SubIdx));
-    BB->insert(InsertPos, MI);
+    BB->insert(End, MI);
   } else if (Opc == TargetInstrInfo::INSERT_SUBREG ||
              Opc == TargetInstrInfo::SUBREG_TO_REG) {
     SDValue N0 = Node->getOperand(0);
@@ -415,7 +415,7 @@ void ScheduleDAGSDNodes::EmitSubregNode(SDNode *Node,
     // Add the subregster being inserted
     AddOperand(MI, N1, 0, 0, VRBaseMap);
     MI->addOperand(MachineOperand::CreateImm(SubIdx));
-    BB->insert(InsertPos, MI);
+    BB->insert(End, MI);
   } else
     assert(0 && "Node is not insert_subreg, extract_subreg, or subreg_to_reg");
      
@@ -479,9 +479,9 @@ void ScheduleDAGSDNodes::EmitNode(SDNode *Node, bool IsClone, bool IsCloned,
       // Insert this instruction into the basic block using a target
       // specific inserter which may returns a new basic block.
       BB = TLI->EmitInstrWithCustomInserter(MI, BB);
-      InsertPos = BB->end();
+      Begin = End = BB->end();
     } else {
-      BB->insert(InsertPos, MI);
+      BB->insert(End, MI);
     }
 
     // Additional results must be an physical register def.
@@ -531,12 +531,7 @@ void ScheduleDAGSDNodes::EmitNode(SDNode *Node, bool IsClone, bool IsCloned,
     else
       DstTRC = TRI->getPhysicalRegisterRegClass(DestReg,
                                             Node->getOperand(1).getValueType());
-    bool Emitted = TII->copyRegToReg(*BB, InsertPos, DestReg, SrcReg,
-                                     DstTRC, SrcTRC);
-    if (!Emitted) {
-      cerr << "Unable to issue a copy instruction!\n";
-      abort();
-    }
+    TII->copyRegToReg(*BB, End, DestReg, SrcReg, DstTRC, SrcTRC);
     break;
   }
   case ISD::CopyFromReg: {
@@ -592,7 +587,7 @@ void ScheduleDAGSDNodes::EmitNode(SDNode *Node, bool IsClone, bool IsCloned,
         break;
       }
     }
-    BB->insert(InsertPos, MI);
+    BB->insert(End, MI);
     break;
   }
   }

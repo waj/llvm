@@ -39,7 +39,7 @@ bool MachineDominatorTree::runOnMachineFunction(MachineFunction &F) {
 }
 
 MachineDominatorTree::MachineDominatorTree()
-    : MachineFunctionPass(&ID) {
+    : MachineFunctionPass(intptr_t(&ID)) {
   DT = new DominatorTreeBase<MachineBasicBlock>(false);
 }
 

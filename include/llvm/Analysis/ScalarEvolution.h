@@ -29,7 +29,9 @@
 namespace llvm {
   class APInt;
   class ConstantInt;
+  class Instruction;
   class Type;
+  class ConstantRange;
   class SCEVHandle;
   class ScalarEvolution;
 
@@ -89,10 +91,6 @@ namespace llvm {
                                       const SCEVHandle &Conc,
                                       ScalarEvolution &SE) const = 0;
 
-    /// dominates - Return true if elements that makes up this SCEV dominates
-    /// the specified basic block.
-    virtual bool dominates(BasicBlock *BB, DominatorTree *DT) const = 0;
-
     /// print - Print out the internal representation of this scalar to the
     /// specified stream.  This should really only be used for debugging
     /// purposes.
@@ -127,10 +125,6 @@ namespace llvm {
     replaceSymbolicValuesWithConcrete(const SCEVHandle &Sym,
                                       const SCEVHandle &Conc,
                                       ScalarEvolution &SE) const;
-
-    virtual bool dominates(BasicBlock *BB, DominatorTree *DT) const {
-      return true;
-    }
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVCouldNotCompute *S) { return true; }
@@ -264,11 +258,6 @@ namespace llvm {
     /// extended, it is zero extended.
     SCEVHandle getTruncateOrZeroExtend(const SCEVHandle &V, const Type *Ty);
 
-    /// getTruncateOrSignExtend - Return a SCEV corresponding to a conversion
-    /// of the input value to the specified type.  If the type must be
-    /// extended, it is sign extended.
-    SCEVHandle getTruncateOrSignExtend(const SCEVHandle &V, const Type *Ty);
-
     /// getIntegerSCEV - Given an integer or FP type, create a constant for the
     /// specified signed integer value and return a SCEV for the constant.
     SCEVHandle getIntegerSCEV(int Val, const Type *Ty);
@@ -293,33 +282,13 @@ namespace llvm {
     /// object is returned.
     SCEVHandle getSCEVAtScope(Value *V, const Loop *L) const;
 
-    /// isLoopGuardedByCond - Test whether entry to the loop is protected by
-    /// a conditional between LHS and RHS.
-    bool isLoopGuardedByCond(const Loop *L, ICmpInst::Predicate Pred,
-                             SCEV *LHS, SCEV *RHS);
+    /// getIterationCount - If the specified loop has a predictable iteration
+    /// count, return it, otherwise return a SCEVCouldNotCompute object.
+    SCEVHandle getIterationCount(const Loop *L) const;
 
-    /// getBackedgeTakenCount - If the specified loop has a predictable
-    /// backedge-taken count, return it, otherwise return a SCEVCouldNotCompute
-    /// object. The backedge-taken count is the number of times the loop header
-    /// will be branched to from within the loop. This is one less than the
-    /// trip count of the loop, since it doesn't count the first iteration,
-    /// when the header is branched to from outside the loop.
-    ///
-    /// Note that it is not valid to call this method on a loop without a
-    /// loop-invariant backedge-taken count (see
-    /// hasLoopInvariantBackedgeTakenCount).
-    ///
-    SCEVHandle getBackedgeTakenCount(const Loop *L) const;
-
-    /// hasLoopInvariantBackedgeTakenCount - Return true if the specified loop
-    /// has an analyzable loop-invariant backedge-taken count.
-    bool hasLoopInvariantBackedgeTakenCount(const Loop *L) const;
-
-    /// forgetLoopBackedgeTakenCount - This method should be called by the
-    /// client when it has changed a loop in a way that may effect
-    /// ScalarEvolution's ability to compute a trip count, or if the loop
-    /// is deleted.
-    void forgetLoopBackedgeTakenCount(const Loop *L);
+    /// hasLoopInvariantIterationCount - Return true if the specified loop has
+    /// an analyzable loop-invariant iteration count.
+    bool hasLoopInvariantIterationCount(const Loop *L) const;
 
     /// deleteValueFromRecords - This method should be called by the
     /// client before it removes a Value from the program, to make sure

@@ -30,7 +30,6 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/DebugLoc.h"
-#include "llvm/Target/TargetMachine.h"
 #include <climits>
 #include <map>
 #include <vector>
@@ -54,18 +53,6 @@ namespace llvm {
   class TargetRegisterClass;
   class TargetSubtarget;
   class Value;
-
-  // FIXME: should this be here?
-  namespace TLSModel {
-    enum Model {
-      GeneralDynamic,
-      LocalDynamic,
-      InitialExec,
-      LocalExec
-    };
-  }
-  TLSModel::Model getTLSModel(const GlobalValue *GV, Reloc::Model reloc);
-
 
 //===----------------------------------------------------------------------===//
 /// TargetLowering - This class defines information used to lower LLVM code to
@@ -1114,7 +1101,7 @@ public:
   /// for another call). If the target chooses to decline an AlwaysInline
   /// request here, legalize will resort to using simple loads and stores.
   virtual SDValue
-  EmitTargetCodeForMemcpy(SelectionDAG &DAG, DebugLoc dl,
+  EmitTargetCodeForMemcpy(SelectionDAG &DAG,
                           SDValue Chain,
                           SDValue Op1, SDValue Op2,
                           SDValue Op3, unsigned Align,
@@ -1131,7 +1118,7 @@ public:
   /// SDValue if the target declines to use custom code and a different
   /// lowering strategy should be used.
   virtual SDValue
-  EmitTargetCodeForMemmove(SelectionDAG &DAG, DebugLoc dl,
+  EmitTargetCodeForMemmove(SelectionDAG &DAG,
                            SDValue Chain,
                            SDValue Op1, SDValue Op2,
                            SDValue Op3, unsigned Align,
@@ -1147,7 +1134,7 @@ public:
   /// SDValue if the target declines to use custom code and a different
   /// lowering strategy should be used.
   virtual SDValue
-  EmitTargetCodeForMemset(SelectionDAG &DAG, DebugLoc dl,
+  EmitTargetCodeForMemset(SelectionDAG &DAG,
                           SDValue Chain,
                           SDValue Op1, SDValue Op2,
                           SDValue Op3, unsigned Align,
@@ -1359,7 +1346,7 @@ public:
   // insert.  The specified MachineInstr is created but not inserted into any
   // basic blocks, and the scheduler passes ownership of it to this method.
   virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                  MachineBasicBlock *MBB) const;
+                                                        MachineBasicBlock *MBB);
 
   //===--------------------------------------------------------------------===//
   // Addressing mode description hooks (used by LSR etc).
@@ -1597,7 +1584,7 @@ private:
   ISD::CondCode CmpLibcallCCs[RTLIB::UNKNOWN_LIBCALL];
 
 protected:
-  /// When lowering \@llvm.memset this field specifies the maximum number of
+  /// When lowering @llvm.memset this field specifies the maximum number of
   /// store operations that may be substituted for the call to memset. Targets
   /// must set this value based on the cost threshold for that target. Targets
   /// should assume that the memset will be done using as many of the largest
@@ -1608,7 +1595,7 @@ protected:
   /// @brief Specify maximum number of store instructions per memset call.
   unsigned maxStoresPerMemset;
 
-  /// When lowering \@llvm.memcpy this field specifies the maximum number of
+  /// When lowering @llvm.memcpy this field specifies the maximum number of
   /// store operations that may be substituted for a call to memcpy. Targets
   /// must set this value based on the cost threshold for that target. Targets
   /// should assume that the memcpy will be done using as many of the largest
@@ -1620,7 +1607,7 @@ protected:
   /// @brief Specify maximum bytes of store instructions per memcpy call.
   unsigned maxStoresPerMemcpy;
 
-  /// When lowering \@llvm.memmove this field specifies the maximum number of
+  /// When lowering @llvm.memmove this field specifies the maximum number of
   /// store instructions that may be substituted for a call to memmove. Targets
   /// must set this value based on the cost threshold for that target. Targets
   /// should assume that the memmove will be done using as many of the largest

@@ -36,7 +36,7 @@ namespace {
   //
   struct VISIBILITY_HIDDEN DeadInstElimination : public BasicBlockPass {
     static char ID; // Pass identification, replacement for typeid
-    DeadInstElimination() : BasicBlockPass(&ID) {}
+    DeadInstElimination() : BasicBlockPass(intptr_t(&ID)) {}
     virtual bool runOnBasicBlock(BasicBlock &BB) {
       bool Changed = false;
       for (BasicBlock::iterator DI = BB.begin(); DI != BB.end(); ) {

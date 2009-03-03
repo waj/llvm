@@ -169,8 +169,8 @@ bool DIVariable::isVariable(unsigned Tag) {
   }
 }
 
-DIVariable::DIVariable(GlobalVariable *gv) : DIDescriptor(gv) {
-  if (gv && !isVariable(getTag()))
+DIVariable::DIVariable(GlobalVariable *GV) : DIDescriptor(GV) {
+  if (GV && !isVariable(getTag()))
     GV = 0;
 }
 
@@ -273,16 +273,7 @@ bool DIVariable::Verify() const {
   return true;
 }
 
-/// getOriginalTypeSize - If this type is derived from a base type then
-/// return base type size.
-uint64_t DIDerivedType::getOriginalTypeSize() const {
-  if (getTag() != dwarf::DW_TAG_member)
-    return getSizeInBits();
-  DIType BT = getTypeDerivedFrom();
-  if (BT.getTag() != dwarf::DW_TAG_base_type)
-    return getSizeInBits();
-  return BT.getSizeInBits();
-}
+
 
 //===----------------------------------------------------------------------===//
 // DIFactory: Basic Helpers
@@ -453,8 +444,7 @@ DICompileUnit DIFactory::CreateCompileUnit(unsigned LangID,
                                            const std::string &Producer,
                                            bool isMain,
                                            bool isOptimized,
-                                           const char *Flags,
-                                           unsigned RunTimeVer) {
+                                           const char *Flags) {
   Constant *Elts[] = {
     GetTagConstant(dwarf::DW_TAG_compile_unit),
     getCastToEmpty(GetOrCreateCompileUnitAnchor()),
@@ -464,8 +454,7 @@ DICompileUnit DIFactory::CreateCompileUnit(unsigned LangID,
     GetStringConstant(Producer),
     ConstantInt::get(Type::Int1Ty, isMain),
     ConstantInt::get(Type::Int1Ty, isOptimized),
-    GetStringConstant(Flags),
-    ConstantInt::get(Type::Int32Ty, RunTimeVer)
+    GetStringConstant(Flags)
   };
   
   Constant *Init = ConstantStruct::get(Elts, sizeof(Elts)/sizeof(Elts[0]));
@@ -575,8 +564,7 @@ DICompositeType DIFactory::CreateCompositeType(unsigned Tag,
                                                uint64_t OffsetInBits,
                                                unsigned Flags,
                                                DIType DerivedFrom,
-                                               DIArray Elements,
-                                               unsigned RuntimeLang) {
+                                               DIArray Elements) {
 
   Constant *Elts[] = {
     GetTagConstant(Tag),
@@ -589,8 +577,7 @@ DICompositeType DIFactory::CreateCompositeType(unsigned Tag,
     ConstantInt::get(Type::Int64Ty, OffsetInBits),
     ConstantInt::get(Type::Int32Ty, Flags),
     getCastToEmpty(DerivedFrom),
-    getCastToEmpty(Elements),
-    ConstantInt::get(Type::Int32Ty, RuntimeLang)
+    getCastToEmpty(Elements)
   };
   
   Constant *Init = ConstantStruct::get(Elts, sizeof(Elts)/sizeof(Elts[0]));
@@ -862,8 +849,7 @@ namespace llvm {
 
 /// dump - print compile unit.
 void DICompileUnit::dump() const {
-  if (getLanguage())
-    cerr << " [" << dwarf::LanguageString(getLanguage()) << "] ";
+  cerr << " [" << dwarf::LanguageString(getLanguage()) << "] ";
   cerr << " [" << getDirectory() << "/" << getFilename() << " ]";
 }
 

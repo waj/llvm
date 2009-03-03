@@ -127,6 +127,13 @@ public:
     return ItfImpl;
   }
 
+  /// getPassInfo - Deprecated API compaatibility function. This function
+  /// just returns 'this'.
+  ///
+  const PassInfo *getPassInfo() const {
+    return this;
+  }
+
 protected:
   void registerPass();
   void unregisterPass();

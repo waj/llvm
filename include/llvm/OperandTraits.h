@@ -119,10 +119,6 @@ struct HungoffOperandTraits {
   public: \
   inline VALUECLASS *getOperand(unsigned) const; \
   inline void setOperand(unsigned, VALUECLASS*); \
-  inline op_iterator op_begin(); \
-  inline const_op_iterator op_begin() const; \
-  inline op_iterator op_end(); \
-  inline const_op_iterator op_end() const; \
   protected: \
   template <unsigned> inline Use &Op(); \
   template <unsigned> inline const Use &Op() const; \
@@ -131,18 +127,6 @@ struct HungoffOperandTraits {
 
 /// Macro for generating out-of-class operand accessor definitions
 #define DEFINE_TRANSPARENT_OPERAND_ACCESSORS(CLASS, VALUECLASS) \
-CLASS::op_iterator CLASS::op_begin() { \
-  return OperandTraits<CLASS>::op_begin(this); \
-} \
-CLASS::const_op_iterator CLASS::op_begin() const { \
-  return OperandTraits<CLASS>::op_begin(const_cast<CLASS*>(this)); \
-} \
-CLASS::op_iterator CLASS::op_end() { \
-  return OperandTraits<CLASS>::op_end(this); \
-} \
-CLASS::const_op_iterator CLASS::op_end() const { \
-  return OperandTraits<CLASS>::op_end(const_cast<CLASS*>(this)); \
-} \
 VALUECLASS *CLASS::getOperand(unsigned i_nocapture) const { \
   assert(i_nocapture < OperandTraits<CLASS>::operands(this) \
          && "getOperand() out of range!"); \
@@ -169,18 +153,6 @@ template <unsigned Idx_nocapture> const Use &CLASS::Op() const { \
 /// Macro for generating out-of-class operand accessor
 /// definitions with casted result
 #define DEFINE_TRANSPARENT_CASTED_OPERAND_ACCESSORS(CLASS, VALUECLASS) \
-CLASS::op_iterator CLASS::op_begin() { \
-  return OperandTraits<CLASS>::op_begin(this); \
-} \
-CLASS::const_op_iterator CLASS::op_begin() const { \
-  return OperandTraits<CLASS>::op_begin(const_cast<CLASS*>(this)); \
-} \
-CLASS::op_iterator CLASS::op_end() { \
-  return OperandTraits<CLASS>::op_end(this); \
-} \
-CLASS::const_op_iterator CLASS::op_end() const { \
-  return OperandTraits<CLASS>::op_end(const_cast<CLASS*>(this)); \
-} \
 VALUECLASS *CLASS::getOperand(unsigned i_nocapture) const { \
   assert(i_nocapture < OperandTraits<CLASS>::operands(this) \
          && "getOperand() out of range!"); \

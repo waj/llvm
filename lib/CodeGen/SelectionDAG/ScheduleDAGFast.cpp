@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "pre-RA-sched"
-#include "ScheduleDAGSDNodes.h"
+#include "llvm/CodeGen/ScheduleDAGSDNodes.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Target/TargetRegisterInfo.h"
@@ -90,7 +90,6 @@ public:
 
 private:
   void ReleasePred(SUnit *SU, SDep *PredEdge);
-  void ReleasePredecessors(SUnit *SU, unsigned CurCycle);
   void ScheduleNodeBottomUp(SUnit*, unsigned);
   SUnit *CopyAndMoveSuccessors(SUnit*);
   void InsertCopiesAndMoveSuccs(SUnit*, unsigned,
@@ -143,15 +142,23 @@ void ScheduleDAGFast::ReleasePred(SUnit *SU, SDep *PredEdge) {
   }
 #endif
   
-  // If all the node's successors are scheduled, this node is ready
-  // to be scheduled. Ignore the special EntrySU node.
-  if (PredSU->NumSuccsLeft == 0 && PredSU != &EntrySU) {
+  if (PredSU->NumSuccsLeft == 0) {
     PredSU->isAvailable = true;
     AvailableQueue.push(PredSU);
   }
 }
 
-void ScheduleDAGFast::ReleasePredecessors(SUnit *SU, unsigned CurCycle) {
+/// ScheduleNodeBottomUp - Add the node to the schedule. Decrement the pending
+/// count of its predecessors. If a predecessor pending count is zero, add it to
+/// the Available queue.
+void ScheduleDAGFast::ScheduleNodeBottomUp(SUnit *SU, unsigned CurCycle) {
+  DOUT << "*** Scheduling [" << CurCycle << "]: ";
+  DEBUG(SU->dump(this));
+
+  assert(CurCycle >= SU->getHeight() && "Node scheduled below its height!");
+  SU->setHeightToAtLeast(CurCycle);
+  Sequence.push_back(SU);
+
   // Bottom up: release predecessors
   for (SUnit::pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
        I != E; ++I) {
@@ -168,20 +175,6 @@ void ScheduleDAGFast::ReleasePredecessors(SUnit *SU, unsigned CurCycle) {
       }
     }
   }
-}
-
-/// ScheduleNodeBottomUp - Add the node to the schedule. Decrement the pending
-/// count of its predecessors. If a predecessor pending count is zero, add it to
-/// the Available queue.
-void ScheduleDAGFast::ScheduleNodeBottomUp(SUnit *SU, unsigned CurCycle) {
-  DOUT << "*** Scheduling [" << CurCycle << "]: ";
-  DEBUG(SU->dump(this));
-
-  assert(CurCycle >= SU->getHeight() && "Node scheduled below its height!");
-  SU->setHeightToAtLeast(CurCycle);
-  Sequence.push_back(SU);
-
-  ReleasePredecessors(SU, CurCycle);
 
   // Release all the implicit physical register defs that are live.
   for (SUnit::succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
@@ -487,10 +480,6 @@ bool ScheduleDAGFast::DelayForLiveRegsBottomUp(SUnit *SU,
 /// schedulers.
 void ScheduleDAGFast::ListScheduleBottomUp() {
   unsigned CurCycle = 0;
-
-  // Release any predecessors of the special Exit node.
-  ReleasePredecessors(&ExitSU, CurCycle);
-
   // Add root to Available queue.
   if (!SUnits.empty()) {
     SUnit *RootSU = &SUnits[DAG->getRoot().getNode()->getNodeId()];
@@ -629,7 +618,6 @@ void ScheduleDAGFast::ListScheduleBottomUp() {
 //                         Public Constructor Functions
 //===----------------------------------------------------------------------===//
 
-llvm::ScheduleDAGSDNodes *
-llvm::createFastDAGScheduler(SelectionDAGISel *IS, bool) {
+llvm::ScheduleDAG* llvm::createFastDAGScheduler(SelectionDAGISel *IS, bool) {
   return new ScheduleDAGFast(*IS->MF);
 }

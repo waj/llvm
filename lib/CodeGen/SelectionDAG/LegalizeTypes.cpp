@@ -651,7 +651,7 @@ namespace {
       DTL.NoteDeletion(N, E);
 
       // In theory the deleted node could also have been scheduled for analysis.
-      // So remove it from the set of nodes which will be analyzed.
+      // So add it to the set of nodes which will not be analyzed.
       NodesToAnalyze.remove(N);
 
       // In general nothing needs to be done for E, since it didn't change but
@@ -669,7 +669,6 @@ namespace {
       assert(N->getNodeId() != DAGTypeLegalizer::ReadyToProcess &&
              N->getNodeId() != DAGTypeLegalizer::Processed &&
              "Invalid node ID for RAUW deletion!");
-      N->setNodeId(DAGTypeLegalizer::NewNode);
       NodesToAnalyze.insert(N);
     }
   };
@@ -696,13 +695,12 @@ void DAGTypeLegalizer::ReplaceValueWithHelper(SDValue From, SDValue To) {
   while (!NodesToAnalyze.empty()) {
     SDNode *N = NodesToAnalyze.back();
     NodesToAnalyze.pop_back();
-    if (N->getNodeId() != DAGTypeLegalizer::NewNode)
-      // The node was analyzed while reanalyzing an earlier node - it is safe to
-      // skip.  Note that this is not a morphing node - otherwise it would still
-      // be marked NewNode.
-      continue;
 
     // Analyze the node's operands and recalculate the node ID.
+    assert(N->getNodeId() != DAGTypeLegalizer::ReadyToProcess &&
+           N->getNodeId() != DAGTypeLegalizer::Processed &&
+           "Invalid node ID for RAUW analysis!");
+    N->setNodeId(NewNode);
     SDNode *M = AnalyzeNewNode(N);
     if (M != N) {
       // The node morphed into a different node.  Make everyone use the new node
@@ -854,13 +852,13 @@ void DAGTypeLegalizer::SetIgnoredNodeResult(SDNode* N) {
 /// BitConvertToInteger - Convert to an integer of the same size.
 SDValue DAGTypeLegalizer::BitConvertToInteger(SDValue Op) {
   unsigned BitWidth = Op.getValueType().getSizeInBits();
-  return DAG.getNode(ISD::BIT_CONVERT, Op.getDebugLoc(),
+  return DAG.getNode(ISD::BIT_CONVERT, Op.getNode()->getDebugLoc(),
                      MVT::getIntegerVT(BitWidth), Op);
 }
 
 SDValue DAGTypeLegalizer::CreateStackStoreLoad(SDValue Op,
                                                MVT DestVT) {
-  DebugLoc dl = Op.getDebugLoc();
+  DebugLoc dl = Op.getNode()->getDebugLoc();
   // Create the stack frame object.  Make sure it is aligned for both
   // the source and destination types.
   SDValue StackPtr = DAG.CreateStackTemporary(Op.getValueType(), DestVT);
@@ -924,7 +922,7 @@ void DAGTypeLegalizer::GetSplitDestVTs(MVT InVT, MVT &LoVT, MVT &HiVT) {
 
 SDValue DAGTypeLegalizer::GetVectorElementPointer(SDValue VecPtr, MVT EltVT,
                                                   SDValue Index) {
-  DebugLoc dl = Index.getDebugLoc();
+  DebugLoc dl = Index.getNode()->getDebugLoc();
   // Make sure the index type is big enough to compute in.
   if (Index.getValueType().bitsGT(TLI.getPointerTy()))
     Index = DAG.getNode(ISD::TRUNCATE, dl, TLI.getPointerTy(), Index);
@@ -942,8 +940,8 @@ SDValue DAGTypeLegalizer::GetVectorElementPointer(SDValue VecPtr, MVT EltVT,
 /// JoinIntegers - Build an integer with low bits Lo and high bits Hi.
 SDValue DAGTypeLegalizer::JoinIntegers(SDValue Lo, SDValue Hi) {
   // Arbitrarily use dlHi for result DebugLoc
-  DebugLoc dlHi = Hi.getDebugLoc();
-  DebugLoc dlLo = Lo.getDebugLoc();
+  DebugLoc dlHi = Hi.getNode()->getDebugLoc();
+  DebugLoc dlLo = Lo.getNode()->getDebugLoc();
   MVT LVT = Lo.getValueType();
   MVT HVT = Hi.getValueType();
   MVT NVT = MVT::getIntegerVT(LVT.getSizeInBits() + HVT.getSizeInBits());
@@ -1006,7 +1004,7 @@ SDValue DAGTypeLegalizer::MakeLibCall(RTLIB::Libcall LC, MVT RetVT,
 /// of the given type.  A target boolean is an integer value, not necessarily of
 /// type i1, the bits of which conform to getBooleanContents.
 SDValue DAGTypeLegalizer::PromoteTargetBoolean(SDValue Bool, MVT VT) {
-  DebugLoc dl = Bool.getDebugLoc();
+  DebugLoc dl = Bool.getNode()->getDebugLoc();
   ISD::NodeType ExtendCode;
   switch (TLI.getBooleanContents()) {
   default:
@@ -1033,7 +1031,7 @@ SDValue DAGTypeLegalizer::PromoteTargetBoolean(SDValue Bool, MVT VT) {
 void DAGTypeLegalizer::SplitInteger(SDValue Op,
                                     MVT LoVT, MVT HiVT,
                                     SDValue &Lo, SDValue &Hi) {
-  DebugLoc dl = Op.getDebugLoc();
+  DebugLoc dl = Op.getNode()->getDebugLoc();
   assert(LoVT.getSizeInBits() + HiVT.getSizeInBits() ==
          Op.getValueType().getSizeInBits() && "Invalid integer splitting!");
   Lo = DAG.getNode(ISD::TRUNCATE, dl, LoVT, Op);

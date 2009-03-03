@@ -7,8 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-/// @file
-/// This file contains the declarations for the subclasses of Constant, 
+/// @file This file contains the declarations for the subclasses of Constant, 
 /// which represent the different flavors of constant values that live in LLVM.
 /// Note that Constants are immutable (once created they never change) and are 
 /// fully shared by structural equivalence.  This means that two structurally
@@ -76,7 +75,7 @@ public:
   }
 
   /// Return the constant as a 64-bit integer value after it has been sign
-  /// extended as appropriate for the type of this constant. Note that
+  /// sign extended as appropriate for the type of this constant. Note that
   /// this method can assert if the value does not fit in 64 bits.
   /// @deprecated
   /// @brief Return the sign extended value.

@@ -42,7 +42,6 @@ ExecutionEngine::ExecutionEngine(ModuleProvider *P) : LazyFunctionCreator(0) {
   LazyCompilationDisabled = false;
   GVCompilationDisabled   = false;
   SymbolSearchingDisabled = false;
-  DlsymStubsEnabled       = false;
   Modules.push_back(P);
   assert(P && "ModuleProvider is null?");
 }
@@ -348,7 +347,7 @@ int ExecutionEngine::runFunctionAsMain(Function *Fn,
    }
    // FALLS THROUGH
   case 0:
-   if (!isa<IntegerType>(FTy->getReturnType()) &&
+   if (FTy->getReturnType() != Type::Int32Ty &&
        FTy->getReturnType() != Type::VoidTy) {
      cerr << "Invalid return type of main() supplied\n";
      abort();

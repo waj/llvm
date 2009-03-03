@@ -12,6 +12,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/DwarfWriter.h"
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/FoldingSet.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/UniqueVector.h"
 #include "llvm/Module.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Constants.h"
@@ -34,10 +39,6 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/FoldingSet.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/StringMap.h"
 #include <ostream>
 #include <string>
 using namespace llvm;
@@ -53,9 +54,9 @@ namespace llvm {
 
 /// Configuration values for initial hash set sizes (log2).
 ///
-static const unsigned InitDiesSetSize          = 9; // log2(512)
-static const unsigned InitAbbreviationsSetSize = 9; // log2(512)
-static const unsigned InitValuesSetSize        = 9; // log2(512)
+static const unsigned InitDiesSetSize          = 9; // 512
+static const unsigned InitAbbreviationsSetSize = 9; // 512
+static const unsigned InitValuesSetSize        = 9; // 512
 
 //===----------------------------------------------------------------------===//
 /// Forward declarations.
@@ -66,6 +67,40 @@ class DIEValue;
 //===----------------------------------------------------------------------===//
 /// Utility routines.
 ///
+/// getGlobalVariablesUsing - Return all of the GlobalVariables which have the
+/// specified value in their initializer somewhere.
+static void
+getGlobalVariablesUsing(Value *V, std::vector<GlobalVariable*> &Result) {
+  // Scan though value users. 
+  for (Value::use_iterator I = V->use_begin(), E = V->use_end(); I != E; ++I) {
+    if (GlobalVariable *GV = dyn_cast<GlobalVariable>(*I)) {
+      // If the user is a GlobalVariable then add to result. 
+      Result.push_back(GV);
+    } else if (Constant *C = dyn_cast<Constant>(*I)) {
+      // If the user is a constant variable then scan its users.
+      getGlobalVariablesUsing(C, Result);
+    }
+  }
+}
+
+/// getGlobalVariablesUsing - Return all of the GlobalVariables that use the
+/// named GlobalVariable. 
+static void
+getGlobalVariablesUsing(Module &M, const std::string &RootName,
+                        std::vector<GlobalVariable*> &Result) {
+  std::vector<const Type*> FieldTypes;
+  FieldTypes.push_back(Type::Int32Ty);
+  FieldTypes.push_back(Type::Int32Ty);
+
+  // Get the GlobalVariable root.
+  GlobalVariable *UseRoot = M.getGlobalVariable(RootName,
+                                                StructType::get(FieldTypes));
+
+  // If present and linkonce then scan for users.
+  if (UseRoot && UseRoot->hasLinkOnceLinkage())
+    getGlobalVariablesUsing(UseRoot, Result);
+}
+
 /// getGlobalVariable - Return either a direct or cast Global value.
 ///
 static GlobalVariable *getGlobalVariable(Value *V) {
@@ -103,7 +138,7 @@ public:
   DWLabel(const char *T, unsigned N) : Tag(T), Number(N) {}
 
   void Profile(FoldingSetNodeID &ID) const {
-    ID.AddString(Tag);
+    ID.AddString(std::string(Tag));
     ID.AddInteger(Number);
   }
 
@@ -524,7 +559,7 @@ public:
     ID.AddInteger(isAsIsLabel);
     ID.AddString(Label);
   }
-  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, Label.c_str()); }
+  virtual void Profile(FoldingSetNodeID &ID) { Profile(ID, Label); }
 
 #ifndef NDEBUG
   virtual void print(std::ostream &O) {
@@ -820,7 +855,9 @@ public:
 /// Dwarf - Emits general Dwarf directives.
 ///
 class Dwarf {
+
 protected:
+
   //===--------------------------------------------------------------------===//
   // Core attributes used by the Dwarf writer.
   //
@@ -881,6 +918,7 @@ protected:
   }
 
 public:
+
   //===--------------------------------------------------------------------===//
   // Accessors.
   //
@@ -1128,7 +1166,7 @@ class SrcLineInfo {
   unsigned LabelID;                     // Label in code ID number.
 public:
   SrcLineInfo(unsigned L, unsigned C, unsigned S, unsigned I)
-    : Line(L), Column(C), SourceID(S), LabelID(I) {}
+  : Line(L), Column(C), SourceID(S), LabelID(I) {}
   
   // Accessors
   unsigned getLine()     const { return Line; }
@@ -1137,12 +1175,42 @@ public:
   unsigned getLabelID()  const { return LabelID; }
 };
 
+
+//===----------------------------------------------------------------------===//
+/// SrcFileInfo - This class is used to track source information.
+///
+class SrcFileInfo {
+  unsigned DirectoryID;                 // Directory ID number.
+  std::string Name;                     // File name (not including directory.)
+public:
+  SrcFileInfo(unsigned D, const std::string &N) : DirectoryID(D), Name(N) {}
+            
+  // Accessors
+  unsigned getDirectoryID()    const { return DirectoryID; }
+  const std::string &getName() const { return Name; }
+
+  /// operator== - Used by UniqueVector to locate entry.
+  ///
+  bool operator==(const SrcFileInfo &SI) const {
+    return getDirectoryID() == SI.getDirectoryID() && getName() == SI.getName();
+  }
+
+  /// operator< - Used by UniqueVector to locate entry.
+  ///
+  bool operator<(const SrcFileInfo &SI) const {
+    return getDirectoryID() < SI.getDirectoryID() ||
+          (getDirectoryID() == SI.getDirectoryID() && getName() < SI.getName());
+  }
+};
+
 //===----------------------------------------------------------------------===//
 /// DbgVariable - This class is used to track local variable information.
 ///
 class DbgVariable {
+private:
   DIVariable Var;                   // Variable Descriptor.
   unsigned FrameIndex;               // Variable frame index.
+
 public:
   DbgVariable(DIVariable V, unsigned I) : Var(V), FrameIndex(I)  {}
   
@@ -1155,6 +1223,7 @@ public:
 /// DbgScope - This class is used to track scope information.
 ///
 class DbgScope {
+private:
   DbgScope *Parent;                   // Parent to this scope.
   DIDescriptor Desc;                  // Debug info descriptor for scope.
                                       // Either subprogram or block.
@@ -1162,6 +1231,7 @@ class DbgScope {
   unsigned EndLabelID;                // Label ID of the end of scope.
   SmallVector<DbgScope *, 4> Scopes;  // Scopes defined in scope.
   SmallVector<DbgVariable *, 8> Variables;// Variables declared in scope.
+  
 public:
   DbgScope(DbgScope *P, DIDescriptor D)
   : Parent(P), Desc(D), StartLabelID(0), EndLabelID(0), Scopes(), Variables()
@@ -1194,22 +1264,19 @@ public:
 /// DwarfDebug - Emits Dwarf debug directives.
 ///
 class DwarfDebug : public Dwarf {
+
+private:
   //===--------------------------------------------------------------------===//
   // Attributes used to construct specific Dwarf sections.
   //
 
-  /// CompileUnitMap - A map of global variables representing compile units to
-  /// compile units.
-  DenseMap<Value *, CompileUnit *> CompileUnitMap;
-
-  /// CompileUnits - All the compile units in this module.
-  ///
-  SmallVector<CompileUnit *, 8> CompileUnits;
+  /// DW_CUs - All the compile units involved in this build.  The index
+  /// of each entry in this vector corresponds to the sources in MMI.
+  DenseMap<Value *, CompileUnit *> DW_CUs;
 
   /// MainCU - Some platform prefers one compile unit per .o file. In such
   /// cases, all dies are inserted in MainCU.
   CompileUnit *MainCU;
-
   /// AbbreviationsSet - Used to uniquely define abbreviations.
   ///
   FoldingSet<DIEAbbrev> AbbreviationsSet;
@@ -1218,27 +1285,11 @@ class DwarfDebug : public Dwarf {
   ///
   std::vector<DIEAbbrev *> Abbreviations;
 
-  /// DirectoryIdMap - Directory name to directory id map.
-  ///
-  StringMap<unsigned> DirectoryIdMap;
+  /// Directories - Uniquing vector for directories.
+  UniqueVector<std::string> Directories;
 
-  /// DirectoryNames - A list of directory names.
-  SmallVector<std::string, 8> DirectoryNames;
-
-  /// SourceFileIdMap - Source file name to source file id map.
-  ///
-  StringMap<unsigned> SourceFileIdMap;
-
-  /// SourceFileNames - A list of source file names.
-  SmallVector<std::string, 8> SourceFileNames;
-
-  /// SourceIdMap - Source id map, i.e. pair of directory id and source file
-  /// id mapped to a unique id.
-  DenseMap<std::pair<unsigned, unsigned>, unsigned> SourceIdMap;
-
-  /// SourceIds - Reverse map from source id to directory id + file id pair.
-  ///
-  SmallVector<std::pair<unsigned, unsigned>, 8> SourceIds;
+  /// SourceFiles - Uniquing vector for source files.
+  UniqueVector<SrcFileInfo> SrcFiles;
 
   /// Lines - List of of source line correspondence.
   std::vector<SrcLineInfo> Lines;
@@ -1290,10 +1341,9 @@ class DwarfDebug : public Dwarf {
 
 public:
 
-  /// ShouldEmitDwarfDebug - Returns true if Dwarf debugging declarations should
-  /// be emitted.
+  /// ShouldEmitDwarf - Returns true if Dwarf declarations should be made.
   ///
-  bool ShouldEmitDwarfDebug() const { return shouldEmit; }
+  bool ShouldEmitDwarf() const { return shouldEmit; }
 
   /// AssignAbbrevNumber - Define a unique number for the abbreviation.
   ///
@@ -1392,7 +1442,7 @@ public:
     Die->AddValue(Attribute, Form, Value);
   }
 
-  /// AddString - Add a string attribute data and value.
+  /// AddString - Add a std::string attribute data and value.
   ///
   void AddString(DIE *Die, unsigned Attribute, unsigned Form,
                  const std::string &String) {
@@ -1514,7 +1564,6 @@ private:
     unsigned Line = V->getLineNumber();
     CompileUnit *Unit = FindCompileUnit(V->getCompileUnit());
     FileID = Unit->getID();
-    assert (FileID && "Invalid file id");
     AddUInt(Die, DW_AT_decl_file, 0, FileID);
     AddUInt(Die, DW_AT_decl_line, 0, Line);
   }
@@ -1526,7 +1575,6 @@ private:
     unsigned Line = G->getLineNumber();
     CompileUnit *Unit = FindCompileUnit(G->getCompileUnit());
     FileID = Unit->getID();
-    assert (FileID && "Invalid file id");
     AddUInt(Die, DW_AT_decl_file, 0, FileID);
     AddUInt(Die, DW_AT_decl_line, 0, Line);
   }
@@ -1539,7 +1587,6 @@ private:
       return;
     CompileUnit *Unit = FindCompileUnit(CU);
     FileID = Unit->getID();
-    assert (FileID && "Invalid file id");
     AddUInt(Die, DW_AT_decl_file, 0, FileID);
     AddUInt(Die, DW_AT_decl_line, 0, Line);
   }
@@ -1594,7 +1641,7 @@ private:
     else if (Ty.isDerivedType(Ty.getTag()))
       ConstructTypeDIE(DW_Unit, Buffer, DIDerivedType(Ty.getGV()));
     else {
-      assert(Ty.isCompositeType(Ty.getTag()) && "Unknown kind of DIType");
+      assert (Ty.isCompositeType(Ty.getTag()) && "Unknown kind of DIType");
       ConstructTypeDIE(DW_Unit, Buffer, DICompositeType(Ty.getGV()));
     }
     
@@ -1609,7 +1656,8 @@ private:
       Die->AddChild(Child);
       Buffer.Detach();
       SetDIEntry(Slot, Child);
-    } else {
+    }
+    else {
       Die = DW_Unit->AddDie(Buffer);
       SetDIEntry(Slot, Die);
     }
@@ -1649,8 +1697,7 @@ private:
     AddType(DW_Unit, &Buffer, FromTy);
 
     // Add name if not anonymous or intermediate type.
-    if (!Name.empty())
-      AddString(&Buffer, DW_AT_name, DW_FORM_string, Name);
+    if (!Name.empty()) AddString(&Buffer, DW_AT_name, DW_FORM_string, Name);
 
     // Add size if non-zero (derived types might be zero-sized.)
     if (Size)
@@ -1731,9 +1778,6 @@ private:
                                       DIDerivedType(Element.getGV()));
           Buffer.AddChild(ElemDie);
         }
-        unsigned RLang = CTy.getRunTimeLang();
-        if (RLang) 
-          AddUInt(&Buffer, DW_AT_APPLE_runtime_class, DW_FORM_data1, RLang);
       }
       break;
     default:
@@ -1741,8 +1785,7 @@ private:
     }
 
     // Add name if not anonymous or intermediate type.
-    if (!Name.empty())
-      AddString(&Buffer, DW_AT_name, DW_FORM_string, Name);
+    if (!Name.empty()) AddString(&Buffer, DW_AT_name, DW_FORM_string, Name);
 
     if (Tag == DW_TAG_enumeration_type || Tag == DW_TAG_structure_type
         || Tag == DW_TAG_union_type) {
@@ -1763,8 +1806,8 @@ private:
     }
   }
   
-  /// ConstructSubrangeDIE - Construct subrange DIE from DISubrange.
-  void ConstructSubrangeDIE(DIE &Buffer, DISubrange SR, DIE *IndexTy) {
+  // ConstructSubrangeDIE - Construct subrange DIE from DISubrange.
+  void ConstructSubrangeDIE (DIE &Buffer, DISubrange SR, DIE *IndexTy) {
     int64_t L = SR.getLo();
     int64_t H = SR.getHi();
     DIE *DW_Subrange = new DIE(DW_TAG_subrange_type);
@@ -1802,23 +1845,22 @@ private:
     }
   }
 
-  /// ConstructEnumTypeDIE - Construct enum type DIE from DIEnumerator.
+  /// ConstructEnumTypeDIE - Construct enum type DIE from 
+  /// DIEnumerator.
   DIE *ConstructEnumTypeDIE(CompileUnit *DW_Unit, DIEnumerator *ETy) {
 
     DIE *Enumerator = new DIE(DW_TAG_enumerator);
-    const std::string &Name = ETy->getName();
-    AddString(Enumerator, DW_AT_name, DW_FORM_string, Name);
+    AddString(Enumerator, DW_AT_name, DW_FORM_string, ETy->getName());
     int64_t Value = ETy->getEnumValue();                             
     AddSInt(Enumerator, DW_AT_const_value, DW_FORM_sdata, Value);
     return Enumerator;
   }
 
   /// CreateGlobalVariableDIE - Create new DIE using GV.
-  DIE *CreateGlobalVariableDIE(CompileUnit *DW_Unit, const DIGlobalVariable &GV)
+  DIE *CreateGlobalVariableDIE(CompileUnit *DW_Unit, const DIGlobalVariable &GV) 
   {
     DIE *GVDie = new DIE(DW_TAG_variable);
-    const std::string &Name = GV.getDisplayName();
-    AddString(GVDie, DW_AT_name, DW_FORM_string, Name);
+    AddString(GVDie, DW_AT_name, DW_FORM_string, GV.getName());
     const std::string &LinkageName = GV.getLinkageName();
     if (!LinkageName.empty())
       AddString(GVDie, DW_AT_MIPS_linkage_name, DW_FORM_string, LinkageName);
@@ -1832,7 +1874,7 @@ private:
   /// CreateMemberDIE - Create new member DIE.
   DIE *CreateMemberDIE(CompileUnit *DW_Unit, const DIDerivedType &DT) {
     DIE *MemberDie = new DIE(DT.getTag());
-    const std::string &Name = DT.getName();
+    std::string Name = DT.getName();
     if (!Name.empty())
       AddString(MemberDie, DW_AT_name, DW_FORM_string, Name);
 
@@ -1840,24 +1882,7 @@ private:
 
     AddSourceLine(MemberDie, &DT);
 
-    uint64_t Size = DT.getSizeInBits();
-    uint64_t FieldSize = DT.getOriginalTypeSize();
-
-    if (Size != FieldSize) {
-      // Handle bitfield.
-      AddUInt(MemberDie, DW_AT_byte_size, 0, DT.getOriginalTypeSize() >> 3);
-      AddUInt(MemberDie, DW_AT_bit_size, 0, DT.getSizeInBits());
-
-      uint64_t Offset = DT.getOffsetInBits();
-      uint64_t FieldOffset = Offset;
-      uint64_t AlignMask = ~(DT.getAlignInBits() - 1);
-      uint64_t HiMark = (Offset + FieldSize) & AlignMask;
-      FieldOffset = (HiMark - FieldSize);
-      Offset -= FieldOffset;
-      // Maybe we need to work from the other end.
-      if (TD->isLittleEndian()) Offset = FieldSize - (Offset + Size);
-      AddUInt(MemberDie, DW_AT_bit_offset, 0, Offset);
-    }
+    // FIXME _ Handle bitfields
     DIEBlock *Block = new DIEBlock();
     AddUInt(Block, 0, DW_FORM_data1, DW_OP_plus_uconst);
     AddUInt(Block, 0, DW_FORM_udata, DT.getOffsetInBits() >> 3);
@@ -1876,8 +1901,7 @@ private:
                            const  DISubprogram &SP,
                            bool IsConstructor = false) {
     DIE *SPDie = new DIE(DW_TAG_subprogram);
-    const std::string &Name = SP.getName();
-    AddString(SPDie, DW_AT_name, DW_FORM_string, Name);
+    AddString(SPDie, DW_AT_name, DW_FORM_string, SP.getName());
     const std::string &LinkageName = SP.getLinkageName();
     if (!LinkageName.empty())
       AddString(SPDie, DW_AT_MIPS_linkage_name, DW_FORM_string, 
@@ -1888,12 +1912,8 @@ private:
     DIArray Args = SPTy.getTypeArray();
     
     // Add Return Type.
-    if (!IsConstructor) {
-      if (Args.isNull()) 
-        AddType(DW_Unit, SPDie, SPTy);
-      else
-        AddType(DW_Unit, SPDie, DIType(Args.getElement(0).getGV()));
-    }
+    if (!IsConstructor) 
+      AddType(DW_Unit, SPDie, DIType(Args.getElement(0).getGV()));
 
     if (!SP.isDefinition()) {
       AddUInt(SPDie, DW_AT_declaration, DW_FORM_flag, 1);    
@@ -1909,11 +1929,6 @@ private:
         }
     }
 
-    unsigned Lang = SP.getCompileUnit().getLanguage();
-    if (Lang == DW_LANG_C99 || Lang == DW_LANG_C89 
-        || Lang == DW_LANG_ObjC)
-      AddUInt(SPDie, DW_AT_prototyped, DW_FORM_flag, 1);
-
     if (!SP.isLocalToUnit())
       AddUInt(SPDie, DW_AT_external, DW_FORM_flag, 1);
     return SPDie;
@@ -1922,7 +1937,7 @@ private:
   /// FindCompileUnit - Get the compile unit for the given descriptor. 
   ///
   CompileUnit *FindCompileUnit(DICompileUnit Unit) {
-    CompileUnit *DW_Unit = CompileUnitMap[Unit.getGV()];
+    CompileUnit *DW_Unit = DW_CUs[Unit.getGV()];
     assert(DW_Unit && "Missing compile unit.");
     return DW_Unit;
   }
@@ -1945,8 +1960,7 @@ private:
 
     // Define variable debug information entry.
     DIE *VariableDie = new DIE(Tag);
-    const std::string &Name = VD.getName();
-    AddString(VariableDie, DW_AT_name, DW_FORM_string, Name);
+    AddString(VariableDie, DW_AT_name, DW_FORM_string, VD.getName());
 
     // Add source line info if available.
     AddSourceLine(VariableDie, &VD);
@@ -1967,32 +1981,28 @@ private:
   ///
   DbgScope *getOrCreateScope(GlobalVariable *V) {
     DbgScope *&Slot = DbgScopeMap[V];
-    if (Slot) return Slot;
-
-    // FIXME - breaks down when the context is an inlined function.
-    DIDescriptor ParentDesc;
-    DIDescriptor Desc(V);
-
-    if (Desc.getTag() == dwarf::DW_TAG_lexical_block) {
-      DIBlock Block(V);
-      ParentDesc = Block.getContext();
+    if (!Slot) {
+      // FIXME - breaks down when the context is an inlined function.
+      DIDescriptor ParentDesc;
+      DIDescriptor Desc(V);
+      if (Desc.getTag() == dwarf::DW_TAG_lexical_block) {
+        DIBlock Block(V);
+        ParentDesc = Block.getContext();
+      }
+      DbgScope *Parent = ParentDesc.isNull() ? 
+        NULL : getOrCreateScope(ParentDesc.getGV());
+      Slot = new DbgScope(Parent, Desc);
+      if (Parent) {
+        Parent->AddScope(Slot);
+      } else if (RootDbgScope) {
+        // FIXME - Add inlined function scopes to the root so we can delete
+        // them later.  Long term, handle inlined functions properly.
+        RootDbgScope->AddScope(Slot);
+      } else {
+        // First function is top level function.
+        RootDbgScope = Slot;
+      }
     }
-
-    DbgScope *Parent = ParentDesc.isNull() ? 
-      NULL : getOrCreateScope(ParentDesc.getGV());
-    Slot = new DbgScope(Parent, Desc);
-
-    if (Parent) {
-      Parent->AddScope(Slot);
-    } else if (RootDbgScope) {
-      // FIXME - Add inlined function scopes to the root so we can delete them
-      // later.  Long term, handle inlined functions properly.
-      RootDbgScope->AddScope(Slot);
-    } else {
-      // First function is top level function.
-      RootDbgScope = Slot;
-    }
-
     return Slot;
   }
 
@@ -2087,12 +2097,24 @@ private:
   /// ConstructDefaultDbgScope - Construct a default scope for the subprogram.
   ///
   void ConstructDefaultDbgScope(MachineFunction *MF) {
-    const char *FnName = MF->getFunction()->getNameStart();
-    if (MainCU) {
-      std::map<std::string, DIE*> &Globals = MainCU->getGlobals();
-      std::map<std::string, DIE*>::iterator GI = Globals.find(FnName);
-      if (GI != Globals.end()) {
-        DIE *SPDie = GI->second;
+    // Find the correct subprogram descriptor.
+    std::string SPName = "llvm.dbg.subprograms";
+    std::vector<GlobalVariable*> Result;
+    getGlobalVariablesUsing(*M, SPName, Result);
+    for (std::vector<GlobalVariable *>::iterator I = Result.begin(),
+           E = Result.end(); I != E; ++I) {
+
+      DISubprogram SPD(*I);
+
+      if (SPD.getName() == MF->getFunction()->getName()) {
+        // Get the compile unit context.
+        CompileUnit *Unit = MainCU;
+        if (!Unit)
+          Unit = FindCompileUnit(SPD.getCompileUnit());
+
+        // Get the subprogram die.
+        DIE *SPDie = Unit->getDieMapSlotFor(SPD.getGV());
+        assert(SPDie && "Missing subprogram descriptor");
 
         // Add the function bounds.
         AddLabel(SPDie, DW_AT_low_pc, DW_FORM_addr,
@@ -2104,33 +2126,12 @@ private:
         AddAddress(SPDie, DW_AT_frame_base, Location);
         return;
       }
-    } else {
-      for (unsigned i = 0, e = CompileUnits.size(); i != e; ++i) {
-        CompileUnit *Unit = CompileUnits[i];
-        std::map<std::string, DIE*> &Globals = Unit->getGlobals();
-        std::map<std::string, DIE*>::iterator GI = Globals.find(FnName);
-        if (GI != Globals.end()) {
-          DIE *SPDie = GI->second;
-
-          // Add the function bounds.
-          AddLabel(SPDie, DW_AT_low_pc, DW_FORM_addr,
-                   DWLabel("func_begin", SubprogramCount));
-          AddLabel(SPDie, DW_AT_high_pc, DW_FORM_addr,
-                   DWLabel("func_end", SubprogramCount));
-
-          MachineLocation Location(RI->getFrameRegister(*MF));
-          AddAddress(SPDie, DW_AT_frame_base, Location);
-          return;
-        }
-      }
     }
-
 #if 0
     // FIXME: This is causing an abort because C++ mangled names are compared
     // with their unmangled counterparts. See PR2885. Don't do this assert.
     assert(0 && "Couldn't find DIE for machine function!");
 #endif
-    return;
   }
 
   /// EmitInitial - Emit initial Dwarf declarations.  This is necessary for cc
@@ -2290,8 +2291,9 @@ private:
       SizeAndOffsetDie(MainCU->getDie(), Offset, true);
       return;
     }
-    for (unsigned i = 0, e = CompileUnits.size(); i != e; ++i) {
-      CompileUnit *Unit = CompileUnits[i];
+    for (DenseMap<Value *, CompileUnit *>::iterator CI = DW_CUs.begin(),
+           CE = DW_CUs.end(); CI != CE; ++CI) {
+      CompileUnit *Unit = CI->second;
       // Compute size of compile unit header
       unsigned Offset = sizeof(int32_t) + // Length of Compilation Unit Info
         sizeof(int16_t) + // DWARF version number
@@ -2301,47 +2303,45 @@ private:
     }
   }
 
-  /// EmitDebugInfo / EmitDebugInfoPerCU - Emit the debug info section.
+  /// EmitDebugInfo - Emit the debug info section.
   ///
-  void EmitDebugInfoPerCU(CompileUnit *Unit) {
-    DIE *Die = Unit->getDie();
-    // Emit the compile units header.
-    EmitLabel("info_begin", Unit->getID());
-    // Emit size of content not including length itself
-    unsigned ContentSize = Die->getSize() +
-      sizeof(int16_t) + // DWARF version number
-      sizeof(int32_t) + // Offset Into Abbrev. Section
-      sizeof(int8_t) +  // Pointer Size (in bytes)
-      sizeof(int32_t);  // FIXME - extra pad for gdb bug.
-      
-    Asm->EmitInt32(ContentSize);  Asm->EOL("Length of Compilation Unit Info");
-    Asm->EmitInt16(DWARF_VERSION); Asm->EOL("DWARF version number");
-    EmitSectionOffset("abbrev_begin", "section_abbrev", 0, 0, true, false);
-    Asm->EOL("Offset Into Abbrev. Section");
-    Asm->EmitInt8(TD->getPointerSize()); Asm->EOL("Address Size (in bytes)");
-      
-    EmitDIE(Die);
-    // FIXME - extra padding for gdb bug.
-    Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
-    Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
-    Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
-    Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
-    EmitLabel("info_end", Unit->getID());
-      
-    Asm->EOL();
-  }
-
   void EmitDebugInfo() {
     // Start debug info section.
     Asm->SwitchToDataSection(TAI->getDwarfInfoSection());
 
-    if (MainCU) {
-      EmitDebugInfoPerCU(MainCU);
-      return;
+    for (DenseMap<Value *, CompileUnit *>::iterator CI = DW_CUs.begin(),
+           CE = DW_CUs.end(); CI != CE; ++CI) {
+      CompileUnit *Unit = CI->second;
+      if (MainCU)
+        Unit = MainCU;
+      DIE *Die = Unit->getDie();
+      // Emit the compile units header.
+      EmitLabel("info_begin", Unit->getID());
+      // Emit size of content not including length itself
+      unsigned ContentSize = Die->getSize() +
+        sizeof(int16_t) + // DWARF version number
+        sizeof(int32_t) + // Offset Into Abbrev. Section
+        sizeof(int8_t) +  // Pointer Size (in bytes)
+        sizeof(int32_t);  // FIXME - extra pad for gdb bug.
+      
+      Asm->EmitInt32(ContentSize);  Asm->EOL("Length of Compilation Unit Info");
+      Asm->EmitInt16(DWARF_VERSION); Asm->EOL("DWARF version number");
+      EmitSectionOffset("abbrev_begin", "section_abbrev", 0, 0, true, false);
+      Asm->EOL("Offset Into Abbrev. Section");
+      Asm->EmitInt8(TD->getPointerSize()); Asm->EOL("Address Size (in bytes)");
+      
+      EmitDIE(Die);
+      // FIXME - extra padding for gdb bug.
+      Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
+      Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
+      Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
+      Asm->EmitInt8(0); Asm->EOL("Extra Pad For GDB");
+      EmitLabel("info_end", Unit->getID());
+      
+      Asm->EOL();
+      if (MainCU)
+        return;
     }
-
-    for (unsigned i = 0, e = CompileUnits.size(); i != e; ++i)
-      EmitDebugInfoPerCU(CompileUnits[i]);
   }
 
   /// EmitAbbreviations - Emit the abbreviation section.
@@ -2444,19 +2444,19 @@ private:
     Asm->EmitInt8(1); Asm->EOL("DW_LNS_fixed_advance_pc arg count");
 
     // Emit directories.
-    for (unsigned DI = 1, DE = getNumSourceDirectories()+1; DI != DE; ++DI) {
-      Asm->EmitString(getSourceDirectoryName(DI));
-      Asm->EOL("Directory");
+    for (unsigned DirectoryID = 1, NDID = Directories.size();
+                  DirectoryID <= NDID; ++DirectoryID) {
+      Asm->EmitString(Directories[DirectoryID]); Asm->EOL("Directory");
     }
     Asm->EmitInt8(0); Asm->EOL("End of directories");
 
     // Emit files.
-    for (unsigned SI = 1, SE = getNumSourceIds()+1; SI != SE; ++SI) {
-      // Remember source id starts at 1.
-      std::pair<unsigned, unsigned> Id = getSourceDirsectoryAndFileIds(SI);
-      Asm->EmitString(getSourceFileName(Id.second));
+    for (unsigned SourceID = 1, NSID = SrcFiles.size();
+                 SourceID <= NSID; ++SourceID) {
+      const SrcFileInfo &SourceFile = SrcFiles[SourceID];
+      Asm->EmitString(SourceFile.getName());
       Asm->EOL("Source");
-      Asm->EmitULEB128Bytes(Id.first);
+      Asm->EmitULEB128Bytes(SourceFile.getDirectoryID());
       Asm->EOL("Directory #");
       Asm->EmitULEB128Bytes(0);
       Asm->EOL("Mod date");
@@ -2476,8 +2476,7 @@ private:
 
       if (VerboseAsm) {
         const Section* S = SectionMap[j + 1];
-        O << '\t' << TAI->getCommentString() << " Section"
-          << S->getName() << '\n';
+        Asm->EOL(std::string("Section ") + S->getName());
       } else
         Asm->EOL();
 
@@ -2491,16 +2490,16 @@ private:
         unsigned LabelID = MMI->MappedLabel(LineInfo.getLabelID());
         if (!LabelID) continue;
 
-        if (!VerboseAsm)
+        unsigned SourceID = LineInfo.getSourceID();
+        const SrcFileInfo &SourceFile = SrcFiles[SourceID];
+        unsigned DirectoryID = SourceFile.getDirectoryID();
+        if (VerboseAsm)
+          Asm->EOL(Directories[DirectoryID]
+                   + SourceFile.getName()
+                   + ":"
+                   + utostr_32(LineInfo.getLine()));
+        else
           Asm->EOL();
-        else {
-          std::pair<unsigned, unsigned> SourceID =
-            getSourceDirsectoryAndFileIds(LineInfo.getSourceID());
-          O << '\t' << TAI->getCommentString() << ' '
-            << getSourceDirectoryName(SourceID.first) << ' '
-            << getSourceFileName(SourceID.second)
-            <<" :" << utostr_32(LineInfo.getLine()) << '\n';
-        }
 
         // Define the line address.
         Asm->EmitInt8(0); Asm->EOL("Extended Op");
@@ -2632,52 +2631,53 @@ private:
     Asm->EOL();
   }
 
-  void EmitDebugPubNamesPerCU(CompileUnit *Unit) {
-    EmitDifference("pubnames_end", Unit->getID(),
-                   "pubnames_begin", Unit->getID(), true);
-    Asm->EOL("Length of Public Names Info");
-      
-    EmitLabel("pubnames_begin", Unit->getID());
-      
-    Asm->EmitInt16(DWARF_VERSION); Asm->EOL("DWARF Version");
-      
-    EmitSectionOffset("info_begin", "section_info",
-                      Unit->getID(), 0, true, false);
-    Asm->EOL("Offset of Compilation Unit Info");
-      
-    EmitDifference("info_end", Unit->getID(), "info_begin", Unit->getID(),
-                   true);
-    Asm->EOL("Compilation Unit Length");
-      
-    std::map<std::string, DIE *> &Globals = Unit->getGlobals();
-    for (std::map<std::string, DIE *>::iterator GI = Globals.begin(),
-           GE = Globals.end(); GI != GE; ++GI) {
-      const std::string &Name = GI->first;
-      DIE * Entity = GI->second;
-        
-      Asm->EmitInt32(Entity->getOffset()); Asm->EOL("DIE offset");
-      Asm->EmitString(Name); Asm->EOL("External Name");
-    }
-      
-    Asm->EmitInt32(0); Asm->EOL("End Mark");
-    EmitLabel("pubnames_end", Unit->getID());
-      
-    Asm->EOL();
-  }
-
   /// EmitDebugPubNames - Emit visible names into a debug pubnames section.
   ///
   void EmitDebugPubNames() {
     // Start the dwarf pubnames section.
     Asm->SwitchToDataSection(TAI->getDwarfPubNamesSection());
 
-    if (MainCU) {
-      EmitDebugPubNamesPerCU(MainCU);
-      return;
-    }
+    for (DenseMap<Value *, CompileUnit *>::iterator CI = DW_CUs.begin(),
+           CE = DW_CUs.end(); CI != CE; ++CI) {
+      CompileUnit *Unit = CI->second;
+      if (MainCU)
+        Unit = MainCU;
 
-    for (unsigned i = 0, e = CompileUnits.size(); i != e; ++i)
-      EmitDebugPubNamesPerCU(CompileUnits[i]);
+      EmitDifference("pubnames_end", Unit->getID(),
+                     "pubnames_begin", Unit->getID(), true);
+      Asm->EOL("Length of Public Names Info");
+      
+      EmitLabel("pubnames_begin", Unit->getID());
+      
+      Asm->EmitInt16(DWARF_VERSION); Asm->EOL("DWARF Version");
+      
+      EmitSectionOffset("info_begin", "section_info",
+                        Unit->getID(), 0, true, false);
+      Asm->EOL("Offset of Compilation Unit Info");
+      
+      EmitDifference("info_end", Unit->getID(), "info_begin", Unit->getID(),
+                     true);
+      Asm->EOL("Compilation Unit Length");
+      
+      std::map<std::string, DIE *> &Globals = Unit->getGlobals();
+      
+      for (std::map<std::string, DIE *>::iterator GI = Globals.begin(),
+             GE = Globals.end();
+           GI != GE; ++GI) {
+        const std::string &Name = GI->first;
+        DIE * Entity = GI->second;
+        
+        Asm->EmitInt32(Entity->getOffset()); Asm->EOL("DIE offset");
+        Asm->EmitString(Name); Asm->EOL("External Name");
+      }
+      
+      Asm->EmitInt32(0); Asm->EOL("End Mark");
+      EmitLabel("pubnames_end", Unit->getID());
+      
+      Asm->EOL();
+      if (MainCU)
+        return;
+    }
   }
 
   /// EmitDebugStr - Emit visible names into a debug str section.
@@ -2767,160 +2767,111 @@ private:
     }
   }
 
-  void ConstructCompileUnit(GlobalVariable *GV) {
-    DICompileUnit DIUnit(GV);
-    unsigned ID = getOrCreateSourceID(DIUnit.getDirectory(),
-                                      DIUnit.getFilename());
-
-    DIE *Die = new DIE(DW_TAG_compile_unit);
-    AddSectionOffset(Die, DW_AT_stmt_list, DW_FORM_data4,
-                     DWLabel("section_line", 0), DWLabel("section_line", 0),
-                     false);
-    AddString(Die, DW_AT_producer, DW_FORM_string, DIUnit.getProducer());
-    AddUInt(Die, DW_AT_language, DW_FORM_data1, DIUnit.getLanguage());
-    AddString(Die, DW_AT_name, DW_FORM_string, DIUnit.getFilename());
-    if (!DIUnit.getDirectory().empty())
-      AddString(Die, DW_AT_comp_dir, DW_FORM_string, DIUnit.getDirectory());
-    if (DIUnit.isOptimized())
-      AddUInt(Die, DW_AT_APPLE_optimized, DW_FORM_flag, 1);
-    const std::string &Flags = DIUnit.getFlags();
-    if (!Flags.empty())
-      AddString(Die, DW_AT_APPLE_flags, DW_FORM_string, Flags);
-    unsigned RVer = DIUnit.getRunTimeVersion();
-    if (RVer)
-      AddUInt(Die, DW_AT_APPLE_major_runtime_vers, DW_FORM_data1, RVer);
-
-    CompileUnit *Unit = new CompileUnit(ID, Die);
-    if (DIUnit.isMain()) {
-      assert(!MainCU && "Multiple main compile units are found!");
-      MainCU = Unit;
-    }
-    CompileUnitMap[DIUnit.getGV()] = Unit;
-    CompileUnits.push_back(Unit);
-  }
-
   /// ConstructCompileUnits - Create a compile unit DIEs.
   void ConstructCompileUnits() {
-    GlobalVariable *Root = M->getGlobalVariable("llvm.dbg.compile_units");
-    if (!Root)
-      return;
-    assert(Root->hasLinkOnceLinkage() && Root->hasOneUse() &&
-           "Malformed compile unit descriptor anchor type");
-    Constant *RootC = cast<Constant>(*Root->use_begin());
-    assert(RootC->hasNUsesOrMore(1) &&
-           "Malformed compile unit descriptor anchor type");
-    for (Value::use_iterator UI = RootC->use_begin(), UE = Root->use_end();
-         UI != UE; ++UI)
-      for (Value::use_iterator UUI = UI->use_begin(), UUE = UI->use_end();
-           UUI != UUE; ++UUI) {
-        GlobalVariable *GV = cast<GlobalVariable>(*UUI);
-        ConstructCompileUnit(GV);
+    std::string CUName = "llvm.dbg.compile_units";
+    std::vector<GlobalVariable*> Result;
+    getGlobalVariablesUsing(*M, CUName, Result);
+    for (std::vector<GlobalVariable *>::iterator RI = Result.begin(),
+           RE = Result.end(); RI != RE; ++RI) {
+      DICompileUnit DIUnit(*RI);
+      unsigned ID = RecordSource(DIUnit.getDirectory(),
+                                 DIUnit.getFilename());
+
+      DIE *Die = new DIE(DW_TAG_compile_unit);
+      AddSectionOffset(Die, DW_AT_stmt_list, DW_FORM_data4,
+                       DWLabel("section_line", 0), DWLabel("section_line", 0),
+                       false);
+      AddString(Die, DW_AT_producer, DW_FORM_string, DIUnit.getProducer());
+      AddUInt(Die, DW_AT_language, DW_FORM_data1, DIUnit.getLanguage());
+      AddString(Die, DW_AT_name, DW_FORM_string, DIUnit.getFilename());
+      if (!DIUnit.getDirectory().empty())
+        AddString(Die, DW_AT_comp_dir, DW_FORM_string, DIUnit.getDirectory());
+      if (DIUnit.isOptimized())
+        AddUInt(Die, DW_AT_APPLE_optimized, DW_FORM_flag, 1);
+      const std::string &Flags = DIUnit.getFlags();
+      if (!Flags.empty())
+        AddString(Die, DW_AT_APPLE_flags, DW_FORM_string, Flags);
+
+      CompileUnit *Unit = new CompileUnit(ID, Die);
+      if (DIUnit.isMain()) {
+        assert (!MainCU && "Multiple main compile units are found!");
+        MainCU = Unit;
       }
-  }
-
-  bool ConstructGlobalVariableDIE(GlobalVariable *GV) {
-    DIGlobalVariable DI_GV(GV);
-    CompileUnit *DW_Unit = MainCU;
-    if (!DW_Unit)
-      DW_Unit = FindCompileUnit(DI_GV.getCompileUnit());
-
-    // Check for pre-existence.
-    DIE *&Slot = DW_Unit->getDieMapSlotFor(DI_GV.getGV());
-    if (Slot)
-      return false;
-
-    DIE *VariableDie = CreateGlobalVariableDIE(DW_Unit, DI_GV);
-
-    // Add address.
-    DIEBlock *Block = new DIEBlock();
-    AddUInt(Block, 0, DW_FORM_data1, DW_OP_addr);
-    AddObjectLabel(Block, 0, DW_FORM_udata,
-                   Asm->getGlobalLinkName(DI_GV.getGlobal()));
-    AddBlock(VariableDie, DW_AT_location, 0, Block);
-
-    // Add to map.
-    Slot = VariableDie;
-    // Add to context owner.
-    DW_Unit->getDie()->AddChild(VariableDie);
-    // Expose as global. FIXME - need to check external flag.
-    DW_Unit->AddGlobal(DI_GV.getName(), VariableDie);
-    return true;
+      DW_CUs[DIUnit.getGV()] = Unit;
+    }
   }
 
   /// ConstructGlobalVariableDIEs - Create DIEs for each of the externally 
-  /// visible global variables. Return true if at least one global DIE is
-  /// created.
-  bool ConstructGlobalVariableDIEs() {
-    GlobalVariable *Root = M->getGlobalVariable("llvm.dbg.global_variables");
-    if (!Root)
-      return false;
+  /// visible global variables.
+  void ConstructGlobalVariableDIEs() {
+    std::string GVName = "llvm.dbg.global_variables";
+    std::vector<GlobalVariable*> Result;
+    getGlobalVariablesUsing(*M, GVName, Result);
+    for (std::vector<GlobalVariable *>::iterator GVI = Result.begin(),
+           GVE = Result.end(); GVI != GVE; ++GVI) {
+      DIGlobalVariable DI_GV(*GVI);
+      CompileUnit *DW_Unit = MainCU;
+      if (!DW_Unit)
+        DW_Unit = FindCompileUnit(DI_GV.getCompileUnit());
 
-    assert(Root->hasLinkOnceLinkage() && Root->hasOneUse() &&
-           "Malformed global variable descriptor anchor type");
-    Constant *RootC = cast<Constant>(*Root->use_begin());
-    assert(RootC->hasNUsesOrMore(1) &&
-           "Malformed global variable descriptor anchor type");
+      // Check for pre-existence.
+      DIE *&Slot = DW_Unit->getDieMapSlotFor(DI_GV.getGV());
+      if (Slot) continue;
 
-    bool Result = false;
-    for (Value::use_iterator UI = RootC->use_begin(), UE = Root->use_end();
-         UI != UE; ++UI)
-      for (Value::use_iterator UUI = UI->use_begin(), UUE = UI->use_end();
-           UUI != UUE; ++UUI) {
-        GlobalVariable *GV = cast<GlobalVariable>(*UUI);
-        Result |= ConstructGlobalVariableDIE(GV);
-      }
-    return Result;
-  }
+      DIE *VariableDie = CreateGlobalVariableDIE(DW_Unit, DI_GV);
 
-  bool ConstructSubprogram(GlobalVariable *GV) {
-    DISubprogram SP(GV);
-    CompileUnit *Unit = MainCU;
-    if (!Unit)
-      Unit = FindCompileUnit(SP.getCompileUnit());
+      // Add address.
+      DIEBlock *Block = new DIEBlock();
+      AddUInt(Block, 0, DW_FORM_data1, DW_OP_addr);
+      AddObjectLabel(Block, 0, DW_FORM_udata,
+                     Asm->getGlobalLinkName(DI_GV.getGlobal()));
+      AddBlock(VariableDie, DW_AT_location, 0, Block);
 
-    // Check for pre-existence.
-    DIE *&Slot = Unit->getDieMapSlotFor(GV);
-    if (Slot)
-      return false;
+      //Add to map.
+      Slot = VariableDie;
 
-    if (!SP.isDefinition())
-      // This is a method declaration which will be handled while
-      // constructing class type.
-      return false;
+      //Add to context owner.
+      DW_Unit->getDie()->AddChild(VariableDie);
 
-    DIE *SubprogramDie = CreateSubprogramDIE(Unit, SP);
-
-    // Add to map.
-    Slot = SubprogramDie;
-    // Add to context owner.
-    Unit->getDie()->AddChild(SubprogramDie);
-    // Expose as global.
-    Unit->AddGlobal(SP.getName(), SubprogramDie);
-    return true;
+      //Expose as global. FIXME - need to check external flag.
+      DW_Unit->AddGlobal(DI_GV.getName(), VariableDie);
+    }
   }
 
   /// ConstructSubprograms - Create DIEs for each of the externally visible
-  /// subprograms. Return true if at least one subprogram DIE is created.
-  bool ConstructSubprograms() {
-    GlobalVariable *Root = M->getGlobalVariable("llvm.dbg.subprograms");
-    if (!Root)
-      return false;
+  /// subprograms.
+  void ConstructSubprograms() {
 
-    assert(Root->hasLinkOnceLinkage() && Root->hasOneUse() &&
-           "Malformed subprogram descriptor anchor type");
-    Constant *RootC = cast<Constant>(*Root->use_begin());
-    assert(RootC->hasNUsesOrMore(1) &&
-           "Malformed subprogram descriptor anchor type");
+    std::string SPName = "llvm.dbg.subprograms";
+    std::vector<GlobalVariable*> Result;
+    getGlobalVariablesUsing(*M, SPName, Result);
+    for (std::vector<GlobalVariable *>::iterator RI = Result.begin(),
+           RE = Result.end(); RI != RE; ++RI) {
 
-    bool Result = false;
-    for (Value::use_iterator UI = RootC->use_begin(), UE = Root->use_end();
-         UI != UE; ++UI)
-      for (Value::use_iterator UUI = UI->use_begin(), UUE = UI->use_end();
-           UUI != UUE; ++UUI) {
-        GlobalVariable *GV = cast<GlobalVariable>(*UUI);
-        Result |= ConstructSubprogram(GV);
-      }
-    return Result;
+      DISubprogram SP(*RI);
+      CompileUnit *Unit = MainCU;
+      if (!Unit)
+        Unit = FindCompileUnit(SP.getCompileUnit());
+
+      // Check for pre-existence.
+      DIE *&Slot = Unit->getDieMapSlotFor(SP.getGV());
+      if (Slot) continue;
+
+      if (!SP.isDefinition())
+        // This is a method declaration which will be handled while
+        // constructing class type.
+        continue;
+
+      DIE *SubprogramDie = CreateSubprogramDIE(Unit, SP);
+
+      //Add to map.
+      Slot = SubprogramDie;
+      //Add to context owner.
+      Unit->getDie()->AddChild(SubprogramDie);
+      //Expose as global.
+      Unit->AddGlobal(SP.getName(), SubprogramDie);
+    }
   }
 
 public:
@@ -2950,48 +2901,41 @@ public:
   /// SetDebugInfo - Create global DIEs and emit initial debug info sections.
   /// This is inovked by the target AsmPrinter.
   void SetDebugInfo(MachineModuleInfo *mmi) {
-    // Create all the compile unit DIEs.
-    ConstructCompileUnits();
+
+      // Create all the compile unit DIEs.
+      ConstructCompileUnits();
       
-    if (CompileUnits.empty())
-      return;
+      if (DW_CUs.empty())
+        return;
 
-    // Create DIEs for each of the externally visible global variables.
-    bool globalDIEs = ConstructGlobalVariableDIEs();
+      MMI = mmi;
+      shouldEmit = true;
+      MMI->setDebugInfoAvailability(true);
 
-    // Create DIEs for each of the externally visible subprograms.
-    bool subprogramDIEs = ConstructSubprograms();
+      // Create DIEs for each of the externally visible global variables.
+      ConstructGlobalVariableDIEs();
 
-    // If there is not any debug info available for any global variables
-    // and any subprograms then there is not any debug info to emit.
-    if (!globalDIEs && !subprogramDIEs)
-      return;
+      // Create DIEs for each of the externally visible subprograms.
+      ConstructSubprograms();
 
-    MMI = mmi;
-    shouldEmit = true;
-    MMI->setDebugInfoAvailability(true);
+      // Prime section data.
+      SectionMap.insert(TAI->getTextSection());
 
-    // Prime section data.
-    SectionMap.insert(TAI->getTextSection());
-
-    // Print out .file directives to specify files for .loc directives. These
-    // are printed out early so that they precede any .loc directives.
-    if (TAI->hasDotLocAndDotFile()) {
-      for (unsigned i = 1, e = getNumSourceIds()+1; i != e; ++i) {
-        // Remember source id starts at 1.
-        std::pair<unsigned, unsigned> Id = getSourceDirsectoryAndFileIds(i);
-        sys::Path FullPath(getSourceDirectoryName(Id.first));
-        bool AppendOk =
-          FullPath.appendComponent(getSourceFileName(Id.second));
-        assert(AppendOk && "Could not append filename to directory!");
-        AppendOk = false;
-        Asm->EmitFile(i, FullPath.toString());
-        Asm->EOL();
+      // Print out .file directives to specify files for .loc directives. These
+      // are printed out early so that they precede any .loc directives.
+      if (TAI->hasDotLocAndDotFile()) {
+        for (unsigned i = 1, e = SrcFiles.size(); i <= e; ++i) {
+          sys::Path FullPath(Directories[SrcFiles[i].getDirectoryID()]);
+          bool AppendOk = FullPath.appendComponent(SrcFiles[i].getName());
+          assert(AppendOk && "Could not append filename to directory!");
+          AppendOk = false;
+          Asm->EmitFile(i, FullPath.toString());
+          Asm->EOL();
+        }
       }
-    }
 
-    // Emit initial sections
-    EmitInitial();
+      // Emit initial sections
+      EmitInitial();
   }
 
   /// BeginModule - Emit all Dwarf sections that should come prior to the
@@ -3003,7 +2947,7 @@ public:
   /// EndModule - Emit all Dwarf sections that should come after the content.
   ///
   void EndModule() {
-    if (!ShouldEmitDwarfDebug()) return;
+    if (!ShouldEmitDwarf()) return;
 
     // Standard sections final addresses.
     Asm->SwitchToSection(TAI->getTextSection());
@@ -3061,7 +3005,7 @@ public:
   void BeginFunction(MachineFunction *MF) {
     this->MF = MF;
 
-    if (!ShouldEmitDwarfDebug()) return;
+    if (!ShouldEmitDwarf()) return;
 
     // Begin accumulating function debug information.
     MMI->BeginFunction(MF);
@@ -3080,7 +3024,7 @@ public:
   /// EndFunction - Gather and emit post-function debug information.
   ///
   void EndFunction(MachineFunction *MF) {
-    if (!ShouldEmitDwarfDebug()) return;
+    if (!ShouldEmitDwarf()) return;
 
     // Define end label for subprogram.
     EmitLabel("func_end", SubprogramCount);
@@ -3126,6 +3070,7 @@ public:
 
   /// ValidDebugInfo - Return true if V represents valid debug info value.
   bool ValidDebugInfo(Value *V) {
+
     if (!V)
       return false;
 
@@ -3149,13 +3094,13 @@ public:
     unsigned Tag = DI.getTag();
     switch (Tag) {
     case DW_TAG_variable:
-      assert(DIVariable(GV).Verify() && "Invalid DebugInfo value");
+      assert (DIVariable(GV).Verify() && "Invalid DebugInfo value");
       break;
     case DW_TAG_compile_unit:
-      assert(DICompileUnit(GV).Verify() && "Invalid DebugInfo value");
+      assert (DICompileUnit(GV).Verify() && "Invalid DebugInfo value");
       break;
     case DW_TAG_subprogram:
-      assert(DISubprogram(GV).Verify() && "Invalid DebugInfo value");
+      assert (DISubprogram(GV).Verify() && "Invalid DebugInfo value");
       break;
     default:
       break;
@@ -3168,8 +3113,8 @@ public:
   /// label. Returns a unique label ID used to generate a label and provide
   /// correspondence to the source line list.
   unsigned RecordSourceLine(Value *V, unsigned Line, unsigned Col) {
-    CompileUnit *Unit = CompileUnitMap[V];
-    assert(Unit && "Unable to find CompileUnit");
+    CompileUnit *Unit = DW_CUs[V];
+    assert (Unit && "Unable to find CompileUnit");
     unsigned ID = MMI->NextLabelID();
     Lines.push_back(SrcLineInfo(Line, Col, Unit->getID(), ID));
     return ID;
@@ -3188,77 +3133,12 @@ public:
     return Lines.size();
   }
                             
-  /// getNumSourceDirectories - Return the number of source directories in the
-  /// debug info.
-  unsigned getNumSourceDirectories() const {
-    return DirectoryNames.size();
-  }
-
-  /// getSourceDirectoryName - Return the name of the directory corresponding
-  /// to the id.
-  const std::string &getSourceDirectoryName(unsigned Id) const {
-    return DirectoryNames[Id - 1];
-  }
-
-  /// getNumSourceFiles - Return the number of source files in the debug info.
-  ///
-  unsigned getNumSourceFiles() const {
-    return SourceFileNames.size();
-  }
-
-  /// getSourceFileName - Return the name of the source file corresponding
-  /// to the id.
-  const std::string &getSourceFileName(unsigned Id) const {
-    return SourceFileNames[Id - 1];
-  }
-
-  /// getNumSourceIds - Return the number of unique source ids.
-  ///
-  unsigned getNumSourceIds() const {
-    return SourceIds.size();
-  }
-
-  /// getSourceDirsectoryAndFileIds - Return the directory and file ids that
-  /// maps to the source id. Source id starts at 1.
-  std::pair<unsigned, unsigned>
-  getSourceDirsectoryAndFileIds(unsigned SId) const {
-    return SourceIds[SId-1];
-  }
-
-  /// getOrCreateSourceID - Look up the source id with the given directory and
-  /// source file names. If none currently exists, create a new id and insert it
-  /// in the SourceIds map. This can update DirectoryNames and SourceFileNames maps
-  /// as well.
-  unsigned getOrCreateSourceID(const std::string &DirName,
-                               const std::string &FileName) {
-    unsigned DId;
-    StringMap<unsigned>::iterator DI = DirectoryIdMap.find(DirName);
-    if (DI != DirectoryIdMap.end())
-      DId = DI->getValue();
-    else {
-      DId = DirectoryNames.size() + 1;
-      DirectoryIdMap[DirName] = DId;
-      DirectoryNames.push_back(DirName);
-    }
-  
-    unsigned FId;
-    StringMap<unsigned>::iterator FI = SourceFileIdMap.find(FileName);
-    if (FI != SourceFileIdMap.end())
-      FId = FI->getValue();
-    else {
-      FId = SourceFileNames.size() + 1;
-      SourceFileIdMap[FileName] = FId;
-      SourceFileNames.push_back(FileName);
-    }
-
-    DenseMap<std::pair<unsigned, unsigned>, unsigned>::iterator SI =
-      SourceIdMap.find(std::make_pair(DId, FId));
-    if (SI != SourceIdMap.end())
-      return SI->second;
-    unsigned SrcId = SourceIds.size() + 1;  // DW_AT_decl_file cannot be 0.
-    SourceIdMap[std::make_pair(DId, FId)] = SrcId;
-    SourceIds.push_back(std::make_pair(DId, FId));
-    return SrcId;
+  /// RecordSource - Register a source file with debug info. Returns an source
+  /// ID.
+  unsigned RecordSource(const std::string &Directory,
+                        const std::string &File) {
+    unsigned DID = Directories.insert(Directory);
+    return SrcFiles.insert(SrcFileInfo(DID,File));
   }
 
   /// RecordRegionStart - Indicate the start of a region.
@@ -3293,7 +3173,7 @@ public:
       DIVariable DV(GV);
       Scope = getOrCreateScope(DV.getContext().getGV());
     }
-    assert(Scope && "Unable to find variable' scope");
+    assert (Scope && "Unable to find variable' scope");
     DbgVariable *DV = new DbgVariable(DIVariable(GV), FrameIndex);
     Scope->AddVariable(DV);
   }
@@ -3303,6 +3183,8 @@ public:
 /// DwarfException - Emits Dwarf exception handling directives.
 ///
 class DwarfException : public Dwarf  {
+
+private:
   struct FunctionEHFrameInfo {
     std::string FnName;
     unsigned Number;
@@ -3972,7 +3854,7 @@ public:
   void EndModule() {
     if (shouldEmitMovesModule || shouldEmitTableModule) {
       const std::vector<Function *> Personalities = MMI->getPersonalities();
-      for (unsigned i = 0; i < Personalities.size(); ++i)
+      for (unsigned i =0; i < Personalities.size(); ++i)
         EmitCommonEHFrame(Personalities[i], i);
 
       for (std::vector<FunctionEHFrameInfo>::iterator I = EHFrames.begin(),
@@ -4405,13 +4287,11 @@ unsigned DwarfWriter::RecordSourceLine(unsigned Line, unsigned Col,
   return DD->RecordSourceLine(Line, Col, Src);
 }
 
-/// getOrCreateSourceID - Look up the source id with the given directory and
-/// source file names. If none currently exists, create a new id and insert it
-/// in the SourceIds map. This can update DirectoryNames and SourceFileNames maps
-/// as well.
-unsigned DwarfWriter::getOrCreateSourceID(const std::string &DirName,
-                                          const std::string &FileName) {
-  return DD->getOrCreateSourceID(DirName, FileName);
+/// RecordSource - Register a source file with debug info. Returns an source
+/// ID.
+unsigned DwarfWriter::RecordSource(const std::string &Dir, 
+                                   const std::string &File) {
+  return DD->RecordSource(Dir, File);
 }
 
 /// RecordRegionStart - Indicate the start of a region.
@@ -4435,8 +4315,3 @@ void DwarfWriter::RecordVariable(GlobalVariable *GV, unsigned FrameIndex) {
   DD->RecordVariable(GV, FrameIndex);
 }
 
-/// ShouldEmitDwarfDebug - Returns true if Dwarf debugging declarations should
-/// be emitted.
-bool DwarfWriter::ShouldEmitDwarfDebug() const {
-  return DD->ShouldEmitDwarfDebug();
-}

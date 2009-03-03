@@ -36,9 +36,6 @@ def X86frcp    : SDNode<"X86ISD::FRCP",      SDTFPUnaryOp>;
 def X86fsrl    : SDNode<"X86ISD::FSRL",      SDTX86FPShiftOp>;
 def X86comi    : SDNode<"X86ISD::COMI",      SDTX86CmpTest>;
 def X86ucomi   : SDNode<"X86ISD::UCOMI",     SDTX86CmpTest>;
-def X86pshufb  : SDNode<"X86ISD::PSHUFB", 
-                 SDTypeProfile<1, 2, [SDTCisVT<0, v16i8>, SDTCisSameAs<0,1>,
-                                      SDTCisSameAs<0,2>]>>;
 def X86pextrb  : SDNode<"X86ISD::PEXTRB",
                  SDTypeProfile<1, 2, [SDTCisVT<0, i32>, SDTCisPtrTy<2>]>>;
 def X86pextrw  : SDNode<"X86ISD::PEXTRW",
@@ -526,7 +523,7 @@ def FsANDNPSrm : PSI<0x55, MRMSrcMem,
 /// In addition, we also have a special variant of the scalar form here to
 /// represent the associated intrinsic operation.  This form is unlike the
 /// plain scalar form, in that it takes an entire vector (instead of a scalar)
-/// and leaves the top elements unmodified (therefore these cannot be commuted).
+/// and leaves the top elements undefined.
 ///
 /// These three forms can each be reg+reg or reg+mem, so there are a total of
 /// six "instructions".
@@ -566,7 +563,9 @@ multiclass basic_sse1_fp_binop_rm<bits<8> opc, string OpcodeStr,
   def SSrr_Int : SSI<opc, MRMSrcReg, (outs VR128:$dst),
                                      (ins VR128:$src1, VR128:$src2),
                      !strconcat(OpcodeStr, "ss\t{$src2, $dst|$dst, $src2}"),
-                     [(set VR128:$dst, (F32Int VR128:$src1, VR128:$src2))]>;
+                     [(set VR128:$dst, (F32Int VR128:$src1, VR128:$src2))]> {
+    let isCommutable = Commutable;
+  }
 
   // Intrinsic operation, reg+mem.
   def SSrm_Int : SSI<opc, MRMSrcMem, (outs VR128:$dst),
@@ -1005,7 +1004,6 @@ let Predicates = [HasSSE1] in {
 }
 
 // FR32 to 128-bit vector conversion.
-let isAsCheapAsAMove = 1 in
 def MOVSS2PSrr : SSI<0x10, MRMSrcReg, (outs VR128:$dst), (ins FR32:$src),
                       "movss\t{$src, $dst|$dst, $src}",
                       [(set VR128:$dst,
@@ -1020,7 +1018,6 @@ def MOVSS2PSrm : SSI<0x10, MRMSrcMem, (outs VR128:$dst), (ins f32mem:$src),
 // like this:
 // def : Pat<(f32 (vector_extract (v4f32 VR128:$src), (iPTR 0))),
 //           (f32 FR32:$src)>;
-let isAsCheapAsAMove = 1 in
 def MOVPS2SSrr : SSI<0x10, MRMSrcReg, (outs FR32:$dst), (ins VR128:$src),
                      "movss\t{$src, $dst|$dst, $src}",
                      [(set FR32:$dst, (vector_extract (v4f32 VR128:$src),
@@ -1273,7 +1270,7 @@ def FsANDNPDrm : PDI<0x55, MRMSrcMem,
 /// In addition, we also have a special variant of the scalar form here to
 /// represent the associated intrinsic operation.  This form is unlike the
 /// plain scalar form, in that it takes an entire vector (instead of a scalar)
-/// and leaves the top elements unmodified (therefore these cannot be commuted).
+/// and leaves the top elements undefined.
 ///
 /// These three forms can each be reg+reg or reg+mem, so there are a total of
 /// six "instructions".
@@ -1313,7 +1310,9 @@ multiclass basic_sse2_fp_binop_rm<bits<8> opc, string OpcodeStr,
   def SDrr_Int : SDI<opc, MRMSrcReg, (outs VR128:$dst),
                                      (ins VR128:$src1, VR128:$src2),
                      !strconcat(OpcodeStr, "sd\t{$src2, $dst|$dst, $src2}"),
-                     [(set VR128:$dst, (F64Int VR128:$src1, VR128:$src2))]>;
+                     [(set VR128:$dst, (F64Int VR128:$src1, VR128:$src2))]> {
+    let isCommutable = Commutable;
+  }
 
   // Intrinsic operation, reg+mem.
   def SDrm_Int : SDI<opc, MRMSrcMem, (outs VR128:$dst),
@@ -2230,11 +2229,6 @@ def MASKMOVDQU : PDI<0xF7, MRMSrcReg, (outs), (ins VR128:$src, VR128:$mask),
                      "maskmovdqu\t{$mask, $src|$src, $mask}",
                      [(int_x86_sse2_maskmov_dqu VR128:$src, VR128:$mask, EDI)]>;
 
-let Uses = [RDI] in
-def MASKMOVDQU64 : PDI<0xF7, MRMSrcReg, (outs), (ins VR128:$src, VR128:$mask),
-                     "maskmovdqu\t{$mask, $src|$src, $mask}",
-                     [(int_x86_sse2_maskmov_dqu VR128:$src, VR128:$mask, RDI)]>;
-
 // Non-temporal stores
 def MOVNTPDmr : PDI<0x2B, MRMDestMem, (outs), (ins i128mem:$dst, VR128:$src),
                     "movntpd\t{$src, $dst|$dst, $src}",
@@ -2275,7 +2269,6 @@ let isReMaterializable = 1, isAsCheapAsAMove = 1, canFoldAsLoad = 1 in
                          [(set VR128:$dst, (v4i32 immAllOnesV))]>;
 
 // FR64 to 128-bit vector conversion.
-let isAsCheapAsAMove = 1 in
 def MOVSD2PDrr : SDI<0x10, MRMSrcReg, (outs VR128:$dst), (ins FR64:$src),
                       "movsd\t{$src, $dst|$dst, $src}",
                       [(set VR128:$dst,
@@ -2318,7 +2311,6 @@ def MOVPQI2QImr : PDI<0xD6, MRMDestMem, (outs), (ins i64mem:$dst, VR128:$src),
 // like this:
 // def : Pat<(f32 (vector_extract (v4f32 VR128:$src), (iPTR 0))),
 //           (f32 FR32:$src)>;
-let isAsCheapAsAMove = 1 in
 def MOVPD2SDrr : SDI<0x10, MRMSrcReg, (outs FR64:$dst), (ins VR128:$src),
                      "movsd\t{$src, $dst|$dst, $src}",
                      [(set FR64:$dst, (vector_extract (v2f64 VR128:$src),
@@ -2843,11 +2835,6 @@ let Constraints = "$src1 = $dst" in {
                               (bitconvert (memopv4i32 addr:$src2)),
                               imm:$src3))]>, OpSize;
 }
-
-def : Pat<(X86pshufb VR128:$src, VR128:$mask),
-          (PSHUFBrr128 VR128:$src, VR128:$mask)>, Requires<[HasSSSE3]>;
-def : Pat<(X86pshufb VR128:$src, (bc_v16i8 (memopv2i64 addr:$mask))),
-          (PSHUFBrm128 VR128:$src, addr:$mask)>, Requires<[HasSSSE3]>;
 
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns

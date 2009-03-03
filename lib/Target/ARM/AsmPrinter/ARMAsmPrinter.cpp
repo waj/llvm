@@ -42,7 +42,13 @@ using namespace llvm;
 STATISTIC(EmittedInsts, "Number of machine instrs printed");
 
 namespace {
-  class VISIBILITY_HIDDEN ARMAsmPrinter : public AsmPrinter {
+  struct VISIBILITY_HIDDEN ARMAsmPrinter : public AsmPrinter {
+    ARMAsmPrinter(raw_ostream &O, TargetMachine &TM, const TargetAsmInfo *T)
+      : AsmPrinter(O, TM, T), DW(0), MMI(NULL), AFI(NULL), MCP(NULL),
+        InCPMode(false) {
+      Subtarget = &TM.getSubtarget<ARMSubtarget>();
+    }
+
     DwarfWriter *DW;
     MachineModuleInfo *MMI;
 
@@ -79,14 +85,7 @@ namespace {
 
     /// True if asm printer is printing a series of CONSTPOOL_ENTRY.
     bool InCPMode;
-  public:
-    ARMAsmPrinter(raw_ostream &O, TargetMachine &TM,
-                  const TargetAsmInfo *T, bool F)
-      : AsmPrinter(O, TM, T, F), DW(0), MMI(NULL), AFI(NULL), MCP(NULL),
-        InCPMode(false) {
-      Subtarget = &TM.getSubtarget<ARMSubtarget>();
-    }
-
+    
     virtual const char *getPassName() const {
       return "ARM Assembly Printer";
     }
@@ -184,8 +183,6 @@ namespace {
 /// method to print assembly for each instruction.
 ///
 bool ARMAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
-  this->MF = &MF;
-
   AFI = MF.getInfo<ARMFunctionInfo>();
   MCP = MF.getConstantPool();
 
@@ -799,7 +796,7 @@ bool ARMAsmPrinter::doInitialization(Module &M) {
 }
 
 /// PrintUnmangledNameSafely - Print out the printable characters in the name.
-/// Don't print things like \\n or \\0.
+/// Don't print things like \n or \0.
 static void PrintUnmangledNameSafely(const Value *V, raw_ostream &OS) {
   for (const char *Name = V->getNameStart(), *E = Name+V->getNameLen();
        Name != E; ++Name)
@@ -838,9 +835,7 @@ void ARMAsmPrinter::printModuleLevelGV(const GlobalVariable* GVar) {
   if (Subtarget->isTargetELF())
     O << "\t.type " << name << ",%object\n";
 
-  if (C->isNullValue() && !GVar->hasSection() && !GVar->isThreadLocal() &&
-      !(isDarwin &&
-        TAI->SectionKindForGlobal(GVar) == SectionKind::RODataMergeStr)) {
+  if (C->isNullValue() && !GVar->hasSection() && !GVar->isThreadLocal()) {
     // FIXME: This seems to be pretty darwin-specific
 
     if (GVar->hasExternalLinkage()) {
@@ -1042,9 +1037,8 @@ bool ARMAsmPrinter::doFinalization(Module &M) {
 /// regardless of whether the function is in SSA form.
 ///
 FunctionPass *llvm::createARMCodePrinterPass(raw_ostream &o,
-                                             ARMTargetMachine &tm,
-                                             bool fast) {
-  return new ARMAsmPrinter(o, tm, tm.getTargetAsmInfo(), fast);
+                                             ARMTargetMachine &tm) {
+  return new ARMAsmPrinter(o, tm, tm.getTargetAsmInfo());
 }
 
 namespace {

@@ -20,7 +20,6 @@
 #include "llvm/Type.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/CodeGen/DwarfWriter.h"
 #include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/Compiler.h"
@@ -33,12 +32,13 @@ STATISTIC(EmittedInsts, "Number of machine instrs printed");
 
 namespace {
   struct VISIBILITY_HIDDEN AlphaAsmPrinter : public AsmPrinter {
+
     /// Unique incrementer for label values for referencing Global values.
     ///
 
-    AlphaAsmPrinter(raw_ostream &o, TargetMachine &tm,
-                    const TargetAsmInfo *T, bool F)
-      : AsmPrinter(o, tm, T, F) {}
+    AlphaAsmPrinter(raw_ostream &o, TargetMachine &tm, const TargetAsmInfo *T)
+      : AsmPrinter(o, tm, T) {
+    }
 
     virtual const char *getPassName() const {
       return "Alpha Assembly Printer";
@@ -67,9 +67,8 @@ namespace {
 /// regardless of whether the function is in SSA form.
 ///
 FunctionPass *llvm::createAlphaCodePrinterPass(raw_ostream &o,
-                                               TargetMachine &tm,
-                                               bool fast) {
-  return new AlphaAsmPrinter(o, tm, tm.getTargetAsmInfo(), fast);
+                                               TargetMachine &tm) {
+  return new AlphaAsmPrinter(o, tm, tm.getTargetAsmInfo());
 }
 
 #include "AlphaGenAsmWriter.inc"
@@ -139,8 +138,6 @@ void AlphaAsmPrinter::printOp(const MachineOperand &MO, bool IsCallOp) {
 /// method to print assembly for each instruction.
 ///
 bool AlphaAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
-  this->MF = &MF;
-
   SetupMachineFunction(MF);
   O << "\n\n";
 

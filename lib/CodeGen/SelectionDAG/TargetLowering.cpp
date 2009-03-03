@@ -26,28 +26,6 @@
 #include "llvm/Support/MathExtras.h"
 using namespace llvm;
 
-namespace llvm {
-TLSModel::Model getTLSModel(const GlobalValue *GV, Reloc::Model reloc) {
-  bool isLocal = GV->hasLocalLinkage();
-  bool isDeclaration = GV->isDeclaration();
-  // FIXME: what should we do for protected and internal visibility?
-  // For variables, is internal different from hidden?
-  bool isHidden = GV->hasHiddenVisibility();
-
-  if (reloc == Reloc::PIC_) {
-    if (isLocal || isHidden)
-      return TLSModel::LocalDynamic;
-    else
-      return TLSModel::GeneralDynamic;
-  } else {
-    if (!isDeclaration || isHidden)
-      return TLSModel::LocalExec;
-    else
-      return TLSModel::InitialExec;
-  }
-}
-}
-
 /// InitLibcallNames - Set default libcall names.
 ///
 static void InitLibcallNames(const char **Names) {
@@ -714,7 +692,7 @@ unsigned TargetLowering::getByValTypeAlignment(const Type *Ty) const {
 SDValue TargetLowering::getPICJumpTableRelocBase(SDValue Table,
                                                  SelectionDAG &DAG) const {
   if (usesGlobalOffsetTable())
-    return DAG.getGLOBAL_OFFSET_TABLE(getPointerTy());
+    return DAG.getNode(ISD::GLOBAL_OFFSET_TABLE, getPointerTy());
   return Table;
 }
 
@@ -745,7 +723,6 @@ TargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
 /// constant and return true.
 bool TargetLowering::TargetLoweringOpt::ShrinkDemandedConstant(SDValue Op, 
                                                         const APInt &Demanded) {
-  DebugLoc dl = Op.getDebugLoc();
   // FIXME: ISD::SELECT, ISD::SELECT_CC
   switch (Op.getOpcode()) {
   default: break;
@@ -755,7 +732,7 @@ bool TargetLowering::TargetLoweringOpt::ShrinkDemandedConstant(SDValue Op,
     if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(Op.getOperand(1)))
       if (C->getAPIntValue().intersects(~Demanded)) {
         MVT VT = Op.getValueType();
-        SDValue New = DAG.getNode(Op.getOpcode(), dl, VT, Op.getOperand(0),
+        SDValue New = DAG.getNode(Op.getOpcode(), VT, Op.getOperand(0),
                                     DAG.getConstant(Demanded &
                                                       C->getAPIntValue(), 
                                                     VT));
@@ -783,7 +760,7 @@ bool TargetLowering::SimplifyDemandedBits(SDValue Op,
   assert(Op.getValueSizeInBits() == BitWidth &&
          "Mask size mismatches value type size!");
   APInt NewMask = DemandedMask;
-  DebugLoc dl = Op.getDebugLoc();
+  DebugLoc dl = Op.getNode()->getDebugLoc();
 
   // Don't know anything.
   KnownZero = KnownOne = APInt(BitWidth, 0);
@@ -802,7 +779,8 @@ bool TargetLowering::SimplifyDemandedBits(SDValue Op,
   } else if (DemandedMask == 0) {   
     // Not demanding any bits from Op.
     if (Op.getOpcode() != ISD::UNDEF)
-      return TLO.CombineTo(Op, TLO.DAG.getUNDEF(Op.getValueType()));
+      return TLO.CombineTo(Op, TLO.DAG.getNode(ISD::UNDEF, dl,
+                                               Op.getValueType()));
     return false;
   } else if (Depth == 6) {        // Limit search depth.
     return false;
@@ -912,7 +890,7 @@ bool TargetLowering::SimplifyDemandedBits(SDValue Op,
     // (but not both) turn this into an *inclusive* or.
     //    e.g. (A & C1)^(B & C2) -> (A & C1)|(B & C2) iff C1&C2 == 0
     if ((NewMask & ~KnownZero & ~KnownZero2) == 0)
-      return TLO.CombineTo(Op, TLO.DAG.getNode(ISD::OR, dl, Op.getValueType(),
+      return TLO.CombineTo(Op, TLO.DAG.getNode(ISD::OR, Op.getValueType(),
                                                Op.getOperand(0),
                                                Op.getOperand(1)));
     
@@ -1368,31 +1346,14 @@ unsigned TargetLowering::ComputeNumSignBitsForTargetNode(SDValue Op,
   return 1;
 }
 
-/// ValueHasExactlyOneBitSet - Test if the given value is known to have exactly
-/// one bit set. This differs from ComputeMaskedBits in that it doesn't need to
-/// determine which bit is set.
-///
 static bool ValueHasExactlyOneBitSet(SDValue Val, const SelectionDAG &DAG) {
-  // A left-shift of a constant one will have exactly one bit set, because
-  // shifting the bit off the end is undefined.
-  if (Val.getOpcode() == ISD::SHL)
-    if (ConstantSDNode *C =
-         dyn_cast<ConstantSDNode>(Val.getNode()->getOperand(0)))
-      if (C->getAPIntValue() == 1)
-        return true;
+  // Logical shift right or left won't ever introduce new set bits.
+  // We check for this case because we don't care which bits are
+  // set, but ComputeMaskedBits won't know anything unless it can
+  // determine which specific bits may be set.
+  if (Val.getOpcode() == ISD::SHL || Val.getOpcode() == ISD::SRL)
+    return ValueHasExactlyOneBitSet(Val.getOperand(0), DAG);
 
-  // Similarly, a right-shift of a constant sign-bit will have exactly
-  // one bit set.
-  if (Val.getOpcode() == ISD::SRL)
-    if (ConstantSDNode *C =
-         dyn_cast<ConstantSDNode>(Val.getNode()->getOperand(0)))
-      if (C->getAPIntValue().isSignBit())
-        return true;
-
-  // More could be done here, though the above checks are enough
-  // to handle some common cases.
-
-  // Fall back to ComputeMaskedBits to catch other known cases.
   MVT OpVT = Val.getValueType();
   unsigned BitWidth = OpVT.getSizeInBits();
   APInt Mask = APInt::getAllOnesValue(BitWidth);
@@ -1743,7 +1704,7 @@ TargetLowering::SimplifySetCC(MVT VT, SDValue N0, SDValue N1,
       case 1:  // Known true.
         return DAG.getConstant(1, VT);
       case 2:  // Undefined.
-        return DAG.getUNDEF(VT);
+        return DAG.getNode(ISD::UNDEF, VT);
       }
     }
     
@@ -1910,7 +1871,7 @@ TargetLowering::SimplifySetCC(MVT VT, SDValue N0, SDValue N1,
     case ISD::SETGT:  // X >s Y   -->  X == 0 & Y == 1  -->  ~X & Y
     case ISD::SETULT: // X <u Y   -->  X == 0 & Y == 1  -->  ~X & Y
       Temp = DAG.getNOT(dl, N0, MVT::i1);
-      N0 = DAG.getNode(ISD::AND, dl, MVT::i1, N1, Temp);
+      N0 = DAG.getNode(ISD::AND, MVT::i1, N1, Temp);
       if (!DCI.isCalledByLegalizer())
         DCI.AddToWorklist(Temp.getNode());
       break;
@@ -2121,11 +2082,8 @@ void TargetLowering::LowerAsmOperandForConstraint(SDValue Op,
     if (C) {   // just C, no GV.
       // Simple constants are not allowed for 's'.
       if (ConstraintLetter != 's') {
-        // gcc prints these as sign extended.  Sign extend value to 64 bits
-        // now; without this it would get ZExt'd later in
-        // ScheduleDAGSDNodes::EmitNode, which is very generic.
-        Ops.push_back(DAG.getTargetConstant(C->getAPIntValue().getSExtValue(),
-                                            MVT::i64));
+        Ops.push_back(DAG.getTargetConstant(C->getAPIntValue(),
+                                            Op.getValueType()));
         return;
       }
     }

@@ -79,7 +79,7 @@ namespace llvm {
     virtual const char *getTargetNodeName(unsigned Opcode) const;
   
     virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                  MachineBasicBlock *MBB) const;
+                                                        MachineBasicBlock *MBB);
 
     virtual bool isLegalAddressingMode(const AddrMode &AM,
                                        const Type *Ty) const;

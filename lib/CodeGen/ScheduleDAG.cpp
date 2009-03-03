@@ -23,13 +23,12 @@
 using namespace llvm;
 
 ScheduleDAG::ScheduleDAG(MachineFunction &mf)
-  : TM(mf.getTarget()),
+  : DAG(0), BB(0), TM(mf.getTarget()),
     TII(TM.getInstrInfo()),
     TRI(TM.getRegisterInfo()),
     TLI(TM.getTargetLowering()),
     MF(mf), MRI(mf.getRegInfo()),
-    ConstPool(MF.getConstantPool()),
-    EntrySU(), ExitSU() {
+    ConstPool(MF.getConstantPool()) {
 }
 
 ScheduleDAG::~ScheduleDAG() {}
@@ -47,18 +46,21 @@ void ScheduleDAG::dumpSchedule() const {
 
 /// Run - perform scheduling.
 ///
-void ScheduleDAG::Run(MachineBasicBlock *bb,
-                      MachineBasicBlock::iterator insertPos) {
-  BB = bb;
-  InsertPos = insertPos;
+void ScheduleDAG::Run(SelectionDAG *dag, MachineBasicBlock *bb,
+                      MachineBasicBlock::iterator begin,
+                      MachineBasicBlock::iterator end) {
+  assert((!dag || begin == end) &&
+         "An instruction range was given for SelectionDAG scheduling!");
 
   SUnits.clear();
   Sequence.clear();
-  EntrySU = SUnit();
-  ExitSU = SUnit();
+  DAG = dag;
+  BB = bb;
+  Begin = begin;
+  End = end;
 
   Schedule();
-
+  
   DOUT << "*** Final schedule ***\n";
   DEBUG(dumpSchedule());
   DOUT << "\n";
@@ -69,9 +71,8 @@ void ScheduleDAG::Run(MachineBasicBlock *bb,
 /// specified node.
 void SUnit::addPred(const SDep &D) {
   // If this node already has this depenence, don't add a redundant one.
-  for (SmallVector<SDep, 4>::const_iterator I = Preds.begin(), E = Preds.end();
-       I != E; ++I)
-    if (*I == D)
+  for (unsigned i = 0, e = (unsigned)Preds.size(); i != e; ++i)
+    if (Preds[i] == D)
       return;
   // Now add a corresponding succ to N.
   SDep P = D;

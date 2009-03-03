@@ -42,9 +42,7 @@ FunctionPass *createX87FPRegKillInserterPass();
 /// assembly code for a MachineFunction to the given output stream,
 /// using the given target machine description.
 ///
-FunctionPass *createX86CodePrinterPass(raw_ostream &o,
-                                       X86TargetMachine &tm,
-                                       bool fast);
+FunctionPass *createX86CodePrinterPass(raw_ostream &o, X86TargetMachine &tm);
 
 /// createX86CodeEmitterPass - Return a pass that emits the collected X86 code
 /// to the specified MCE object.

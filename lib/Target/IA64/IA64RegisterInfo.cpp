@@ -88,7 +88,6 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
     // <amt>'
     MachineInstr *Old = I;
     unsigned Amount = Old->getOperand(0).getImm();
-    DebugLoc dl = Old->getDebugLoc();
     if (Amount != 0) {
       // We need to keep the stack aligned properly.  To do this, we round the
       // amount of space needed for the outgoing arguments up to the next
@@ -98,12 +97,12 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 
       // Replace the pseudo instruction with a new instruction...
       if (Old->getOpcode() == IA64::ADJUSTCALLSTACKDOWN) {
-        BuildMI(MBB, I, dl, TII.get(IA64::ADDIMM22), IA64::r12)
-          .addReg(IA64::r12).addImm(-Amount);
+        BuildMI(MBB, I, TII.get(IA64::ADDIMM22), IA64::r12).addReg(IA64::r12)
+          .addImm(-Amount);
       } else {
         assert(Old->getOpcode() == IA64::ADJUSTCALLSTACKUP);
-        BuildMI(MBB, I, dl, TII.get(IA64::ADDIMM22), IA64::r12)
-          .addReg(IA64::r12).addImm(Amount);
+        BuildMI(MBB, I, TII.get(IA64::ADDIMM22), IA64::r12).addReg(IA64::r12)
+          .addImm(Amount);
       }
     }
   }
@@ -119,7 +118,6 @@ void IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MachineInstr &MI = *II;
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
-  DebugLoc dl = MI.getDebugLoc();
 
   bool FP = hasFP(MF);
 
@@ -148,13 +146,13 @@ void IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     // Fix up the old:
     MI.getOperand(i).ChangeToRegister(IA64::r22, false);
     //insert the new
-    BuildMI(MBB, II, dl, TII.get(IA64::ADDIMM22), IA64::r22)
+    BuildMI(MBB, II, TII.get(IA64::ADDIMM22), IA64::r22)
       .addReg(BaseRegister).addImm(Offset);
   } else { // it's big
     //fix up the old:
     MI.getOperand(i).ChangeToRegister(IA64::r22, false);
-    BuildMI(MBB, II, dl, TII.get(IA64::MOVLIMM64), IA64::r22).addImm(Offset);
-    BuildMI(MBB, II, dl, TII.get(IA64::ADD), IA64::r22).addReg(BaseRegister)
+    BuildMI(MBB, II, TII.get(IA64::MOVLIMM64), IA64::r22).addImm(Offset);
+    BuildMI(MBB, II, TII.get(IA64::ADD), IA64::r22).addReg(BaseRegister)
       .addReg(IA64::r22);
   }
 
@@ -165,8 +163,6 @@ void IA64RegisterInfo::emitPrologue(MachineFunction &MF) const {
   MachineBasicBlock::iterator MBBI = MBB.begin();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   bool FP = hasFP(MF);
-  DebugLoc dl = (MBBI != MBB.end() ?
-                 MBBI->getDebugLoc() : DebugLoc::getUnknownLoc());
 
   // first, we handle the 'alloc' instruction, that should be right up the
   // top of any function
@@ -209,9 +205,7 @@ void IA64RegisterInfo::emitPrologue(MachineFunction &MF) const {
     }
   }
 
-  if (MBBI != MBB.end()) dl = MBBI->getDebugLoc();
-
-  BuildMI(MBB, MBBI, dl, TII.get(IA64::ALLOC)).
+  BuildMI(MBB, MBBI, TII.get(IA64::ALLOC)).
      addReg(dstRegOfPseudoAlloc).addImm(0).
      addImm(numStackedGPRsUsed).addImm(numOutRegsUsed).addImm(0);
 
@@ -236,24 +230,23 @@ void IA64RegisterInfo::emitPrologue(MachineFunction &MF) const {
 
   // adjust stack pointer: r12 -= numbytes
   if (NumBytes <= 8191) {
-    BuildMI(MBB, MBBI, dl, TII.get(IA64::ADDIMM22),IA64::r12).addReg(IA64::r12).
+    BuildMI(MBB, MBBI, TII.get(IA64::ADDIMM22),IA64::r12).addReg(IA64::r12).
       addImm(-NumBytes);
   } else { // we use r22 as a scratch register here
     // first load the decrement into r22
-    BuildMI(MBB, MBBI, dl, TII.get(IA64::MOVLIMM64), IA64::r22).
-      addImm(-NumBytes);
+    BuildMI(MBB, MBBI, TII.get(IA64::MOVLIMM64), IA64::r22).addImm(-NumBytes);
     // FIXME: MOVLSI32 expects a _u_32imm
     // then add (subtract) it to r12 (stack ptr)
-    BuildMI(MBB, MBBI, dl, TII.get(IA64::ADD), IA64::r12)
+    BuildMI(MBB, MBBI, TII.get(IA64::ADD), IA64::r12)
       .addReg(IA64::r12).addReg(IA64::r22);
     
   }
 
   // now if we need to, save the old FP and set the new
   if (FP) {
-    BuildMI(MBB, MBBI,dl,TII.get(IA64::ST8)).addReg(IA64::r12).addReg(IA64::r5);
+    BuildMI(MBB, MBBI, TII.get(IA64::ST8)).addReg(IA64::r12).addReg(IA64::r5);
     // this must be the last instr in the prolog ?  (XXX: why??)
-    BuildMI(MBB, MBBI, dl, TII.get(IA64::MOV), IA64::r5).addReg(IA64::r12);
+    BuildMI(MBB, MBBI, TII.get(IA64::MOV), IA64::r5).addReg(IA64::r12);
   }
 
 }
@@ -264,31 +257,34 @@ void IA64RegisterInfo::emitEpilogue(MachineFunction &MF,
   MachineBasicBlock::iterator MBBI = prior(MBB.end());
   assert(MBBI->getOpcode() == IA64::RET &&
          "Can only insert epilog into returning blocks");
-  DebugLoc dl = MBBI->getDebugLoc();
+
   bool FP = hasFP(MF);
 
   // Get the number of bytes allocated from the FrameInfo...
   unsigned NumBytes = MFI->getStackSize();
 
   //now if we need to, restore the old FP
-  if (FP) {
+  if (FP)
+  {
     //copy the FP into the SP (discards allocas)
-    BuildMI(MBB, MBBI, dl, TII.get(IA64::MOV), IA64::r12).addReg(IA64::r5);
+    BuildMI(MBB, MBBI, TII.get(IA64::MOV), IA64::r12).addReg(IA64::r5);
     //restore the FP
-    BuildMI(MBB, MBBI, dl, TII.get(IA64::LD8), IA64::r5).addReg(IA64::r5);
+    BuildMI(MBB, MBBI, TII.get(IA64::LD8), IA64::r5).addReg(IA64::r5);
   }
 
-  if (NumBytes != 0) {
+  if (NumBytes != 0)
+  {
     if (NumBytes <= 8191) {
-      BuildMI(MBB, MBBI, dl, TII.get(IA64::ADDIMM22),IA64::r12).
-        addReg(IA64::r12).addImm(NumBytes);
-    } else {
-      BuildMI(MBB, MBBI, dl, TII.get(IA64::MOVLIMM64), IA64::r22).
+      BuildMI(MBB, MBBI, TII.get(IA64::ADDIMM22),IA64::r12).addReg(IA64::r12).
         addImm(NumBytes);
-      BuildMI(MBB, MBBI, dl, TII.get(IA64::ADD), IA64::r12).addReg(IA64::r12).
+    } else {
+      BuildMI(MBB, MBBI, TII.get(IA64::MOVLIMM64), IA64::r22).
+        addImm(NumBytes);
+      BuildMI(MBB, MBBI, TII.get(IA64::ADD), IA64::r12).addReg(IA64::r12).
         addReg(IA64::r22);
     }
   }
+
 }
 
 unsigned IA64RegisterInfo::getRARegister() const {

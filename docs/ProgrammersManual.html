@@ -54,7 +54,7 @@ option</a></li>
       <li><a href="#dss_vector">&lt;vector&gt;</a></li>
       <li><a href="#dss_deque">&lt;deque&gt;</a></li>
       <li><a href="#dss_list">&lt;list&gt;</a></li>
-      <li><a href="#dss_ilist">llvm/ADT/ilist.h</a></li>
+      <li><a href="#dss_ilist">llvm/ADT/ilist</a></li>
       <li><a href="#dss_other">Other Sequential Container Options</a></li>
     </ul></li>
     <li><a href="#ds_set">Set-Like Containers (std::set, SmallSet, SetVector, etc)</a>
@@ -878,7 +878,7 @@ not invalidate iterator or pointers to other elements in the list.</p>
 
 <!-- _______________________________________________________________________ -->
 <div class="doc_subsubsection">
-  <a name="dss_ilist">llvm/ADT/ilist.h</a>
+  <a name="dss_ilist">llvm/ADT/ilist</a>
 </div>
 
 <div class="doc_text">
@@ -886,61 +886,15 @@ not invalidate iterator or pointers to other elements in the list.</p>
 intrusive, because it requires the element to store and provide access to the
 prev/next pointers for the list.</p>
 
-<p><tt>ilist</tt> has the same drawbacks as <tt>std::list</tt>, and additionally
-requires an <tt>ilist_traits</tt> implementation for the element type, but it
-provides some novel characteristics.  In particular, it can efficiently store
-polymorphic objects, the traits class is informed when an element is inserted or
-removed from the list, and ilists are guaranteed to support a constant-time splice
-operation.</p>
+<p>ilist has the same drawbacks as std::list, and additionally requires an
+ilist_traits implementation for the element type, but it provides some novel
+characteristics.  In particular, it can efficiently store polymorphic objects,
+the traits class is informed when an element is inserted or removed from the
+list, and ilists are guaranteed to support a constant-time splice operation.
+</p>
 
-<p>These properties are exactly what we want for things like <tt>Instruction</tt>s
-and basic blocks, which is why these are implemented with <tt>ilist</tt>s.</p>
-
-Related classes of interest are explained in the following subsections:
-    <ul>
-      <li><a href="#dss_ilist_traits">ilist_traits</a></li>
-      <li><a href="#dss_iplist">iplist</a></li>
-      <li><a href="#dss_ilist_node">llvm/ADT/ilist_node.h</a></li>
-    </ul>
-</div>
-
-<!-- _______________________________________________________________________ -->
-<div class="doc_subsubsection">
-  <a name="dss_ilist_traits">ilist_traits</a>
-</div>
-
-<div class="doc_text">
-<p><tt>ilist_traits&lt;T&gt;</tt> is <tt>ilist&lt;T&gt;</tt>'s customization
-mechanism. <tt>iplist&lt;T&gt;</tt> (and consequently <tt>ilist&lt;T&gt;</tt>)
-publicly derive from this traits class.</p>
-</div>
-
-<!-- _______________________________________________________________________ -->
-<div class="doc_subsubsection">
-  <a name="dss_iplist">iplist</a>
-</div>
-
-<div class="doc_text">
-<p><tt>iplist&lt;T&gt;</tt> is <tt>ilist&lt;T&gt;</tt>'s base and as such
-supports a slightly narrower interface. Notably, inserters from <tt>T&amp;</tt>
-are absent.</p>
-
-<p><tt>ilist_traits&lt;T&gt;</tt> is a public base of this class and can be
-used for a wide variety of customizations.</p>
-</div>
-
-<!-- _______________________________________________________________________ -->
-<div class="doc_subsubsection">
-  <a name="dss_ilist_node">llvm/ADT/ilist_node.h</a>
-</div>
-
-<div class="doc_text">
-<p><tt>ilist_node&lt;T&gt;</tt> implements a the forward and backward links
-that are expected by the <tt>ilist&lt;T&gt;</tt> (and analogous containers)
-in the default manner.</p>
-
-<p><tt>ilist_node&lt;T&gt;</tt>s are meant to be embedded in the node type
-<tt>T</tt>.</p>
+<p>These properties are exactly what we want for things like Instructions and
+basic blocks, which is why these are implemented with ilists.</p>
 </div>
 
 <!-- _______________________________________________________________________ -->

@@ -231,9 +231,8 @@ private:
   /// final size.
   SDValue SExtPromotedInteger(SDValue Op) {
     MVT OldVT = Op.getValueType();
-    DebugLoc dl = Op.getDebugLoc();
     Op = GetPromotedInteger(Op);
-    return DAG.getNode(ISD::SIGN_EXTEND_INREG, dl, Op.getValueType(), Op,
+    return DAG.getNode(ISD::SIGN_EXTEND_INREG, Op.getValueType(), Op,
                        DAG.getValueType(OldVT));
   }
 
@@ -241,9 +240,8 @@ private:
   /// final size.
   SDValue ZExtPromotedInteger(SDValue Op) {
     MVT OldVT = Op.getValueType();
-    DebugLoc dl = Op.getDebugLoc();
     Op = GetPromotedInteger(Op);
-    return DAG.getZeroExtendInReg(Op, dl, OldVT);
+    return DAG.getZeroExtendInReg(Op, OldVT);
   }
 
   // Integer Result Promotion.
@@ -417,7 +415,6 @@ private:
   SDValue SoftenFloatRes_LOAD(SDNode *N);
   SDValue SoftenFloatRes_SELECT(SDNode *N);
   SDValue SoftenFloatRes_SELECT_CC(SDNode *N);
-  SDValue SoftenFloatRes_VAARG(SDNode *N);
   SDValue SoftenFloatRes_XINT_TO_FP(SDNode *N);
 
   // Operand Float to Integer Conversion.

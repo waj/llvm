@@ -106,7 +106,7 @@ namespace llvm {
     SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG);
 
     virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                   MachineBasicBlock *MBB) const;
+                                                        MachineBasicBlock *MBB);
 
     // Inline asm support
     ConstraintType getConstraintType(const std::string &Constraint) const;

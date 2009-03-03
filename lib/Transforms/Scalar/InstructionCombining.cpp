@@ -352,8 +352,8 @@ namespace {
     /// properties that allow us to simplify its operands.
     bool SimplifyDemandedInstructionBits(Instruction &Inst);
         
-    Value *SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
-                                      APInt& UndefElts, unsigned Depth = 0);
+    Value *SimplifyDemandedVectorElts(Value *V, uint64_t DemandedElts,
+                                      uint64_t &UndefElts, unsigned Depth = 0);
       
     // FoldOpIntoPhi - Given a binary operator or cast instruction which has a
     // PHI node as operand #0, see if we can fold the instruction into the PHI
@@ -1396,18 +1396,19 @@ Value *InstCombiner::SimplifyDemandedUseBits(Value *V, APInt DemandedMask,
 
 
 /// SimplifyDemandedVectorElts - The specified value produces a vector with
-/// any number of elements. DemandedElts contains the set of elements that are
+/// 64 or fewer elements.  DemandedElts contains the set of elements that are
 /// actually used by the caller.  This method analyzes which elements of the
 /// operand are undef and returns that information in UndefElts.
 ///
 /// If the information about demanded elements can be used to simplify the
 /// operation, the operation is simplified, then the resultant value is
 /// returned.  This returns null if no change was made.
-Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
-                                                APInt& UndefElts,
+Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, uint64_t DemandedElts,
+                                                uint64_t &UndefElts,
                                                 unsigned Depth) {
   unsigned VWidth = cast<VectorType>(V->getType())->getNumElements();
-  APInt EltMask(APInt::getAllOnesValue(VWidth));
+  assert(VWidth <= 64 && "Vector too wide to analyze!");
+  uint64_t EltMask = ~0ULL >> (64-VWidth);
   assert((DemandedElts & ~EltMask) == 0 && "Invalid DemandedElts!");
 
   if (isa<UndefValue>(V)) {
@@ -1426,12 +1427,12 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
 
     std::vector<Constant*> Elts;
     for (unsigned i = 0; i != VWidth; ++i)
-      if (!DemandedElts[i]) {   // If not demanded, set to undef.
+      if (!(DemandedElts & (1ULL << i))) {   // If not demanded, set to undef.
         Elts.push_back(Undef);
-        UndefElts.set(i);
+        UndefElts |= (1ULL << i);
       } else if (isa<UndefValue>(CP->getOperand(i))) {   // Already undef.
         Elts.push_back(Undef);
-        UndefElts.set(i);
+        UndefElts |= (1ULL << i);
       } else {                               // Otherwise, defined.
         Elts.push_back(CP->getOperand(i));
       }
@@ -1452,10 +1453,8 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
     Constant *Zero = Constant::getNullValue(EltTy);
     Constant *Undef = UndefValue::get(EltTy);
     std::vector<Constant*> Elts;
-    for (unsigned i = 0; i != VWidth; ++i) {
-      Constant *Elt = DemandedElts[i] ? Zero : Undef;
-      Elts.push_back(Elt);
-    }
+    for (unsigned i = 0; i != VWidth; ++i)
+      Elts.push_back((DemandedElts & (1ULL << i)) ? Zero : Undef);
     UndefElts = DemandedElts ^ EltMask;
     return ConstantVector::get(Elts);
   }
@@ -1483,7 +1482,7 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
   if (!I) return false;        // Only analyze instructions.
   
   bool MadeChange = false;
-  APInt UndefElts2(VWidth, 0);
+  uint64_t UndefElts2;
   Value *TmpV;
   switch (I->getOpcode()) {
   default: break;
@@ -1504,46 +1503,44 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
     // If this is inserting an element that isn't demanded, remove this
     // insertelement.
     unsigned IdxNo = Idx->getZExtValue();
-    if (IdxNo >= VWidth || !DemandedElts[IdxNo])
+    if (IdxNo >= VWidth || (DemandedElts & (1ULL << IdxNo)) == 0)
       return AddSoonDeadInstToWorklist(*I, 0);
     
     // Otherwise, the element inserted overwrites whatever was there, so the
     // input demanded set is simpler than the output set.
-    APInt DemandedElts2 = DemandedElts;
-    DemandedElts2.clear(IdxNo);
-    TmpV = SimplifyDemandedVectorElts(I->getOperand(0), DemandedElts2,
+    TmpV = SimplifyDemandedVectorElts(I->getOperand(0),
+                                      DemandedElts & ~(1ULL << IdxNo),
                                       UndefElts, Depth+1);
     if (TmpV) { I->setOperand(0, TmpV); MadeChange = true; }
 
     // The inserted element is defined.
-    UndefElts.clear(IdxNo);
+    UndefElts &= ~(1ULL << IdxNo);
     break;
   }
   case Instruction::ShuffleVector: {
     ShuffleVectorInst *Shuffle = cast<ShuffleVectorInst>(I);
     uint64_t LHSVWidth =
       cast<VectorType>(Shuffle->getOperand(0)->getType())->getNumElements();
-    APInt LeftDemanded(LHSVWidth, 0), RightDemanded(LHSVWidth, 0);
+    uint64_t LeftDemanded = 0, RightDemanded = 0;
     for (unsigned i = 0; i < VWidth; i++) {
-      if (DemandedElts[i]) {
+      if (DemandedElts & (1ULL << i)) {
         unsigned MaskVal = Shuffle->getMaskValue(i);
         if (MaskVal != -1u) {
           assert(MaskVal < LHSVWidth * 2 &&
                  "shufflevector mask index out of range!");
           if (MaskVal < LHSVWidth)
-            LeftDemanded.set(MaskVal);
+            LeftDemanded |= 1ULL << MaskVal;
           else
-            RightDemanded.set(MaskVal - LHSVWidth);
+            RightDemanded |= 1ULL << (MaskVal - LHSVWidth);
         }
       }
     }
 
-    APInt UndefElts4(LHSVWidth, 0);
     TmpV = SimplifyDemandedVectorElts(I->getOperand(0), LeftDemanded,
-                                      UndefElts4, Depth+1);
+                                      UndefElts2, Depth+1);
     if (TmpV) { I->setOperand(0, TmpV); MadeChange = true; }
 
-    APInt UndefElts3(LHSVWidth, 0);
+    uint64_t UndefElts3;
     TmpV = SimplifyDemandedVectorElts(I->getOperand(1), RightDemanded,
                                       UndefElts3, Depth+1);
     if (TmpV) { I->setOperand(1, TmpV); MadeChange = true; }
@@ -1552,17 +1549,16 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
     for (unsigned i = 0; i < VWidth; i++) {
       unsigned MaskVal = Shuffle->getMaskValue(i);
       if (MaskVal == -1u) {
-        UndefElts.set(i);
+        uint64_t NewBit = 1ULL << i;
+        UndefElts |= NewBit;
       } else if (MaskVal < LHSVWidth) {
-        if (UndefElts4[MaskVal]) {
-          NewUndefElts = true;
-          UndefElts.set(i);
-        }
+        uint64_t NewBit = ((UndefElts2 >> MaskVal) & 1) << i;
+        NewUndefElts |= NewBit;
+        UndefElts |= NewBit;
       } else {
-        if (UndefElts3[MaskVal - LHSVWidth]) {
-          NewUndefElts = true;
-          UndefElts.set(i);
-        }
+        uint64_t NewBit = ((UndefElts3 >> (MaskVal - LHSVWidth)) & 1) << i;
+        NewUndefElts |= NewBit;
+        UndefElts |= NewBit;
       }
     }
 
@@ -1570,7 +1566,7 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
       // Add additional discovered undefs.
       std::vector<Constant*> Elts;
       for (unsigned i = 0; i < VWidth; ++i) {
-        if (UndefElts[i])
+        if (UndefElts & (1ULL << i))
           Elts.push_back(UndefValue::get(Type::Int32Ty));
         else
           Elts.push_back(ConstantInt::get(Type::Int32Ty,
@@ -1586,7 +1582,7 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
     const VectorType *VTy = dyn_cast<VectorType>(I->getOperand(0)->getType());
     if (!VTy) break;
     unsigned InVWidth = VTy->getNumElements();
-    APInt InputDemandedElts(InVWidth, 0);
+    uint64_t InputDemandedElts = 0;
     unsigned Ratio;
 
     if (VWidth == InVWidth) {
@@ -1603,8 +1599,8 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
       // elements are live.
       Ratio = VWidth/InVWidth;
       for (unsigned OutIdx = 0; OutIdx != VWidth; ++OutIdx) {
-        if (DemandedElts[OutIdx])
-          InputDemandedElts.set(OutIdx/Ratio);
+        if (DemandedElts & (1ULL << OutIdx))
+          InputDemandedElts |= 1ULL << (OutIdx/Ratio);
       }
     } else {
       // Untested so far.
@@ -1615,8 +1611,8 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
       // live.
       Ratio = InVWidth/VWidth;
       for (unsigned InIdx = 0; InIdx != InVWidth; ++InIdx)
-        if (DemandedElts[InIdx/Ratio])
-          InputDemandedElts.set(InIdx);
+        if (DemandedElts & (1ULL << InIdx/Ratio))
+          InputDemandedElts |= 1ULL << InIdx;
     }
     
     // div/rem demand all inputs, because they don't want divide by zero.
@@ -1634,8 +1630,8 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
       // then an output element is undef if the corresponding input element is
       // undef.
       for (unsigned OutIdx = 0; OutIdx != VWidth; ++OutIdx)
-        if (UndefElts2[OutIdx/Ratio])
-          UndefElts.set(OutIdx);
+        if (UndefElts2 & (1ULL << (OutIdx/Ratio)))
+          UndefElts |= 1ULL << OutIdx;
     } else if (VWidth < InVWidth) {
       assert(0 && "Unimp");
       // If there are more elements in the source than there are in the result,
@@ -1643,8 +1639,8 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
       // elements are undef.
       UndefElts = ~0ULL >> (64-VWidth);  // Start out all undef.
       for (unsigned InIdx = 0; InIdx != InVWidth; ++InIdx)
-        if (!UndefElts2[InIdx])            // Not undef?
-          UndefElts.clear(InIdx/Ratio);    // Clear undef bit.
+        if ((UndefElts2 & (1ULL << InIdx)) == 0)    // Not undef?
+          UndefElts &= ~(1ULL << (InIdx/Ratio));    // Clear undef bit.
     }
     break;
   }
@@ -5822,7 +5818,7 @@ Instruction *InstCombiner::visitICmpInst(ICmpInst &I) {
 
   // See if we are doing a comparison with a constant.
   if (ConstantInt *CI = dyn_cast<ConstantInt>(Op1)) {
-    Value *A = 0, *B = 0;
+    Value *A, *B;
     
     // (icmp ne/eq (sub A B) 0) -> (icmp ne/eq A, B)
     if (I.isEquality() && CI->isNullValue() &&
@@ -7031,12 +7027,7 @@ Instruction *InstCombiner::visitAShr(BinaryOperator &I) {
       MaskedValueIsZero(Op0,
                       APInt::getSignBit(I.getType()->getPrimitiveSizeInBits())))
     return BinaryOperator::CreateLShr(Op0, I.getOperand(1));
-
-  // Arithmetic shifting an all-sign-bit value is a no-op.
-  unsigned NumSignBits = ComputeNumSignBits(Op0);
-  if (NumSignBits == Op0->getType()->getPrimitiveSizeInBits())
-    return ReplaceInstUsesWith(I, Op0);
-
+  
   return 0;
 }
 
@@ -8276,35 +8267,32 @@ Instruction *InstCombiner::visitZExt(ZExtInst &CI) {
 
   Value *Src = CI.getOperand(0);
 
-  // If this is a TRUNC followed by a ZEXT then we are dealing with integral
-  // types and if the sizes are just right we can convert this into a logical
-  // 'and' which will be much cheaper than the pair of casts.
-  if (TruncInst *CSrc = dyn_cast<TruncInst>(Src)) {   // A->B->C cast
-    // Get the sizes of the types involved.  We know that the intermediate type
-    // will be smaller than A or C, but don't know the relation between A and C.
-    Value *A = CSrc->getOperand(0);
-    unsigned SrcSize = A->getType()->getPrimitiveSizeInBits();
-    unsigned MidSize = CSrc->getType()->getPrimitiveSizeInBits();
-    unsigned DstSize = CI.getType()->getPrimitiveSizeInBits();
-    // If we're actually extending zero bits, then if
-    // SrcSize <  DstSize: zext(a & mask)
-    // SrcSize == DstSize: a & mask
-    // SrcSize  > DstSize: trunc(a) & mask
-    if (SrcSize < DstSize) {
-      APInt AndValue(APInt::getLowBitsSet(SrcSize, MidSize));
-      Constant *AndConst = ConstantInt::get(AndValue);
-      Instruction *And =
-        BinaryOperator::CreateAnd(A, AndConst, CSrc->getName()+".mask");
-      InsertNewInstBefore(And, CI);
-      return new ZExtInst(And, CI.getType());
-    } else if (SrcSize == DstSize) {
-      APInt AndValue(APInt::getLowBitsSet(SrcSize, MidSize));
-      return BinaryOperator::CreateAnd(A, ConstantInt::get(AndValue));
-    } else if (SrcSize > DstSize) {
-      Instruction *Trunc = new TruncInst(A, CI.getType(), "tmp");
-      InsertNewInstBefore(Trunc, CI);
-      APInt AndValue(APInt::getLowBitsSet(DstSize, MidSize));
-      return BinaryOperator::CreateAnd(Trunc, ConstantInt::get(AndValue));
+  // If this is a cast of a cast
+  if (CastInst *CSrc = dyn_cast<CastInst>(Src)) {   // A->B->C cast
+    // If this is a TRUNC followed by a ZEXT then we are dealing with integral
+    // types and if the sizes are just right we can convert this into a logical
+    // 'and' which will be much cheaper than the pair of casts.
+    if (isa<TruncInst>(CSrc)) {
+      // Get the sizes of the types involved
+      Value *A = CSrc->getOperand(0);
+      uint32_t SrcSize = A->getType()->getPrimitiveSizeInBits();
+      uint32_t MidSize = CSrc->getType()->getPrimitiveSizeInBits();
+      uint32_t DstSize = CI.getType()->getPrimitiveSizeInBits();
+      // If we're actually extending zero bits and the trunc is a no-op
+      if (MidSize < DstSize && SrcSize == DstSize) {
+        // Replace both of the casts with an And of the type mask.
+        APInt AndValue(APInt::getLowBitsSet(SrcSize, MidSize));
+        Constant *AndConst = ConstantInt::get(AndValue);
+        Instruction *And = 
+          BinaryOperator::CreateAnd(CSrc->getOperand(0), AndConst);
+        // Unfortunately, if the type changed, we need to cast it back.
+        if (And->getType() != CI.getType()) {
+          And->setName(CSrc->getName()+".mask");
+          InsertNewInstBefore(And, CI);
+          And = CastInst::CreateIntegerCast(And, CI.getType(), false/*ZExt*/);
+        }
+        return And;
+      }
     }
   }
 
@@ -9245,23 +9233,15 @@ static unsigned EnforceKnownAlignment(Value *V,
     // If there is a large requested alignment and we can, bump up the alignment
     // of the global.
     if (!GV->isDeclaration()) {
-      if (GV->getAlignment() >= PrefAlign)
-        Align = GV->getAlignment();
-      else {
-        GV->setAlignment(PrefAlign);
-        Align = PrefAlign;
-      }
+      GV->setAlignment(PrefAlign);
+      Align = PrefAlign;
     }
   } else if (AllocationInst *AI = dyn_cast<AllocationInst>(V)) {
     // If there is a requested alignment and if this is an alloca, round up.  We
     // don't do this for malloc, because some systems can't respect the request.
     if (isa<AllocaInst>(AI)) {
-      if (AI->getAlignment() >= PrefAlign)
-        Align = AI->getAlignment();
-      else {
-        AI->setAlignment(PrefAlign);
-        Align = PrefAlign;
-      }
+      AI->setAlignment(PrefAlign);
+      Align = PrefAlign;
     }
   }
 
@@ -9513,11 +9493,8 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   case Intrinsic::x86_sse_cvttss2si: {
     // These intrinsics only demands the 0th element of its input vector.  If
     // we can simplify the input based on that, do so now.
-    unsigned VWidth =
-      cast<VectorType>(II->getOperand(1)->getType())->getNumElements();
-    APInt DemandedElts(VWidth, 1);
-    APInt UndefElts(VWidth, 0);
-    if (Value *V = SimplifyDemandedVectorElts(II->getOperand(1), DemandedElts,
+    uint64_t UndefElts;
+    if (Value *V = SimplifyDemandedVectorElts(II->getOperand(1), 1, 
                                               UndefElts)) {
       II->setOperand(1, V);
       return II;
@@ -10185,9 +10162,6 @@ Instruction *InstCombiner::FoldPHIArgGEPIntoPHI(PHINode &PN) {
   
   SmallVector<Value*, 16> FixedOperands(FirstInst->op_begin(), 
                                         FirstInst->op_end());
-  // This is true if all GEP bases are allocas and if all indices into them are
-  // constants.
-  bool AllBasePointersAreAllocas = true;
   
   // Scan to see if all operands are the same opcode, all have one use, and all
   // kill their operands (i.e. the operands have one use).
@@ -10197,12 +10171,6 @@ Instruction *InstCombiner::FoldPHIArgGEPIntoPHI(PHINode &PN) {
       GEP->getNumOperands() != FirstInst->getNumOperands())
       return 0;
 
-    // Keep track of whether or not all GEPs are of alloca pointers.
-    if (AllBasePointersAreAllocas &&
-        (!isa<AllocaInst>(GEP->getOperand(0)) ||
-         !GEP->hasAllConstantIndices()))
-      AllBasePointersAreAllocas = false;
-    
     // Compare the operand lists.
     for (unsigned op = 0, e = FirstInst->getNumOperands(); op != e; ++op) {
       if (FirstInst->getOperand(op) == GEP->getOperand(op))
@@ -10222,15 +10190,6 @@ Instruction *InstCombiner::FoldPHIArgGEPIntoPHI(PHINode &PN) {
       FixedOperands[op] = 0;  // Needs a PHI.
     }
   }
-  
-  // If all of the base pointers of the PHI'd GEPs are from allocas, don't
-  // bother doing this transformation.  At best, this will just save a bit of
-  // offset calculation, but all the predecessors will have to materialize the
-  // stack address into a register anyway.  We'd actually rather *clone* the
-  // load up into the predecessors so that we have a load of a gep of an alloca,
-  // which can usually all be folded into the load.
-  if (AllBasePointersAreAllocas)
-    return 0;
   
   // Otherwise, this is safe to transform.  Insert PHI nodes for each operand
   // that is variable.
@@ -10270,15 +10229,15 @@ Instruction *InstCombiner::FoldPHIArgGEPIntoPHI(PHINode &PN) {
 }
 
 
-/// isSafeAndProfitableToSinkLoad - Return true if we know that it is safe to
-/// sink the load out of the block that defines it.  This means that it must be
-/// obvious the value of the load is not changed from the point of the load to
-/// the end of the block it is in.
+/// isSafeToSinkLoad - Return true if we know that it is safe sink the load out
+/// of the block that defines it.  This means that it must be obvious the value
+/// of the load is not changed from the point of the load to the end of the
+/// block it is in.
 ///
 /// Finally, it is safe, but not profitable, to sink a load targetting a
 /// non-address-taken alloca.  Doing so will cause us to not promote the alloca
 /// to a register.
-static bool isSafeAndProfitableToSinkLoad(LoadInst *L) {
+static bool isSafeToSinkLoad(LoadInst *L) {
   BasicBlock::iterator BBI = L, E = L->getParent()->end();
   
   for (++BBI; BBI != E; ++BBI)
@@ -10300,19 +10259,9 @@ static bool isSafeAndProfitableToSinkLoad(LoadInst *L) {
       break;
     }
     
-    if (!isAddressTaken && AI->isStaticAlloca())
+    if (!isAddressTaken)
       return false;
   }
-  
-  // If this load is a load from a GEP with a constant offset from an alloca,
-  // then we don't want to sink it.  In its present form, it will be
-  // load [constant stack offset].  Sinking it will cause us to have to
-  // materialize the stack addresses in each predecessor in a register only to
-  // do a shared load from register in the successor.
-  if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(L->getOperand(0)))
-    if (AllocaInst *AI = dyn_cast<AllocaInst>(GEP->getOperand(0)))
-      if (AI->isStaticAlloca() && GEP->hasAllConstantIndices())
-        return false;
   
   return true;
 }
@@ -10344,7 +10293,7 @@ Instruction *InstCombiner::FoldPHIArgOpIntoPHI(PHINode &PN) {
     // We can't sink the load if the loaded value could be modified between the
     // load and the PHI.
     if (LI->getParent() != PN.getIncomingBlock(0) ||
-        !isSafeAndProfitableToSinkLoad(LI))
+        !isSafeToSinkLoad(LI))
       return 0;
     
     // If the PHI is of volatile loads and the load block has multiple
@@ -10374,7 +10323,7 @@ Instruction *InstCombiner::FoldPHIArgOpIntoPHI(PHINode &PN) {
       // the load and the PHI.
       if (LI->isVolatile() != isVolatile ||
           LI->getParent() != PN.getIncomingBlock(i) ||
-          !isSafeAndProfitableToSinkLoad(LI))
+          !isSafeToSinkLoad(LI))
         return 0;
       
       // If the PHI is of volatile loads and the load block has multiple
@@ -10383,6 +10332,7 @@ Instruction *InstCombiner::FoldPHIArgOpIntoPHI(PHINode &PN) {
       if (isVolatile &&
           LI->getParent()->getTerminator()->getNumSuccessors() != 1)
         return 0;
+
       
     } else if (I->getOperand(1) != ConstantOp) {
       return 0;
@@ -10766,25 +10716,15 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
       // transform: GEP (bitcast [10 x i8]* X to [0 x i8]*), i32 0, ...
       // into     : GEP [10 x i8]* X, i32 0, ...
       //
-      // Likewise, transform: GEP (bitcast i8* X to [0 x i8]*), i32 0, ...
-      //           into     : GEP i8* X, ...
-      // 
       // This occurs when the program declares an array extern like "int X[];"
+      //
       const PointerType *CPTy = cast<PointerType>(PtrOp->getType());
       const PointerType *XTy = cast<PointerType>(X->getType());
-      if (const ArrayType *CATy =
-          dyn_cast<ArrayType>(CPTy->getElementType())) {
-        // GEP (bitcast i8* X to [0 x i8]*), i32 0, ... ?
-        if (CATy->getElementType() == XTy->getElementType()) {
-          // -> GEP i8* X, ...
-          SmallVector<Value*, 8> Indices(GEP.idx_begin()+1, GEP.idx_end());
-          return GetElementPtrInst::Create(X, Indices.begin(), Indices.end(),
-                                           GEP.getName());
-        } else if (const ArrayType *XATy =
-                 dyn_cast<ArrayType>(XTy->getElementType())) {
-          // GEP (bitcast [10 x i8]* X to [0 x i8]*), i32 0, ... ?
+      if (const ArrayType *XATy =
+          dyn_cast<ArrayType>(XTy->getElementType()))
+        if (const ArrayType *CATy =
+            dyn_cast<ArrayType>(CPTy->getElementType()))
           if (CATy->getElementType() == XATy->getElementType()) {
-            // -> GEP [10 x i8]* X, i32 0, ...
             // At this point, we know that the cast source type is a pointer
             // to an array of the same type as the destination pointer
             // array.  Because the array type is never stepped over (there
@@ -10792,8 +10732,6 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
             GEP.setOperand(0, X);
             return &GEP;
           }
-        }
-      }
     } else if (GEP.getNumOperands() == 2) {
       // Transform things like:
       // %t = getelementptr i32* bitcast ([2 x i32]* %str to i32*), i32 %V
@@ -10849,7 +10787,7 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
         // out, perform the transformation. Note, we don't know whether Scale is
         // signed or not. We'll use unsigned version of division/modulo
         // operation after making sure Scale doesn't have the sign bit set.
-        if (ArrayEltSize && Scale && Scale->getSExtValue() >= 0LL &&
+        if (Scale && Scale->getSExtValue() >= 0LL &&
             Scale->getZExtValue() % ArrayEltSize == 0) {
           Scale = ConstantInt::get(Scale->getType(),
                                    Scale->getZExtValue() / ArrayEltSize);
@@ -11045,12 +10983,12 @@ static Instruction *InstCombineLoadCast(InstCombiner &IC, LoadInst &LI,
         APInt SingleChar(numBits, 0);
         if (TD->isLittleEndian()) {
           for (signed i = len-1; i >= 0; i--) {
-            SingleChar = (uint64_t) Str[i] & UCHAR_MAX;
+            SingleChar = (uint64_t) Str[i];
             StrVal = (StrVal << 8) | SingleChar;
           }
         } else {
           for (unsigned i = 0; i < len; i++) {
-            SingleChar = (uint64_t) Str[i] & UCHAR_MAX;
+            SingleChar = (uint64_t) Str[i];
             StrVal = (StrVal << 8) | SingleChar;
           }
           // Append NULL at the end.
@@ -11063,14 +11001,8 @@ static Instruction *InstCombineLoadCast(InstCombiner &IC, LoadInst &LI,
     }
   }
 
-  const PointerType *DestTy = cast<PointerType>(CI->getType());
-  const Type *DestPTy = DestTy->getElementType();
+  const Type *DestPTy = cast<PointerType>(CI->getType())->getElementType();
   if (const PointerType *SrcTy = dyn_cast<PointerType>(CastOp->getType())) {
-
-    // If the address spaces don't match, don't eliminate the cast.
-    if (DestTy->getAddressSpace() != SrcTy->getAddressSpace())
-      return 0;
-
     const Type *SrcPTy = SrcTy->getElementType();
 
     if (DestPTy->isInteger() || isa<PointerType>(DestPTy) || 
@@ -11152,8 +11084,7 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
   Value *Op = LI.getOperand(0);
 
   // Attempt to improve the alignment.
-  unsigned KnownAlign =
-    GetOrEnforceKnownAlignment(Op, TD->getPrefTypeAlignment(LI.getType()));
+  unsigned KnownAlign = GetOrEnforceKnownAlignment(Op);
   if (KnownAlign >
       (LI.getAlignment() == 0 ? TD->getABITypeAlignment(LI.getType()) :
                                 LI.getAlignment()))
@@ -11381,9 +11312,9 @@ static Instruction *InstCombineStoreToCast(InstCombiner &IC, StoreInst &SI) {
 /// equivalentAddressValues - Test if A and B will obviously have the same
 /// value. This includes recognizing that %t0 and %t1 will have the same
 /// value in code like this:
-///   %t0 = getelementptr \@a, 0, 3
+///   %t0 = getelementptr @a, 0, 3
 ///   store i32 0, i32* %t0
-///   %t1 = getelementptr \@a, 0, 3
+///   %t1 = getelementptr @a, 0, 3
 ///   %t2 = load i32* %t1
 ///
 static bool equivalentAddressValues(Value *A, Value *B) {
@@ -11432,25 +11363,18 @@ Instruction *InstCombiner::visitStoreInst(StoreInst &SI) {
   }
 
   // Attempt to improve the alignment.
-  unsigned KnownAlign =
-    GetOrEnforceKnownAlignment(Ptr, TD->getPrefTypeAlignment(Val->getType()));
+  unsigned KnownAlign = GetOrEnforceKnownAlignment(Ptr);
   if (KnownAlign >
       (SI.getAlignment() == 0 ? TD->getABITypeAlignment(Val->getType()) :
                                 SI.getAlignment()))
     SI.setAlignment(KnownAlign);
 
-  // Do really simple DSE, to catch cases where there are several consecutive
+  // Do really simple DSE, to catch cases where there are several consequtive
   // stores to the same location, separated by a few arithmetic operations. This
   // situation often occurs with bitfield accesses.
   BasicBlock::iterator BBI = &SI;
   for (unsigned ScanInsts = 6; BBI != SI.getParent()->begin() && ScanInsts;
        --ScanInsts) {
-    // Don't count debug info directives, lest they affect codegen.
-    if (isa<DbgInfoIntrinsic>(BBI)) {
-      ScanInsts++;
-      --BBI;
-      continue;
-    }    
     --BBI;
     
     if (StoreInst *PrevSI = dyn_cast<StoreInst>(BBI)) {
@@ -11944,10 +11868,10 @@ Instruction *InstCombiner::visitExtractElementInst(ExtractElementInst &EI) {
     // If the input vector has a single use, simplify it based on this use
     // property.
     if (EI.getOperand(0)->hasOneUse() && VectorWidth != 1) {
-      APInt UndefElts(VectorWidth, 0);
-      APInt DemandedMask(VectorWidth, 1 << IndexVal);
+      uint64_t UndefElts;
       if (Value *V = SimplifyDemandedVectorElts(EI.getOperand(0),
-                                                DemandedMask, UndefElts)) {
+                                                1 << IndexVal,
+                                                UndefElts)) {
         EI.setOperand(0, V);
         return &EI;
       }
@@ -12246,14 +12170,15 @@ Instruction *InstCombiner::visitShuffleVectorInst(ShuffleVectorInst &SVI) {
   if (isa<UndefValue>(SVI.getOperand(2)))
     return ReplaceInstUsesWith(SVI, UndefValue::get(SVI.getType()));
 
+  uint64_t UndefElts;
   unsigned VWidth = cast<VectorType>(SVI.getType())->getNumElements();
 
   if (VWidth != cast<VectorType>(LHS->getType())->getNumElements())
     return 0;
 
-  APInt UndefElts(VWidth, 0);
-  APInt AllOnesEltMask(APInt::getAllOnesValue(VWidth));
-  if (SimplifyDemandedVectorElts(&SVI, AllOnesEltMask, UndefElts)) {
+  uint64_t AllOnesEltMask = ~0ULL >> (64-VWidth);
+  if (VWidth <= 64 &&
+      SimplifyDemandedVectorElts(&SVI, AllOnesEltMask, UndefElts)) {
     LHS = SVI.getOperand(0);
     RHS = SVI.getOperand(1);
     MadeChange = true;
@@ -12380,7 +12305,6 @@ static bool TryToSinkInstruction(Instruction *I, BasicBlock *DestBlock) {
 
   BasicBlock::iterator InsertPos = DestBlock->getFirstNonPHI();
 
-  CopyPrecedingStopPoint(I, InsertPos);
   I->moveBefore(InsertPos);
   ++NumSunkInst;
   return true;
@@ -12443,8 +12367,6 @@ static void AddReachableCodeToWorklist(BasicBlock *BB,
           DBI_Prev->eraseFromParent();
         }
         DBI_Prev = DBI_Next;
-      } else {
-        DBI_Prev = 0;
       }
 
       IC.AddToWorkList(Inst);

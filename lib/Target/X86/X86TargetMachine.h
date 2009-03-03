@@ -44,8 +44,7 @@ protected:
   // To avoid having target depend on the asmprinter stuff libraries, asmprinter
   // set this functions to ctor pointer at startup time if they are linked in.
   typedef FunctionPass *(*AsmPrinterCtorFn)(raw_ostream &o,
-                                            X86TargetMachine &tm,
-                                            bool fast);
+                                            X86TargetMachine &tm);
   static AsmPrinterCtorFn AsmPrinterCtor;
 
 public:
@@ -84,10 +83,10 @@ public:
   virtual bool addSimpleCodeEmitter(PassManagerBase &PM, bool Fast,
                                     bool DumpAsm, MachineCodeEmitter &MCE);
 
-  /// symbolicAddressesAreRIPRel - Return true if symbolic addresses are
-  /// RIP-relative on this machine, taking into consideration the relocation
-  /// model and subtarget. RIP-relative addresses cannot have a separate
-  /// base or index register.
+  // symbolicAddressesAreRIPRel - Return true if symbolic addresses are
+  // RIP-relative on this machine, taking into consideration the relocation
+  // model and subtarget. RIP-relative addresses cannot have a separate
+  // base or index register.
   bool symbolicAddressesAreRIPRel() const;
 };
 

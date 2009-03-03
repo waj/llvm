@@ -37,8 +37,8 @@ using namespace llvm;
 
 char AsmPrinter::ID = 0;
 AsmPrinter::AsmPrinter(raw_ostream &o, TargetMachine &tm,
-                       const TargetAsmInfo *T, bool F)
-  : MachineFunctionPass(&ID), FunctionNumber(0), Fast(F), O(o),
+                       const TargetAsmInfo *T)
+  : MachineFunctionPass(&ID), FunctionNumber(0), O(o),
     TM(tm), TAI(T), TRI(tm.getRegisterInfo()),
     IsInTextSection(false)
 {}
@@ -205,6 +205,16 @@ bool AsmPrinter::doFinalization(Module &M) {
       printVisibility(Name, I->getVisibility());
 
       O << TAI->getSetDirective() << ' ' << Name << ", " << Target << '\n';
+
+      // If the aliasee has external weak linkage it can be referenced only by
+      // alias itself. In this case it can be not in ExtWeakSymbols list. Emit
+      // weak reference in such case.
+      if (GV->hasExternalWeakLinkage()) {
+        if (TAI->getWeakRefDirective())
+          O << TAI->getWeakRefDirective() << Target << '\n';
+        else
+          O << "\t.globl\t" << Target << '\n';
+      }
     }
   }
 
@@ -805,12 +815,6 @@ void AsmPrinter::EmitConstantValueOnly(const Constant *CV) {
       SmallVector<Value*, 8> idxVec(CE->op_begin()+1, CE->op_end());
       if (int64_t Offset = TD->getIndexedOffset(ptrVal->getType(), &idxVec[0],
                                                 idxVec.size())) {
-        // Truncate/sext the offset to the pointer size.
-        if (TD->getPointerSizeInBits() != 64) {
-          int SExtAmount = 64-TD->getPointerSizeInBits();
-          Offset = (Offset << SExtAmount) >> SExtAmount;
-        }
-        
         if (Offset)
           O << '(';
         EmitConstantValueOnly(ptrVal);

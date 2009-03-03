@@ -48,7 +48,7 @@ private:
   /// DE - Provides the DwarfWriter exception implementation.
   ///
   DwarfException *DE;
-
+  
 public:
   static char ID; // Pass identification, replacement for typeid
 
@@ -84,12 +84,9 @@ public:
   /// the source line list.
   unsigned RecordSourceLine(unsigned Line, unsigned Col, unsigned Src);
 
-  /// getOrCreateSourceID - Look up the source id with the given directory and
-  /// source file names. If none currently exists, create a new id and insert it
-  /// in the SourceIds map. This can update DirectoryIds and SourceFileIds maps
-  /// as well.
-  unsigned getOrCreateSourceID(const std::string &DirName,
-                               const std::string &FileName);
+  /// RecordSource - Register a source file with debug info. Returns an source
+  /// ID.
+  unsigned RecordSource(const std::string &Dir, const std::string &File);
 
   /// RecordRegionStart - Indicate the start of a region.
   unsigned RecordRegionStart(GlobalVariable *V);
@@ -104,9 +101,6 @@ public:
   ///
   void RecordVariable(GlobalVariable *GV, unsigned FrameIndex);
 
-  /// ShouldEmitDwarfDebug - Returns true if Dwarf debugging declarations should
-  /// be emitted.
-  bool ShouldEmitDwarfDebug() const;
 };
 
 

@@ -109,7 +109,7 @@ public:
   ///
   /// @note This has to exist, because this is a pass, but it should never be
   /// used.
-  TargetData() : ImmutablePass(&ID) {
+  TargetData() : ImmutablePass(intptr_t(&ID)) {
     assert(0 && "ERROR: Bad TargetData ctor used.  "
            "Tool did not specify a TargetData to use?");
     abort();
@@ -117,7 +117,7 @@ public:
 
   /// Constructs a TargetData from a specification string. See init().
   explicit TargetData(const std::string &TargetDescription)
-    : ImmutablePass(&ID) {
+    : ImmutablePass(intptr_t(&ID)) {
     init(TargetDescription);
   }
 
@@ -125,7 +125,7 @@ public:
   explicit TargetData(const Module *M);
 
   TargetData(const TargetData &TD) :
-    ImmutablePass(&ID),
+    ImmutablePass(intptr_t(&ID)),
     LittleEndian(TD.isLittleEndian()),
     PointerMemSize(TD.PointerMemSize),
     PointerABIAlign(TD.PointerABIAlign),

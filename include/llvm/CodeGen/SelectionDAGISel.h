@@ -35,7 +35,7 @@ namespace llvm {
   class FunctionLoweringInfo;
   class ScheduleHazardRecognizer;
   class GCFunctionInfo;
-  class ScheduleDAGSDNodes;
+  class ScheduleDAG;
  
 /// SelectionDAGISel - This is the common base class used for SelectionDAG-based
 /// pattern-matching instruction selectors.
@@ -129,11 +129,9 @@ private:
 
   bool HandlePHINodesInSuccessorBlocksFast(BasicBlock *LLVMBB, FastISel *F);
 
-  /// Create the scheduler. If a specific scheduler was specified
-  /// via the SchedulerRegistry, use it, otherwise select the
-  /// one preferred by the target.
-  ///
-  ScheduleDAGSDNodes *CreateScheduler();
+  /// Pick a safe ordering for instructions for each target node in the
+  /// graph.
+  ScheduleDAG *Schedule();
 };
 
 }

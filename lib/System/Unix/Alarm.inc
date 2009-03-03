@@ -1,4 +1,4 @@
-//===-- Alarm.inc - Implement Unix Alarm Support ----------------*- C++ -*-===//
+//===-- Alarm.inc - Implement Unix Alarm Support --------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -20,11 +20,11 @@ using namespace llvm;
 /// user presses CTRL-C.
 static volatile bool AlarmCancelled = false;
 
-/// AlarmTriggered - This flag is set by the SIGALRM signal handler if the
+/// AlarmTriggered - This flag is set by the SIGALRM signal handler if the 
 /// alarm was triggered.
 static volatile bool AlarmTriggered = false;
 
-/// NestedSOI - Sanity check.  Alarms cannot be nested or run in parallel.
+/// NestedSOI - Sanity check.  Alarms cannot be nested or run in parallel.  
 /// This ensures that they never do.
 static bool NestedSOI = false;
 
@@ -65,8 +65,4 @@ int sys::AlarmStatus() {
   if (AlarmTriggered)
     return 1;
   return 0;
-}
-
-void Sleep(unsigned n) {
-  ::sleep(n);
 }

@@ -128,6 +128,6 @@ addAssemblyEmitter(PassManagerBase &PM, bool Fast,
                    raw_ostream &Out) 
 {
   // Output assembly language.
-  PM.add(createMipsCodePrinterPass(Out, *this, Fast));
+  PM.add(createMipsCodePrinterPass(Out, *this));
   return false;
 }

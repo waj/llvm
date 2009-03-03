@@ -17,14 +17,12 @@
 #include "llvm/Constants.h"
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
-#include "llvm/IntrinsicInst.h"
 #include "llvm/Pass.h"
 #include "llvm/Type.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Streams.h"
 using namespace llvm;
@@ -46,7 +44,6 @@ namespace {
 
   private:
     bool MadeChange;
-    SmallVector<BasicBlock *, 4> DeadBlocks;
     void SimplifyBlock(BasicBlock *BB);
     void SimplifyPredecessors(BranchInst *BI);
     void SimplifyPredecessors(SwitchInst *SI);
@@ -63,22 +60,14 @@ FunctionPass *llvm::createCondPropagationPass() {
 
 bool CondProp::runOnFunction(Function &F) {
   bool EverMadeChange = false;
-  DeadBlocks.clear();
 
   // While we are simplifying blocks, keep iterating.
   do {
     MadeChange = false;
-    for (Function::iterator BB = F.begin(), E = F.end(); BB != E;)
-      SimplifyBlock(BB++);
+    for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB)
+      SimplifyBlock(BB);
     EverMadeChange = EverMadeChange || MadeChange;
   } while (MadeChange);
-
-  if (EverMadeChange) {
-    while (!DeadBlocks.empty()) {
-      BasicBlock *BB = DeadBlocks.back(); DeadBlocks.pop_back();
-      DeleteDeadBlock(BB);
-    }
-  }
   return EverMadeChange;
 }
 
@@ -122,9 +111,8 @@ void CondProp::SimplifyBlock(BasicBlock *BB) {
 
       // Succ is now dead, but we cannot delete it without potentially
       // invalidating iterators elsewhere.  Just insert an unreachable
-      // instruction in it and delete this block later on.
+      // instruction in it.
       new UnreachableInst(Succ);
-      DeadBlocks.push_back(Succ);
       MadeChange = true;
     }
 }
@@ -135,8 +123,8 @@ void CondProp::SimplifyBlock(BasicBlock *BB) {
 // jump directly to the destination instead of going through this block.
 void CondProp::SimplifyPredecessors(BranchInst *BI) {
   // TODO: We currently only handle the most trival case, where the PHI node has
-  // one use (the branch), and is the only instruction besides the branch and dbg
-  // intrinsics in the block.
+  // one use (the branch), and is the only instruction besides the branch in the
+  // block.
   PHINode *PN = cast<PHINode>(BI->getCondition());
 
   if (PN->getNumIncomingValues() == 1) {
@@ -149,12 +137,7 @@ void CondProp::SimplifyPredecessors(BranchInst *BI) {
   if (!PN->hasOneUse()) return;
 
   BasicBlock *BB = BI->getParent();
-  if (&*BB->begin() != PN)
-    return;
-  BasicBlock::iterator BBI = BB->begin();
-  BasicBlock::iterator BBE = BB->end();
-  while (BBI != BBE && isa<DbgInfoIntrinsic>(++BBI)) ;
-  if (&*BBI != BI)
+  if (&*BB->begin() != PN || &*next(BB->begin()) != BI)
     return;
 
   // Ok, we have this really simple case, walk the PHI operands, looking for
@@ -182,18 +165,13 @@ void CondProp::SimplifyPredecessors(BranchInst *BI) {
 // the destination instead of going through this block.
 void CondProp::SimplifyPredecessors(SwitchInst *SI) {
   // TODO: We currently only handle the most trival case, where the PHI node has
-  // one use (the branch), and is the only instruction besides the branch and 
-  // dbg intrinsics in the block.
+  // one use (the branch), and is the only instruction besides the branch in the
+  // block.
   PHINode *PN = cast<PHINode>(SI->getCondition());
   if (!PN->hasOneUse()) return;
 
   BasicBlock *BB = SI->getParent();
-  if (&*BB->begin() != PN)
-    return;
-  BasicBlock::iterator BBI = BB->begin();
-  BasicBlock::iterator BBE = BB->end();
-  while (BBI != BBE && isa<DbgInfoIntrinsic>(++BBI)) ;
-  if (&*BBI != SI)
+  if (&*BB->begin() != PN || &*next(BB->begin()) != SI)
     return;
 
   bool RemovedPreds = false;

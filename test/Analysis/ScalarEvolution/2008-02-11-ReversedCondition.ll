@@ -1,4 +1,4 @@
-; RUN: llvm-as < %s | opt -scalar-evolution -analyze | grep {Loop header: backedge-taken count is (0 smax %n)}
+; RUN: llvm-as < %s | opt -scalar-evolution -analyze | grep {Loop header: (0 smax %n) iterations!}
 
 define void @foo(i32 %n) {
 entry:

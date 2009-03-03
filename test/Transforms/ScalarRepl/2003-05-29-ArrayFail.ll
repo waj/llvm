@@ -1,4 +1,4 @@
-; RUN: llvm-as < %s | opt -scalarrepl -instcombine | llvm-dis | not grep alloca
+; RUN: echo disabled
 
 ; Test that an array is not incorrectly deconstructed.
 

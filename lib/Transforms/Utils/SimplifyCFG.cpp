@@ -15,7 +15,6 @@
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
-#include "llvm/IntrinsicInst.h"
 #include "llvm/Type.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Support/CFG.h"
@@ -853,14 +852,7 @@ static bool HoistThenElseCodeToIf(BranchInst *BI) {
   BasicBlock *BB1 = BI->getSuccessor(0);  // The true destination.
   BasicBlock *BB2 = BI->getSuccessor(1);  // The false destination
 
-  BasicBlock::iterator BB1_Itr = BB1->begin();
-  BasicBlock::iterator BB2_Itr = BB2->begin();
-
-  Instruction *I1 = BB1_Itr++, *I2 = BB2_Itr++;
-  while (isa<DbgInfoIntrinsic>(I1))
-    I1 = BB1_Itr++;
-  while (isa<DbgInfoIntrinsic>(I2))
-    I2 = BB2_Itr++;
+  Instruction *I1 = BB1->begin(), *I2 = BB2->begin();
   if (I1->getOpcode() != I2->getOpcode() || isa<PHINode>(I1) || 
       isa<InvokeInst>(I1) || !I1->isIdenticalTo(I2))
     return false;
@@ -882,12 +874,8 @@ static bool HoistThenElseCodeToIf(BranchInst *BI) {
       I2->replaceAllUsesWith(I1);
     BB2->getInstList().erase(I2);
 
-    I1 = BB1_Itr++;
-    while (isa<DbgInfoIntrinsic>(I1))
-      I1 = BB1_Itr++;
-    I2 = BB2_Itr++;
-    while (isa<DbgInfoIntrinsic>(I2))
-      I2 = BB2_Itr++;
+    I1 = BB1->begin();
+    I2 = BB2->begin();
   } while (I1->getOpcode() == I2->getOpcode() && I1->isIdenticalTo(I2));
 
   return true;
@@ -1274,7 +1262,7 @@ static bool FoldTwoEntryPHINode(PHINode *PN) {
     DomBlock = *pred_begin(Pred);
     for (BasicBlock::iterator I = Pred->begin();
          !isa<TerminatorInst>(I); ++I)
-      if (!AggressiveInsts.count(I) && !isa<DbgInfoIntrinsic>(I)) {
+      if (!AggressiveInsts.count(I)) {
         // This is not an aggressive instruction that we can promote.
         // Because of this, we won't be able to get rid of the control
         // flow, so the xform is not worth it.
@@ -1288,7 +1276,7 @@ static bool FoldTwoEntryPHINode(PHINode *PN) {
     DomBlock = *pred_begin(Pred);
     for (BasicBlock::iterator I = Pred->begin();
          !isa<TerminatorInst>(I); ++I)
-      if (!AggressiveInsts.count(I) && !isa<DbgInfoIntrinsic>(I)) {
+      if (!AggressiveInsts.count(I)) {
         // This is not an aggressive instruction that we can promote.
         // Because of this, we won't be able to get rid of the control
         // flow, so the xform is not worth it.
@@ -1330,21 +1318,6 @@ static bool FoldTwoEntryPHINode(PHINode *PN) {
   return true;
 }
 
-/// isTerminatorFirstRelevantInsn - Return true if Term is very first 
-/// instruction ignoring Phi nodes and dbg intrinsics.
-static bool isTerminatorFirstRelevantInsn(BasicBlock *BB, Instruction *Term) {
-  BasicBlock::iterator BBI = Term;
-  while (BBI != BB->begin()) {
-    --BBI;
-    if (!isa<DbgInfoIntrinsic>(BBI))
-      break;
-  }
-
-  if (isa<PHINode>(BBI) || &*BBI == Term || isa<DbgInfoIntrinsic>(BBI))
-    return true;
-  return false;
-}
-
 /// SimplifyCondBranchToTwoReturns - If we found a conditional branch that goes
 /// to two returning blocks, try to merge them together into one return,
 /// introducing a select if the return values disagree.
@@ -1358,10 +1331,12 @@ static bool SimplifyCondBranchToTwoReturns(BranchInst *BI) {
   // Check to ensure both blocks are empty (just a return) or optionally empty
   // with PHI nodes.  If there are other instructions, merging would cause extra
   // computation on one path or the other.
-  if (!isTerminatorFirstRelevantInsn(TrueSucc, TrueRet))
-    return false;
-  if (!isTerminatorFirstRelevantInsn(FalseSucc, FalseRet))
-    return false;
+  BasicBlock::iterator BBI = TrueRet;
+  if (BBI != TrueSucc->begin() && !isa<PHINode>(--BBI))
+    return false;  // Not empty with optional phi nodes.
+  BBI = FalseRet;
+  if (BBI != FalseSucc->begin() && !isa<PHINode>(--BBI))
+    return false;  // Not empty with optional phi nodes.
 
   // Okay, we found a branch that is going to two return nodes.  If
   // there is no return value for this function, just change the
@@ -1443,24 +1418,14 @@ static bool FoldBranchToCommonDest(BranchInst *BI) {
   // Only allow this if the condition is a simple instruction that can be
   // executed unconditionally.  It must be in the same block as the branch, and
   // must be at the front of the block.
-  BasicBlock::iterator FrontIt = BB->front();
-  // Ignore dbg intrinsics.
-  while(isa<DbgInfoIntrinsic>(FrontIt))
-    ++FrontIt;
   if ((!isa<CmpInst>(Cond) && !isa<BinaryOperator>(Cond)) ||
-      Cond->getParent() != BB || &*FrontIt != Cond || !Cond->hasOneUse()) {
+      Cond->getParent() != BB || &BB->front() != Cond || !Cond->hasOneUse())
     return false;
-  }
   
   // Make sure the instruction after the condition is the cond branch.
   BasicBlock::iterator CondIt = Cond; ++CondIt;
-  // Ingore dbg intrinsics.
-  while(isa<DbgInfoIntrinsic>(CondIt))
-    ++CondIt;
-  if (&*CondIt != BI) {
-    assert (!isa<DbgInfoIntrinsic>(CondIt) && "Hey do not forget debug info!");
+  if (&*CondIt != BI)
     return false;
-  }
 
   // Cond is known to be a compare or binary operator.  Check to make sure that
   // neither operand is a potentially-trapping constant expression.
@@ -1592,11 +1557,7 @@ static bool SimplifyCondBranchToCondBranch(BranchInst *PBI, BranchInst *BI) {
   // If this is a conditional branch in an empty block, and if any
   // predecessors is a conditional branch to one of our destinations,
   // fold the conditions into logical ops and one cond br.
-  BasicBlock::iterator BBI = BB->begin();
-  // Ignore dbg intrinsics.
-  while (isa<DbgInfoIntrinsic>(BBI))
-    ++BBI;
-  if (&*BBI != BI)
+  if (&BB->front() != BI)
     return false;
 
   
@@ -1767,7 +1728,8 @@ bool llvm::SimplifyCFG(BasicBlock *BB) {
   // different return values, fold the replace the branch/return with a select
   // and return.
   if (ReturnInst *RI = dyn_cast<ReturnInst>(BB->getTerminator())) {
-    if (isTerminatorFirstRelevantInsn(BB, BB->getTerminator())) {
+    BasicBlock::iterator BBI = BB->getTerminator();
+    if (BBI == BB->begin() || isa<PHINode>(--BBI)) {
       // Find predecessors that end with branches.
       SmallVector<BasicBlock*, 8> UncondBranchPreds;
       SmallVector<BranchInst*, 8> CondBranchPreds;
@@ -1792,13 +1754,6 @@ bool llvm::SimplifyCFG(BasicBlock *BB) {
           // Clone the return and add it to the end of the predecessor.
           Instruction *NewRet = RI->clone();
           Pred->getInstList().push_back(NewRet);
-
-          BasicBlock::iterator BBI = RI;
-          if (BBI != BB->begin()) {
-            // Move region end info into the predecessor.
-            if (DbgRegionEndInst *DREI = dyn_cast<DbgRegionEndInst>(--BBI))
-              DREI->moveBefore(NewRet);
-          }
 
           // If the return instruction returns a value, and if the value was a
           // PHI node in "BB", propagate the right value into the return.
@@ -1891,11 +1846,7 @@ bool llvm::SimplifyCFG(BasicBlock *BB) {
 
       // If the block only contains the switch, see if we can fold the block
       // away into any preds.
-      BasicBlock::iterator BBI = BB->begin();
-      // Ignore dbg intrinsics.
-      while (isa<DbgInfoIntrinsic>(BBI))
-        ++BBI;
-      if (SI == &*BBI)
+      if (SI == &BB->front())
         if (FoldValueComparisonIntoPredecessors(SI))
           return SimplifyCFG(BB) || 1;
     }
@@ -1904,9 +1855,6 @@ bool llvm::SimplifyCFG(BasicBlock *BB) {
       BasicBlock::iterator BBI = BB->getFirstNonPHI();
 
       BasicBlock *Succ = BI->getSuccessor(0);
-      // Ignore dbg intrinsics.
-      while (isa<DbgInfoIntrinsic>(BBI))
-        ++BBI;
       if (BBI->isTerminator() &&  // Terminator is the only non-phi instruction!
           Succ != BB)             // Don't hurt infinite loops!
         if (TryToSimplifyUncondBranchFromEmptyBlock(BB, Succ))
@@ -1922,26 +1870,14 @@ bool llvm::SimplifyCFG(BasicBlock *BB) {
             return SimplifyCFG(BB) || 1;
 
         // This block must be empty, except for the setcond inst, if it exists.
-        // Ignore dbg intrinsics.
         BasicBlock::iterator I = BB->begin();
-        // Ignore dbg intrinsics.
-        while (isa<DbgInfoIntrinsic>(I))
-          ++I;
-        if (&*I == BI) {
+        if (&*I == BI ||
+            (&*I == cast<Instruction>(BI->getCondition()) &&
+             &*++I == BI))
           if (FoldValueComparisonIntoPredecessors(BI))
             return SimplifyCFG(BB) | true;
-        } else if (&*I == cast<Instruction>(BI->getCondition())){
-          ++I;
-          // Ignore dbg intrinsics.
-          while (isa<DbgInfoIntrinsic>(I))
-            ++I;
-          if(&*I == BI) {
-            if (FoldValueComparisonIntoPredecessors(BI))
-              return SimplifyCFG(BB) | true;
-          }
-        }
       }
-
+      
       // If this is a branch on a phi node in the current block, thread control
       // through this block if any PHI node entries are constants.
       if (PHINode *PN = dyn_cast<PHINode>(BI->getCondition()))

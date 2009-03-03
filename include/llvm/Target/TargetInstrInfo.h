@@ -182,15 +182,15 @@ public:
   /// 2. If this block ends with only an unconditional branch, it sets TBB to be
   ///    the destination block.
   /// 3. If this block ends with an conditional branch and it falls through to
-  ///    an successor block, it sets TBB to be the branch destination block and
-  ///    a list of operands that evaluate the condition. These
+  ///    an successor block, it sets TBB to be the branch destination block and a
+  ///    list of operands that evaluate the condition. These
   ///    operands can be passed to other TargetInstrInfo methods to create new
   ///    branches.
   /// 4. If this block ends with an conditional branch and an unconditional
-  ///    block, it returns the 'true' destination in TBB, the 'false'
-  ///    destination in FBB, and a list of operands that evaluate the condition.
-  ///    These operands can be passed to other TargetInstrInfo methods to create
-  ///    new branches.
+  ///    block, it returns the 'true' destination in TBB, the 'false' destination
+  ///    in FBB, and a list of operands that evaluate the condition. These
+  ///    operands can be passed to other TargetInstrInfo methods to create new
+  ///    branches.
   ///
   /// Note that RemoveBranch and InsertBranch must be implemented to support
   /// cases where this method returns success.
@@ -219,11 +219,6 @@ public:
   /// returns success and when an unconditional branch (TBB is non-null, FBB is
   /// null, Cond is empty) needs to be inserted. It returns the number of
   /// instructions inserted.
-  ///
-  /// It is also invoked by tail merging to add unconditional branches in
-  /// cases where AnalyzeBranch doesn't apply because there was no original
-  /// branch to analyze.  At least this much must be implemented, else tail
-  /// merging needs to be disabled.
   virtual unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                             MachineBasicBlock *FBB,
                             const SmallVectorImpl<MachineOperand> &Cond) const {
@@ -436,10 +431,19 @@ public:
     return false;
   }
 
-  /// isSafeToMoveRegClassDefs - Return true if it's safe to move a machine
-  /// instruction that defines the specified register class.
-  virtual bool isSafeToMoveRegClassDefs(const TargetRegisterClass *RC) const {
+  /// IgnoreRegisterClassBarriers - Returns true if pre-register allocation
+  /// live interval splitting pass should ignore barriers of the specified
+  /// register class.
+  virtual bool IgnoreRegisterClassBarriers(const TargetRegisterClass *RC) const{
     return true;
+  }
+
+  /// getPointerRegClass - Returns a TargetRegisterClass used for pointer
+  /// values.
+  virtual const TargetRegisterClass *getPointerRegClass() const {
+    assert(0 && "Target didn't implement getPointerRegClass!");
+    abort();
+    return 0; // Must return a value in order to compile with VS 2005
   }
 
   /// GetInstSize - Returns the size of the specified Instruction.

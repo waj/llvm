@@ -17,9 +17,9 @@
 #include "llvm/ADT/iterator.h"
 #include "llvm/Support/type_traits.h"
 #include <algorithm>
-#include <cassert>
 #include <cstring>
 #include <memory>
+#include <cassert>
 
 #ifdef _MSC_VER
 namespace std {
@@ -75,7 +75,7 @@ protected:
   // Space after 'FirstEl' is clobbered, do not add any instance vars after it.
 public:
   // Default ctor - Initialize to empty.
-  explicit SmallVectorImpl(unsigned N)
+  SmallVectorImpl(unsigned N)
     : Begin(reinterpret_cast<T*>(&FirstEl)),
       End(reinterpret_cast<T*>(&FirstEl)),
       Capacity(reinterpret_cast<T*>(&FirstEl)+N) {

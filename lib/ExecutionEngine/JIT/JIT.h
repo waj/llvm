@@ -20,6 +20,8 @@
 namespace llvm {
 
 class Function;
+class GlobalValue;
+class Constant;
 class TargetMachine;
 class TargetJITInfo;
 class MachineCodeEmitter;
@@ -27,22 +29,21 @@ class MachineCodeEmitter;
 class JITState {
 private:
   FunctionPassManager PM;  // Passes to compile a function
-  ModuleProvider *MP;      // ModuleProvider used to create the PM
 
-  /// PendingFunctions - Functions which have not been code generated yet, but
-  /// were called from a function being code generated.
-  std::vector<Function*> PendingFunctions;
+  /// PendingGlobals - Global variables which have had memory allocated for them
+  /// while a function was code generated, but which have not been initialized
+  /// yet.
+  std::vector<const GlobalVariable*> PendingGlobals;
 
 public:
-  explicit JITState(ModuleProvider *MP) : PM(MP), MP(MP) {}
+  explicit JITState(ModuleProvider *MP) : PM(MP) {}
 
   FunctionPassManager &getPM(const MutexGuard &L) {
     return PM;
   }
-  
-  ModuleProvider *getMP() const { return MP; }
-  std::vector<Function*> &getPendingFunctions(const MutexGuard &L) {
-    return PendingFunctions;
+
+  std::vector<const GlobalVariable*> &getPendingGlobals(const MutexGuard &L) {
+    return PendingGlobals;
   }
 };
 
@@ -138,12 +139,6 @@ public:
   ///
   void freeMachineCodeForFunction(Function *F);
 
-  /// addPendingFunction - while jitting non-lazily, a called but non-codegen'd
-  /// function was encountered.  Add it to a pending list to be processed after 
-  /// the current function.
-  /// 
-  void addPendingFunction(Function *F);
-  
   /// getCodeEmitter - Return the code emitter this JIT is emitting into.
   MachineCodeEmitter *getCodeEmitter() const { return MCE; }
   
@@ -152,10 +147,7 @@ public:
   
 private:
   static MachineCodeEmitter *createEmitter(JIT &J, JITMemoryManager *JMM);
-  void runJITOnFunction(Function *F);
-  void runJITOnFunctionUnlocked(Function *F, const MutexGuard &locked);
-  void updateFunctionStub(Function *F);
-  void updateDlsymStubTable();
+  void runJITOnFunction (Function *F);
   
 protected:
 

@@ -31,7 +31,7 @@ dnl===
 dnl===-----------------------------------------------------------------------===
 dnl Initialize autoconf and define the package name, version number and
 dnl email address for reporting bugs.
-AC_INIT([[llvm]],[[2.6svn]],[llvmbugs@cs.uiuc.edu])
+AC_INIT([[llvm]],[[2.5]],[llvmbugs@cs.uiuc.edu])
 
 dnl Provide a copyright substitution and ensure the copyright notice is included
 dnl in the output of --version option of the generated configure script.
@@ -363,15 +363,15 @@ case "$enableval" in
 esac
 AC_DEFINE_UNQUOTED([ENABLE_THREADS],$ENABLE_THREADS,[Define if threads enabled])
 
-dnl Allow building without position independent code
+dnl Allow building with position independent code
 AC_ARG_ENABLE(pic,
   AS_HELP_STRING([--enable-pic],
-                 [Build LLVM with Position Independent Code (default is YES)]),,
+                 [Build LLVM with Position Independent Code (default is NO)]),,
                  enableval=default)
 case "$enableval" in
   yes) AC_SUBST(ENABLE_PIC,[1]) ;;
   no)  AC_SUBST(ENABLE_PIC,[0]) ;;
-  default) AC_SUBST(ENABLE_PIC,[1]) ;;
+  default) AC_SUBST(ENABLE_PIC,[0]) ;;
   *) AC_MSG_ERROR([Invalid setting for --enable-pic. Use "yes" or "no"]) ;;
 esac
 AC_DEFINE_UNQUOTED([ENABLE_PIC],$ENABLE_PIC,
@@ -514,24 +514,6 @@ case "$withval" in
   *) AC_MSG_ERROR([Invalid path for --with-ocaml-libdir. Provide full path]) ;;
 esac
 
-dnl Allow linking of LLVM with GPLv3 binutils code.
-AC_ARG_WITH(binutils-include,
-  AS_HELP_STRING([--with-binutils-include],
-    [Specify path to binutils/include/ containing plugin-api.h file for gold plugin.]),,
-  withval=default)
-case "$withval" in
-  default) WITH_BINUTILS_INCDIR=default ;;
-  /* | [[A-Za-z]]:[[\\/]]*)      WITH_BINUTILS_INCDIR=$withval ;;
-  *) AC_MSG_ERROR([Invalid path for --with-binutils-include. Provide full path]) ;;
-esac
-if test "x$WITH_BINUTILS_INCDIR" != xdefault ; then
-  AC_SUBST(BINUTILS_INCDIR,$WITH_BINUTILS_INCDIR)
-  if test ! -f "$WITH_BINUTILS_INCDIR/plugin-api.h"; then
-     echo "$WITH_BINUTILS_INCDIR/plugin-api.h"
-     AC_MSG_ERROR([Invalid path to directory containing plugin-api.h.]);
-  fi
-fi
-
 dnl===-----------------------------------------------------------------------===
 dnl===
 dnl=== SECTION 4: Check for programs we need and that they are the right version
@@ -542,6 +524,8 @@ dnl Check for compilation tools
 AC_PROG_CPP
 AC_PROG_CC(gcc)
 AC_PROG_CXX(g++)
+AC_PROG_FLEX
+AC_PROG_BISON
 
 AC_PROG_NM
 AC_SUBST(NM)
@@ -733,10 +717,6 @@ AC_SEARCH_LIBS(dlopen,dl,AC_DEFINE([HAVE_DLOPEN],[1],
                [Define if dlopen() is available on this platform.]),
                AC_MSG_WARN([dlopen() not found - disabling plugin support]))
 
-dnl libffi is optional; used to call external functions from the interpreter
-AC_CHECK_LIB(ffi,ffi_call,[have_libffi=1],
-             AC_MSG_WARN([libffi not found - disabling external calls from interpreter]))
-
 dnl mallinfo is optional; the code can compile (minus features) without it
 AC_SEARCH_LIBS(mallinfo,malloc,AC_DEFINE([HAVE_MALLINFO],[1],
                [Define if mallinfo() is available on this platform.]))
@@ -793,16 +773,11 @@ AC_CHECK_HEADERS([sys/mman.h sys/param.h sys/resource.h sys/time.h])
 AC_CHECK_HEADERS([sys/types.h malloc/malloc.h mach/mach.h])
 if test "$ENABLE_THREADS" -eq 1 ; then
   AC_CHECK_HEADERS(pthread.h,
-                   AC_SUBST(HAVE_PTHREAD, 1),
-                   AC_SUBST(HAVE_PTHREAD, 0))
+                  AC_SUBST(HAVE_PTHREAD, 1),
+		   AC_SUBST(HAVE_PTHREAD, 0))
 else
   AC_SUBST(HAVE_PTHREAD, 0)
 fi
-
-dnl Once we know we have libffi, try to find ffi.h.
-if test -n "$have_libffi" ; then
-  AC_CHECK_HEADERS([ffi.h ffi/ffi.h], [AC_SUBST(HAVE_FFI, 1)])
-fi  
 
 dnl===-----------------------------------------------------------------------===
 dnl===
@@ -961,7 +936,7 @@ AC_DEFINE_UNQUOTED(LLVM_MANDIR, "$LLVM_MANDIR",
 AC_DEFINE_UNQUOTED(LLVM_CONFIGTIME, "$LLVM_CONFIGTIME",
                    [Time at which LLVM was configured])
 AC_DEFINE_UNQUOTED(LLVM_HOSTTRIPLE, "$host",
-                   [Host triple we were built on])
+	 	   [Host triple we were built on])
 
 # Determine which bindings to build.
 if test "$BINDINGS_TO_BUILD" = auto ; then

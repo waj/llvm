@@ -7,8 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-/// @file
-/// This file declares the MachineConstantPool class which is an abstract
+/// @file This file declares the MachineConstantPool class which is an abstract
 /// constant pool to keep track of constants referenced by a function.
 //
 //===----------------------------------------------------------------------===//

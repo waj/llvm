@@ -1,8 +1,6 @@
 ; RUN: llvm-as < %s | opt -deadargelim | llvm-dis > %t
-; RUN: grep {define internal zeroext i32 @test1() nounwind} %t
-; RUN: grep {define internal %Ty @test2} %t
-
-%Ty = type <{ i32, i32 }>
+; RUN: cat %t | grep {define internal zeroext i32 @test1() nounwind}
+; RUN: cat %t | grep {define internal \<\{ i32, i32 \}\> @test}
 
 ; Check if the pass doesn't modify anything that doesn't need changing. We feed
 ; an unused argument to each function to lure it into changing _something_ about

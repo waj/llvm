@@ -113,19 +113,14 @@ private:
 /// the relevant timer.  This makes it easy to time a region of code.
 ///
 class TimeRegion {
-  Timer *T;
+  Timer &T;
   TimeRegion(const TimeRegion &); // DO NOT IMPLEMENT
 public:
-  explicit TimeRegion(Timer &t) : T(&t) {
-    T->startTimer();
-  }
-  explicit TimeRegion(Timer *t) : T(t) {
-    if (T)
-      T->startTimer();
+  explicit TimeRegion(Timer &t) : T(t) {
+    T.startTimer();
   }
   ~TimeRegion() {
-    if (T)
-      T->stopTimer();
+    T.stopTimer();
   }
 };
 

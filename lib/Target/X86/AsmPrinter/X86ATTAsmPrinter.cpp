@@ -26,7 +26,6 @@
 #include "llvm/Type.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/CodeGen/DwarfWriter.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/Support/Mangler.h"
 #include "llvm/Support/raw_ostream.h"
@@ -85,7 +84,7 @@ static X86MachineFunctionInfo calculateFunctionInfo(const Function *F,
 }
 
 /// PrintUnmangledNameSafely - Print out the printable characters in the name.
-/// Don't print things like \\n or \\0.
+/// Don't print things like \n or \0.
 static void PrintUnmangledNameSafely(const Value *V, raw_ostream &OS) {
   for (const char *Name = V->getNameStart(), *E = Name+V->getNameLen();
        Name != E; ++Name)
@@ -208,7 +207,6 @@ void X86ATTAsmPrinter::emitFunctionHeader(const MachineFunction &MF) {
 ///
 bool X86ATTAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   const Function *F = MF.getFunction();
-  this->MF = &MF;
   unsigned CC = F->getCallingConv();
 
   SetupMachineFunction(MF);
@@ -439,30 +437,13 @@ void X86ATTAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
     printOffset(MO.getOffset());
 
     if (isThreadLocal) {
-      TLSModel::Model model = getTLSModel(GVar, TM.getRelocationModel());
-      switch (model) {
-      case TLSModel::GeneralDynamic:
-        O << "@TLSGD";
-        break;
-      case TLSModel::LocalDynamic:
-        // O << "@TLSLD"; // local dynamic not implemented
-	O << "@TLSGD";
-        break;
-      case TLSModel::InitialExec:
-        if (Subtarget->is64Bit())
-          O << "@TLSGD"; // 64 bit intial exec not implemented
+      if (TM.getRelocationModel() == Reloc::PIC_ || Subtarget->is64Bit())
+        O << "@TLSGD"; // general dynamic TLS model
+      else
+        if (GV->isDeclaration())
+          O << "@INDNTPOFF"; // initial exec TLS model
         else
-          O << "@INDNTPOFF";
-        break;
-      case TLSModel::LocalExec:
-        if (Subtarget->is64Bit())
-          O << "@TLSGD"; // 64 bit local exec not implemented
-        else
-	  O << "@NTPOFF";
-        break;
-      default:
-        assert (0 && "Unknown TLS model");
-      }
+          O << "@NTPOFF"; // local exec TLS model
     } else if (isMemOp) {
       if (shouldPrintGOT(TM, Subtarget)) {
         if (Subtarget->GVRequiresExtraLoad(GV, TM, false))
@@ -737,8 +718,8 @@ bool X86ATTAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   return false;
 }
 
-/// printMachineInstruction -- Print out a single X86 LLVM instruction MI in
-/// AT&T syntax to the current output stream.
+/// printMachineInstruction -- Print out a single X86 LLVM instruction
+/// MI in AT&T syntax to the current output stream.
 ///
 void X86ATTAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
   ++EmittedInsts;
@@ -800,9 +781,7 @@ void X86ATTAsmPrinter::printModuleLevelGV(const GlobalVariable* GVar) {
 
   SwitchToSection(TAI->SectionForGlobal(GVar));
 
-  if (C->isNullValue() && !GVar->hasSection() &&
-      !(Subtarget->isTargetDarwin() &&
-        TAI->SectionKindForGlobal(GVar) == SectionKind::RODataMergeStr)) {
+  if (C->isNullValue() && !GVar->hasSection()) {
     // FIXME: This seems to be pretty darwin-specific
     if (GVar->hasExternalLinkage()) {
       if (const char *Directive = TAI->getZeroFillDirective()) {
@@ -888,6 +867,12 @@ void X86ATTAsmPrinter::printModuleLevelGV(const GlobalVariable* GVar) {
   if (TAI->hasDotTypeDotSizeDirective())
     O << "\t.size\t" << name << ", " << Size << '\n';
 
+  // If the initializer is a extern weak symbol, remember to emit the weak
+  // reference!
+  if (const GlobalValue *GV = dyn_cast<GlobalValue>(C))
+    if (GV->hasExternalWeakLinkage())
+      ExtWeakSymbols.insert(GV);
+
   EmitGlobalConstant(C);
 }
 
@@ -918,25 +903,6 @@ bool X86ATTAsmPrinter::doFinalization(Module &M) {
 
     if (I->hasDLLExportLinkage())
       DLLExportedGVs.insert(Mang->makeNameProper(I->getName(),""));
-
-    // If the global is a extern weak symbol, remember to emit the weak
-    // reference!
-    // FIXME: This is rather hacky, since we'll emit references to ALL weak stuff,
-    // not used. But currently it's the only way to deal with extern weak
-    // initializers hidden deep inside constant expressions.
-    if (I->hasExternalWeakLinkage())
-      ExtWeakSymbols.insert(I);
-  }
-
-  for (Module::const_iterator I = M.begin(), E = M.end();
-       I != E; ++I) {
-    // If the global is a extern weak symbol, remember to emit the weak
-    // reference!
-    // FIXME: This is rather hacky, since we'll emit references to ALL weak stuff,
-    // not used. But currently it's the only way to deal with extern weak
-    // initializers hidden deep inside constant expressions.
-    if (I->hasExternalWeakLinkage())
-      ExtWeakSymbols.insert(I);
   }
 
   // Output linker support code for dllexported globals

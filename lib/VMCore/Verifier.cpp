@@ -61,7 +61,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Compiler.h"
-#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <sstream>
 #include <cstdarg>
@@ -291,10 +290,8 @@ namespace {
     }
 
     void WriteType(const Type *T) {
-      if (!T) return;
-      raw_os_ostream RO(msgs);
-      RO << ' ';
-      WriteTypeSymbolic(RO, T, Mod);
+      if ( !T ) return;
+      WriteTypeSymbolic(msgs, T, Mod );
     }
 
 
@@ -1007,9 +1004,10 @@ void Verifier::VerifyCallSite(CallSite CS) {
 void Verifier::visitCallInst(CallInst &CI) {
   VerifyCallSite(&CI);
 
-  if (Function *F = CI.getCalledFunction())
+  if (Function *F = CI.getCalledFunction()) {
     if (Intrinsic::ID ID = (Intrinsic::ID)F->getIntrinsicID())
       visitIntrinsicFunctionCall(ID, CI);
+  }
 }
 
 void Verifier::visitInvokeInst(InvokeInst &II) {

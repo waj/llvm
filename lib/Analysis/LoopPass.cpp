@@ -14,6 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/LoopPass.h"
+#include "llvm/Analysis/ScalarEvolution.h"
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -172,6 +173,8 @@ void LPPassManager::getAnalysisUsage(AnalysisUsage &Info) const {
   // LPPassManager needs LoopInfo. In the long term LoopInfo class will 
   // become part of LPPassManager.
   Info.addRequired<LoopInfo>();
+  // Used by IndVar doInitialization.
+  Info.addRequired<ScalarEvolution>();
   Info.setPreservesAll();
 }
 
@@ -256,16 +259,6 @@ bool LPPassManager::runOnFunction(Function &F) {
   }
 
   return Changed;
-}
-
-/// Print passes managed by this manager
-void LPPassManager::dumpPassStructure(unsigned Offset) {
-  llvm::cerr << std::string(Offset*2, ' ') << "Loop Pass Manager\n";
-  for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
-    Pass *P = getContainedPass(Index);
-    P->dumpPassStructure(Offset + 1);
-    dumpLastUses(P, Offset+1);
-  }
 }
 
 

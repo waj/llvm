@@ -136,11 +136,10 @@ void Optimize(Module* M) {
     addPass(Passes, createScalarReplAggregatesPass()); // Break up allocas
 
     // Run a few AA driven optimizations here and now, to cleanup the code.
-    addPass(Passes, createFunctionAttrsPass());      // Add nocapture
     addPass(Passes, createGlobalsModRefPass());      // IP alias analysis
 
     addPass(Passes, createLICMPass());               // Hoist loop invariants
-    addPass(Passes, createGVNPass());                // Remove redundancies
+    addPass(Passes, createGVNPass());                  // Remove redundancies
     addPass(Passes, createMemCpyOptPass());          // Remove dead memcpy's
     addPass(Passes, createDeadStoreEliminationPass()); // Nuke dead stores
 

@@ -27,8 +27,8 @@ namespace llvm {
   class Module;
   class Type;
   class Value;
-  struct DbgStopPointInst;
-  struct DbgDeclareInst;
+  class DbgStopPointInst;
+  class DbgDeclareInst;
   class Instruction;
 
   class DIDescriptor {
@@ -118,11 +118,9 @@ namespace llvm {
     /// code generator accepts maximum one main compile unit per module. If a
     /// module does not contain any main compile unit then the code generator 
     /// will emit multiple compile units in the output object file.
-
-    bool isMain() const                { return getUnsignedField(6); }
-    bool isOptimized() const           { return getUnsignedField(7); }
-    std::string getFlags() const       { return getStringField(8); }
-    unsigned getRunTimeVersion() const { return getUnsignedField(9); }
+    bool isMain() const             { return getUnsignedField(6); }
+    bool isOptimized() const         { return getUnsignedField(7); }
+    std::string getFlags() const     { return getStringField(8); }
 
     /// Verify - Verify that a compile unit is well formed.
     bool Verify() const;
@@ -219,9 +217,6 @@ namespace llvm {
     explicit DIDerivedType(GlobalVariable *GV);
     DIType getTypeDerivedFrom() const { return getFieldAs<DIType>(9); }
 
-    /// getOriginalTypeSize - If this type is derived from a base type then
-    /// return base type size.
-    uint64_t getOriginalTypeSize() const;
     /// dump - print derived type.
     void dump() const;
   };
@@ -233,7 +228,6 @@ namespace llvm {
   public:
     explicit DICompositeType(GlobalVariable *GV);
     DIArray getTypeArray() const { return getFieldAs<DIArray>(10); }
-    unsigned getRunTimeLang() const { return getUnsignedField(11); }
 
     /// Verify - Verify that a composite type descriptor is well formed.
     bool Verify() const;
@@ -384,8 +378,7 @@ namespace llvm {
                                     const std::string &Producer,
                                     bool isMain = false,
                                     bool isOptimized = false,
-                                    const char *Flags = "",
-                                    unsigned RunTimeVer = 0);
+                                    const char *Flags = "");
 
     /// CreateEnumerator - Create a single enumerator value.
     DIEnumerator CreateEnumerator(const std::string &Name, uint64_t Val);
@@ -416,8 +409,7 @@ namespace llvm {
                                         uint64_t AlignInBits,
                                         uint64_t OffsetInBits, unsigned Flags,
                                         DIType DerivedFrom,
-                                        DIArray Elements,
-                                        unsigned RunTimeLang = 0);
+                                        DIArray Elements);
 
     /// CreateSubprogram - Create a new descriptor for the specified subprogram.
     /// See comments in DISubprogram for descriptions of these fields.

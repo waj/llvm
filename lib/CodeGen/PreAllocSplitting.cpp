@@ -224,9 +224,6 @@ PreAllocSplitting::findSpillPoint(MachineBasicBlock *MBB, MachineInstr *MI,
   if (RefsInMBB.empty() && !DefMI) {
     MachineBasicBlock::iterator MII = MBB->begin();
     MachineBasicBlock::iterator EndPt = MI;
-    
-    if (MII == EndPt) return Pt;
-    
     do {
       ++MII;
       unsigned Index = LIs->getInstructionIndex(MII);
@@ -306,9 +303,6 @@ PreAllocSplitting::findRestorePoint(MachineBasicBlock *MBB, MachineInstr *MI,
   if (RefsInMBB.empty() && LastIdx >= EndIdx) {
     MachineBasicBlock::iterator MII = MBB->getFirstTerminator();
     MachineBasicBlock::iterator EndPt = MI;
-    
-    if (MII == EndPt) return Pt;
-    
     --MII;
     do {
       unsigned Index = LIs->getInstructionIndex(MII);
@@ -1134,10 +1128,7 @@ PreAllocSplitting::SplitRegLiveIntervals(const TargetRegisterClass **RCs,
   // by the current barrier.
   SmallVector<LiveInterval*, 8> Intervals;
   for (const TargetRegisterClass **RC = RCs; *RC; ++RC) {
-    // FIXME: If it's not safe to move any instruction that defines the barrier
-    // register class, then it means there are some special dependencies which
-    // codegen is not modelling. Ignore these barriers for now.
-    if (!TII->isSafeToMoveRegClassDefs(*RC))
+    if (TII->IgnoreRegisterClassBarriers(*RC))
       continue;
     std::vector<unsigned> &VRs = MRI->getRegClassVirtRegs(*RC);
     for (unsigned i = 0, e = VRs.size(); i != e; ++i) {

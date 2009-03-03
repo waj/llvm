@@ -42,9 +42,8 @@
 #define DEBUG_TYPE "loop-index-split"
 
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/IntrinsicInst.h"
 #include "llvm/Analysis/LoopPass.h"
-#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/ScalarEvolutionExpander.h"
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
@@ -70,6 +69,7 @@ namespace {
     bool runOnLoop(Loop *L, LPPassManager &LPM);
 
     void getAnalysisUsage(AnalysisUsage &AU) const {
+      AU.addRequired<ScalarEvolution>();
       AU.addPreserved<ScalarEvolution>();
       AU.addRequiredID(LCSSAID);
       AU.addPreservedID(LCSSAID);
@@ -173,6 +173,7 @@ namespace {
     Loop *L;
     LPPassManager *LPM;
     LoopInfo *LI;
+    ScalarEvolution *SE;
     DominatorTree *DT;
     DominanceFrontier *DF;
 
@@ -203,6 +204,7 @@ bool LoopIndexSplit::runOnLoop(Loop *IncomingLoop, LPPassManager &LPM_Ref) {
   if (!L->getSubLoops().empty())
     return false;
 
+  SE = &getAnalysis<ScalarEvolution>();
   DT = &getAnalysis<DominatorTree>();
   LI = &getAnalysis<LoopInfo>();
   DF = &getAnalysis<DominanceFrontier>();
@@ -233,14 +235,15 @@ bool LoopIndexSplit::runOnLoop(Loop *IncomingLoop, LPPassManager &LPM_Ref) {
     }
 
   // Reject loop if loop exit condition is not suitable.
-  BasicBlock *ExitingBlock = L->getExitingBlock();
-  if (!ExitingBlock)
+  SmallVector<BasicBlock *, 2> EBs;
+  L->getExitingBlocks(EBs);
+  if (EBs.size() != 1)
     return false;
-  BranchInst *EBR = dyn_cast<BranchInst>(ExitingBlock->getTerminator());
+  BranchInst *EBR = dyn_cast<BranchInst>(EBs[0]->getTerminator());
   if (!EBR) return false;
   ExitCondition = dyn_cast<ICmpInst>(EBR->getCondition());
   if (!ExitCondition) return false;
-  if (ExitingBlock != L->getLoopLatch()) return false;
+  if (EBs[0] != L->getLoopLatch()) return false;
   IVExitValue = ExitCondition->getOperand(1);
   if (!L->isLoopInvariant(IVExitValue))
     IVExitValue = ExitCondition->getOperand(0);
@@ -532,21 +535,6 @@ bool LoopIndexSplit::updateLoopIterationSpace() {
   BasicBlock *ExitingBlock = ExitCondition->getParent();
   if (!cleanBlock(ExitingBlock)) return false;
 
-  // If the merge point for BR is not loop latch then skip this loop.
-  if (BR->getSuccessor(0) != Latch) {
-    DominanceFrontier::iterator DF0 = DF->find(BR->getSuccessor(0));
-    assert (DF0 != DF->end() && "Unable to find dominance frontier");
-    if (!DF0->second.count(Latch))
-      return false;
-  }
-  
-  if (BR->getSuccessor(1) != Latch) {
-    DominanceFrontier::iterator DF1 = DF->find(BR->getSuccessor(1));
-    assert (DF1 != DF->end() && "Unable to find dominance frontier");
-    if (!DF1->second.count(Latch))
-      return false;
-  }
-    
   // Verify that loop exiting block has only two predecessor, where one pred
   // is split condition block. The other predecessor will become exiting block's
   // dominator after CFG is updated. TODO : Handle CFG's where exiting block has
@@ -1116,8 +1104,7 @@ bool LoopIndexSplit::cleanBlock(BasicBlock *BB) {
     Instruction *I = BI;
 
     if (isa<PHINode>(I) || I == Terminator || I == ExitCondition
-        || I == SplitCondition || IVBasedValues.count(I) 
-        || isa<DbgInfoIntrinsic>(I))
+        || I == SplitCondition || IVBasedValues.count(I))
       continue;
 
     if (I->mayWriteToMemory())

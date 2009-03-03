@@ -23,8 +23,8 @@
 
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/iterator.h"
-#include <map>
 #include <vector>
+#include <map>
 
 namespace llvm {
 

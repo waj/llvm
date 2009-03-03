@@ -176,9 +176,6 @@ namespace llvm {
       /// corresponds to X86::PINSRW.
       PINSRW,
 
-      /// PSHUFB - Shuffle 16 8-bit values within a vector.
-      PSHUFB,
-
       /// FMAX, FMIN - Floating point max and min.
       ///
       FMAX, FMIN,
@@ -395,7 +392,7 @@ namespace llvm {
     virtual SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 
     virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                  MachineBasicBlock *MBB) const;
+                                                        MachineBasicBlock *MBB);
 
  
     /// getTargetNodeName - This method returns the name of a target specific
@@ -552,7 +549,7 @@ namespace llvm {
     bool CallRequiresFnAddressInReg(bool Is64Bit, bool IsTailCall);
     SDValue EmitTailCallLoadRetAddr(SelectionDAG &DAG, SDValue &OutRetAddr,
                                 SDValue Chain, bool IsTailCall, bool Is64Bit,
-                                int FPDiff, DebugLoc dl);
+                                int FPDiff);
 
     CCAssignFn *CCAssignFnForNode(unsigned CallingConv) const;
     NameDecorationStyle NameDecorationForFORMAL_ARGUMENTS(SDValue Op);
@@ -569,8 +566,8 @@ namespace llvm {
     SDValue LowerINSERT_VECTOR_ELT_SSE4(SDValue Op, SelectionDAG &DAG);
     SDValue LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG);
     SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG);
-    SDValue LowerGlobalAddress(const GlobalValue *GV, DebugLoc dl,
-                               int64_t Offset, SelectionDAG &DAG) const;
+    SDValue LowerGlobalAddress(const GlobalValue *GV, int64_t Offset,
+                               SelectionDAG &DAG) const;
     SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG);
     SDValue LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG);
     SDValue LowerExternalSymbol(SDValue Op, SelectionDAG &DAG);
@@ -615,12 +612,12 @@ namespace llvm {
     void ReplaceATOMIC_BINARY_64(SDNode *N, SmallVectorImpl<SDValue> &Results,
                                  SelectionDAG &DAG, unsigned NewOp);
 
-    SDValue EmitTargetCodeForMemset(SelectionDAG &DAG, DebugLoc dl,
+    SDValue EmitTargetCodeForMemset(SelectionDAG &DAG,
                                     SDValue Chain,
                                     SDValue Dst, SDValue Src,
                                     SDValue Size, unsigned Align,
                                     const Value *DstSV, uint64_t DstSVOff);
-    SDValue EmitTargetCodeForMemcpy(SelectionDAG &DAG, DebugLoc dl,
+    SDValue EmitTargetCodeForMemcpy(SelectionDAG &DAG,
                                     SDValue Chain,
                                     SDValue Dst, SDValue Src,
                                     SDValue Size, unsigned Align,
@@ -642,7 +639,7 @@ namespace llvm {
                                                     unsigned notOpc,
                                                     unsigned EAXreg,
                                                     TargetRegisterClass *RC,
-                                                    bool invSrc = false) const;
+                                                    bool invSrc = false);
 
     MachineBasicBlock *EmitAtomicBit6432WithCustomInserter(
                                                     MachineInstr *BInstr,
@@ -651,14 +648,14 @@ namespace llvm {
                                                     unsigned regOpcH,
                                                     unsigned immOpcL,
                                                     unsigned immOpcH,
-                                                    bool invSrc = false) const;
+                                                    bool invSrc = false);
     
     /// Utility function to emit atomic min and max.  It takes the min/max
     // instruction to expand, the associated basic block, and the associated
     // cmov opcode for moving the min or max value.
     MachineBasicBlock *EmitAtomicMinMaxWithCustomInserter(MachineInstr *BInstr,
                                                           MachineBasicBlock *BB,
-                                                        unsigned cmovOpc) const;
+                                                          unsigned cmovOpc);
   };
 
   namespace X86 {

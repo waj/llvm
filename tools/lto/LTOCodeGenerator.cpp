@@ -391,7 +391,6 @@ bool LTOCodeGenerator::generateAssemblyCode(raw_ostream& out,
     passes.add(createScalarReplAggregatesPass()); // Break up allocas
 
     // Run a few AA driven optimizations here and now, to cleanup the code.
-    passes.add(createFunctionAttrsPass());        // Add nocapture
     passes.add(createGlobalsModRefPass());        // IP alias analysis
     passes.add(createLICMPass());                 // Hoist loop invariants
     passes.add(createGVNPass());                  // Remove common subexprs
@@ -421,7 +420,7 @@ bool LTOCodeGenerator::generateAssemblyCode(raw_ostream& out,
     MachineCodeEmitter* mce = NULL;
 
     switch (_target->addPassesToEmitFile(*codeGenPasses, out,
-                                      TargetMachine::AssemblyFile, false)) {
+                                      TargetMachine::AssemblyFile, true)) {
         case FileModel::MachOFile:
             mce = AddMachOWriter(*codeGenPasses, out, *_target);
             break;
@@ -436,7 +435,7 @@ bool LTOCodeGenerator::generateAssemblyCode(raw_ostream& out,
             return true;
     }
 
-    if (_target->addPassesToEmitFileFinish(*codeGenPasses, mce, false)) {
+    if (_target->addPassesToEmitFileFinish(*codeGenPasses, mce, true)) {
         errMsg = "target does not support generation of this file type";
         return true;
     }

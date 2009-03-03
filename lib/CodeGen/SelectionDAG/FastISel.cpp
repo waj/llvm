@@ -319,8 +319,8 @@ bool FastISel::SelectCall(User *I) {
     DbgStopPointInst *SPI = cast<DbgStopPointInst>(I);
     if (DW && DW->ValidDebugInfo(SPI->getContext())) {
       DICompileUnit CU(cast<GlobalVariable>(SPI->getContext()));
-      unsigned SrcFile = DW->getOrCreateSourceID(CU.getDirectory(),
-                                                 CU.getFilename());
+      unsigned SrcFile = DW->RecordSource(CU.getDirectory(),
+                                          CU.getFilename());
       unsigned Line = SPI->getLine();
       unsigned Col = SPI->getColumn();
       unsigned ID = DW->RecordSourceLine(Line, Col, SrcFile);
@@ -361,8 +361,8 @@ bool FastISel::SelectCall(User *I) {
       // (most?) gdb expects.
       DISubprogram Subprogram(cast<GlobalVariable>(SP));
       DICompileUnit CompileUnit = Subprogram.getCompileUnit();
-      unsigned SrcFile = DW->getOrCreateSourceID(CompileUnit.getDirectory(),
-                                                 CompileUnit.getFilename());
+      unsigned SrcFile = DW->RecordSource(CompileUnit.getDirectory(),
+                                          CompileUnit.getFilename());
 
       // Record the source line but does not create a label for the normal
       // function start. It will be emitted at asm emission time. However,
@@ -388,11 +388,11 @@ bool FastISel::SelectCall(User *I) {
       if (BitCastInst *BCI = dyn_cast<BitCastInst>(Address))
         Address = BCI->getOperand(0);
       AllocaInst *AI = dyn_cast<AllocaInst>(Address);
-      // Don't handle byval struct arguments or VLAs, for example.
+      // Don't handle byval struct arguments, for example.
       if (!AI) break;
       DenseMap<const AllocaInst*, int>::iterator SI =
         StaticAllocaMap.find(AI);
-      if (SI == StaticAllocaMap.end()) break; // VLAs.
+      assert(SI != StaticAllocaMap.end() && "Invalid dbg.declare!");
       int FI = SI->second;
 
       // Determine the debug globalvariable.

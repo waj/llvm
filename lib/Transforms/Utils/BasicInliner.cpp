@@ -27,7 +27,7 @@
 using namespace llvm;
 
 static cl::opt<unsigned>     
-BasicInlineThreshold("basic-inline-threshold", cl::Hidden, cl::init(200),
+BasicInlineThreshold("inline-threshold", cl::Hidden, cl::init(200),
    cl::desc("Control the amount of basic inlining to perform (default = 200)"));
 
 namespace llvm {

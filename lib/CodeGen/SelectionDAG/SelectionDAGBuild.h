@@ -354,18 +354,14 @@ public:
   /// FuncInfo - Information about the function as a whole.
   ///
   FunctionLoweringInfo &FuncInfo;
-
-  /// Fast - We are in -fast mode.
-  /// 
-  bool Fast;
   
   /// GFI - Garbage collection metadata for the function.
   GCFunctionInfo *GFI;
 
   SelectionDAGLowering(SelectionDAG &dag, TargetLowering &tli,
-                       FunctionLoweringInfo &funcinfo, bool fast)
+                       FunctionLoweringInfo &funcinfo)
     : CurDebugLoc(DebugLoc::getUnknownLoc()), 
-      TLI(tli), DAG(dag), FuncInfo(funcinfo), Fast(fast) {
+      TLI(tli), DAG(dag), FuncInfo(funcinfo) {
   }
 
   void init(GCFunctionInfo *gfi, AliasAnalysis &aa);

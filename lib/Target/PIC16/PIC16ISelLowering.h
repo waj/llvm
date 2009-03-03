@@ -88,9 +88,9 @@ namespace llvm {
     SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG);
     SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG);
     SDValue getPIC16Cmp(SDValue LHS, SDValue RHS, unsigned OrigCC, SDValue &CC,
-                        SelectionDAG &DAG, DebugLoc dl);
+                        SelectionDAG &DAG);
     virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                  MachineBasicBlock *MBB) const;
+                                                        MachineBasicBlock *MBB);
 
 
     virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG);
@@ -138,7 +138,7 @@ namespace llvm {
     // addresses need Banksel and Indirect addresses need to be loaded to
     // FSR first. Handle address specific cases here.
     void LegalizeAddress(SDValue Ptr, SelectionDAG &DAG, SDValue &Chain, 
-                         SDValue &NewPtr, unsigned &Offset, DebugLoc dl);
+                         SDValue &NewPtr, unsigned &Offset);
 
     // FrameIndex should be broken down into ExternalSymbol and FrameOffset. 
     void LegalizeFrameIndex(SDValue Op, SelectionDAG &DAG, SDValue &ES, 
@@ -146,7 +146,7 @@ namespace llvm {
 
     // We can not have both operands of a binary operation in W.
     // This function is used to put one operand on stack and generate a load.
-    SDValue ConvertToMemOperand(SDValue Op, SelectionDAG &DAG, DebugLoc dl); 
+    SDValue ConvertToMemOperand(SDValue Op, SelectionDAG &DAG); 
 
     // This function checks if we need to put an operand of an operation on
     // stack and generate a load or not.

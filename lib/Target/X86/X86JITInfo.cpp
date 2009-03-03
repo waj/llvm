@@ -59,16 +59,6 @@ static TargetJITInfo::JITCompilerFn JITCompilerFunction;
 #define ASMCALLSUFFIX
 #endif
 
-// For ELF targets, use a .size and .type directive, to let tools
-// know the extent of functions defined in assembler.
-#if defined(__ELF__)
-# define SIZE(sym) ".size " #sym ", . - " #sym "\n"
-# define TYPE_FUNCTION(sym) ".type " #sym ", @function\n"
-#else
-# define SIZE(sym)
-# define TYPE_FUNCTION(sym)
-#endif
-
 // Provide a convenient way for disabling usage of CFI directives.
 // This is needed for old/broken assemblers (for example, gas on
 // Darwin is pretty old and doesn't support these directives)
@@ -92,7 +82,6 @@ extern "C" {
     ".text\n"
     ".align 8\n"
     ".globl " ASMPREFIX "X86CompilationCallback\n"
-    TYPE_FUNCTION(X86CompilationCallback)
   ASMPREFIX "X86CompilationCallback:\n"
     CFI(".cfi_startproc\n")
     // Save RBP
@@ -171,7 +160,6 @@ extern "C" {
     CFI(".cfi_restore %rbp\n")
     "ret\n"
     CFI(".cfi_endproc\n")
-    SIZE(X86CompilationCallback)
   );
 # else
   // No inline assembler support on this platform. The routine is in external
@@ -185,8 +173,7 @@ extern "C" {
   asm(
     ".text\n"
     ".align 8\n"
-    ".globl " ASMPREFIX "X86CompilationCallback\n"
-    TYPE_FUNCTION(X86CompilationCallback)
+    ".globl " ASMPREFIX  "X86CompilationCallback\n"
   ASMPREFIX "X86CompilationCallback:\n"
     CFI(".cfi_startproc\n")
     "pushl   %ebp\n"
@@ -226,7 +213,6 @@ extern "C" {
     CFI(".cfi_restore %ebp\n")
     "ret\n"
     CFI(".cfi_endproc\n")
-    SIZE(X86CompilationCallback)
   );
 
   // Same as X86CompilationCallback but also saves XMM argument registers.
@@ -234,8 +220,7 @@ extern "C" {
   asm(
     ".text\n"
     ".align 8\n"
-    ".globl " ASMPREFIX "X86CompilationCallback_SSE\n"
-    TYPE_FUNCTION(X86CompilationCallback_SSE)
+    ".globl " ASMPREFIX  "X86CompilationCallback_SSE\n"
   ASMPREFIX "X86CompilationCallback_SSE:\n"
     CFI(".cfi_startproc\n")
     "pushl   %ebp\n"
@@ -291,7 +276,6 @@ extern "C" {
     CFI(".cfi_restore %ebp\n")
     "ret\n"
     CFI(".cfi_endproc\n")
-    SIZE(X86CompilationCallback_SSE)
   );
 # else
   void X86CompilationCallback2(intptr_t *StackPtr, intptr_t RetAddr);
@@ -328,7 +312,7 @@ extern "C" {
 #endif
 }
 
-/// X86CompilationCallback2 - This is the target-specific function invoked by the
+/// X86CompilationCallback - This is the target-specific function invoked by the
 /// function stub when we did not know the real target of a call.  This function
 /// must locate the start of the stub or call site and pass it into the JIT
 /// compiler function.
@@ -488,21 +472,6 @@ void *X86JITInfo::emitFunctionStub(const Function* F, void *Fn,
 
   MCE.emitByte(0xCD);   // Interrupt - Just a marker identifying the stub!
   return MCE.finishGVStub(F);
-}
-
-void X86JITInfo::emitFunctionStubAtAddr(const Function* F, void *Fn, void *Stub,
-                                        MachineCodeEmitter &MCE) {
-  // Note, we cast to intptr_t here to silence a -pedantic warning that 
-  // complains about casting a function pointer to a normal pointer.
-  MCE.startGVStub(F, Stub, 5);
-  MCE.emitByte(0xE9);
-#if defined (X86_64_JIT)
-  assert(((((intptr_t)Fn-MCE.getCurrentPCValue()-5) << 32) >> 32) == 
-          ((intptr_t)Fn-MCE.getCurrentPCValue()-5) 
-         && "PIC displacement does not fit in displacement field!");
-#endif
-  MCE.emitWordLE((intptr_t)Fn-MCE.getCurrentPCValue()-4);
-  MCE.finishGVStub(F);
 }
 
 /// getPICJumpTableEntry - Returns the value of the jumptable entry for the

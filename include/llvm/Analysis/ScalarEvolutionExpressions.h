@@ -20,7 +20,6 @@ namespace llvm {
   class ConstantInt;
   class ConstantRange;
   class APInt;
-  class DominatorTree;
 
   enum SCEVTypes {
     // These should be ordered in terms of increasing complexity to make the
@@ -57,10 +56,6 @@ namespace llvm {
                                                  const SCEVHandle &Conc,
                                                  ScalarEvolution &SE) const {
       return this;
-    }
-
-    bool dominates(BasicBlock *BB, DominatorTree *DT) const {
-      return true;
     }
 
     virtual void print(std::ostream &OS) const;
@@ -105,8 +100,6 @@ namespace llvm {
       return SE.getTruncateExpr(H, Ty);
     }
 
-    virtual bool dominates(BasicBlock *BB, DominatorTree *DT) const;
-
     virtual void print(std::ostream &OS) const;
     void print(std::ostream *OS) const { if (OS) print(*OS); }
 
@@ -149,8 +142,6 @@ namespace llvm {
       return SE.getZeroExtendExpr(H, Ty);
     }
 
-    bool dominates(BasicBlock *BB, DominatorTree *DT) const;
-
     virtual void print(std::ostream &OS) const;
     void print(std::ostream *OS) const { if (OS) print(*OS); }
 
@@ -192,8 +183,6 @@ namespace llvm {
         return this;
       return SE.getSignExtendExpr(H, Ty);
     }
-
-    bool dominates(BasicBlock *BB, DominatorTree *DT) const;
 
     virtual void print(std::ostream &OS) const;
     void print(std::ostream *OS) const { if (OS) print(*OS); }
@@ -260,8 +249,6 @@ namespace llvm {
     SCEVHandle replaceSymbolicValuesWithConcrete(const SCEVHandle &Sym,
                                                  const SCEVHandle &Conc,
                                                  ScalarEvolution &SE) const;
-
-    bool dominates(BasicBlock *BB, DominatorTree *DT) const;
 
     virtual const char *getOperationStr() const = 0;
 
@@ -356,7 +343,6 @@ namespace llvm {
         return SE.getUDivExpr(L, R);
     }
 
-    bool dominates(BasicBlock *BB, DominatorTree *DT) const;
 
     virtual const Type *getType() const;
 
@@ -451,8 +437,6 @@ namespace llvm {
                                                  const SCEVHandle &Conc,
                                                  ScalarEvolution &SE) const;
 
-    bool dominates(BasicBlock *BB, DominatorTree *DT) const;
-
     virtual void print(std::ostream &OS) const;
     void print(std::ostream *OS) const { if (OS) print(*OS); }
 
@@ -533,8 +517,6 @@ namespace llvm {
       if (&*Sym == this) return Conc;
       return this;
     }
-
-    bool dominates(BasicBlock *BB, DominatorTree *DT) const;
 
     virtual const Type *getType() const;
 

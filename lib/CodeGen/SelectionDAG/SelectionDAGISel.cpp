@@ -12,9 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "isel"
-#include "ScheduleDAGSDNodes.h"
-#include "SelectionDAGBuild.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
+#include "SelectionDAGBuild.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Constants.h"
 #include "llvm/CallingConv.h"
@@ -34,6 +33,7 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/ScheduleDAGSDNodes.h"
 #include "llvm/CodeGen/ScheduleHazardRecognizer.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
 #include "llvm/CodeGen/SelectionDAG.h"
@@ -137,8 +137,8 @@ namespace llvm {
   //===--------------------------------------------------------------------===//
   /// createDefaultScheduler - This creates an instruction scheduler appropriate
   /// for the target.
-  ScheduleDAGSDNodes* createDefaultScheduler(SelectionDAGISel *IS,
-                                             bool Fast) {
+  ScheduleDAG* createDefaultScheduler(SelectionDAGISel *IS,
+                                      bool Fast) {
     const TargetLowering &TLI = IS->getTargetLowering();
 
     if (Fast)
@@ -157,7 +157,7 @@ namespace llvm {
 // insert.  The specified MachineInstr is created but not inserted into any
 // basic blocks, and the scheduler passes ownership of it to this method.
 MachineBasicBlock *TargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                 MachineBasicBlock *MBB) const {
+                                                       MachineBasicBlock *MBB) {
   cerr << "If a target marks an instruction with "
        << "'usesCustomDAGSchedInserter', it must implement "
        << "TargetLowering::EmitInstrWithCustomInserter!\n";
@@ -268,7 +268,7 @@ SelectionDAGISel::SelectionDAGISel(TargetMachine &tm, bool fast) :
   FunctionPass(&ID), TM(tm), TLI(*tm.getTargetLowering()),
   FuncInfo(new FunctionLoweringInfo(TLI)),
   CurDAG(new SelectionDAG(TLI, *FuncInfo)),
-  SDL(new SelectionDAGLowering(*CurDAG, TLI, *FuncInfo, fast)),
+  SDL(new SelectionDAGLowering(*CurDAG, TLI, *FuncInfo)),
   GFI(),
   Fast(fast),
   DAGSize(0)
@@ -440,11 +440,9 @@ static void CheckDAGForTailCallsAndFixThem(SelectionDAG &DAG,
             MVT VT = Arg.getValueType();
             unsigned VReg = MF.getRegInfo().
               createVirtualRegister(TLI.getRegClassFor(VT));
-            Chain = DAG.getCopyToReg(Chain, Arg.getDebugLoc(),
-                                     VReg, Arg, InFlag);
+            Chain = DAG.getCopyToReg(Chain, VReg, Arg, InFlag);
             InFlag = Chain.getValue(1);
-            Arg = DAG.getCopyFromReg(Chain, Arg.getDebugLoc(),
-                                     VReg, VT, InFlag);
+            Arg = DAG.getCopyFromReg(Chain, VReg, VT, InFlag);
             Chain = Arg.getValue(1);
             InFlag = Arg.getValue(2);
           }
@@ -621,9 +619,9 @@ void SelectionDAGISel::CodeGenAndEmitDAG() {
 
   if (TimePassesIsEnabled) {
     NamedRegionTimer T("DAG Legalization", GroupName);
-    CurDAG->Legalize(DisableLegalizeTypes, Fast);
+    CurDAG->Legalize(DisableLegalizeTypes);
   } else {
-    CurDAG->Legalize(DisableLegalizeTypes, Fast);
+    CurDAG->Legalize(DisableLegalizeTypes);
   }
   
   DOUT << "Legalized selection DAG:\n";
@@ -662,12 +660,12 @@ void SelectionDAGISel::CodeGenAndEmitDAG() {
   if (ViewSchedDAGs) CurDAG->viewGraph("scheduler input for " + BlockName);
 
   // Schedule machine code.
-  ScheduleDAGSDNodes *Scheduler = CreateScheduler();
+  ScheduleDAG *Scheduler;
   if (TimePassesIsEnabled) {
     NamedRegionTimer T("Instruction Scheduling", GroupName);
-    Scheduler->Run(CurDAG, BB, BB->end());
+    Scheduler = Schedule();
   } else {
-    Scheduler->Run(CurDAG, BB, BB->end());
+    Scheduler = Schedule();
   }
 
   if (ViewSUnitDAGs) Scheduler->viewGraph();
@@ -1064,11 +1062,10 @@ SelectionDAGISel::FinishBasicBlock() {
 }
 
 
-/// Create the scheduler. If a specific scheduler was specified
-/// via the SchedulerRegistry, use it, otherwise select the
-/// one preferred by the target.
+/// Schedule - Pick a safe ordering for instructions for each
+/// target node in the graph.
 ///
-ScheduleDAGSDNodes *SelectionDAGISel::CreateScheduler() {
+ScheduleDAG *SelectionDAGISel::Schedule() {
   RegisterScheduler::FunctionPassCtor Ctor = RegisterScheduler::getDefault();
   
   if (!Ctor) {
@@ -1076,8 +1073,12 @@ ScheduleDAGSDNodes *SelectionDAGISel::CreateScheduler() {
     RegisterScheduler::setDefault(Ctor);
   }
   
-  return Ctor(this, Fast);
+  ScheduleDAG *Scheduler = Ctor(this, Fast);
+  Scheduler->Run(CurDAG, BB, BB->end(), BB->end());
+
+  return Scheduler;
 }
+
 
 ScheduleHazardRecognizer *SelectionDAGISel::CreateTargetHazardRecognizer() {
   return new ScheduleHazardRecognizer();

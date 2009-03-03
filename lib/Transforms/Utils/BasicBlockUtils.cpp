@@ -15,7 +15,6 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
-#include "llvm/IntrinsicInst.h"
 #include "llvm/Constant.h"
 #include "llvm/Type.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -425,9 +424,9 @@ BasicBlock *llvm::SplitBlockPredecessors(BasicBlock *BB,
 /// AreEquivalentAddressValues - Test if A and B will obviously have the same
 /// value. This includes recognizing that %t0 and %t1 will have the same
 /// value in code like this:
-///   %t0 = getelementptr \@a, 0, 3
+///   %t0 = getelementptr @a, 0, 3
 ///   store i32 0, i32* %t0
-///   %t1 = getelementptr \@a, 0, 3
+///   %t1 = getelementptr @a, 0, 3
 ///   %t2 = load i32* %t1
 ///
 static bool AreEquivalentAddressValues(const Value *A, const Value *B) {
@@ -472,18 +471,11 @@ Value *llvm::FindAvailableLoadedValue(Value *Ptr, BasicBlock *ScanBB,
   }
   
   while (ScanFrom != ScanBB->begin()) {
-    // We must ignore debug info directives when counting (otherwise they
-    // would affect codegen).
-    Instruction *Inst = --ScanFrom;
-    if (isa<DbgInfoIntrinsic>(Inst))
-      continue;
-    // Restore ScanFrom to expected value in case next test succeeds
-    ScanFrom++;
-   
     // Don't scan huge blocks.
     if (MaxInstsToScan-- == 0) return 0;
     
-    --ScanFrom;
+    Instruction *Inst = --ScanFrom;
+    
     // If this is a load of Ptr, the loaded value is available.
     if (LoadInst *LI = dyn_cast<LoadInst>(Inst))
       if (AreEquivalentAddressValues(LI->getOperand(0), Ptr))
@@ -530,19 +522,4 @@ Value *llvm::FindAvailableLoadedValue(Value *Ptr, BasicBlock *ScanBB,
   // Got to the start of the block, we didn't find it, but are done for this
   // block.
   return 0;
-}
-
-/// CopyPrecedingStopPoint - If I is immediately preceded by a StopPoint,
-/// make a copy of the stoppoint before InsertPos (presumably before copying
-/// or moving I).
-void llvm::CopyPrecedingStopPoint(Instruction *I, 
-                                  BasicBlock::iterator InsertPos) {
-  if (I != I->getParent()->begin()) {
-    BasicBlock::iterator BBI = I;  --BBI;
-    if (DbgStopPointInst *DSPI = dyn_cast<DbgStopPointInst>(BBI)) {
-      DbgStopPointInst *newDSPI =
-        reinterpret_cast<DbgStopPointInst*>(DSPI->clone());
-      newDSPI->insertBefore(InsertPos);
-    }
-  }
 }

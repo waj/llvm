@@ -48,7 +48,7 @@ namespace llvm {
     // To make VS STL happy
     AsmWriterOperand():OperandType(isLiteralTextOperand) {}
 
-    explicit AsmWriterOperand(const std::string &LitStr)
+    AsmWriterOperand(const std::string &LitStr)
       : OperandType(isLiteralTextOperand), Str(LitStr) {}
 
     AsmWriterOperand(const std::string &Printer, unsigned OpNo, 
@@ -639,19 +639,6 @@ void AsmWriterEmitter::run(std::ostream &O) {
     }
   }
   O << "\";\n\n";
-
-  O << "  if (TAI->doesSupportDebugInformation() &&\n"
-    << "      DW->ShouldEmitDwarfDebug() && !Fast) {\n"
-    << "    DebugLoc CurDL = MI->getDebugLoc();\n\n"
-    << "    if (!CurDL.isUnknown()) {\n"
-    << "      static DebugLocTuple PrevDLT(~0U, ~0U, ~0U);\n"
-    << "      DebugLocTuple CurDLT = MF->getDebugLocTuple(CurDL);\n\n"
-    << "      if (PrevDLT.Src != ~0U && PrevDLT != CurDLT)\n"
-    << "        printLabel(DW->RecordSourceLine(CurDLT.Line, CurDLT.Col,\n"
-    << "                                        CurDLT.Src));\n\n"
-    << "      PrevDLT = CurDLT;\n"
-    << "    }\n"
-    << "  }\n\n";
 
   O << "  if (MI->getOpcode() == TargetInstrInfo::INLINEASM) {\n"
     << "    O << \"\\t\";\n"

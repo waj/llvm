@@ -27,13 +27,6 @@ namespace llvm {
 
     DebugLocTuple(unsigned s, unsigned l, unsigned c)
       : Src(s), Line(l), Col(c) {};
-
-    bool operator==(const DebugLocTuple &DLT) const {
-      return Src == DLT.Src && Line == DLT.Line && Col == DLT.Col;
-    }
-    bool operator!=(const DebugLocTuple &DLT) const {
-      return !(*this == DLT);
-    }
   };
 
   /// DebugLoc - Debug location id. This is carried by SDNode and MachineInstr
@@ -44,17 +37,15 @@ namespace llvm {
   public:
     DebugLoc() : Idx(~0U) {}  // Defaults to invalid.
 
-    static DebugLoc getUnknownLoc()   { DebugLoc L; L.Idx = ~0U; return L; }
+    static DebugLoc getUnknownLoc()   { DebugLoc L; L.Idx = 0;   return L; }
     static DebugLoc get(unsigned idx) { DebugLoc L; L.Idx = idx; return L; }
 
-    unsigned getIndex() const { return Idx; }
+    /// isInvalid - Return true if the DebugLoc is invalid.
+    bool isInvalid() const { return Idx == ~0U; }
 
     /// isUnknown - Return true if there is no debug info for the SDNode /
     /// MachineInstr.
-    bool isUnknown() const { return Idx == ~0U; }
-
-    bool operator==(const DebugLoc &DL) const { return Idx == DL.Idx; }
-    bool operator!=(const DebugLoc &DL) const { return !(*this == DL); }
+    bool isUnknown() const { return Idx == 0; }
   };
 
   // Partially specialize DenseMapInfo for DebugLocTyple.
@@ -86,11 +77,16 @@ namespace llvm {
     ///
     std::vector<DebugLocTuple> DebugLocations;
 
-    /// DebugIdMap - This maps DebugLocTuple's to indices into the
-    /// DebugLocations vector.
+    /// DebugIdsMap - This maps DebugLocTuple's to indices into DebugLocations
+    /// vector.
     DenseMap<DebugLocTuple, unsigned> DebugIdMap;
 
     DebugLocTracker() {}
+
+    ~DebugLocTracker() {
+      DebugLocations.clear();
+      DebugIdMap.clear();
+    }
   };
   
 } // end namespace llvm

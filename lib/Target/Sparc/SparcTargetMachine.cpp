@@ -85,6 +85,6 @@ bool SparcTargetMachine::addPreEmitPass(PassManagerBase &PM, bool Fast) {
 bool SparcTargetMachine::addAssemblyEmitter(PassManagerBase &PM, bool Fast, 
                                             raw_ostream &Out) {
   // Output assembly language.
-  PM.add(createSparcCodePrinterPass(Out, *this, Fast));
+  PM.add(createSparcCodePrinterPass(Out, *this));
   return false;
 }

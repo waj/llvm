@@ -27,15 +27,15 @@ private:
 
   void loadConstant(MachineBasicBlock &MBB,
                   MachineBasicBlock::iterator I,
-                  unsigned DstReg, int64_t Value, DebugLoc dl) const;
+                  unsigned DstReg, int64_t Value) const;
 
   void storeToStack(MachineBasicBlock &MBB,
                   MachineBasicBlock::iterator I,
-                  unsigned SrcReg, int Offset, DebugLoc dl) const;
+                  unsigned SrcReg, int Offset) const;
 
   void loadFromStack(MachineBasicBlock &MBB,
                   MachineBasicBlock::iterator I,
-                  unsigned DstReg, int Offset, DebugLoc dl) const;
+                  unsigned DstReg, int Offset) const;
 
 public:
   XCoreRegisterInfo(const TargetInstrInfo &tii);

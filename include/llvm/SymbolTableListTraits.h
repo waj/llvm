@@ -33,8 +33,10 @@ template<typename NodeTy> class ilist_iterator;
 template<typename NodeTy, typename Traits> class iplist;
 template<typename Ty> struct ilist_traits;
 
-// ValueSubClass   - The type of objects that I hold, e.g. Instruction.
-// ItemParentClass - The type of object that owns the list, e.g. BasicBlock.
+// ValueSubClass  - The type of objects that I hold, e.g. Instruction.
+// ItemParentType - The type of object that owns the list, e.g. BasicBlock.
+// TraitBaseClass - The class this trait should inherit from, it should
+//                  inherit from ilist_traits<ValueSubClass>
 //
 template<typename ValueSubClass, typename ItemParentClass>
 class SymbolTableListTraits : public ilist_default_traits<ValueSubClass> {
@@ -47,6 +49,10 @@ public:
   ItemParentClass *getListOwner() {
     return reinterpret_cast<ItemParentClass*>(reinterpret_cast<char*>(this)-
                                               TraitsClass::getListOffset());
+  }
+
+  void deleteNode(ValueSubClass *V) {
+    delete V;
   }
 
   void addNodeToList(ValueSubClass *V);

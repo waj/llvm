@@ -258,7 +258,6 @@ namespace {
     
     unsigned char *CurStubPtr, *StubBase;
     unsigned char *GOTBase;      // Target Specific reserved memory
-    void *DlsymTable;            // Stub external symbol information
 
     // Centralize memory block allocation.
     sys::MemoryBlock getNewMemoryBlock(unsigned size);
@@ -270,8 +269,7 @@ namespace {
     ~DefaultJITMemoryManager();
 
     void AllocateGOT();
-    void SetDlsymTable(void *);
-    
+
     unsigned char *allocateStub(const GlobalValue* F, unsigned StubSize,
                                 unsigned Alignment);
     
@@ -343,10 +341,6 @@ namespace {
     
     unsigned char *getGOTBase() const {
       return GOTBase;
-    }
-    
-    void *getDlsymTable() const {
-      return DlsymTable;
     }
     
     /// deallocateMemForFunction - Deallocate all memory for the specified
@@ -469,7 +463,6 @@ DefaultJITMemoryManager::DefaultJITMemoryManager() {
   FreeMemoryList = Mem0;
 
   GOTBase = NULL;
-  DlsymTable = NULL;
 }
 
 void DefaultJITMemoryManager::AllocateGOT() {
@@ -478,9 +471,6 @@ void DefaultJITMemoryManager::AllocateGOT() {
   HasGOT = true;
 }
 
-void DefaultJITMemoryManager::SetDlsymTable(void *ptr) {
-  DlsymTable = ptr;
-}
 
 DefaultJITMemoryManager::~DefaultJITMemoryManager() {
   for (unsigned i = 0, e = Blocks.size(); i != e; ++i)

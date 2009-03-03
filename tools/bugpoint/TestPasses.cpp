@@ -27,7 +27,7 @@ namespace {
   class CrashOnCalls : public BasicBlockPass {
   public:
     static char ID; // Pass ID, replacement for typeid
-    CrashOnCalls() : BasicBlockPass(&ID) {}
+    CrashOnCalls() : BasicBlockPass((intptr_t)&ID) {}
   private:
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
@@ -54,7 +54,7 @@ namespace {
   class DeleteCalls : public BasicBlockPass {
   public:
     static char ID; // Pass ID, replacement for typeid
-    DeleteCalls() : BasicBlockPass(&ID) {}
+    DeleteCalls() : BasicBlockPass((intptr_t)&ID) {}
   private:
     bool runOnBasicBlock(BasicBlock &BB) {
       for (BasicBlock::iterator I = BB.begin(), E = BB.end(); I != E; ++I)

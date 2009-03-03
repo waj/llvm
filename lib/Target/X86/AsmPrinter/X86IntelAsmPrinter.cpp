@@ -25,7 +25,6 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Assembly/Writer.h"
-#include "llvm/CodeGen/DwarfWriter.h"
 #include "llvm/Support/Mangler.h"
 #include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetOptions.h"
@@ -122,7 +121,6 @@ void X86IntelAsmPrinter::decorateName(std::string &Name,
 /// method to print assembly for each instruction.
 ///
 bool X86IntelAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
-  this->MF = &MF;
   SetupMachineFunction(MF);
   O << "\n\n";
 

@@ -30,11 +30,11 @@ namespace llvm
       /// also more likely to deadlock (same thread can't acquire more than
       /// once).
       /// @brief Default Constructor.
-      explicit Mutex(bool recursive = true);
+      Mutex ( bool recursive = true );
 
       /// Releases and removes the lock
       /// @brief Destructor
-      ~Mutex();
+      ~Mutex ( void );
 
     /// @}
     /// @name Methods
@@ -52,7 +52,7 @@ namespace llvm
       /// lock.
       /// @returns false if any kind of error occurs, true otherwise.
       /// @brief Unconditionally release the lock.
-      bool release();
+      bool release(void);
 
       /// Attempts to acquire the lock without blocking. If the lock is not
       /// available, this function returns false quickly (without blocking). If

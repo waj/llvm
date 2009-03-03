@@ -23,7 +23,6 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/Module.h"
 #include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/CodeGen/DwarfWriter.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -46,12 +45,13 @@ using namespace llvm;
 STATISTIC(EmittedInsts, "Number of machine instrs printed");
 
 namespace {
-  class VISIBILITY_HIDDEN MipsAsmPrinter : public AsmPrinter {
+  struct VISIBILITY_HIDDEN MipsAsmPrinter : public AsmPrinter {
+
     const MipsSubtarget *Subtarget;
-  public:
+
     MipsAsmPrinter(raw_ostream &O, MipsTargetMachine &TM, 
-                   const TargetAsmInfo *T, bool F)
-      : AsmPrinter(O, TM, T, F) {
+                   const TargetAsmInfo *T): 
+                   AsmPrinter(O, TM, T) {
       Subtarget = &TM.getSubtarget<MipsSubtarget>();
     }
 
@@ -90,9 +90,9 @@ namespace {
 /// using the given target machine description.  This should work
 /// regardless of whether the function is in SSA form.
 FunctionPass *llvm::createMipsCodePrinterPass(raw_ostream &o,
-                                              MipsTargetMachine &tm,
-                                              bool fast) {
-  return new MipsAsmPrinter(o, tm, tm.getTargetAsmInfo(), fast);
+                                              MipsTargetMachine &tm) 
+{
+  return new MipsAsmPrinter(o, tm, tm.getTargetAsmInfo());
 }
 
 //===----------------------------------------------------------------------===//
@@ -265,8 +265,6 @@ emitFunctionEnd(MachineFunction &MF)
 bool MipsAsmPrinter::
 runOnMachineFunction(MachineFunction &MF) 
 {
-  this->MF = &MF;
-
   SetupMachineFunction(MF);
 
   // Print out constants referenced by the function
