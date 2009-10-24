@@ -1,5 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse42 -disable-mmx | FileCheck %s
-; CHECK: jne
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse42 -disable-mmx -o %t -f
 
 ; widening select v6i32 and then a sub
 

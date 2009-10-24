@@ -1,5 +1,5 @@
 ; Ignore stderr, we expect warnings there
-; RUN: opt < %s -instcombine 2> /dev/null -S | not grep bitcast
+; RUN: llvm-as < %s 2> /dev/null | opt -instcombine | llvm-dis | not grep bitcast
 
 define void @a() {
 	ret void

@@ -25,7 +25,7 @@ namespace llvm {
   class MachineFunction;
   class MachineModuleInfo;
   class Module;
-  class MCAsmInfo;
+  class TargetAsmInfo;
   class TargetData;
   class TargetRegisterInfo;
 
@@ -43,9 +43,9 @@ namespace llvm {
     ///
     AsmPrinter *Asm;
 
-    /// MAI - Target asm information.
+    /// TAI - Target asm information.
     /// 
-    const MCAsmInfo *MAI;
+    const TargetAsmInfo *TAI;
 
     /// TD - Target data.
     /// 
@@ -80,7 +80,7 @@ namespace llvm {
     /// 
     unsigned SetCounter;
 
-    Dwarf(raw_ostream &OS, AsmPrinter *A, const MCAsmInfo *T,
+    Dwarf(raw_ostream &OS, AsmPrinter *A, const TargetAsmInfo *T,
           const char *flavor);
   public:
     //===------------------------------------------------------------------===//
@@ -88,7 +88,7 @@ namespace llvm {
     //
     const AsmPrinter *getAsm() const { return Asm; }
     MachineModuleInfo *getMMI() const { return MMI; }
-    const MCAsmInfo *getMCAsmInfo() const { return MAI; }
+    const TargetAsmInfo *getTargetAsmInfo() const { return TAI; }
     const TargetData *getTargetData() const { return TD; }
 
     void PrintRelDirective(bool Force32Bit = false,

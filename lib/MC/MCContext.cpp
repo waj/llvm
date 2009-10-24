@@ -8,11 +8,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/MC/MCContext.h"
+
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCValue.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/Twine.h"
 using namespace llvm;
 
 MCContext::MCContext() {
@@ -39,12 +38,6 @@ MCSymbol *MCContext::GetOrCreateSymbol(const StringRef &Name) {
   return Entry = new (*this) MCSymbol(Name, false);
 }
 
-MCSymbol *MCContext::GetOrCreateSymbol(const Twine &Name) {
-  SmallString<128> NameSV;
-  Name.toVector(NameSV);
-  return GetOrCreateSymbol(NameSV.str());
-}
-
 
 MCSymbol *MCContext::CreateTemporarySymbol(const StringRef &Name) {
   // If unnamed, just create a symbol.
@@ -59,4 +52,21 @@ MCSymbol *MCContext::CreateTemporarySymbol(const StringRef &Name) {
 
 MCSymbol *MCContext::LookupSymbol(const StringRef &Name) const {
   return Symbols.lookup(Name);
+}
+
+void MCContext::ClearSymbolValue(MCSymbol *Sym) {
+  SymbolValues.erase(Sym);
+}
+
+void MCContext::SetSymbolValue(MCSymbol *Sym, const MCValue &Value) {
+  SymbolValues[Sym] = Value;
+}
+
+const MCValue *MCContext::GetSymbolValue(MCSymbol *Sym) const {
+  DenseMap<MCSymbol*, MCValue>::iterator it = SymbolValues.find(Sym);
+
+  if (it == SymbolValues.end())
+    return 0;
+
+  return &it->second;
 }

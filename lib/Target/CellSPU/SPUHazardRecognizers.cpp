@@ -20,7 +20,7 @@
 #include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -115,8 +115,7 @@ SPUHazardRecognizer::getHazardType(SUnit *SU)
   if (mustBeOdd && !EvenOdd)
     retval = Hazard;
 
-  DEBUG(errs() << "SPUHazardRecognizer EvenOdd " << EvenOdd << " Hazard "
-               << retval << "\n");
+  DOUT << "SPUHazardRecognizer EvenOdd " << EvenOdd << " Hazard " << retval << "\n";
   EvenOdd ^= 1;
   return retval;
 #else
@@ -130,7 +129,7 @@ void SPUHazardRecognizer::EmitInstruction(SUnit *SU)
 
 void SPUHazardRecognizer::AdvanceCycle()
 {
-  DEBUG(errs() << "SPUHazardRecognizer::AdvanceCycle\n");
+  DOUT << "SPUHazardRecognizer::AdvanceCycle\n";
 }
 
 void SPUHazardRecognizer::EmitNoop()

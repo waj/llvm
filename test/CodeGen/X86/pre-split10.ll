@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse2 -pre-alloc-split
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse2 -pre-alloc-split
 
 define i32 @main(i32 %argc, i8** %argv) nounwind {
 entry:

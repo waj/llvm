@@ -65,8 +65,7 @@ public:
   }
 
   PointerTy getPointer() const {
-    return PtrTraits::getFromVoidPointer(
-                         reinterpret_cast<void*>(Value & PointerBitMask));
+    return reinterpret_cast<PointerTy>(Value & PointerBitMask);
   }
 
   IntType getInt() const {
@@ -74,8 +73,7 @@ public:
   }
 
   void setPointer(PointerTy Ptr) {
-    intptr_t PtrVal
-      = reinterpret_cast<intptr_t>(PtrTraits::getAsVoidPointer(Ptr));
+    intptr_t PtrVal = reinterpret_cast<intptr_t>(Ptr);
     assert((PtrVal & ((1 << PtrTraits::NumLowBitsAvailable)-1)) == 0 &&
            "Pointer is not sufficiently aligned");
     // Preserve all low bits, just update the pointer.
@@ -143,7 +141,8 @@ public:
     return PointerIntPair<PointerTy, IntBits, IntType>::getFromOpaqueValue(P);
   }
   enum {
-    NumLowBitsAvailable = PtrTraits::NumLowBitsAvailable - IntBits
+    NumLowBitsAvailable = 
+           PointerLikeTypeTraits<PointerTy>::NumLowBitsAvailable - IntBits
   };
 };
 

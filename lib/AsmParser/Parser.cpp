@@ -21,24 +21,6 @@
 #include <cstring>
 using namespace llvm;
 
-Module *llvm::ParseAssembly(MemoryBuffer *F,
-                            Module *M,
-                            SMDiagnostic &Err,
-                            LLVMContext &Context) {
-  SourceMgr SM;
-  SM.AddNewSourceBuffer(F, SMLoc());
-
-  // If we are parsing into an existing module, do it.
-  if (M)
-    return LLParser(F, SM, Err, M).Run() ? 0 : M;
-
-  // Otherwise create a new module.
-  OwningPtr<Module> M2(new Module(F->getBufferIdentifier(), Context));
-  if (LLParser(F, SM, Err, M2.get()).Run())
-    return 0;
-  return M2.take();
-}
-
 Module *llvm::ParseAssemblyFile(const std::string &Filename, SMDiagnostic &Err,
                                 LLVMContext &Context) {
   std::string ErrorStr;
@@ -49,7 +31,13 @@ Module *llvm::ParseAssemblyFile(const std::string &Filename, SMDiagnostic &Err,
     return 0;
   }
 
-  return ParseAssembly(F, 0, Err, Context);
+  SourceMgr SM;
+  SM.AddNewSourceBuffer(F, SMLoc());
+  
+  OwningPtr<Module> M(new Module(Filename, Context));
+  if (LLParser(F, SM, Err, M.get()).Run())
+    return 0;
+  return M.take();
 }
 
 Module *llvm::ParseAssemblyString(const char *AsmString, Module *M,
@@ -57,6 +45,17 @@ Module *llvm::ParseAssemblyString(const char *AsmString, Module *M,
   MemoryBuffer *F =
     MemoryBuffer::getMemBuffer(AsmString, AsmString+strlen(AsmString),
                                "<string>");
+  
+  SourceMgr SM;
+  SM.AddNewSourceBuffer(F, SMLoc());
 
-  return ParseAssembly(F, M, Err, Context);
+  // If we are parsing into an existing module, do it.
+  if (M)
+    return LLParser(F, SM, Err, M).Run() ? 0 : M;
+
+  // Otherwise create a new module.
+  OwningPtr<Module> M2(new Module("<string>", Context));
+  if (LLParser(F, SM, Err, M2.get()).Run())
+    return 0;
+  return M2.take();
 }

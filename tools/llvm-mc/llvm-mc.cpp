@@ -12,13 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/MC/MCAsmLexer.h"
 #include "llvm/MC/MCContext.h"
-#include "llvm/MC/MCCodeEmitter.h"
-#include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/ADT/OwningPtr.h"
+#include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -29,7 +27,6 @@
 #include "llvm/System/Signals.h"
 #include "llvm/Target/TargetAsmParser.h"
 #include "llvm/Target/TargetRegistry.h"
-#include "llvm/Target/TargetMachine.h"  // FIXME.
 #include "llvm/Target/TargetSelect.h"
 #include "AsmParser.h"
 using namespace llvm;
@@ -40,13 +37,6 @@ InputFilename(cl::Positional, cl::desc("<input file>"), cl::init("-"));
 static cl::opt<std::string>
 OutputFilename("o", cl::desc("Output filename"),
                cl::value_desc("filename"));
-
-static cl::opt<bool>
-ShowEncoding("show-encoding", cl::desc("Show instruction encodings"));
-
-static cl::opt<unsigned>
-OutputAsmVariant("output-asm-variant",
-                 cl::desc("Syntax variant to use for output printing"));
 
 enum OutputFileType {
   OFT_AssemblyFile,
@@ -63,7 +53,7 @@ FileType("filetype", cl::init(OFT_AssemblyFile),
        clEnumValEnd));
 
 static cl::opt<bool>
-Force("f", cl::desc("Enable binary output on terminals"));
+Force("f", cl::desc("Overwrite output files"));
 
 static cl::list<std::string>
 IncludeDirs("I", cl::desc("Directory of include files"),
@@ -88,18 +78,6 @@ Action(cl::desc("Action to perform:"),
                              "Assemble a .s file (default)"),
                   clEnumValEnd));
 
-static const Target *GetTarget(const char *ProgName) {
-  // Get the target specific parser.
-  std::string Error;
-  const Target *TheTarget = TargetRegistry::lookupTarget(TripleName, Error);
-  if (TheTarget)
-    return TheTarget;
-
-  errs() << ProgName << ": error: unable to get target for '" << TripleName
-         << "', see --version and --triple.\n";
-  return 0;
-}
-
 static int AsLexInput(const char *ProgName) {
   std::string ErrorMessage;
   MemoryBuffer *Buffer = MemoryBuffer::getFileOrSTDIN(InputFilename,
@@ -122,14 +100,7 @@ static int AsLexInput(const char *ProgName) {
   // it later.
   SrcMgr.setIncludeDirs(IncludeDirs);
 
-  const Target *TheTarget = GetTarget(ProgName);
-  if (!TheTarget)
-    return 1;
-
-  const MCAsmInfo *MAI = TheTarget->createAsmInfo(TripleName);
-  assert(MAI && "Unable to create target asm info!");
-
-  AsmLexer Lexer(SrcMgr, *MAI);
+  AsmLexer Lexer(SrcMgr);
   
   bool Error = false;
   
@@ -144,6 +115,9 @@ static int AsLexInput(const char *ProgName) {
       break;
     case AsmToken::Identifier:
       outs() << "identifier: " << Lexer.getTok().getString() << '\n';
+      break;
+    case AsmToken::Register:
+      outs() << "register: " << Lexer.getTok().getString() << '\n';
       break;
     case AsmToken::String:
       outs() << "string: " << Lexer.getTok().getString() << '\n';
@@ -187,20 +161,33 @@ static int AsLexInput(const char *ProgName) {
   return Error;
 }
 
+static const Target *GetTarget(const char *ProgName) {
+  // Get the target specific parser.
+  std::string Error;
+  const Target *TheTarget = TargetRegistry::lookupTarget(TripleName, Error);
+  if (TheTarget)
+    return TheTarget;
+
+  errs() << ProgName << ": error: unable to get target for '" << TripleName
+         << "', see --version and --triple.\n";
+  return 0;
+}
+
 static formatted_raw_ostream *GetOutputStream() {
-  if (OutputFilename == "")
-    OutputFilename = "-";
+  if (OutputFilename == "" || OutputFilename == "-")
+    return &fouts();
 
   // Make sure that the Out file gets unlinked from the disk if we get a
-  // SIGINT.
-  if (OutputFilename != "-")
-    sys::RemoveFileOnSignal(sys::Path(OutputFilename));
+  // SIGINT
+  sys::RemoveFileOnSignal(sys::Path(OutputFilename));
 
   std::string Err;
-  raw_fd_ostream *Out = new raw_fd_ostream(OutputFilename.c_str(), Err,
-                                           raw_fd_ostream::F_Binary);
+  raw_fd_ostream *Out = new raw_fd_ostream(OutputFilename.c_str(),
+                                           /*Binary=*/false, Force, Err);
   if (!Err.empty()) {
     errs() << Err << '\n';
+    if (!Force)
+      errs() << "Use -f command line argument to force output\n";
     delete Out;
     return 0;
   }
@@ -248,25 +235,27 @@ static int AssembleInput(const char *ProgName) {
     return 1;
   }
 
-  OwningPtr<MCInstPrinter> IP;
-  OwningPtr<MCCodeEmitter> CE;
+  OwningPtr<AsmPrinter> AP;
   OwningPtr<MCStreamer> Str;
 
-  const MCAsmInfo *MAI = TheTarget->createAsmInfo(TripleName);
-  assert(MAI && "Unable to create target asm info!");
-
   if (FileType == OFT_AssemblyFile) {
-    IP.reset(TheTarget->createMCInstPrinter(OutputAsmVariant, *MAI, *Out));
-    if (ShowEncoding)
-      CE.reset(TheTarget->createCodeEmitter(*TM));
-    Str.reset(createAsmStreamer(Ctx, *Out, *MAI, IP.get(), CE.get()));
+    const TargetAsmInfo *TAI = TheTarget->createAsmInfo(TripleName);
+    assert(TAI && "Unable to create target asm info!");
+
+    AP.reset(TheTarget->createAsmPrinter(*Out, *TM, TAI, true));
+    Str.reset(createAsmStreamer(Ctx, *Out, *TAI, AP.get()));
   } else {
     assert(FileType == OFT_ObjectFile && "Invalid file type!");
-    CE.reset(TheTarget->createCodeEmitter(*TM));
-    Str.reset(createMachOStreamer(Ctx, *Out, CE.get()));
+    Str.reset(createMachOStreamer(Ctx, *Out));
   }
 
-  AsmParser Parser(SrcMgr, Ctx, *Str.get(), *MAI);
+  // FIXME: Target hook & command line option for initial section.
+  Str.get()->SwitchSection(MCSectionMachO::Create("__TEXT","__text",
+                                       MCSectionMachO::S_ATTR_PURE_INSTRUCTIONS,
+                                                  0, SectionKind::getText(),
+                                                  Ctx));
+
+  AsmParser Parser(SrcMgr, Ctx, *Str.get());
   OwningPtr<TargetAsmParser> TAP(TheTarget->createAsmParser(Parser));
   if (!TAP) {
     errs() << ProgName 

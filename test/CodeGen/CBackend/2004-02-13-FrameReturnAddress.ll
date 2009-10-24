@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c | grep builtin_return_address
+; RUN: llvm-as < %s | llc -march=c | grep builtin_return_address
 
 declare i8* @llvm.returnaddress(i32)
 

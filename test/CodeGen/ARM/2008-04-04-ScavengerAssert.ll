@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=arm-apple-darwin
+; RUN: llvm-as < %s | llc -mtriple=arm-apple-darwin
 
 @numBinsY = external global i32		; <i32*> [#uses=1]
 

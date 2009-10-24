@@ -1,6 +1,6 @@
-; RUN: opt < %s -instcombine -S | \
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | \
 ; RUN:   grep icmp | count 1
-; RUN: opt < %s -instcombine -S | \
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | \
 ; RUN:   grep {icmp ugt} | count 1
 ; END.
 

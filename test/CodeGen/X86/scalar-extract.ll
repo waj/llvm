@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+mmx -o %t
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+mmx -o %t -f
 ; RUN: not grep movq  %t
 
 ; Check that widening doesn't introduce a mmx register in this case when

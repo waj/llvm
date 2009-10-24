@@ -29,7 +29,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileUtilities.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/System/Path.h"
 #include "llvm/System/Signals.h"
 #include <set>
@@ -37,7 +36,6 @@ using namespace llvm;
 
 namespace llvm {
   bool DisableSimplifyCFG = false;
-  extern cl::opt<std::string> OutputPrefix;
 } // End llvm namespace
 
 namespace {
@@ -189,8 +187,8 @@ static Constant *GetTorInit(std::vector<std::pair<Function*, int> > &TorList) {
     Elts.push_back(ConstantInt::get(
           Type::getInt32Ty(TorList[i].first->getContext()), TorList[i].second));
     Elts.push_back(TorList[i].first);
-    ArrayElts.push_back(ConstantStruct::get(TorList[i].first->getContext(),
-                                            Elts, false));
+    ArrayElts.push_back(ConstantStruct::get(
+                                        TorList[i].first->getContext(), Elts));
   }
   return ConstantArray::get(ArrayType::get(ArrayElts[0]->getType(), 
                                            ArrayElts.size()),
@@ -325,7 +323,7 @@ Module *BugDriver::ExtractMappedBlocksFromModule(const
                                                  Module *M) {
   char *ExtraArg = NULL;
 
-  sys::Path uniqueFilename(OutputPrefix + "-extractblocks");
+  sys::Path uniqueFilename("bugpoint-extractblocks");
   std::string ErrMsg;
   if (uniqueFilename.createTemporaryFileOnDisk(true, &ErrMsg)) {
     outs() << "*** Basic Block extraction failed!\n";
@@ -338,7 +336,9 @@ Module *BugDriver::ExtractMappedBlocksFromModule(const
   sys::RemoveFileOnSignal(uniqueFilename);
 
   std::string ErrorInfo;
-  raw_fd_ostream BlocksToNotExtractFile(uniqueFilename.c_str(), ErrorInfo);
+  raw_fd_ostream BlocksToNotExtractFile(uniqueFilename.c_str(),
+                                        /*Binary=*/false, /*Force=*/true,
+                                        ErrorInfo);
   if (!ErrorInfo.empty()) {
     outs() << "*** Basic Block extraction failed!\n";
     errs() << "Error writing list of blocks to not extract: " << ErrorInfo

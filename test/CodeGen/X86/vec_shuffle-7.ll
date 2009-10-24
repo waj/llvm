@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse2 -o %t
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse2 -o %t  -f
 ; RUN: grep xorps %t | count 1
 ; RUN: not grep shufps %t
 

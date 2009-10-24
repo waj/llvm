@@ -1,5 +1,5 @@
 ; Test that the ToAsciiOptimizer works correctly
-; RUN: opt < %s -simplify-libcalls -S | \
+; RUN: llvm-as < %s | opt -simplify-libcalls | llvm-dis | \
 ; RUN:   not grep {call.*toascii}
 
 declare i32 @toascii(i32)

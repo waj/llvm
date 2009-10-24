@@ -1,4 +1,4 @@
-##===- lib/Target/MSP430/AsmPrinter/Makefile ---------------*- Makefile -*-===##
+##===- lib/Target/MSP430/Makefile --------------------------*- Makefile -*-===##
 #
 #                     The LLVM Compiler Infrastructure
 #

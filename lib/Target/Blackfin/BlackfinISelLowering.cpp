@@ -119,6 +119,7 @@ BlackfinTargetLowering::BlackfinTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::DEBUG_LOC, MVT::Other, Expand);
   setOperationAction(ISD::DBG_LABEL, MVT::Other, Expand);
   setOperationAction(ISD::EH_LABEL, MVT::Other, Expand);
+  setOperationAction(ISD::DECLARE, MVT::Other, Expand);
 
   // Use the default implementation.
   setOperationAction(ISD::VACOPY, MVT::Other, Expand);
@@ -161,7 +162,7 @@ SDValue BlackfinTargetLowering::LowerJumpTable(SDValue Op, SelectionDAG &DAG) {
 
 SDValue
 BlackfinTargetLowering::LowerFormalArguments(SDValue Chain,
-                                             CallingConv::ID CallConv, bool isVarArg,
+                                             unsigned CallConv, bool isVarArg,
                                             const SmallVectorImpl<ISD::InputArg>
                                                &Ins,
                                              DebugLoc dl, SelectionDAG &DAG,
@@ -173,7 +174,7 @@ BlackfinTargetLowering::LowerFormalArguments(SDValue Chain,
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, getTargetMachine(),
                  ArgLocs, *DAG.getContext());
-  CCInfo.AllocateStack(12, 4);  // ABI requires 12 bytes stack space
+  CCInfo.AllocateStack(12, 4);	// ABI requires 12 bytes stack space
   CCInfo.AnalyzeFormalArguments(Ins, CC_Blackfin);
 
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
@@ -206,7 +207,7 @@ BlackfinTargetLowering::LowerFormalArguments(SDValue Chain,
       InVals.push_back(ArgValue);
     } else {
       assert(VA.isMemLoc() && "CCValAssign must be RegLoc or MemLoc");
-      unsigned ObjSize = VA.getLocVT().getStoreSize();
+      unsigned ObjSize = VA.getLocVT().getStoreSizeInBits()/8;
       int FI = MFI->CreateFixedObject(ObjSize, VA.getLocMemOffset());
       SDValue FIN = DAG.getFrameIndex(FI, MVT::i32);
       InVals.push_back(DAG.getLoad(VA.getValVT(), dl, Chain, FIN, NULL, 0));
@@ -218,7 +219,7 @@ BlackfinTargetLowering::LowerFormalArguments(SDValue Chain,
 
 SDValue
 BlackfinTargetLowering::LowerReturn(SDValue Chain,
-                                    CallingConv::ID CallConv, bool isVarArg,
+                                    unsigned CallConv, bool isVarArg,
                                     const SmallVectorImpl<ISD::OutputArg> &Outs,
                                     DebugLoc dl, SelectionDAG &DAG) {
 
@@ -275,7 +276,7 @@ BlackfinTargetLowering::LowerReturn(SDValue Chain,
 
 SDValue
 BlackfinTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
-                                  CallingConv::ID CallConv, bool isVarArg,
+                                  unsigned CallConv, bool isVarArg,
                                   bool isTailCall,
                                   const SmallVectorImpl<ISD::OutputArg> &Outs,
                                   const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -286,7 +287,7 @@ BlackfinTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getTarget(), ArgLocs,
                  *DAG.getContext());
-  CCInfo.AllocateStack(12, 4);  // ABI requires 12 bytes stack space
+  CCInfo.AllocateStack(12, 4);	// ABI requires 12 bytes stack space
   CCInfo.AnalyzeCallOperands(Outs, CC_Blackfin);
 
   // Get the size of the outgoing arguments stack space requirement.
@@ -422,26 +423,26 @@ SDValue BlackfinTargetLowering::LowerADDE(SDValue Op, SelectionDAG &DAG) {
   unsigned Opcode = Op.getOpcode()==ISD::ADDE ? BF::ADD : BF::SUB;
 
   // zext incoming carry flag in AC0 to 32 bits
-  SDNode* CarryIn = DAG.getMachineNode(BF::MOVE_cc_ac0, dl, MVT::i32,
-                                       /* flag= */ Op.getOperand(2));
-  CarryIn = DAG.getMachineNode(BF::MOVECC_zext, dl, MVT::i32,
-                               SDValue(CarryIn, 0));
+  SDNode* CarryIn = DAG.getTargetNode(BF::MOVE_cc_ac0, dl, MVT::i32,
+                                      /* flag= */ Op.getOperand(2));
+  CarryIn = DAG.getTargetNode(BF::MOVECC_zext, dl, MVT::i32,
+                              SDValue(CarryIn, 0));
 
   // Add operands, produce sum and carry flag
-  SDNode *Sum = DAG.getMachineNode(Opcode, dl, MVT::i32, MVT::Flag,
-                                   Op.getOperand(0), Op.getOperand(1));
+  SDNode *Sum = DAG.getTargetNode(Opcode, dl, MVT::i32, MVT::Flag,
+                                  Op.getOperand(0), Op.getOperand(1));
 
   // Store intermediate carry from Sum
-  SDNode* Carry1 = DAG.getMachineNode(BF::MOVE_cc_ac0, dl, MVT::i32,
-                                      /* flag= */ SDValue(Sum, 1));
+  SDNode* Carry1 = DAG.getTargetNode(BF::MOVE_cc_ac0, dl, MVT::i32,
+                                     /* flag= */ SDValue(Sum, 1));
 
   // Add incoming carry, again producing an output flag
-  Sum = DAG.getMachineNode(Opcode, dl, MVT::i32, MVT::Flag,
-                           SDValue(Sum, 0), SDValue(CarryIn, 0));
+  Sum = DAG.getTargetNode(Opcode, dl, MVT::i32, MVT::Flag,
+                          SDValue(Sum, 0), SDValue(CarryIn, 0));
 
   // Update AC0 with the intermediate carry, producing a flag.
-  SDNode *CarryOut = DAG.getMachineNode(BF::OR_ac0_cc, dl, MVT::Flag,
-                                        SDValue(Carry1, 0));
+  SDNode *CarryOut = DAG.getTargetNode(BF::OR_ac0_cc, dl, MVT::Flag,
+                                       SDValue(Carry1, 0));
 
   // Compose (i32, flag) pair
   SDValue ops[2] = { SDValue(Sum, 0), SDValue(CarryOut, 0) };

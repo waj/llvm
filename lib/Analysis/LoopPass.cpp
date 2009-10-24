@@ -21,6 +21,7 @@ using namespace llvm;
 //
 
 char LPPassManager::ID = 0;
+/// LPPassManager manages FPPassManagers and CalLGraphSCCPasses.
 
 LPPassManager::LPPassManager(int Depth) 
   : FunctionPass(&ID), PMDataManager(Depth) { 
@@ -110,21 +111,17 @@ void LPPassManager::insertLoop(Loop *L, Loop *ParentLoop) {
   else
     LI->addTopLevelLoop(L);
 
-  insertLoopIntoQueue(L);
-}
-
-void LPPassManager::insertLoopIntoQueue(Loop *L) {
   // Insert L into loop queue
   if (L == CurrentLoop) 
     redoLoop(L);
-  else if (!L->getParentLoop())
+  else if (!ParentLoop)
     // This is top level loop. 
     LQ.push_front(L);
   else {
-    // Insert L after the parent loop.
+    // Insert L after ParentLoop
     for (std::deque<Loop *>::iterator I = LQ.begin(),
            E = LQ.end(); I != E; ++I) {
-      if (*I == L->getParentLoop()) {
+      if (*I == ParentLoop) {
         // deque does not support insert after.
         ++I;
         LQ.insert(I, 1, L);
@@ -220,66 +217,41 @@ bool LPPassManager::runOnFunction(Function &F) {
     skipThisLoop = false;
     redoThisLoop = false;
 
-    // Run all passes on the current Loop.
+    // Run all passes on current SCC
     for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {  
       Pass *P = getContainedPass(Index);
 
-      dumpPassInfo(P, EXECUTION_MSG, ON_LOOP_MSG,
-                   CurrentLoop->getHeader()->getNameStr());
+      dumpPassInfo(P, EXECUTION_MSG, ON_LOOP_MSG, "");
       dumpRequiredSet(P);
 
       initializeAnalysisImpl(P);
 
       LoopPass *LP = dynamic_cast<LoopPass *>(P);
-      assert(LP && "Invalid LPPassManager member");
       {
         PassManagerPrettyStackEntry X(LP, *CurrentLoop->getHeader());
-        Timer *T = StartPassTimer(P);
+        StartPassTimer(P);
+        assert(LP && "Invalid LPPassManager member");
         Changed |= LP->runOnLoop(CurrentLoop, *this);
-        StopPassTimer(P, T);
+        StopPassTimer(P);
       }
 
       if (Changed)
-        dumpPassInfo(P, MODIFICATION_MSG, ON_LOOP_MSG,
-                     skipThisLoop ? "<deleted>" :
-                                    CurrentLoop->getHeader()->getNameStr());
+        dumpPassInfo(P, MODIFICATION_MSG, ON_LOOP_MSG, "");
       dumpPreservedSet(P);
 
-      if (!skipThisLoop) {
-        // Manually check that this loop is still healthy. This is done
-        // instead of relying on LoopInfo::verifyLoop since LoopInfo
-        // is a function pass and it's really expensive to verify every
-        // loop in the function every time. That level of checking can be
-        // enabled with the -verify-loop-info option.
-        Timer *T = StartPassTimer(LI);
-        CurrentLoop->verifyLoop();
-        StopPassTimer(LI, T);
-
-        // Then call the regular verifyAnalysis functions.
-        verifyPreservedAnalysis(LP);
-      }
-
+      verifyPreservedAnalysis(LP);
       removeNotPreservedAnalysis(P);
       recordAvailableAnalysis(P);
-      removeDeadPasses(P,
-                       skipThisLoop ? "<deleted>" :
-                                      CurrentLoop->getHeader()->getNameStr(),
-                       ON_LOOP_MSG);
+      removeDeadPasses(P, "", ON_LOOP_MSG);
+
+      // If dominator information is available then verify the info if requested.
+      verifyDomInfo(*LP, F);
 
       if (skipThisLoop)
         // Do not run other passes on this loop.
         break;
     }
     
-    // If the loop was deleted, release all the loop passes. This frees up
-    // some memory, and avoids trouble with the pass manager trying to call
-    // verifyAnalysis on them.
-    if (skipThisLoop)
-      for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {  
-        Pass *P = getContainedPass(Index);
-        freePass(P, "<deleted>", ON_LOOP_MSG);
-      }
-
     // Pop the loop from queue after running all passes.
     LQ.pop_back();
     
@@ -300,7 +272,7 @@ bool LPPassManager::runOnFunction(Function &F) {
 
 /// Print passes managed by this manager
 void LPPassManager::dumpPassStructure(unsigned Offset) {
-  errs().indent(Offset*2) << "Loop Pass Manager\n";
+  llvm::cerr << std::string(Offset*2, ' ') << "Loop Pass Manager\n";
   for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
     Pass *P = getContainedPass(Index);
     P->dumpPassStructure(Offset + 1);

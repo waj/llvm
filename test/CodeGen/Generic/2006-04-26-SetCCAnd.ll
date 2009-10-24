@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; PR748
 @G = external global i16		; <i16*> [#uses=1]
 

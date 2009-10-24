@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+mmx
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+mmx
 
 ;; A basic sanity check to make sure that MMX arithmetic actually compiles.
 

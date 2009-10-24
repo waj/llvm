@@ -1,12 +1,6 @@
-; RUN: llc -mtriple=i386-apple-darwin10.0 -relocation-model=pic \
-; RUN:     -disable-fp-elim -mattr=-sse41,-sse3,+sse2 -post-RA-scheduler=false < %s | \
-; RUN:   FileCheck %s
+; RUN: llvm-as < %s | llc -mtriple=i386-apple-darwin10.0 -relocation-model=pic -disable-fp-elim -mattr=-sse41,-sse3,+sse2 | \
+; RUN:   %prcontext {14} 2 | grep {(%ebp)} | count 1
 ; rdar://6808032
-
-; CHECK: pextrw $14
-; CHECK-NEXT: movzbl
-; CHECK-NEXT: (%ebp)
-; CHECK-NEXT: pinsrw
 
 define void @update(i8** %args_list) nounwind {
 entry:

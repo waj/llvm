@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86-64 | FileCheck %s
+; RUN: llvm-as < %s | llc -march=x86-64 | FileCheck %s
 
 @var = external global i64		; <i64*> [#uses=1]
 

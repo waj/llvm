@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars -disable-output
+; RUN: llvm-as < %s | opt -indvars -disable-output
 
 ; Don't RAUW the loop's original comparison instruction if it has
 ; other uses which aren't dominated by the new comparison instruction.

@@ -108,7 +108,7 @@ Module *llvm::CloneModule(const Module *M,
         ValueMap[J] = DestI++;
       }
 
-      SmallVector<ReturnInst*, 8> Returns;  // Ignore returns cloned.
+      std::vector<ReturnInst*> Returns;  // Ignore returns cloned...
       CloneFunctionInto(F, I, ValueMap, Returns);
     }
 

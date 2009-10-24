@@ -63,7 +63,16 @@ void formatted_raw_ostream::PadToColumn(unsigned NewCol) {
   ComputeColumn(getBufferStart(), GetNumBytesInBuffer());
 
   // Output spaces until we reach the desired column.
-  indent(std::max(int(NewCol - ColumnScanned), 1));
+  unsigned num = NewCol - ColumnScanned;
+  if (NewCol < ColumnScanned || num < 1)
+    num = 1;
+
+  // Keep a buffer of spaces handy to speed up processing.
+  const char *Spaces = "                                                      "
+    "                                                                         ";
+
+  assert(num < MAX_COLUMN_PAD && "Unexpectedly large column padding");
+  write(Spaces, num);
 }
 
 void formatted_raw_ostream::write_impl(const char *Ptr, size_t Size) {

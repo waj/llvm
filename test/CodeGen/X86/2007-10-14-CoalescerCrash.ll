@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=x86_64-apple-darwin
+; RUN: llvm-as < %s | llc -mtriple=x86_64-apple-darwin
 
         %struct._Unwind_Context = type {  }
 

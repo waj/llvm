@@ -1,6 +1,6 @@
 ; This test case is reduced from llvmAsmParser.cpp
 ; The optimizer should not remove the cast here.
-; RUN: opt < %s -instcombine -S | \
+; RUN: llvm-as %s -o - | opt -instcombine | llvm-dis | \
 ; RUN:    grep sext.*i32
 
 

@@ -1,4 +1,4 @@
-; RUN: opt < %s -globalopt -S | not grep global
+; RUN: llvm-as < %s | opt -globalopt | llvm-dis | not grep global
 
 @G = internal global { i32, float, { double } } {
     i32 1, 

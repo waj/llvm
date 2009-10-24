@@ -1,4 +1,4 @@
-; RUN: opt < %s -lowerswitch
+; RUN: llvm-as < %s | opt -lowerswitch
 
 define void @child(i32 %ct.1) {
 entry:

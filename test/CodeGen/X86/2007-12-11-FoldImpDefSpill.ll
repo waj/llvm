@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=i686-apple-darwin | not grep IMPLICIT_DEF
+; RUN: llvm-as < %s | llc -mtriple=i686-apple-darwin | not grep IMPLICIT_DEF
 
 	%struct.__sbuf = type { i8*, i32 }
 	%struct.ggBRDF = type { i32 (...)** }

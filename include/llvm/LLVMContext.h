@@ -18,7 +18,6 @@
 namespace llvm {
 
 class LLVMContextImpl;
-class MetadataContext;
 
 /// This is an important class for using LLVM in a threaded context.  It
 /// (opaquely) owns and manages the core "global" data of LLVM's core 
@@ -29,10 +28,9 @@ class LLVMContext {
   // DO NOT IMPLEMENT
   LLVMContext(LLVMContext&);
   void operator=(LLVMContext&);
-
 public:
-  LLVMContextImpl* const pImpl;
-  MetadataContext &getMetadata();
+  LLVMContextImpl* pImpl;
+  bool RemoveDeadMetadata();
   LLVMContext();
   ~LLVMContext();
 };

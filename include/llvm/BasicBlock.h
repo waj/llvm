@@ -47,7 +47,7 @@ template<> struct ilist_traits<Instruction>
   Instruction *ensureHead(Instruction*) const { return createSentinel(); }
   static void noteHead(Instruction*, Instruction*) {}
 private:
-  mutable ilist_half_node<Instruction> Sentinel;
+  mutable ilist_node<Instruction> Sentinel;
 };
 
 /// This represents a single basic block in LLVM. A basic block is simply a
@@ -230,9 +230,6 @@ public:
   /// terminator), and 'I' must not be the end of instruction list (which would
   /// cause a degenerate basic block to be formed, having a terminator inside of
   /// the basic block).
-  ///
-  /// Also note that this doesn't preserve any passes. To split blocks while
-  /// keeping loop information consistent, use the SplitBlock utility function.
   ///
   BasicBlock *splitBasicBlock(iterator I, const Twine &BBName = "");
 };

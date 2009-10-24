@@ -1,4 +1,4 @@
-; RUN: llvm-as %s -o /dev/null
+; RUN: llvm-as %s -o /dev/null -f
 
 @X = external global i32*
 @X1 = external global %T* 

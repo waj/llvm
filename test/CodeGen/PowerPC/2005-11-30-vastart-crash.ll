@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 target datalayout = "E-p:32:32"
 target triple = "powerpc-apple-darwin8.2.0"

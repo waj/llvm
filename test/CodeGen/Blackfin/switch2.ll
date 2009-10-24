@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=bfin -verify-machineinstrs > %t
+; RUN: llvm-as < %s | llc -march=bfin -verify-machineinstrs > %t
 
 define i8* @FindChar(i8* %CurPtr) {
 entry:

@@ -1,6 +1,6 @@
-; RUN: llc < %s -march=x86 -relocation-model=static | \
+; RUN: llvm-as < %s | llc -march=x86 -relocation-model=static | \
 ; RUN:   grep {test1 \$_GV}
-; RUN: llc < %s -march=x86 -relocation-model=static | \
+; RUN: llvm-as < %s | llc -march=x86 -relocation-model=static | \
 ; RUN:   grep {test2 _GV}
 ; PR882
 

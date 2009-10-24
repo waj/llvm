@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=x86_64-apple-darwin
+; RUN: llvm-as < %s | llc -mtriple=x86_64-apple-darwin
 ; rdar://r6661945
 
 	%struct.WINDOW = type { i16, i16, i16, i16, i16, i16, i16, i32, i32, i8, i8, i8, i8, i8, i8, i8, i8, i8, i32, %struct.ldat*, i16, i16, i32, i32, %struct.WINDOW*, %struct.pdat, i16, %struct.cchar_t }

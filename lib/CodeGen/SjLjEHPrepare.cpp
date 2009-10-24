@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/CommandLine.h"
@@ -50,7 +51,8 @@ namespace {
     Constant *FrameAddrFn;
     Constant *LSDAAddrFn;
     Value *PersonalityFn;
-    Constant *SelectorFn;
+    Constant *Selector32Fn;
+    Constant *Selector64Fn;
     Constant *ExceptionFn;
 
     Value *CallSite;
@@ -68,8 +70,7 @@ namespace {
 
   private:
     void markInvokeCallSite(InvokeInst *II, unsigned InvokeNo,
-                            Value *CallSite,
-                            SwitchInst *CatchSwitch);
+                            Value *CallSite);
     void splitLiveRangesLiveAcrossInvokes(SmallVector<InvokeInst*,16> &Invokes);
     bool insertSjLjEHSupport(Function &F);
   };
@@ -81,13 +82,13 @@ char SjLjEHPass::ID = 0;
 FunctionPass *llvm::createSjLjEHPass(const TargetLowering *TLI) {
   return new SjLjEHPass(TLI);
 }
-// doInitialization - Set up decalarations and types needed to process
-// exceptions.
+// doInitialization - Make sure that there is a prototype for abort in the
+// current module.
 bool SjLjEHPass::doInitialization(Module &M) {
   // Build the function context structure.
   // builtin_setjmp uses a five word jbuf
   const Type *VoidPtrTy =
-          Type::getInt8PtrTy(M.getContext());
+          PointerType::getUnqual(Type::getInt8Ty(M.getContext()));
   const Type *Int32Ty = Type::getInt32Ty(M.getContext());
   FunctionContextTy =
     StructType::get(M.getContext(),
@@ -115,23 +116,18 @@ bool SjLjEHPass::doInitialization(Module &M) {
   FrameAddrFn = Intrinsic::getDeclaration(&M, Intrinsic::frameaddress);
   BuiltinSetjmpFn = Intrinsic::getDeclaration(&M, Intrinsic::eh_sjlj_setjmp);
   LSDAAddrFn = Intrinsic::getDeclaration(&M, Intrinsic::eh_sjlj_lsda);
-  SelectorFn = Intrinsic::getDeclaration(&M, Intrinsic::eh_selector);
+  Selector32Fn = Intrinsic::getDeclaration(&M, Intrinsic::eh_selector_i32);
+  Selector64Fn = Intrinsic::getDeclaration(&M, Intrinsic::eh_selector_i64);
   ExceptionFn = Intrinsic::getDeclaration(&M, Intrinsic::eh_exception);
-  PersonalityFn = 0;
 
   return true;
 }
 
 /// markInvokeCallSite - Insert code to mark the call_site for this invoke
 void SjLjEHPass::markInvokeCallSite(InvokeInst *II, unsigned InvokeNo,
-                                    Value *CallSite,
-                                    SwitchInst *CatchSwitch) {
+                                    Value *CallSite) {
   ConstantInt *CallSiteNoC= ConstantInt::get(Type::getInt32Ty(II->getContext()),
                                             InvokeNo);
-  // The runtime comes back to the dispatcher with the call_site - 1 in
-  // the context. Odd, but there it is.
-  ConstantInt *SwitchValC = ConstantInt::get(Type::getInt32Ty(II->getContext()),
-                                            InvokeNo - 1);
 
   // If the unwind edge has phi nodes, split the edge.
   if (isa<PHINode>(II->getUnwindDest()->begin())) {
@@ -148,8 +144,6 @@ void SjLjEHPass::markInvokeCallSite(InvokeInst *II, unsigned InvokeNo,
   // location afterward.
   new StoreInst(CallSiteNoC, CallSite, true, II);  // volatile
 
-  // Add a switch case to our unwind block.
-  CatchSwitch->addCase(SwitchValC, II->getUnwindDest());
   // We still want this to look like an invoke so we emit the LSDA properly
   // FIXME: ??? Or will this cause strangeness with mis-matched IDs like
   //  when it was in the front end?
@@ -286,42 +280,13 @@ bool SjLjEHPass::insertSjLjEHSupport(Function &F) {
   // If we don't have any invokes or unwinds, there's nothing to do.
   if (Unwinds.empty() && Invokes.empty()) return false;
 
-  // Find the eh.selector.*  and eh.exception calls. We'll use the first
-  // eh.selector to determine the right personality function to use. For
-  // SJLJ, we always use the same personality for the whole function,
-  // not on a per-selector basis.
-  // FIXME: That's a bit ugly. Better way?
-  SmallVector<CallInst*,16> EH_Selectors;
-  SmallVector<CallInst*,16> EH_Exceptions;
-  for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB) {
-    for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
-      if (CallInst *CI = dyn_cast<CallInst>(I)) {
-        if (CI->getCalledFunction() == SelectorFn) {
-          if (!PersonalityFn) PersonalityFn = CI->getOperand(2);
-          EH_Selectors.push_back(CI);
-        } else if (CI->getCalledFunction() == ExceptionFn) {
-          EH_Exceptions.push_back(CI);
-        }
-      }
-    }
-  }
-  // If we don't have any eh.selector calls, we can't determine the personality
-  // function. Without a personality function, we can't process exceptions.
-  if (!PersonalityFn) return false;
-
   NumInvokes += Invokes.size();
   NumUnwinds += Unwinds.size();
+
 
   if (!Invokes.empty()) {
     // We have invokes, so we need to add register/unregister calls to get
     // this function onto the global unwind stack.
-    //
-    // First thing we need to do is scan the whole function for values that are
-    // live across unwind edges.  Each value that is live across an unwind edge
-    // we spill into a stack location, guaranteeing that there is nothing live
-    // across the unwind edge.  This process also splits all critical edges
-    // coming out of invoke's.
-    splitLiveRangesLiveAcrossInvokes(Invokes);
 
     BasicBlock *EntryBB = F.begin();
     // Create an alloca for the incoming jump buffer ptr and the new jump buffer
@@ -357,6 +322,26 @@ bool SjLjEHPass::insertSjLjEHSupport(Function &F) {
                                                      "exception_gep",
                                                      EntryBB->getTerminator());
 
+    // Find the eh.selector.*  and eh.exception calls. We'll use the first
+    // ex.selector to determine the right personality function to use. For
+    // SJLJ, we always use the same personality for the whole function,
+    // not on a per-selector basis.
+    // FIXME: That's a bit ugly. Better way?
+    SmallVector<CallInst*,16> EH_Selectors;
+    SmallVector<CallInst*,16> EH_Exceptions;
+    for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB) {
+      for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
+        if (CallInst *CI = dyn_cast<CallInst>(I)) {
+          if (CI->getCalledFunction() == Selector32Fn ||
+              CI->getCalledFunction() == Selector64Fn) {
+            if (!PersonalityFn) PersonalityFn = CI->getOperand(2);
+            EH_Selectors.push_back(CI);
+          } else if (CI->getCalledFunction() == ExceptionFn) {
+            EH_Exceptions.push_back(CI);
+          }
+        }
+      }
+    }
     // The result of the eh.selector call will be replaced with a
     // a reference to the selector value returned in the function
     // context. We leave the selector itself so the EH analysis later
@@ -375,7 +360,7 @@ bool SjLjEHPass::insertSjLjEHSupport(Function &F) {
       // the instruction hasn't already been removed.
       if (!I->getParent()) continue;
       Value *Val = new LoadInst(ExceptionAddr, "exception", true, I);
-      const Type *Ty = Type::getInt8PtrTy(F.getContext());
+      Type *Ty = PointerType::getUnqual(Type::getInt8Ty(F.getContext()));
       Val = CastInst::Create(Instruction::IntToPtr, Val, Ty, "", I);
 
       I->replaceAllUsesWith(Val);
@@ -452,8 +437,8 @@ bool SjLjEHPass::insertSjLjEHSupport(Function &F) {
     // Call the setjmp instrinsic. It fills in the rest of the jmpbuf
     Value *SetjmpArg =
       CastInst::Create(Instruction::BitCast, FieldPtr,
-                       Type::getInt8PtrTy(F.getContext()), "",
-                       EntryBB->getTerminator());
+                        Type::getInt8Ty(F.getContext())->getPointerTo(), "",
+                        EntryBB->getTerminator());
     Value *DispatchVal = CallInst::Create(BuiltinSetjmpFn, SetjmpArg,
                                           "dispatch",
                                           EntryBB->getTerminator());
@@ -473,11 +458,32 @@ bool SjLjEHPass::insertSjLjEHSupport(Function &F) {
                        ContBlock->getTerminator());
     Register->setDoesNotThrow();
 
-    // At this point, we are all set up, update the invoke instructions
+    // At this point, we are all set up. Update the invoke instructions
     // to mark their call_site values, and fill in the dispatch switch
     // accordingly.
-    for (unsigned i = 0, e = Invokes.size(); i != e; ++i)
-      markInvokeCallSite(Invokes[i], i+1, CallSite, DispatchSwitch);
+    DenseMap<BasicBlock*,unsigned> PadSites;
+    unsigned NextCallSiteValue = 1;
+    for (SmallVector<InvokeInst*,16>::iterator I = Invokes.begin(),
+         E = Invokes.end(); I < E; ++I) {
+      unsigned CallSiteValue;
+      BasicBlock *LandingPad = (*I)->getSuccessor(1);
+      // landing pads can be shared. If we see a landing pad again, we
+      // want to make sure to use the same call site index so the dispatch
+      // will go to the right place.
+      CallSiteValue = PadSites[LandingPad];
+      if (!CallSiteValue) {
+        CallSiteValue = NextCallSiteValue++;
+        PadSites[LandingPad] = CallSiteValue;
+        // Add a switch case to our unwind block. The runtime comes back
+        // to the dispatcher with the call_site - 1 in the context. Odd,
+        // but there it is.
+        ConstantInt *SwitchValC =
+          ConstantInt::get(Type::getInt32Ty((*I)->getContext()),
+                           CallSiteValue - 1);
+        DispatchSwitch->addCase(SwitchValC, (*I)->getUnwindDest());
+      }
+      markInvokeCallSite(*I, CallSiteValue, CallSite);
+    }
 
     // The front end has likely added calls to _Unwind_Resume. We need
     // to find those calls and mark the call_site as -1 immediately prior.
@@ -504,6 +510,13 @@ bool SjLjEHPass::insertSjLjEHSupport(Function &F) {
       BranchInst::Create(UnwindBlock, Unwinds[i]);
       Unwinds[i]->eraseFromParent();
     }
+
+    // Scan the whole function for values that are live across unwind edges.
+    // Each value that is live across an unwind edge we spill into a stack
+    // location, guaranteeing that there is nothing live across the unwind
+    // edge.  This process also splits all critical edges coming out of 
+    // invoke's.
+    splitLiveRangesLiveAcrossInvokes(Invokes);
 
     // Finally, for any returns from this function, if this function contains an
     // invoke, add a call to unregister the function context.

@@ -1,4 +1,4 @@
-; RUN: llc < %s -soft-float
+; RUN: llvm-as < %s | llc -soft-float
 ; PR3899
 
 @m = external global <2 x double>;

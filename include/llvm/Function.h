@@ -19,7 +19,6 @@
 #define LLVM_FUNCTION_H
 
 #include "llvm/GlobalValue.h"
-#include "llvm/CallingConv.h"
 #include "llvm/BasicBlock.h"
 #include "llvm/Argument.h"
 #include "llvm/Attributes.h"
@@ -46,7 +45,7 @@ template<> struct ilist_traits<BasicBlock>
 
   static ValueSymbolTable *getSymTab(Function *ItemParent);
 private:
-  mutable ilist_half_node<BasicBlock> Sentinel;
+  mutable ilist_node<BasicBlock> Sentinel;
 };
 
 template<> struct ilist_traits<Argument>
@@ -63,7 +62,7 @@ template<> struct ilist_traits<Argument>
 
   static ValueSymbolTable *getSymTab(Function *ItemParent);
 private:
-  mutable ilist_half_node<Argument> Sentinel;
+  mutable ilist_node<Argument> Sentinel;
 };
 
 class Function : public GlobalValue,
@@ -87,7 +86,7 @@ private:
   AttrListPtr AttributeList;              ///< Parameter attributes
 
   // The Calling Convention is stored in Value::SubclassData.
-  /*CallingConv::ID CallingConvention;*/
+  /*unsigned CallingConvention;*/
 
   friend class SymbolTableListTraits<Function, Module>;
 
@@ -151,14 +150,12 @@ public:
   unsigned getIntrinsicID() const;
   bool isIntrinsic() const { return getIntrinsicID() != 0; }
 
-  /// getCallingConv()/setCallingConv(CC) - These method get and set the
+  /// getCallingConv()/setCallingConv(uint) - These method get and set the
   /// calling convention of this function.  The enum values for the known
   /// calling conventions are defined in CallingConv.h.
-  CallingConv::ID getCallingConv() const {
-    return static_cast<CallingConv::ID>(SubclassData >> 1);
-  }
-  void setCallingConv(CallingConv::ID CC) {
-    SubclassData = (SubclassData & 1) | (static_cast<unsigned>(CC) << 1);
+  unsigned getCallingConv() const { return SubclassData >> 1; }
+  void setCallingConv(unsigned CC) {
+    SubclassData = (SubclassData & 1) | (CC << 1);
   }
   
   /// getAttributes - Return the attribute list for this Function.

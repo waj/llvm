@@ -1,4 +1,4 @@
-; RUN: opt < %s -analyze -scalar-evolution -disable-output |& not grep smax
+; RUN: llvm-as < %s | opt -analyze -scalar-evolution -disable-output |& not grep smax
 ; PR2070
 
 define i32 @a(i32 %x) nounwind  {

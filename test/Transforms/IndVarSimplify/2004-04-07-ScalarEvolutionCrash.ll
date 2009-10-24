@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars -disable-output
+; RUN: llvm-as < %s | opt -indvars -disable-output
 
 define void @.outPlank_21() {
 entry:

@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; ModuleID = '2006-01-12-BadSetCCFold.ll'
 	%struct.node_t = type { double*, %struct.node_t*, %struct.node_t**, double**, double*, i32, i32 }
 

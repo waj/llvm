@@ -49,15 +49,15 @@ namespace {
       CallGraphSCCPass::getAnalysisUsage(AU);
     }
 
-    virtual bool runOnSCC(std::vector<CallGraphNode *> &SCC);
+    virtual bool runOnSCC(const std::vector<CallGraphNode *> &SCC);
     static char ID; // Pass identification, replacement for typeid
     SRETPromotion() : CallGraphSCCPass(&ID) {}
 
   private:
-    CallGraphNode *PromoteReturn(CallGraphNode *CGN);
+    bool PromoteReturn(CallGraphNode *CGN);
     bool isSafeToUpdateAllCallers(Function *F);
     Function *cloneFunctionBody(Function *F, const StructType *STy);
-    CallGraphNode *updateCallSites(Function *F, Function *NF);
+    void updateCallSites(Function *F, Function *NF);
     bool nestedStructType(const StructType *STy);
   };
 }
@@ -70,50 +70,47 @@ Pass *llvm::createStructRetPromotionPass() {
   return new SRETPromotion();
 }
 
-bool SRETPromotion::runOnSCC(std::vector<CallGraphNode *> &SCC) {
+bool SRETPromotion::runOnSCC(const std::vector<CallGraphNode *> &SCC) {
   bool Changed = false;
 
   for (unsigned i = 0, e = SCC.size(); i != e; ++i)
-    if (CallGraphNode *NewNode = PromoteReturn(SCC[i])) {
-      SCC[i] = NewNode;
-      Changed = true;
-    }
+    Changed |= PromoteReturn(SCC[i]);
 
   return Changed;
 }
 
 /// PromoteReturn - This method promotes function that uses StructRet paramater 
-/// into a function that uses multiple return values.
-CallGraphNode *SRETPromotion::PromoteReturn(CallGraphNode *CGN) {
+/// into a function that uses mulitple return value.
+bool SRETPromotion::PromoteReturn(CallGraphNode *CGN) {
   Function *F = CGN->getFunction();
 
   if (!F || F->isDeclaration() || !F->hasLocalLinkage())
-    return 0;
+    return false;
 
   // Make sure that function returns struct.
   if (F->arg_size() == 0 || !F->hasStructRetAttr() || F->doesNotReturn())
-    return 0;
+    return false;
 
   DEBUG(errs() << "SretPromotion: Looking at sret function " 
         << F->getName() << "\n");
 
-  assert(F->getReturnType() == Type::getVoidTy(F->getContext()) &&
-         "Invalid function return type");
+  assert (F->getReturnType() == Type::getVoidTy(F->getContext()) &&
+          "Invalid function return type");
   Function::arg_iterator AI = F->arg_begin();
   const llvm::PointerType *FArgType = dyn_cast<PointerType>(AI->getType());
-  assert(FArgType && "Invalid sret parameter type");
+  assert (FArgType && "Invalid sret parameter type");
   const llvm::StructType *STy = 
     dyn_cast<StructType>(FArgType->getElementType());
-  assert(STy && "Invalid sret parameter element type");
+  assert (STy && "Invalid sret parameter element type");
 
   // Check if it is ok to perform this promotion.
   if (isSafeToUpdateAllCallers(F) == false) {
-    DEBUG(errs() << "SretPromotion: Not all callers can be updated\n");
+    DOUT << "SretPromotion: Not all callers can be updated\n";
     NumRejectedSRETUses++;
-    return 0;
+    return false;
   }
 
-  DEBUG(errs() << "SretPromotion: sret argument will be promoted\n");
+  DOUT << "SretPromotion: sret argument will be promoted\n";
   NumSRET++;
   // [1] Replace use of sret parameter 
   AllocaInst *TheAlloca = new AllocaInst(STy, NULL, "mrv", 
@@ -138,13 +135,11 @@ CallGraphNode *SRETPromotion::PromoteReturn(CallGraphNode *CGN) {
   Function *NF = cloneFunctionBody(F, STy);
 
   // [4] Update all call sites to use new function
-  CallGraphNode *NF_CFN = updateCallSites(F, NF);
+  updateCallSites(F, NF);
 
-  CallGraph &CG = getAnalysis<CallGraph>();
-  NF_CFN->stealCalledFunctionsFrom(CG[F]);
-
-  delete CG.removeFunctionFromModule(F);
-  return NF_CFN;
+  F->eraseFromParent();
+  getAnalysis<CallGraph>().changeFunction(F, NF);
+  return true;
 }
 
 // Check if it is ok to perform this promotion.
@@ -252,25 +247,22 @@ Function *SRETPromotion::cloneFunctionBody(Function *F,
   Function::arg_iterator NI = NF->arg_begin();
   ++I;
   while (I != E) {
-    I->replaceAllUsesWith(NI);
-    NI->takeName(I);
-    ++I;
-    ++NI;
+      I->replaceAllUsesWith(NI);
+      NI->takeName(I);
+      ++I;
+      ++NI;
   }
 
   return NF;
 }
 
 /// updateCallSites - Update all sites that call F to use NF.
-CallGraphNode *SRETPromotion::updateCallSites(Function *F, Function *NF) {
+void SRETPromotion::updateCallSites(Function *F, Function *NF) {
   CallGraph &CG = getAnalysis<CallGraph>();
   SmallVector<Value*, 16> Args;
 
   // Attributes - Keep track of the parameter attributes for the arguments.
   SmallVector<AttributeWithIndex, 8> ArgAttrsVec;
-
-  // Get a new callgraph node for NF.
-  CallGraphNode *NF_CGN = CG.getOrInsertFunction(NF);
 
   while (!F->use_empty()) {
     CallSite CS = CallSite::get(*F->use_begin());
@@ -321,10 +313,8 @@ CallGraphNode *SRETPromotion::updateCallSites(Function *F, Function *NF) {
     New->takeName(Call);
 
     // Update the callgraph to know that the callsite has been transformed.
-    CallGraphNode *CalleeNode = CG[Call->getParent()->getParent()];
-    CalleeNode->removeCallEdgeFor(Call);
-    CalleeNode->addCalledFunction(New, NF_CGN);
-    
+    CG[Call->getParent()->getParent()]->replaceCallSite(Call, New);
+
     // Update all users of sret parameter to extract value using extractvalue.
     for (Value::use_iterator UI = FirstCArg->use_begin(), 
            UE = FirstCArg->use_end(); UI != UE; ) {
@@ -332,25 +322,24 @@ CallGraphNode *SRETPromotion::updateCallSites(Function *F, Function *NF) {
       CallInst *C2 = dyn_cast<CallInst>(U2);
       if (C2 && (C2 == Call))
         continue;
-      
-      GetElementPtrInst *UGEP = cast<GetElementPtrInst>(U2);
-      ConstantInt *Idx = cast<ConstantInt>(UGEP->getOperand(2));
-      Value *GR = ExtractValueInst::Create(New, Idx->getZExtValue(),
-                                           "evi", UGEP);
-      while(!UGEP->use_empty()) {
-        // isSafeToUpdateAllCallers has checked that all GEP uses are
-        // LoadInsts
-        LoadInst *L = cast<LoadInst>(*UGEP->use_begin());
-        L->replaceAllUsesWith(GR);
-        L->eraseFromParent();
+      else if (GetElementPtrInst *UGEP = dyn_cast<GetElementPtrInst>(U2)) {
+        ConstantInt *Idx = dyn_cast<ConstantInt>(UGEP->getOperand(2));
+        assert (Idx && "Unexpected getelementptr index!");
+        Value *GR = ExtractValueInst::Create(New, Idx->getZExtValue(),
+                                             "evi", UGEP);
+        while(!UGEP->use_empty()) {
+          // isSafeToUpdateAllCallers has checked that all GEP uses are
+          // LoadInsts
+          LoadInst *L = cast<LoadInst>(*UGEP->use_begin());
+          L->replaceAllUsesWith(GR);
+          L->eraseFromParent();
+        }
+        UGEP->eraseFromParent();
       }
-      UGEP->eraseFromParent();
-      continue;
+      else assert( 0 && "Unexpected sret parameter use");
     }
     Call->eraseFromParent();
   }
-  
-  return NF_CGN;
 }
 
 /// nestedStructType - Return true if STy includes any

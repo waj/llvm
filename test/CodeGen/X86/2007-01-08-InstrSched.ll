@@ -1,7 +1,8 @@
 ; PR1075
-; RUN: llc < %s -mtriple=x86_64-apple-darwin | FileCheck %s
+; RUN: llvm-as < %s | llc -mtriple=x86_64-apple-darwin | \
+; RUN:   %prcontext {mulss	LCPI1_3} 1 | grep mulss | count 1
 
-define float @foo(float %x) nounwind {
+define float @foo(float %x) {
     %tmp1 = fmul float %x, 3.000000e+00
     %tmp3 = fmul float %x, 5.000000e+00
     %tmp5 = fmul float %x, 7.000000e+00
@@ -10,13 +11,4 @@ define float @foo(float %x) nounwind {
     %tmp12 = fadd float %tmp10, %tmp5
     %tmp14 = fadd float %tmp12, %tmp7
     ret float %tmp14
-
-; CHECK:      mulss	LCPI1_3(%rip)
-; CHECK-NEXT: mulss	LCPI1_0(%rip)
-; CHECK-NEXT: mulss	LCPI1_1(%rip)
-; CHECK-NEXT: mulss	LCPI1_2(%rip)
-; CHECK-NEXT: addss
-; CHECK-NEXT: addss
-; CHECK-NEXT: addss
-; CHECK-NEXT: ret
 }

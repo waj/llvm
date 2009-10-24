@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=ppc32 -mcpu=g3
+; RUN: llvm-as < %s | llc -march=ppc32 -mcpu=g3
 
 define void @foo() {
 entry:

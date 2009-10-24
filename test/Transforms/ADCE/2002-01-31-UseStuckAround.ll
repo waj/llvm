@@ -1,4 +1,4 @@
-; RUN:  opt < %s -adce
+; RUN:  llvm-as %s -o - | opt -adce
 
 define i32 @"main"(i32 %argc)
 begin

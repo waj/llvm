@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=x86_64-apple-darwin10 -disable-fp-elim -relocation-model=pic
+; RUN: llvm-as < %s | llc -mtriple=x86_64-apple-darwin10 -disable-fp-elim -relocation-model=pic
 ; PR4099
 
 	type { [62 x %struct.Bitvec*] }		; type %0

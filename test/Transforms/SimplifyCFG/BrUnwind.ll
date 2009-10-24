@@ -1,4 +1,4 @@
-; RUN: opt < %s -simplifycfg -S | \
+; RUN: llvm-as < %s | opt -simplifycfg | llvm-dis | \
 ; RUN: not grep {br label}
 
 define void @test(i1 %C) {

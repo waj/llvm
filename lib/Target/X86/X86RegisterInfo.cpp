@@ -30,7 +30,7 @@
 #include "llvm/CodeGen/MachineLocation.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetFrameInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
@@ -579,10 +579,8 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   MBB.erase(I);
 }
 
-unsigned
-X86RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                     int SPAdj, int *Value,
-                                     RegScavenger *RS) const{
+void X86RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                          int SPAdj, RegScavenger *RS) const{
   assert(SPAdj == 0 && "Unexpected");
 
   unsigned i = 0;
@@ -619,7 +617,6 @@ X86RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                       (uint64_t)MI.getOperand(i+3).getOffset();
     MI.getOperand(i+3).setOffset(Offset);
   }
-  return 0;
 }
 
 void
@@ -648,7 +645,7 @@ X86RegisterInfo::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
     //   }
     //   [EBP]
     MFI->CreateFixedObject(-TailCallReturnAddrDelta,
-                           (-1U*SlotSize)+TailCallReturnAddrDelta);
+                           (-1*SlotSize)+TailCallReturnAddrDelta);
   }
 
   if (hasFP(MF)) {

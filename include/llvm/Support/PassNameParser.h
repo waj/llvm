@@ -66,7 +66,7 @@ public:
   virtual void passRegistered(const PassInfo *P) {
     if (ignorablePass(P) || !Opt) return;
     if (findOption(P->getPassArgument()) != getNumOptions()) {
-      errs() << "Two passes with the same argument (-"
+      cerr << "Two passes with the same argument (-"
            << P->getPassArgument() << ") attempted to be registered!\n";
       llvm_unreachable(0);
     }

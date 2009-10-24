@@ -1,4 +1,5 @@
-; RUN: llc < %s -march=x86 -x86-asm-syntax=intel -mcpu=yonah | grep {ret	20}
+; RUN: llvm-as < %s | \
+; RUN:   llc -march=x86 -x86-asm-syntax=intel -mcpu=yonah | grep {ret	20}
 
 ; Check that a fastcc function pops its stack variables before returning.
 

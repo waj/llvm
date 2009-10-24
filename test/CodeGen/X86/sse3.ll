@@ -1,6 +1,6 @@
 ; These are tests for SSE3 codegen.  Yonah has SSE3 and earlier but not SSSE3+.
 
-; RUN: llc < %s -march=x86-64 -mcpu=yonah -mtriple=i686-apple-darwin9\
+; RUN: llvm-as < %s | llc -march=x86-64 -mcpu=yonah -mtriple=i686-apple-darwin9\
 ; RUN:              | FileCheck %s --check-prefix=X64
 
 ; Test for v8xi16 lowering where we extract the first element of the vector and
@@ -17,8 +17,8 @@ entry:
         
 ; X64: t0:
 ; X64: 	movddup	(%rsi), %xmm0
-; X64:	xorl	%eax, %eax
 ; X64:  pshuflw	$0, %xmm0, %xmm0
+; X64:	xorl	%eax, %eax
 ; X64:	pinsrw	$0, %eax, %xmm0
 ; X64:	movaps	%xmm0, (%rdi)
 ; X64:	ret
@@ -92,8 +92,8 @@ define <8 x i16> @t7(<8 x i16> %A, <8 x i16> %B) nounwind {
 	%tmp = shufflevector <8 x i16> %A, <8 x i16> %B, <8 x i32> < i32 0, i32 0, i32 3, i32 2, i32 4, i32 6, i32 4, i32 7 >
 	ret <8 x i16> %tmp
 ; X64: 	t7:
-; X64: 		pshuflw	$-80, %xmm0, %xmm0
-; X64: 		pshufhw	$-56, %xmm0, %xmm0
+; X64: 		pshuflw	$176, %xmm0, %xmm0
+; X64: 		pshufhw	$200, %xmm0, %xmm0
 ; X64: 		ret
 }
 
@@ -120,8 +120,8 @@ define void @t8(<2 x i64>* %res, <2 x i64>* %A) nounwind {
 	store <2 x i64> %tmp15.upgrd.2, <2 x i64>* %res
 	ret void
 ; X64: 	t8:
-; X64: 		pshuflw	$-58, (%rsi), %xmm0
-; X64: 		pshufhw	$-58, %xmm0, %xmm0
+; X64: 		pshuflw	$198, (%rsi), %xmm0
+; X64: 		pshufhw	$198, %xmm0, %xmm0
 ; X64: 		movaps	%xmm0, (%rdi)
 ; X64: 		ret
 }
@@ -167,12 +167,18 @@ define internal void @t10() nounwind {
         store <4 x i16> %6, <4 x i16>* @g2, align 8
         ret void
 ; X64: 	t10:
+; X64: 		movq	_g1@GOTPCREL(%rip), %rax
+; X64: 		movaps	(%rax), %xmm0
 ; X64: 		pextrw	$4, %xmm0, %eax
-; X64: 		pextrw	$6, %xmm0, %edx
+; X64: 		movaps	%xmm0, %xmm1
 ; X64: 		movlhps	%xmm1, %xmm1
 ; X64: 		pshuflw	$8, %xmm1, %xmm1
 ; X64: 		pinsrw	$2, %eax, %xmm1
-; X64: 		pinsrw	$3, %edx, %xmm1
+; X64: 		pextrw	$6, %xmm0, %eax
+; X64: 		pinsrw	$3, %eax, %xmm1
+; X64: 		movq	_g2@GOTPCREL(%rip), %rax
+; X64: 		movq	%xmm1, (%rax)
+; X64: 		ret
 }
 
 
@@ -183,8 +189,8 @@ entry:
 	ret <8 x i16> %tmp7
 
 ; X64: t11:
-; X64:	movlhps	%xmm0, %xmm0
 ; X64:	movd	%xmm1, %eax
+; X64:	movlhps	%xmm0, %xmm0
 ; X64:	pshuflw	$1, %xmm0, %xmm0
 ; X64:	pinsrw	$1, %eax, %xmm0
 ; X64:	ret
@@ -197,8 +203,8 @@ entry:
 	ret <8 x i16> %tmp9
 
 ; X64: t12:
-; X64: 	movlhps	%xmm0, %xmm0
 ; X64: 	pextrw	$3, %xmm1, %eax
+; X64: 	movlhps	%xmm0, %xmm0
 ; X64: 	pshufhw	$3, %xmm0, %xmm0
 ; X64: 	pinsrw	$5, %eax, %xmm0
 ; X64: 	ret
@@ -237,7 +243,7 @@ entry:
 ; X64: 	t15:
 ; X64: 		pextrw	$7, %xmm0, %eax
 ; X64: 		punpcklqdq	%xmm1, %xmm0
-; X64: 		pshuflw	$-128, %xmm0, %xmm0
+; X64: 		pshuflw	$128, %xmm0, %xmm0
 ; X64: 		pinsrw	$2, %eax, %xmm0
 ; X64: 		ret
 }
@@ -250,12 +256,18 @@ entry:
         %tmp9 = shufflevector <16 x i8> %tmp8, <16 x i8> %T0,  <16 x i32> < i32 0, i32 1, i32 2, i32 17,  i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef , i32 undef >
         ret <16 x i8> %tmp9
 ; X64: 	t16:
+; X64: 		movaps	LCPI17_0(%rip), %xmm1
+; X64: 		movd	%xmm1, %eax
 ; X64: 		pinsrw	$0, %eax, %xmm1
 ; X64: 		pextrw	$8, %xmm0, %eax
 ; X64: 		pinsrw	$1, %eax, %xmm1
 ; X64: 		pextrw	$1, %xmm1, %ecx
 ; X64: 		movd	%xmm1, %edx
 ; X64: 		pinsrw	$0, %edx, %xmm1
+; X64: 		movzbl	%cl, %ecx
+; X64: 		andw	$65280, %ax
+; X64: 		orw	%cx, %ax
+; X64: 		movaps	%xmm1, %xmm0
 ; X64: 		pinsrw	$1, %eax, %xmm0
 ; X64: 		ret
 }

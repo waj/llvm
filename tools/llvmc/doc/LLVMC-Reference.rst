@@ -349,9 +349,8 @@ separate option groups syntactically.
 
    - ``multi_val n`` - this option takes *n* arguments (can be useful in some
      special cases). Usage example: ``(parameter_list_option "foo", (multi_val
-     3))``; the command-line syntax is '-foo a b c'. Only list options can have
-     this attribute; you can, however, use the ``one_or_more``, ``zero_or_one``
-     and ``required`` properties.
+     3))``. Only list options can have this attribute; you can, however, use
+     the ``one_or_more`` and ``zero_or_one`` properties.
 
    - ``init`` - this option has a default value, either a string (if it is a
      parameter), or a boolean (if it is a switch; boolean constants are called
@@ -459,27 +458,17 @@ use TableGen inheritance instead.
   - ``empty`` - The opposite of ``not_empty``. Equivalent to ``(not (not_empty
     X))``. Provided for convenience.
 
-  - ``single_input_file`` - Returns true if there was only one input file
-    provided on the command-line. Used without arguments:
-    ``(single_input_file)``.
-
-  - ``multiple_input_files`` - Equivalent to ``(not (single_input_file))`` (the
-    case of zero input files is considered an error).
-
   - ``default`` - Always evaluates to true. Should always be the last
     test in the ``case`` expression.
 
-  - ``and`` - A standard binary logical combinator that returns true iff all of
-    its arguments return true. Used like this: ``(and (test1), (test2),
-    ... (testN))``. Nesting of ``and`` and ``or`` is allowed, but not
-    encouraged.
+  - ``and`` - A standard logical combinator that returns true iff all
+    of its arguments return true. Used like this: ``(and (test1),
+    (test2), ... (testN))``. Nesting of ``and`` and ``or`` is allowed,
+    but not encouraged.
 
-  - ``or`` - A binary logical combinator that returns true iff any of its
-    arguments returns true. Example: ``(or (test1), (test2), ... (testN))``.
-
-  - ``not`` - Standard unary logical combinator that negates its
-    argument. Example: ``(not (or (test1), (test2), ... (testN)))``.
-
+  - ``or`` - Another logical combinator that returns true only if any
+    one of its arguments returns true. Example: ``(or (test1),
+    (test2), ... (testN))``.
 
 
 Writing a tool description
@@ -510,8 +499,8 @@ The complete list of all currently implemented tool properties follows.
   - ``in_language`` - input language name. Can be either a string or a
     list, in case the tool supports multiple input languages.
 
-  - ``out_language`` - output language name. Multiple output languages are not
-    allowed.
+  - ``out_language`` - output language name. Tools are not allowed to
+    have multiple output languages.
 
   - ``output_suffix`` - output file suffix. Can also be changed
     dynamically, see documentation on actions.

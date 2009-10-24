@@ -19,18 +19,12 @@ LEVEL := .
 #
 # When cross-compiling, there are some things (tablegen) that need to
 # be build for the build system first.
-
-# If "RC_ProjectName" exists in the environment, and its value is
-# "llvmCore", then this is an "Apple-style" build; search for
-# "Apple-style" in the comments for more info.  Anything else is a
-# normal build.
-ifneq ($(RC_ProjectName),llvmCore)  # Normal build (not "Apple-style").
 ifeq ($(BUILD_DIRS_ONLY),1)
   DIRS := lib/System lib/Support utils
   OPTIONAL_DIRS :=
 else
   DIRS := lib/System lib/Support utils lib/VMCore lib tools/llvm-config \
-          tools runtime docs unittests
+          tools runtime docs
   OPTIONAL_DIRS := examples projects bindings
 endif
 
@@ -68,7 +62,7 @@ ifeq ($(MAKECMDGOALS),install-clang)
 endif
 
 ifeq ($(MAKECMDGOALS),clang-only)
-  DIRS := $(filter-out tools runtime docs unittests, $(DIRS)) tools/clang
+  DIRS := $(filter-out tools runtime docs, $(DIRS)) tools/clang
   OPTIONAL_DIRS :=
 endif
 
@@ -94,19 +88,10 @@ cross-compile-build-tools:
 	$(Verb) if [ ! -f BuildTools/Makefile ]; then \
           $(MKDIR) BuildTools; \
 	  cd BuildTools ; \
-	  $(PROJ_SRC_DIR)/configure --build=$(BUILD_TRIPLE) \
-		--host=$(BUILD_TRIPLE) --target=$(BUILD_TRIPLE); \
+	  $(PROJ_SRC_DIR)/configure ; \
 	  cd .. ; \
 	fi; \
-        ($(MAKE) -C BuildTools \
-	  BUILD_DIRS_ONLY=1 \
-	  UNIVERSAL= \
-	  ENABLE_OPTIMIZED=$(ENABLE_OPTIMIZED) \
-	  ENABLE_PROFILING=$(ENABLE_PROFILING) \
-	  ENABLE_COVERAGE=$(ENABLE_COVERAGE) \
-	  DISABLE_ASSERTIONS=$(DISABLE_ASSERTIONS) \
-	  ENABLE_EXPENSIVE_CHECKS=$(ENABLE_EXPENSIVE_CHECKS) \
-	) || exit 1;
+        ($(MAKE) -C BuildTools BUILD_DIRS_ONLY=1 ) || exit 1;
 endif
 
 # Include the main makefile machinery.
@@ -132,6 +117,7 @@ debug-opt-prof:
 dist-hook::
 	$(Echo) Eliminating files constructed by configure
 	$(Verb) $(RM) -f \
+	  $(TopDistDir)/include/llvm/ADT/iterator.h  \
 	  $(TopDistDir)/include/llvm/Config/config.h  \
 	  $(TopDistDir)/include/llvm/Support/DataTypes.h  \
 	  $(TopDistDir)/include/llvm/Support/ThreadSupport.h
@@ -151,7 +137,7 @@ FilesToConfig := \
   include/llvm/Config/Targets.def \
 	include/llvm/Config/AsmPrinters.def \
   include/llvm/Support/DataTypes.h \
-	tools/llvmc/plugins/Base/Base.td
+  include/llvm/ADT/iterator.h
 FilesToConfigPATH  := $(addprefix $(LLVM_OBJ_ROOT)/,$(FilesToConfig))
 
 all-local:: $(FilesToConfigPATH)
@@ -217,9 +203,3 @@ happiness: update all check unittests
 
 .NOTPARALLEL:
 
-else # Building "Apple-style."
-# In an Apple-style build, once configuration is done, lines marked
-# "Apple-style" are removed with sed!  Please don't remove these!
-# Look for the string "Apple-style" in utils/buildit/build_llvm.
-include $(shell find . -name GNUmakefile) # Building "Apple-style."
-endif # Building "Apple-style."

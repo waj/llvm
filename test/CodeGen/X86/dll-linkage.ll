@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=i386-pc-mingw32 | FileCheck %s
+; RUN: llvm-as < %s | llc -mtriple=i386-pc-mingw32 | FileCheck %s
 
 declare dllimport void @foo()
 

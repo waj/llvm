@@ -220,20 +220,7 @@ so cool to turn it into something like:
 ... which would only do one 32-bit XOR per loop iteration instead of two.
 
 It would also be nice to recognize the reg->size doesn't alias reg->node[i], but
-alas.
-
-//===---------------------------------------------------------------------===//
-
-This should be optimized to one 'and' and one 'or', from PR4216:
-
-define i32 @test_bitfield(i32 %bf.prev.low) nounwind ssp {
-entry:
-  %bf.prev.lo.cleared10 = or i32 %bf.prev.low, 32962 ; <i32> [#uses=1]
-  %0 = and i32 %bf.prev.low, -65536               ; <i32> [#uses=1]
-  %1 = and i32 %bf.prev.lo.cleared10, 40186       ; <i32> [#uses=1]
-  %2 = or i32 %1, %0                              ; <i32> [#uses=1]
-  ret i32 %2
-}
+alas...
 
 //===---------------------------------------------------------------------===//
 
@@ -350,22 +337,24 @@ void foo(int N) {
   for (i = 0; i < N; i++) { X = i; Y = i*4; }
 }
 
-produces two near identical IV's (after promotion) on PPC/ARM:
+produces two identical IV's (after promotion) on PPC/ARM:
 
-LBB1_2:
-	ldr r3, LCPI1_0
-	ldr r3, [r3]
-	strh r2, [r3]
-	ldr r3, LCPI1_1
-	ldr r3, [r3]
-	strh r1, [r3]
-	add r1, r1, #4
-	add r2, r2, #1   <- [0,+,1]
-	sub r0, r0, #1   <- [0,-,1]
-	cmp r0, #0
-	bne LBB1_2
-
-LSR should reuse the "+" IV for the exit test.
+LBB1_1: @bb.preheader
+        mov r3, #0
+        mov r2, r3
+        mov r1, r3
+LBB1_2: @bb
+        ldr r12, LCPI1_0
+        ldr r12, [r12]
+        strh r2, [r12]
+        ldr r12, LCPI1_1
+        ldr r12, [r12]
+        strh r3, [r12]
+        add r1, r1, #1    <- [0,+,1]
+        add r3, r3, #4
+        add r2, r2, #1    <- [0,+,1]
+        cmp r1, r0
+        bne LBB1_2      @bb
 
 
 //===---------------------------------------------------------------------===//
@@ -596,6 +585,25 @@ once.
 
 We should add an FRINT node to the DAG to model targets that have legal
 implementations of ceil/floor/rint.
+
+//===---------------------------------------------------------------------===//
+
+This GCC bug: http://gcc.gnu.org/bugzilla/show_bug.cgi?id=34043
+contains a testcase that compiles down to:
+
+	%struct.XMM128 = type { <4 x float> }
+..
+	%src = alloca %struct.XMM128
+..
+	%tmp6263 = bitcast %struct.XMM128* %src to <2 x i64>*
+	%tmp65 = getelementptr %struct.XMM128* %src, i32 0, i32 0
+	store <2 x i64> %tmp5899, <2 x i64>* %tmp6263, align 16
+	%tmp66 = load <4 x float>* %tmp65, align 16		
+	%tmp71 = add <4 x float> %tmp66, %tmp66		
+
+If the mid-level optimizer turned the bitcast of pointer + store of tmp5899
+into a bitcast of the vector value and a store to the pointer, then the 
+store->load could be easily removed.
 
 //===---------------------------------------------------------------------===//
 
@@ -1281,8 +1289,6 @@ http://gcc.gnu.org/bugzilla/show_bug.cgi?id=35287 [LPRE crit edge splitting]
 http://gcc.gnu.org/bugzilla/show_bug.cgi?id=34677 (licm does this, LPRE crit edge)
   llvm-gcc t2.c -S -o - -O0 -emit-llvm | llvm-as | opt -mem2reg -simplifycfg -gvn | llvm-dis
 
-http://gcc.gnu.org/bugzilla/show_bug.cgi?id=16799 [BITCAST PHI TRANS]
-
 //===---------------------------------------------------------------------===//
 
 Type based alias analysis:
@@ -1290,25 +1296,31 @@ http://gcc.gnu.org/bugzilla/show_bug.cgi?id=14705
 
 //===---------------------------------------------------------------------===//
 
+When GVN/PRE finds a store of float* to a must aliases pointer when expecting
+an int*, it should turn it into a bitcast.  This is a nice generalization of
+the SROA hack that would apply to other cases, e.g.:
+
+int foo(int C, int *P, float X) {
+  if (C) {
+    bar();
+    *P = 42;
+  } else
+    *(float*)P = X;
+
+   return *P;
+}
+
+
+One example (that requires crazy phi translation) is:
+http://gcc.gnu.org/bugzilla/show_bug.cgi?id=16799 [BITCAST PHI TRANS]
+
+//===---------------------------------------------------------------------===//
+
 A/B get pinned to the stack because we turn an if/then into a select instead
 of PRE'ing the load/store.  This may be fixable in instcombine:
 http://gcc.gnu.org/bugzilla/show_bug.cgi?id=37892
 
-struct X { int i; };
-int foo (int x) {
-  struct X a;
-  struct X b;
-  struct X *p;
-  a.i = 1;
-  b.i = 2;
-  if (x)
-    p = &a;
-  else
-    p = &b;
-  return p->i;
-}
 
-//===---------------------------------------------------------------------===//
 
 Interesting missed case because of control flow flattening (should be 2 loads):
 http://gcc.gnu.org/bugzilla/show_bug.cgi?id=26629
@@ -1594,8 +1606,23 @@ int int_char(char m) {if(m>7) return 0; return m;}
 
 //===---------------------------------------------------------------------===//
 
-libanalysis is not aggressively folding vector bitcasts.  For example, the
-constant expressions generated when compiling this code:
+Instcombine should replace the load with a constant in:
+
+  static const char x[4] = {'a', 'b', 'c', 'd'};
+  
+  unsigned int y(void) {
+    return *(unsigned int *)x;
+  }
+
+It currently only does this transformation when the size of the constant 
+is the same as the size of the integer (so, try x[5]) and the last byte 
+is a null (making it a C string). There's no need for these restrictions.
+
+//===---------------------------------------------------------------------===//
+
+InstCombine's "turn load from constant into constant" optimization should be
+more aggressive in the presence of bitcasts.  For example, because of unions,
+this code:
 
 union vec2d {
     double e[2];
@@ -1609,29 +1636,44 @@ vec2d foo () {
     return (vec2d){ .v = a.v + b.v * (vec2d){{5,5}}.v };
 }
 
-in X86-32 end up being:
+Compiles into:
 
-define void @foo(%union.vec2d* noalias nocapture sret %agg.result) nounwind ssp {
+@a = internal constant %0 { [2 x double] 
+           [double 1.000000e+00, double 2.000000e+00] }, align 16
+@b = internal constant %0 { [2 x double]
+           [double 3.000000e+00, double 4.000000e+00] }, align 16
+...
+define void @foo(%struct.vec2d* noalias nocapture sret %agg.result) nounwind {
 entry:
-  %agg.result.0 = getelementptr %union.vec2d* %agg.result, i32 0, i32 0 ; <<2 x double>*> [#uses=1]
-  store <2 x double> fadd (<2 x double> bitcast (<1 x i128> <i128 85070591730234615870450834276742070272> to <2 x double>), <2 x double> fmul (<2 x double> bitcast (<1 x i128> <i128 85153668479971173112514077617450647552> to <2 x double>), <2 x double> <double 5.000000e+00, double 5.000000e+00>)), <2 x double>* %agg.result.0, align 16
+	%0 = load <2 x double>* getelementptr (%struct.vec2d* 
+           bitcast (%0* @a to %struct.vec2d*), i32 0, i32 0), align 16
+	%1 = load <2 x double>* getelementptr (%struct.vec2d* 
+           bitcast (%0* @b to %struct.vec2d*), i32 0, i32 0), align 16
+
+
+Instcombine should be able to optimize away the loads (and thus the globals).
+
+
+//===---------------------------------------------------------------------===//
+
+I saw this constant expression in real code after llvm-g++ -O2:
+
+declare extern_weak i32 @0(i64)
+
+define void @foo() {
+  br i1 icmp eq (i32 zext (i1 icmp ne (i32 (i64)* @0, i32 (i64)* null) to i32),
+i32 0), label %cond_true, label %cond_false
+cond_true:
+  ret void
+cond_false:
   ret void
 }
 
-and in X86-64 mode:
+That branch expression should be reduced to:
 
-define %0 @foo() nounwind readnone ssp {
-entry:
-  %mrv5 = insertvalue %0 undef, double extractelement (<2 x double> fadd (<2 x double> bitcast (<1 x i128> <i128 85070591730234615870450834276742070272> to <2 x double>), <2 x double> fmul (<2 x double> bitcast (<1 x i128> <i128 85153668479971173112514077617450647552> to <2 x double>), <2 x double> bitcast (<1 x i128> <i128 85174437667405312423031577302488055808> to <2 x double>))), i32 0), 0 ; <%0> [#uses=1]
-  %mrv6 = insertvalue %0 %mrv5, double extractelement (<2 x double> fadd (<2 x double> bitcast (<1 x i128> <i128 85070591730234615870450834276742070272> to <2 x double>), <2 x double> fmul (<2 x double> bitcast (<1 x i128> <i128 85153668479971173112514077617450647552> to <2 x double>), <2 x double> bitcast (<1 x i128> <i128 85174437667405312423031577302488055808> to <2 x double>))), i32 1), 1 ; <%0> [#uses=1]
-  ret %0 %mrv6
-}
+  i1 icmp eq (i32 (i64)* @0, i32 (i64)* null)
+
+It's probably not a perf issue, I just happened to see it while examining
+something else and didn't want to forget about it.
 
 //===---------------------------------------------------------------------===//
-
-IPSCCP is propagating elements of first class aggregates, but is not propagating
-the entire aggregate itself.  This leads it to miss opportunities, for example
-in test/Transforms/SCCP/ipsccp-basic.ll:test5b.
-
-//===---------------------------------------------------------------------===//
-

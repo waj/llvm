@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse2 | not grep movz
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse2 | not grep movz
 
 define <2 x i64> @doload64(i16 signext  %x) nounwind  {
 entry:

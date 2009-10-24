@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=i386-apple-darwin -O0 -regalloc=local | not grep sil
+; RUN: llvm-as < %s | llc -mtriple=i386-apple-darwin -O0 -regalloc=local | not grep sil
 ; rdar://6787136
 
 	%struct.X = type { i8, [32 x i8] }

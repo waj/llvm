@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 @a_str = internal constant [8 x i8] c"a = %d\0A\00"		; <[8 x i8]*> [#uses=1]
 @b_str = internal constant [8 x i8] c"b = %d\0A\00"		; <[8 x i8]*> [#uses=1]
 @add_str = internal constant [12 x i8] c"a + b = %d\0A\00"		; <[12 x i8]*> [#uses=1]

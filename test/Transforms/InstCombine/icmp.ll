@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | not grep icmp
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep icmp
 
 define i32 @test1(i32 %X) {
 entry:
@@ -33,12 +33,4 @@ define <2 x i1> @test5(<2 x i64> %x) {
 entry:
   %V = icmp eq <2 x i64> %x, undef
   ret <2 x i1> %V
-}
-
-define i32 @test6(i32 %a, i32 %b) {
-        %c = icmp sle i32 %a, -1
-        %d = zext i1 %c to i32
-        %e = sub i32 0, %d
-        %f = and i32 %e, %b
-        ret i32 %f
 }

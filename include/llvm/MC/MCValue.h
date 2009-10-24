@@ -33,13 +33,13 @@ class raw_ostream;
 /// Note that this class must remain a simple POD value class, because we need
 /// it to live in unions etc.
 class MCValue {
-  const MCSymbol *SymA, *SymB;
+  MCSymbol *SymA, *SymB;
   int64_t Cst;
 public:
 
   int64_t getConstant() const { return Cst; }
-  const MCSymbol *getSymA() const { return SymA; }
-  const MCSymbol *getSymB() const { return SymB; }
+  MCSymbol *getSymA() const { return SymA; }
+  MCSymbol *getSymB() const { return SymB; }
 
   /// isAbsolute - Is this an absolute (as opposed to relocatable) value.
   bool isAbsolute() const { return !SymA && !SymB; }
@@ -49,19 +49,17 @@ public:
   ///
   /// @result - The value's associated section, or null for external or constant
   /// values.
-  //
-  // FIXME: Switch to a tagged section, so this can return the tagged section
-  // value.
-  const MCSection *getAssociatedSection() const;
+  const MCSection *getAssociatedSection() const {
+    return SymA ? SymA->getSection() : 0;
+  }
 
   /// print - Print the value to the stream \arg OS.
-  void print(raw_ostream &OS, const MCAsmInfo *MAI) const;
+  void print(raw_ostream &OS) const;
   
   /// dump - Print the value to stderr.
   void dump() const;
 
-  static MCValue get(const MCSymbol *SymA, const MCSymbol *SymB = 0,
-                     int64_t Val = 0) {
+  static MCValue get(MCSymbol *SymA, MCSymbol *SymB = 0, int64_t Val = 0) {
     MCValue R;
     assert((!SymB || SymA) && "Invalid relocatable MCValue!");
     R.Cst = Val;

@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; PR2671
 
 define void @a(<2 x double>* %p, <2 x i8>* %q) {

@@ -1,4 +1,4 @@
-; RUN: opt < %s -ipsccp -S | not grep global
+; RUN:  llvm-as < %s | opt -ipsccp | llvm-dis | not grep global
 
 @G = internal global i66 undef
 

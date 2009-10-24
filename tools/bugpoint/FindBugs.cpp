@@ -17,7 +17,6 @@
 #include "BugDriver.h"
 #include "ToolRunner.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <ctime>
 using namespace llvm;

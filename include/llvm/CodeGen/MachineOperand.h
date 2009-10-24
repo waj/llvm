@@ -16,6 +16,7 @@
 
 #include "llvm/Support/DataTypes.h"
 #include <cassert>
+#include <iosfwd>
 
 namespace llvm {
   
@@ -110,7 +111,7 @@ private:
         GlobalValue *GV;          // For MO_GlobalAddress.
         MDNode *Node;             // For MO_Metadata.
       } Val;
-      int64_t Offset;             // An offset from the object.
+      int64_t Offset;   // An offset from the object.
     } OffsetedInfo;
   } Contents;
   
@@ -132,6 +133,7 @@ public:
   MachineInstr *getParent() { return ParentMI; }
   const MachineInstr *getParent() const { return ParentMI; }
   
+  void print(std::ostream &os, const TargetMachine *TM = 0) const;
   void print(raw_ostream &os, const TargetMachine *TM = 0) const;
 
   //===--------------------------------------------------------------------===//
@@ -298,8 +300,6 @@ public:
     return Contents.OffsetedInfo.Val.Node;
   }
   
-  /// getOffset - Return the offset from the symbol in this operand. This always
-  /// returns 0 for ExternalSymbol operands.
   int64_t getOffset() const {
     assert((isGlobal() || isSymbol() || isCPI()) &&
            "Wrong MachineOperand accessor");
@@ -434,11 +434,11 @@ public:
     Op.setTargetFlags(TargetFlags);
     return Op;
   }
-  static MachineOperand CreateES(const char *SymName,
+  static MachineOperand CreateES(const char *SymName, int64_t Offset = 0,
                                  unsigned char TargetFlags = 0) {
     MachineOperand Op(MachineOperand::MO_ExternalSymbol);
     Op.Contents.OffsetedInfo.Val.SymbolName = SymName;
-    Op.setOffset(0); // Offset is always 0.
+    Op.setOffset(Offset);
     Op.setTargetFlags(TargetFlags);
     return Op;
   }
@@ -467,6 +467,11 @@ private:
   /// MachineRegisterInfo it is linked with.
   void RemoveRegOperandFromRegInfo();
 };
+
+inline std::ostream &operator<<(std::ostream &OS, const MachineOperand &MO) {
+  MO.print(OS, 0);
+  return OS;
+}
 
 inline raw_ostream &operator<<(raw_ostream &OS, const MachineOperand& MO) {
   MO.print(OS, 0);

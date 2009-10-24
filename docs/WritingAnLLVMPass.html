@@ -179,7 +179,7 @@ source tree in the <tt>lib/Transforms/Hello</tt> directory.</p>
 <div class="doc_code"><pre>
 # Makefile for hello pass
 
-# Path to top level of LLVM hierarchy
+# Path to top level of LLVM heirarchy
 LEVEL = ../../..
 
 # Name of the library to build
@@ -223,14 +223,12 @@ Start out with:</p>
 <div class="doc_code"><pre>
 <b>#include</b> "<a href="http://llvm.org/doxygen/Pass_8h-source.html">llvm/Pass.h</a>"
 <b>#include</b> "<a href="http://llvm.org/doxygen/Function_8h-source.html">llvm/Function.h</a>"
-<b>#include</b> "<a href="http://llvm.org/doxygen/raw__ostream_8h.html">llvm/Support/raw_ostream.h</a>"
 </pre></div>
 
 <p>Which are needed because we are writing a <tt><a
-href="http://llvm.org/doxygen/classllvm_1_1Pass.html">Pass</a></tt>,
+href="http://llvm.org/doxygen/classllvm_1_1Pass.html">Pass</a></tt>, and
 we are operating on <tt><a
-href="http://llvm.org/doxygen/classllvm_1_1Function.html">Function</a></tt>'s,
-and we will be doing some printing.</p>
+href="http://llvm.org/doxygen/classllvm_1_1Function.html">Function</a></tt>'s.</p>
 
 <p>Next we have:</p>
 <div class="doc_code"><pre>
@@ -275,7 +273,7 @@ avoid using expensive C++ runtime information.</p>
 
 <div class="doc_code"><pre>
     <b>virtual bool</b> <a href="#runOnFunction">runOnFunction</a>(Function &amp;F) {
-      errs() &lt;&lt; "<i>Hello: </i>" &lt;&lt; F.getName() &lt;&lt; "\n";
+      llvm::cerr &lt;&lt; "<i>Hello: </i>" &lt;&lt; F.getName() &lt;&lt; "\n";
       <b>return false</b>;
     }
   };  <i>// end of struct Hello</i>
@@ -314,7 +312,6 @@ is supplied as fourth argument. </p>
 <div class="doc_code"><pre>
 <b>#include</b> "<a href="http://llvm.org/doxygen/Pass_8h-source.html">llvm/Pass.h</a>"
 <b>#include</b> "<a href="http://llvm.org/doxygen/Function_8h-source.html">llvm/Function.h</a>"
-<b>#include</b> "<a href="http://llvm.org/doxygen/raw__ostream_8h.html">llvm/Support/raw_ostream.h</a>"
 
 <b>using namespace llvm;</b>
 
@@ -325,7 +322,7 @@ is supplied as fourth argument. </p>
     Hello() : FunctionPass(&amp;ID) {}
 
     <b>virtual bool</b> <a href="#runOnFunction">runOnFunction</a>(Function &amp;F) {
-      errs() &lt;&lt; "<i>Hello: </i>" &lt;&lt; F.getName() &lt;&lt; "\n";
+      llvm::cerr &lt;&lt; "<i>Hello: </i>" &lt;&lt; F.getName() &lt;&lt; "\n";
       <b>return false</b>;
     }
   };
@@ -453,7 +450,7 @@ available, from the most general to the most specific.</p>
 <p>When choosing a superclass for your Pass, you should choose the <b>most
 specific</b> class possible, while still being able to meet the requirements
 listed.  This gives the LLVM Pass Infrastructure information necessary to
-optimize how passes are run, so that the resultant compiler isn't unnecessarily
+optimize how passes are run, so that the resultant compiler isn't unneccesarily
 slow.</p>
 
 </div>
@@ -492,7 +489,7 @@ invalidated, and are never "run".</p>
 href="http://llvm.org/doxygen/classllvm_1_1ModulePass.html">ModulePass</a></tt>"
 class is the most general of all superclasses that you can use.  Deriving from
 <tt>ModulePass</tt> indicates that your pass uses the entire program as a unit,
-referring to function bodies in no predictable order, or adding and removing
+refering to function bodies in no predictable order, or adding and removing
 functions.  Because nothing is known about the behavior of <tt>ModulePass</tt>
 subclasses, no optimization can be done for their execution.</p>
 

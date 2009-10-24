@@ -1,4 +1,4 @@
-; RUN: opt < %s -tailcallelim -S | grep call
+; RUN: llvm-as < %s | opt -tailcallelim | llvm-dis | grep call
 ; Don't turn this into an infinite loop, this is probably the implementation
 ; of fabs and we expect the codegen to lower fabs.
 

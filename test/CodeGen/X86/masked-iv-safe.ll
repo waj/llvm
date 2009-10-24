@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86-64 > %t
+; RUN: llvm-as < %s | llc -march=x86-64 > %t
 ; RUN: not grep and %t
 ; RUN: not grep movz %t
 ; RUN: not grep sar %t

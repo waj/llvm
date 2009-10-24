@@ -119,6 +119,14 @@ namespace llvm {
       VDUP,
       VDUPLANE,
 
+      // Vector load/store with (de)interleaving
+      VLD2D,
+      VLD3D,
+      VLD4D,
+      VST2D,
+      VST3D,
+      VST4D,
+
       // Vector shuffles:
       VEXT,         // extract
       VREV64,       // reverse elements within 64-bit doublewords
@@ -160,8 +168,7 @@ namespace llvm {
     virtual const char *getTargetNodeName(unsigned Opcode) const;
 
     virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                         MachineBasicBlock *MBB,
-                       DenseMap<MachineBasicBlock*, MachineBasicBlock*>*) const;
+                                                  MachineBasicBlock *MBB) const;
 
     /// allowsUnalignedMemoryAccesses - Returns true if the target allows
     /// unaligned memory accesses. of the specified type.
@@ -223,7 +230,6 @@ namespace llvm {
     virtual unsigned getFunctionAlignment(const Function *F) const;
 
     bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const;
-    bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const;
   private:
     /// Subtarget - Keep a pointer to the ARMSubtarget around so that we can
     /// make the right decision when generating code for different targets.
@@ -248,7 +254,7 @@ namespace llvm {
     SDValue GetF64FormalArgument(CCValAssign &VA, CCValAssign &NextVA,
                                  SDValue &Root, SelectionDAG &DAG, DebugLoc dl);
 
-    CCAssignFn *CCAssignFnForNode(CallingConv::ID CC, bool Return, bool isVarArg) const;
+    CCAssignFn *CCAssignFnForNode(unsigned CC, bool Return, bool isVarArg) const;
     SDValue LowerMemOpCallTo(SDValue Chain, SDValue StackPtr, SDValue Arg,
                              DebugLoc dl, SelectionDAG &DAG,
                              const CCValAssign &VA,
@@ -275,21 +281,21 @@ namespace llvm {
                                       const Value *DstSV, uint64_t DstSVOff,
                                       const Value *SrcSV, uint64_t SrcSVOff);
     SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
-                            CallingConv::ID CallConv, bool isVarArg,
+                            unsigned CallConv, bool isVarArg,
                             const SmallVectorImpl<ISD::InputArg> &Ins,
                             DebugLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerFormalArguments(SDValue Chain,
-                           CallingConv::ID CallConv, bool isVarArg,
+                           unsigned CallConv, bool isVarArg,
                            const SmallVectorImpl<ISD::InputArg> &Ins,
                            DebugLoc dl, SelectionDAG &DAG,
                            SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerCall(SDValue Chain, SDValue Callee,
-                CallingConv::ID CallConv, bool isVarArg,
+                unsigned CallConv, bool isVarArg,
                 bool isTailCall,
                 const SmallVectorImpl<ISD::OutputArg> &Outs,
                 const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -298,7 +304,7 @@ namespace llvm {
 
     virtual SDValue
       LowerReturn(SDValue Chain,
-                  CallingConv::ID CallConv, bool isVarArg,
+                  unsigned CallConv, bool isVarArg,
                   const SmallVectorImpl<ISD::OutputArg> &Outs,
                   DebugLoc dl, SelectionDAG &DAG);
   };

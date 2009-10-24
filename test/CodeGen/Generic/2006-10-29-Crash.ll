@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 define void @form_component_prediction(i32 %dy) {
 entry:

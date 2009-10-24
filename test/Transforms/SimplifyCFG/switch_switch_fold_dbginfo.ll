@@ -1,4 +1,4 @@
-; RUN: opt < %s -simplifycfg -S | \
+; RUN: llvm-as < %s | opt -simplifycfg | llvm-dis | \
 ; RUN:   grep switch | count 1
 
 ; ModuleID = '<stdin>'

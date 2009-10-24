@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 ;; Date:     Jul 29, 2003.
 ;; From:     test/Programs/MultiSource/Ptrdist-bc

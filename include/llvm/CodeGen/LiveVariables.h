@@ -34,7 +34,6 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SparseBitVector.h"
 
@@ -149,14 +148,16 @@ private:   // Intermediate data structures
   bool HandlePhysRegKill(unsigned Reg, MachineInstr *MI);
 
   void HandlePhysRegUse(unsigned Reg, MachineInstr *MI);
-  void HandlePhysRegDef(unsigned Reg, MachineInstr *MI,
-                        SmallVector<unsigned, 4> &Defs);
-  void UpdatePhysRegDefs(MachineInstr *MI, SmallVector<unsigned, 4> &Defs);
+  void HandlePhysRegDef(unsigned Reg, MachineInstr *MI);
 
   /// FindLastPartialDef - Return the last partial def of the specified register.
-  /// Also returns the sub-registers that're defined by the instruction.
-  MachineInstr *FindLastPartialDef(unsigned Reg,
-                                   SmallSet<unsigned,4> &PartDefRegs);
+  /// Also returns the sub-register that's defined.
+  MachineInstr *FindLastPartialDef(unsigned Reg, unsigned &PartDefReg);
+
+  /// hasRegisterUseBelow - Return true if the specified register is used after
+  /// the current instruction and before it's next definition.
+  bool hasRegisterUseBelow(unsigned Reg, MachineBasicBlock::iterator I,
+                           MachineBasicBlock *MBB);
 
   /// analyzePHINodes - Gather information about the PHI nodes in here. In
   /// particular, we want to map the variable information of a virtual

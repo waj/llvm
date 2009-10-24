@@ -1,5 +1,5 @@
-; RUN: opt < %s -sccp -disable-output
-; PR1431
+; RUN: llvm-as < %s  | opt -sccp -disable-output
+; PR 1431
 
 define void @_ada_bench() {
 entry:

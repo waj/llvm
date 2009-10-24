@@ -15,7 +15,6 @@
 #ifndef BITSTREAM_WRITER_H
 #define BITSTREAM_WRITER_H
 
-#include "llvm/ADT/StringRef.h"
 #include "llvm/Bitcode/BitCodes.h"
 #include <vector>
 
@@ -294,9 +293,7 @@ private:
   /// known to exist at the end of the the record.
   template<typename uintty>
   void EmitRecordWithAbbrevImpl(unsigned Abbrev, SmallVectorImpl<uintty> &Vals,
-                                const StringRef &Blob) {
-    const char *BlobData = Blob.data();
-    unsigned BlobLen = (unsigned) Blob.size();
+                                const char *BlobData, unsigned BlobLen) {
     unsigned AbbrevNo = Abbrev-bitc::FIRST_APPLICATION_ABBREV;
     assert(AbbrevNo < CurAbbrevs.size() && "Invalid abbrev #!");
     BitCodeAbbrev *Abbv = CurAbbrevs[AbbrevNo];
@@ -412,7 +409,7 @@ public:
   /// the first entry.
   template<typename uintty>
   void EmitRecordWithAbbrev(unsigned Abbrev, SmallVectorImpl<uintty> &Vals) {
-    EmitRecordWithAbbrevImpl(Abbrev, Vals, StringRef());
+    EmitRecordWithAbbrevImpl(Abbrev, Vals, 0, 0);
   }
   
   /// EmitRecordWithBlob - Emit the specified record to the stream, using an
@@ -422,27 +419,16 @@ public:
   /// of the record.
   template<typename uintty>
   void EmitRecordWithBlob(unsigned Abbrev, SmallVectorImpl<uintty> &Vals,
-                          const StringRef &Blob) {
-    EmitRecordWithAbbrevImpl(Abbrev, Vals, Blob);
-  }
-  template<typename uintty>
-  void EmitRecordWithBlob(unsigned Abbrev, SmallVectorImpl<uintty> &Vals,
                           const char *BlobData, unsigned BlobLen) {
-    return EmitRecordWithAbbrevImpl(Abbrev, Vals, StringRef(BlobData, BlobLen));
+    EmitRecordWithAbbrevImpl(Abbrev, Vals, BlobData, BlobLen);
   }
 
   /// EmitRecordWithArray - Just like EmitRecordWithBlob, works with records
   /// that end with an array.
   template<typename uintty>
   void EmitRecordWithArray(unsigned Abbrev, SmallVectorImpl<uintty> &Vals,
-                          const StringRef &Array) {
-    EmitRecordWithAbbrevImpl(Abbrev, Vals, Array);
-  }
-  template<typename uintty>
-  void EmitRecordWithArray(unsigned Abbrev, SmallVectorImpl<uintty> &Vals,
                           const char *ArrayData, unsigned ArrayLen) {
-    return EmitRecordWithAbbrevImpl(Abbrev, Vals, StringRef(ArrayData, 
-                                                            ArrayLen));
+    EmitRecordWithAbbrevImpl(Abbrev, Vals, ArrayData, ArrayLen);
   }
   
   //===--------------------------------------------------------------------===//

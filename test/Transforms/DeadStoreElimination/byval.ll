@@ -1,4 +1,4 @@
-; RUN: opt < %s -dse -S | not grep store
+; RUN: llvm-as < %s | opt -dse | llvm-dis | not grep store
 
 %struct.x = type { i32, i32, i32, i32 }
 

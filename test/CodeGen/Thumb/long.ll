@@ -1,10 +1,10 @@
-; RUN: llc < %s -march=thumb | \
+; RUN: llvm-as < %s | llc -march=thumb | \
 ; RUN:   grep mvn | count 1
-; RUN: llc < %s -march=thumb | \
+; RUN: llvm-as < %s | llc -march=thumb | \
 ; RUN:   grep adc | count 1
-; RUN: llc < %s -march=thumb | \
+; RUN: llvm-as < %s | llc -march=thumb | \
 ; RUN:   grep sbc | count 1
-; RUN: llc < %s -march=thumb | grep __muldi3
+; RUN: llvm-as < %s | llc -march=thumb | grep __muldi3
 
 define i64 @f1() {
 entry:

@@ -91,7 +91,7 @@ Process::GetTotalMemoryUsage()
   malloc_statistics_t Stats;
   malloc_zone_statistics(malloc_default_zone(), &Stats);
   return Stats.size_allocated;   // darwin
-#elif defined(HAVE_GETRUSAGE) && !defined(__HAIKU__)
+#elif defined(HAVE_GETRUSAGE)
   struct rusage usage;
   ::getrusage(RUSAGE_SELF, &usage);
   return usage.ru_maxrss;
@@ -179,24 +179,27 @@ void Process::PreventCoreFiles() {
 }
 
 bool Process::StandardInIsUserInput() {
-  return FileDescriptorIsDisplayed(STDIN_FILENO);
+#if HAVE_ISATTY
+  return isatty(0);
+#endif
+  // If we don't have isatty, just return false.
+  return false;
 }
 
 bool Process::StandardOutIsDisplayed() {
-  return FileDescriptorIsDisplayed(STDOUT_FILENO);
+#if HAVE_ISATTY
+  return isatty(1);
+#endif
+  // If we don't have isatty, just return false.
+  return false;
 }
 
 bool Process::StandardErrIsDisplayed() {
-  return FileDescriptorIsDisplayed(STDERR_FILENO);
-}
-
-bool Process::FileDescriptorIsDisplayed(int fd) {
 #if HAVE_ISATTY
-  return isatty(fd);
-#else
+  return isatty(2);
+#endif
   // If we don't have isatty, just return false.
   return false;
-#endif
 }
 
 static unsigned getColumns(int FileID) {

@@ -582,19 +582,19 @@ static bool fold(std::vector<Function *> &FnVec, unsigned i, unsigned j) {
           llvm_unreachable(0);
           // fall-through
         case ExternalWeak:
-          if (F->hasAddressTaken())
+	  if (F->hasAddressTaken())
             ThunkGToF(F, G);
           else
             AliasGToF(F, G);
-          break;
+	  break;
         case Internal: {
           bool addrTakenF = F->hasAddressTaken();
           bool addrTakenG = G->hasAddressTaken();
           if (!addrTakenF && addrTakenG) {
             std::swap(FnVec[i], FnVec[j]);
             std::swap(F, G);
-            std::swap(addrTakenF, addrTakenG);
-          }
+	    std::swap(addrTakenF, addrTakenG);
+	  }
 
           if (addrTakenF && addrTakenG) {
             ThunkGToF(F, G);
@@ -602,7 +602,7 @@ static bool fold(std::vector<Function *> &FnVec, unsigned i, unsigned j) {
             assert(!addrTakenG);
             AliasGToF(F, G);
           }
-        } break;
+	} break;
       }
       break;
   }
@@ -634,11 +634,11 @@ bool MergeFunctions::runOnModule(Module &M) {
   bool LocalChanged;
   do {
     LocalChanged = false;
-    DEBUG(errs() << "size: " << FnMap.size() << "\n");
+    DOUT << "size: " << FnMap.size() << "\n";
     for (std::map<unsigned long, std::vector<Function *> >::iterator
          I = FnMap.begin(), E = FnMap.end(); I != E; ++I) {
       std::vector<Function *> &FnVec = I->second;
-      DEBUG(errs() << "hash (" << I->first << "): " << FnVec.size() << "\n");
+      DOUT << "hash (" << I->first << "): " << FnVec.size() << "\n";
 
       for (int i = 0, e = FnVec.size(); i != e; ++i) {
         for (int j = i + 1; j != e; ++j) {

@@ -1,4 +1,4 @@
-; RUN: opt < %s -postdomfrontier -disable-output
+; RUN: llvm-as < %s | opt -postdomfrontier -disable-output
 
 define void @SManager() {
 entry:

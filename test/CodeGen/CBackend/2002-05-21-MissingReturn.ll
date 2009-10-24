@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c
+; RUN: llvm-as < %s | llc -march=c
 
 ; This case was emitting code that looked like this:
 ; ...

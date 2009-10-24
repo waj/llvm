@@ -1,4 +1,4 @@
-; RUN: opt < %s -adce -S | grep null
+; RUN: llvm-as < %s | opt -adce | llvm-dis | grep null
 
 declare i32 @strlen(i8*) readnone
 

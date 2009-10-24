@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 ; Legalization test that requires scalarizing a vector.
 

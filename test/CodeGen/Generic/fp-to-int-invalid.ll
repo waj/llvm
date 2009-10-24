@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; PR4057
 define void @test_cast_float_to_char(i8* %result) nounwind {
 entry:

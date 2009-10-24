@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=thumb -mattr=+thumb2 | FileCheck %s
+; RUN: llvm-as < %s | llc -march=thumb -mattr=+thumb2 | FileCheck %s
 
 define i8 @f1(i8 %a, i8* %v) {
 ; CHECK: f1:

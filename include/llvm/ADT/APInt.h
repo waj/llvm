@@ -15,6 +15,7 @@
 #ifndef LLVM_APINT_H
 #define LLVM_APINT_H
 
+#include "llvm/Support/DataTypes.h"
 #include "llvm/Support/MathExtras.h"
 #include <cassert>
 #include <climits>
@@ -31,8 +32,8 @@ namespace llvm {
   template<typename T>
   class SmallVectorImpl;
 
-  // An unsigned host type used as a single part of a multi-part
-  // bignum.
+  /* An unsigned host type used as a single part of a multi-part
+     bignum.  */
   typedef uint64_t integerPart;
 
   const unsigned int host_char_bit = 8;
@@ -1234,11 +1235,6 @@ public:
     return BitWidth - 1 - countLeadingZeros();
   }
 
-  /// @returns the ceil log base 2 of this APInt.
-  unsigned ceilLogBase2() const {
-    return BitWidth - (*this - 1).countLeadingZeros();
-  }
-
   /// @returns the log base 2 of this APInt if its an exact power of two, -1
   /// otherwise
   int32_t exactLogBase2() const {
@@ -1429,6 +1425,8 @@ inline raw_ostream &operator<<(raw_ostream &OS, const APInt &I) {
   I.print(OS, true);
   return OS;
 }
+
+std::ostream &operator<<(std::ostream &o, const APInt &I);
 
 namespace APIntOps {
 

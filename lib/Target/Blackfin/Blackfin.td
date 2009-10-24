@@ -74,7 +74,6 @@ def WA_IND_CALL : SubtargetFeature<"ind-call-anomaly", "wa_ind_call", "true",
 
 include "BlackfinRegisterInfo.td"
 include "BlackfinCallingConv.td"
-include "BlackfinIntrinsics.td"
 include "BlackfinInstrInfo.td"
 
 def BlackfinInstrInfo : InstrInfo {}

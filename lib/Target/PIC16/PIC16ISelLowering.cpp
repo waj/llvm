@@ -12,7 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "pic16-lower"
-#include "PIC16ABINames.h"
 #include "PIC16ISelLowering.h"
 #include "PIC16TargetObjectFile.h"
 #include "PIC16TargetMachine.h"
@@ -534,10 +533,6 @@ SDValue PIC16TargetLowering::ExpandStore(SDNode *N, SelectionDAG &DAG) {
     SDValue SrcLo, SrcHi;
     GetExpandedParts(Src, DAG, SrcLo, SrcHi);
     SDValue ChainLo = Chain, ChainHi = Chain;
-    // FIXME: This makes unsafe assumptions. The Chain may be a TokenFactor
-    // created for an unrelated purpose, in which case it may not have
-    // exactly two operands. Also, even if it does have two operands, they
-    // may not be the low and high parts of an aligned load that was split.
     if (Chain.getOpcode() == ISD::TokenFactor) {
       ChainLo = Chain.getOperand(0);
       ChainHi = Chain.getOperand(1);
@@ -565,19 +560,16 @@ SDValue PIC16TargetLowering::ExpandStore(SDNode *N, SelectionDAG &DAG) {
     GetExpandedParts(SrcHi, DAG, SrcHi1, SrcHi2);
 
     SDValue ChainLo = Chain, ChainHi = Chain;
-    // FIXME: This makes unsafe assumptions; see the FIXME above.
     if (Chain.getOpcode() == ISD::TokenFactor) {  
       ChainLo = Chain.getOperand(0);
       ChainHi = Chain.getOperand(1);
     }
     SDValue ChainLo1 = ChainLo, ChainLo2 = ChainLo, ChainHi1 = ChainHi,
             ChainHi2 = ChainHi;
-    // FIXME: This makes unsafe assumptions; see the FIXME above.
     if (ChainLo.getOpcode() == ISD::TokenFactor) {
       ChainLo1 = ChainLo.getOperand(0);
       ChainLo2 = ChainLo.getOperand(1);
     }
-    // FIXME: This makes unsafe assumptions; see the FIXME above.
     if (ChainHi.getOpcode() == ISD::TokenFactor) {
       ChainHi1 = ChainHi.getOperand(0);
       ChainHi2 = ChainHi.getOperand(1);
@@ -609,7 +601,6 @@ SDValue PIC16TargetLowering::ExpandStore(SDNode *N, SelectionDAG &DAG) {
     SDValue SrcLo, SrcHi;
     GetExpandedParts(Src, DAG, SrcLo, SrcHi);
     SDValue ChainLo = Chain, ChainHi = Chain;
-    // FIXME: This makes unsafe assumptions; see the FIXME above.
     if (Chain.getOpcode() == ISD::TokenFactor) {
       ChainLo = Chain.getOperand(0);
       ChainHi = Chain.getOperand(1);
@@ -1256,7 +1247,7 @@ LowerDirectCallReturn(SDValue RetLabel, SDValue Chain, SDValue InFlag,
 
 SDValue
 PIC16TargetLowering::LowerReturn(SDValue Chain,
-                                 CallingConv::ID CallConv, bool isVarArg,
+                                 unsigned CallConv, bool isVarArg,
                                  const SmallVectorImpl<ISD::OutputArg> &Outs,
                                  DebugLoc dl, SelectionDAG &DAG) {
 
@@ -1348,7 +1339,7 @@ GetDataAddress(DebugLoc dl, SDValue Callee, SDValue &Chain,
 
 SDValue
 PIC16TargetLowering::LowerCall(SDValue Chain, SDValue Callee,
-                               CallingConv::ID CallConv, bool isVarArg,
+                               unsigned CallConv, bool isVarArg,
                                bool isTailCall,
                                const SmallVectorImpl<ISD::OutputArg> &Outs,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -1604,7 +1595,7 @@ void PIC16TargetLowering::InitReservedFrameCount(const Function *F) {
 
 SDValue
 PIC16TargetLowering::LowerFormalArguments(SDValue Chain,
-                                          CallingConv::ID CallConv,
+                                          unsigned CallConv,
                                           bool isVarArg,
                                       const SmallVectorImpl<ISD::InputArg> &Ins,
                                           DebugLoc dl,
@@ -1814,8 +1805,7 @@ SDValue PIC16TargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) {
 
 MachineBasicBlock *
 PIC16TargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                 MachineBasicBlock *BB,
-                   DenseMap<MachineBasicBlock*, MachineBasicBlock*> *EM) const {
+                                                 MachineBasicBlock *BB) const {
   const TargetInstrInfo &TII = *getTargetMachine().getInstrInfo();
   unsigned CC = (PIC16CC::CondCodes)MI->getOperand(3).getImm();
   DebugLoc dl = MI->getDebugLoc();
@@ -1841,18 +1831,9 @@ PIC16TargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   F->insert(It, copy0MBB);
   F->insert(It, sinkMBB);
 
-  // Update machine-CFG edges by first adding all successors of the current
+  // Update machine-CFG edges by transferring all successors of the current
   // block to the new block which will contain the Phi node for the select.
-  // Also inform sdisel of the edge changes.
-  for (MachineBasicBlock::succ_iterator I = BB->succ_begin(), 
-         E = BB->succ_end(); I != E; ++I) {
-    EM->insert(std::make_pair(*I, sinkMBB));
-    sinkMBB->addSuccessor(*I);
-  }
-  // Next, remove all successors of the current block, and add the true
-  // and fallthrough blocks as its successors.
-  while (!BB->succ_empty())
-    BB->removeSuccessor(BB->succ_begin());
+  sinkMBB->transferSuccessors(BB);
   // Next, add the true and fallthrough blocks as its successors.
   BB->addSuccessor(copy0MBB);
   BB->addSuccessor(sinkMBB);

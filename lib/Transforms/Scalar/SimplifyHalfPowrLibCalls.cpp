@@ -22,13 +22,15 @@
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Config/config.h"
 using namespace llvm;
 
 namespace {
   /// This pass optimizes well half_powr function calls.
   ///
-  class SimplifyHalfPowrLibCalls : public FunctionPass {
+  class VISIBILITY_HIDDEN SimplifyHalfPowrLibCalls : public FunctionPass {
     const TargetData *TD;
   public:
     static char ID; // Pass identification
@@ -57,9 +59,8 @@ FunctionPass *llvm::createSimplifyHalfPowrLibCallsPass() {
 /// InlineHalfPowrs - Inline a sequence of adjacent half_powr calls, rearranging
 /// their control flow to better facilitate subsequent optimization.
 Instruction *
-SimplifyHalfPowrLibCalls::
-InlineHalfPowrs(const std::vector<Instruction *> &HalfPowrs,
-                Instruction *InsertPt) {
+SimplifyHalfPowrLibCalls::InlineHalfPowrs(const std::vector<Instruction *> &HalfPowrs,
+                                        Instruction *InsertPt) {
   std::vector<BasicBlock *> Bodies;
   BasicBlock *NewBlock = 0;
 

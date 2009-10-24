@@ -1,4 +1,4 @@
-; RUN: opt < %s -mem2reg -instcombine -S | grep store
+; RUN: llvm-as < %s | opt -mem2reg -instcombine | llvm-dis | grep store
 ; PR590
 
 

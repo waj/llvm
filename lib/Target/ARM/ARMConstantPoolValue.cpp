@@ -15,17 +15,17 @@
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/GlobalValue.h"
 #include "llvm/Type.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
 using namespace llvm;
 
 ARMConstantPoolValue::ARMConstantPoolValue(GlobalValue *gv, unsigned id,
-                                           ARMCP::ARMCPKind K,
                                            unsigned char PCAdj,
                                            const char *Modif,
                                            bool AddCA)
   : MachineConstantPoolValue((const Type*)gv->getType()),
-    GV(gv), S(NULL), LabelId(id), Kind(K), PCAdjust(PCAdj),
+    GV(gv), S(NULL), LabelId(id), PCAdjust(PCAdj),
     Modifier(Modif), AddCurrentAddress(AddCA) {}
 
 ARMConstantPoolValue::ARMConstantPoolValue(LLVMContext &C,
@@ -34,12 +34,12 @@ ARMConstantPoolValue::ARMConstantPoolValue(LLVMContext &C,
                                            const char *Modif,
                                            bool AddCA)
   : MachineConstantPoolValue((const Type*)Type::getInt32Ty(C)),
-    GV(NULL), S(strdup(s)), LabelId(id), Kind(ARMCP::CPValue), PCAdjust(PCAdj),
+    GV(NULL), S(strdup(s)), LabelId(id), PCAdjust(PCAdj),
     Modifier(Modif), AddCurrentAddress(AddCA) {}
 
 ARMConstantPoolValue::ARMConstantPoolValue(GlobalValue *gv, const char *Modif)
   : MachineConstantPoolValue((const Type*)Type::getInt32Ty(gv->getContext())),
-    GV(gv), S(NULL), LabelId(0), Kind(ARMCP::CPValue), PCAdjust(0),
+    GV(gv), S(NULL), LabelId(0), PCAdjust(0),
     Modifier(Modif) {}
 
 int ARMConstantPoolValue::getExistingMachineCPValue(MachineConstantPool *CP,
@@ -75,9 +75,13 @@ ARMConstantPoolValue::AddSelectionDAGCSEId(FoldingSetNodeID &ID) {
 }
 
 void ARMConstantPoolValue::dump() const {
-  errs() << "  " << *this;
+  cerr << "  " << *this;
 }
 
+void ARMConstantPoolValue::print(std::ostream &O) const {
+  raw_os_ostream RawOS(O);
+  print(RawOS);
+}
 
 void ARMConstantPoolValue::print(raw_ostream &O) const {
   if (GV)

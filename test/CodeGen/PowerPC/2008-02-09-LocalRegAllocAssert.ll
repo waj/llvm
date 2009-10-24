@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=powerpc-apple-darwin -regalloc=local
+; RUN: llvm-as < %s | llc -mtriple=powerpc-apple-darwin -regalloc=local
 
 define i32 @bork(i64 %foo, i64 %bar) {
 entry:

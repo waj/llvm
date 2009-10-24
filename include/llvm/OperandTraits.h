@@ -44,7 +44,7 @@ struct FixedNumOperandTraits {
   };
   template <class U>
   struct Layout {
-    struct overlay : public prefix, public U {
+    struct overlay : prefix, U {
       overlay(); // DO NOT IMPLEMENT
     };
   };
@@ -55,7 +55,7 @@ struct FixedNumOperandTraits {
 //===----------------------------------------------------------------------===//
 
 template <unsigned ARITY = 1>
-struct OptionalOperandTraits : public FixedNumOperandTraits<ARITY> {
+struct OptionalOperandTraits : FixedNumOperandTraits<ARITY> {
   static unsigned operands(const User *U) {
     return U->getNumOperands();
   }

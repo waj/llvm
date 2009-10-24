@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
         %struct..0anon = type { [100 x i32] }
 

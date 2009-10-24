@@ -348,9 +348,9 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 // FrameIndex represent objects inside a abstract stack.
 // We must replace FrameIndex with an stack/frame pointer
 // direct reference.
-unsigned MipsRegisterInfo::
-eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
-                    int *Value, RegScavenger *RS) const
+void MipsRegisterInfo::
+eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj, 
+                    RegScavenger *RS) const 
 {
   MachineInstr &MI = *II;
   MachineFunction &MF = *MI.getParent()->getParent();
@@ -362,27 +362,34 @@ eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
            "Instr doesn't have FrameIndex operand!");
   }
 
-  DEBUG(errs() << "\nFunction : " << MF.getFunction()->getName() << "\n";
-        errs() << "<--------->\n" << MI);
+  #ifndef NDEBUG
+  DEBUG(errs() << "\nFunction : " << MF.getFunction()->getName() << "\n");
+  DOUT << "<--------->\n";
+  MI.print(DOUT);
+  #endif
 
   int FrameIndex = MI.getOperand(i).getIndex();
   int stackSize  = MF.getFrameInfo()->getStackSize();
   int spOffset   = MF.getFrameInfo()->getObjectOffset(FrameIndex);
 
-  DEBUG(errs() << "FrameIndex : " << FrameIndex << "\n"
-               << "spOffset   : " << spOffset << "\n"
-               << "stackSize  : " << stackSize << "\n");
+  #ifndef NDEBUG
+  DOUT << "FrameIndex : " << FrameIndex << "\n";
+  DOUT << "spOffset   : " << spOffset << "\n";
+  DOUT << "stackSize  : " << stackSize << "\n";
+  #endif
 
   // as explained on LowerFormalArguments, detect negative offsets
   // and adjust SPOffsets considering the final stack size.
   int Offset = ((spOffset < 0) ? (stackSize + (-(spOffset+4))) : (spOffset));
   Offset    += MI.getOperand(i-1).getImm();
 
-  DEBUG(errs() << "Offset     : " << Offset << "\n" << "<--------->\n");
+  #ifndef NDEBUG
+  DOUT << "Offset     : " << Offset << "\n";
+  DOUT << "<--------->\n";
+  #endif
 
   MI.getOperand(i-1).ChangeToImmediate(Offset);
   MI.getOperand(i).ChangeToRegister(getFrameRegister(MF), false);
-  return 0;
 }
 
 void MipsRegisterInfo::

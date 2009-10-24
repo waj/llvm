@@ -16,19 +16,19 @@
 // number of counters inserted.
 //
 //===----------------------------------------------------------------------===//
-#define DEBUG_TYPE "insert-edge-profiling"
+
 #include "ProfilingUtils.h"
+#include "llvm/Constants.h"
+#include "llvm/DerivedTypes.h"
+#include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Compiler.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Instrumentation.h"
-#include "llvm/ADT/Statistic.h"
 #include <set>
 using namespace llvm;
-
-STATISTIC(NumEdgesInserted, "The # of edges inserted.");
 
 namespace {
   class VISIBILITY_HIDDEN EdgeProfiler : public ModulePass {
@@ -36,10 +36,6 @@ namespace {
   public:
     static char ID; // Pass identification, replacement for typeid
     EdgeProfiler() : ModulePass(&ID) {}
-
-    virtual const char *getPassName() const {
-      return "Edge Profiler";
-    }
   };
 }
 
@@ -52,8 +48,8 @@ ModulePass *llvm::createEdgeProfilerPass() { return new EdgeProfiler(); }
 bool EdgeProfiler::runOnModule(Module &M) {
   Function *Main = M.getFunction("main");
   if (Main == 0) {
-    errs() << "WARNING: cannot insert edge profiling into a module"
-           << " with no main function!\n";
+    cerr << "WARNING: cannot insert edge profiling into a module"
+         << " with no main function!\n";
     return false;  // No main, no instrumentation!
   }
 
@@ -76,7 +72,6 @@ bool EdgeProfiler::runOnModule(Module &M) {
   GlobalVariable *Counters =
     new GlobalVariable(M, ATy, false, GlobalValue::InternalLinkage,
                        Constant::getNullValue(ATy), "EdgeProfCounters");
-  NumEdgesInserted = NumEdges;
 
   // Instrument all of the edges...
   unsigned i = 0;

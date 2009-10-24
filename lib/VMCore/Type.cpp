@@ -42,9 +42,6 @@ using namespace llvm;
 
 AbstractTypeUser::~AbstractTypeUser() {}
 
-void AbstractTypeUser::setType(Value *V, const Type *NewTy) {
-  V->VTy = NewTy;
-}
 
 //===----------------------------------------------------------------------===//
 //                         Type Class Implementation
@@ -307,95 +304,55 @@ const Type *StructType::getTypeAtIndex(unsigned Idx) const {
 //===----------------------------------------------------------------------===//
 
 const Type *Type::getVoidTy(LLVMContext &C) {
-  return &C.pImpl->VoidTy;
+  return C.pImpl->VoidTy;
 }
 
 const Type *Type::getLabelTy(LLVMContext &C) {
-  return &C.pImpl->LabelTy;
+  return C.pImpl->LabelTy;
 }
 
 const Type *Type::getFloatTy(LLVMContext &C) {
-  return &C.pImpl->FloatTy;
+  return C.pImpl->FloatTy;
 }
 
 const Type *Type::getDoubleTy(LLVMContext &C) {
-  return &C.pImpl->DoubleTy;
+  return C.pImpl->DoubleTy;
 }
 
 const Type *Type::getMetadataTy(LLVMContext &C) {
-  return &C.pImpl->MetadataTy;
+  return C.pImpl->MetadataTy;
 }
 
 const Type *Type::getX86_FP80Ty(LLVMContext &C) {
-  return &C.pImpl->X86_FP80Ty;
+  return C.pImpl->X86_FP80Ty;
 }
 
 const Type *Type::getFP128Ty(LLVMContext &C) {
-  return &C.pImpl->FP128Ty;
+  return C.pImpl->FP128Ty;
 }
 
 const Type *Type::getPPC_FP128Ty(LLVMContext &C) {
-  return &C.pImpl->PPC_FP128Ty;
+  return C.pImpl->PPC_FP128Ty;
 }
 
 const IntegerType *Type::getInt1Ty(LLVMContext &C) {
-  return &C.pImpl->Int1Ty;
+  return C.pImpl->Int1Ty;
 }
 
 const IntegerType *Type::getInt8Ty(LLVMContext &C) {
-  return &C.pImpl->Int8Ty;
+  return C.pImpl->Int8Ty;
 }
 
 const IntegerType *Type::getInt16Ty(LLVMContext &C) {
-  return &C.pImpl->Int16Ty;
+  return C.pImpl->Int16Ty;
 }
 
 const IntegerType *Type::getInt32Ty(LLVMContext &C) {
-  return &C.pImpl->Int32Ty;
+  return C.pImpl->Int32Ty;
 }
 
 const IntegerType *Type::getInt64Ty(LLVMContext &C) {
-  return &C.pImpl->Int64Ty;
-}
-
-const PointerType *Type::getFloatPtrTy(LLVMContext &C, unsigned AS) {
-  return getFloatTy(C)->getPointerTo(AS);
-}
-
-const PointerType *Type::getDoublePtrTy(LLVMContext &C, unsigned AS) {
-  return getDoubleTy(C)->getPointerTo(AS);
-}
-
-const PointerType *Type::getX86_FP80PtrTy(LLVMContext &C, unsigned AS) {
-  return getX86_FP80Ty(C)->getPointerTo(AS);
-}
-
-const PointerType *Type::getFP128PtrTy(LLVMContext &C, unsigned AS) {
-  return getFP128Ty(C)->getPointerTo(AS);
-}
-
-const PointerType *Type::getPPC_FP128PtrTy(LLVMContext &C, unsigned AS) {
-  return getPPC_FP128Ty(C)->getPointerTo(AS);
-}
-
-const PointerType *Type::getInt1PtrTy(LLVMContext &C, unsigned AS) {
-  return getInt1Ty(C)->getPointerTo(AS);
-}
-
-const PointerType *Type::getInt8PtrTy(LLVMContext &C, unsigned AS) {
-  return getInt8Ty(C)->getPointerTo(AS);
-}
-
-const PointerType *Type::getInt16PtrTy(LLVMContext &C, unsigned AS) {
-  return getInt16Ty(C)->getPointerTo(AS);
-}
-
-const PointerType *Type::getInt32PtrTy(LLVMContext &C, unsigned AS) {
-  return getInt32Ty(C)->getPointerTo(AS);
-}
-
-const PointerType *Type::getInt64PtrTy(LLVMContext &C, unsigned AS) {
-  return getInt64Ty(C)->getPointerTo(AS);
+  return C.pImpl->Int64Ty;
 }
 
 //===----------------------------------------------------------------------===//
@@ -405,14 +362,38 @@ const PointerType *Type::getInt64PtrTy(LLVMContext &C, unsigned AS) {
 /// isValidReturnType - Return true if the specified type is valid as a return
 /// type.
 bool FunctionType::isValidReturnType(const Type *RetTy) {
-  return RetTy->getTypeID() != LabelTyID &&
-         RetTy->getTypeID() != MetadataTyID;
+  if (RetTy->isFirstClassType()) {
+    if (const PointerType *PTy = dyn_cast<PointerType>(RetTy))
+      return PTy->getElementType() != Type::getMetadataTy(RetTy->getContext());
+    return true;
+  }
+  if (RetTy == Type::getVoidTy(RetTy->getContext()) ||
+      RetTy == Type::getMetadataTy(RetTy->getContext()) ||
+      isa<OpaqueType>(RetTy))
+    return true;
+  
+  // If this is a multiple return case, verify that each return is a first class
+  // value and that there is at least one value.
+  const StructType *SRetTy = dyn_cast<StructType>(RetTy);
+  if (SRetTy == 0 || SRetTy->getNumElements() == 0)
+    return false;
+  
+  for (unsigned i = 0, e = SRetTy->getNumElements(); i != e; ++i)
+    if (!SRetTy->getElementType(i)->isFirstClassType())
+      return false;
+  return true;
 }
 
 /// isValidArgumentType - Return true if the specified type is valid as an
 /// argument type.
 bool FunctionType::isValidArgumentType(const Type *ArgTy) {
-  return ArgTy->isFirstClassType() || isa<OpaqueType>(ArgTy);
+  if ((!ArgTy->isFirstClassType() && !isa<OpaqueType>(ArgTy)) ||
+      (isa<PointerType>(ArgTy) &&
+       cast<PointerType>(ArgTy)->getElementType() == 
+            Type::getMetadataTy(ArgTy->getContext())))
+    return false;
+
+  return true;
 }
 
 FunctionType::FunctionType(const Type *Result,
@@ -486,7 +467,7 @@ PointerType::PointerType(const Type *E, unsigned AddrSpace)
 OpaqueType::OpaqueType(LLVMContext &C) : DerivedType(C, OpaqueTyID) {
   setAbstract(true);
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "Derived new type: " << *this << "\n");
+  DOUT << "Derived new type: " << *this << "\n";
 #endif
 }
 
@@ -519,7 +500,7 @@ void DerivedType::dropAllTypeUses() {
       
         llvm_release_global_lock();
       }
-    } else if (!AlwaysOpaqueTy) {
+    } else {
       AlwaysOpaqueTy = OpaqueType::get(getContext());
       Holder = new PATypeHolder(AlwaysOpaqueTy);
     } 
@@ -528,11 +509,9 @@ void DerivedType::dropAllTypeUses() {
 
     // Change the rest of the types to be Int32Ty's.  It doesn't matter what we
     // pick so long as it doesn't point back to this type.  We choose something
-    // concrete to avoid overhead for adding to AbstractTypeUser lists and
-    // stuff.
-    const Type *ConcreteTy = Type::getInt32Ty(getContext());
+    // concrete to avoid overhead for adding to AbstracTypeUser lists and stuff.
     for (unsigned i = 1, e = NumContainedTys; i != e; ++i)
-      ContainedTys[i] = ConcreteTy;
+      ContainedTys[i] = Type::getInt32Ty(getContext());
   }
 }
 
@@ -777,7 +756,7 @@ const IntegerType *IntegerType::get(LLVMContext &C, unsigned NumBits) {
     pImpl->IntegerTypes.add(IVT, ITy);
   }
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "Derived new type: " << *ITy << "\n");
+  DOUT << "Derived new type: " << *ITy << "\n";
 #endif
   return ITy;
 }
@@ -821,7 +800,7 @@ FunctionType *FunctionType::get(const Type *ReturnType,
   }
 
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "Derived new type: " << FT << "\n");
+  DOUT << "Derived new type: " << FT << "\n";
 #endif
   return FT;
 }
@@ -843,14 +822,22 @@ ArrayType *ArrayType::get(const Type *ElementType, uint64_t NumElements) {
     pImpl->ArrayTypes.add(AVT, AT = new ArrayType(ElementType, NumElements));
   }
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "Derived new type: " << *AT << "\n");
+  DOUT << "Derived new type: " << *AT << "\n";
 #endif
   return AT;
 }
 
 bool ArrayType::isValidElementType(const Type *ElemTy) {
-  return ElemTy->getTypeID() != VoidTyID && ElemTy->getTypeID() != LabelTyID &&
-         ElemTy->getTypeID() != MetadataTyID && !isa<FunctionType>(ElemTy);
+  if (ElemTy == Type::getVoidTy(ElemTy->getContext()) ||
+      ElemTy == Type::getLabelTy(ElemTy->getContext()) ||
+      ElemTy == Type::getMetadataTy(ElemTy->getContext()))
+    return false;
+
+  if (const PointerType *PTy = dyn_cast<PointerType>(ElemTy))
+    if (PTy->getElementType() == Type::getMetadataTy(ElemTy->getContext()))
+      return false;
+
+  return true;
 }
 
 VectorType *VectorType::get(const Type *ElementType, unsigned NumElements) {
@@ -868,14 +855,17 @@ VectorType *VectorType::get(const Type *ElementType, unsigned NumElements) {
     pImpl->VectorTypes.add(PVT, PT = new VectorType(ElementType, NumElements));
   }
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "Derived new type: " << *PT << "\n");
+  DOUT << "Derived new type: " << *PT << "\n";
 #endif
   return PT;
 }
 
 bool VectorType::isValidElementType(const Type *ElemTy) {
-  return ElemTy->isInteger() || ElemTy->isFloatingPoint() ||
-         isa<OpaqueType>(ElemTy);
+  if (ElemTy->isInteger() || ElemTy->isFloatingPoint() ||
+      isa<OpaqueType>(ElemTy))
+    return true;
+
+  return false;
 }
 
 //===----------------------------------------------------------------------===//
@@ -901,7 +891,7 @@ StructType *StructType::get(LLVMContext &Context,
     pImpl->StructTypes.add(STV, ST);
   }
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "Derived new type: " << *ST << "\n");
+  DOUT << "Derived new type: " << *ST << "\n";
 #endif
   return ST;
 }
@@ -918,8 +908,16 @@ StructType *StructType::get(LLVMContext &Context, const Type *type, ...) {
 }
 
 bool StructType::isValidElementType(const Type *ElemTy) {
-  return ElemTy->getTypeID() != VoidTyID && ElemTy->getTypeID() != LabelTyID &&
-         ElemTy->getTypeID() != MetadataTyID && !isa<FunctionType>(ElemTy);
+  if (ElemTy == Type::getVoidTy(ElemTy->getContext()) ||
+      ElemTy == Type::getLabelTy(ElemTy->getContext()) ||
+      ElemTy == Type::getMetadataTy(ElemTy->getContext()))
+    return false;
+
+  if (const PointerType *PTy = dyn_cast<PointerType>(ElemTy))
+    if (PTy->getElementType() == Type::getMetadataTy(ElemTy->getContext()))
+      return false;
+
+  return true;
 }
 
 
@@ -929,7 +927,7 @@ bool StructType::isValidElementType(const Type *ElemTy) {
 
 PointerType *PointerType::get(const Type *ValueType, unsigned AddressSpace) {
   assert(ValueType && "Can't get a pointer to <null> type!");
-  assert(ValueType->getTypeID() != VoidTyID &&
+  assert(ValueType != Type::getVoidTy(ValueType->getContext()) &&
          "Pointer to void is not valid, use i8* instead!");
   assert(isValidElementType(ValueType) && "Invalid type for pointer element!");
   PointerValType PVT(ValueType, AddressSpace);
@@ -946,19 +944,25 @@ PointerType *PointerType::get(const Type *ValueType, unsigned AddressSpace) {
     pImpl->PointerTypes.add(PVT, PT = new PointerType(ValueType, AddressSpace));
   }
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "Derived new type: " << *PT << "\n");
+  DOUT << "Derived new type: " << *PT << "\n";
 #endif
   return PT;
 }
 
-const PointerType *Type::getPointerTo(unsigned addrs) const {
+PointerType *Type::getPointerTo(unsigned addrs) const {
   return PointerType::get(this, addrs);
 }
 
 bool PointerType::isValidElementType(const Type *ElemTy) {
-  return ElemTy->getTypeID() != VoidTyID &&
-         ElemTy->getTypeID() != LabelTyID &&
-         ElemTy->getTypeID() != MetadataTyID;
+  if (ElemTy == Type::getVoidTy(ElemTy->getContext()) ||
+      ElemTy == Type::getLabelTy(ElemTy->getContext()))
+    return false;
+
+  if (const PointerType *PTy = dyn_cast<PointerType>(ElemTy))
+    if (PTy->getElementType() == Type::getMetadataTy(ElemTy->getContext()))
+      return false;
+
+  return true;
 }
 
 
@@ -1000,14 +1004,14 @@ void Type::removeAbstractTypeUser(AbstractTypeUser *U) const {
   AbstractTypeUsers.erase(AbstractTypeUsers.begin()+i);
 
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "  remAbstractTypeUser[" << (void*)this << ", "
-               << *this << "][" << i << "] User = " << U << "\n");
+  DOUT << "  remAbstractTypeUser[" << (void*)this << ", "
+       << *this << "][" << i << "] User = " << U << "\n";
 #endif
 
   if (AbstractTypeUsers.empty() && getRefCount() == 0 && isAbstract()) {
 #ifdef DEBUG_MERGE_TYPES
-    DEBUG(errs() << "DELETEing unused abstract type: <" << *this
-                 << ">[" << (void*)this << "]" << "\n");
+    DOUT << "DELETEing unused abstract type: <" << *this
+         << ">[" << (void*)this << "]" << "\n";
 #endif
   
   this->destroy();
@@ -1033,16 +1037,16 @@ void DerivedType::unlockedRefineAbstractTypeTo(const Type *NewType) {
   pImpl->AbstractTypeDescriptions.clear();
 
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "REFINING abstract type [" << (void*)this << " "
-               << *this << "] to [" << (void*)NewType << " "
-               << *NewType << "]!\n");
+  DOUT << "REFINING abstract type [" << (void*)this << " "
+       << *this << "] to [" << (void*)NewType << " "
+       << *NewType << "]!\n";
 #endif
 
   // Make sure to put the type to be refined to into a holder so that if IT gets
   // refined, that we will not continue using a dead reference...
   //
   PATypeHolder NewTy(NewType);
-  // Any PATypeHolders referring to this type will now automatically forward to
+  // Any PATypeHolders referring to this type will now automatically forward o
   // the type we are resolved to.
   ForwardType = NewType;
   if (NewType->isAbstract())
@@ -1071,10 +1075,10 @@ void DerivedType::unlockedRefineAbstractTypeTo(const Type *NewType) {
 
     unsigned OldSize = AbstractTypeUsers.size(); OldSize=OldSize;
 #ifdef DEBUG_MERGE_TYPES
-    DEBUG(errs() << " REFINING user " << OldSize-1 << "[" << (void*)User
-                 << "] of abstract type [" << (void*)this << " "
-                 << *this << "] to [" << (void*)NewTy.get() << " "
-                 << *NewTy << "]!\n");
+    DOUT << " REFINING user " << OldSize-1 << "[" << (void*)User
+         << "] of abstract type [" << (void*)this << " "
+         << *this << "] to [" << (void*)NewTy.get() << " "
+         << *NewTy << "]!\n";
 #endif
     User->refineAbstractType(this, NewTy);
 
@@ -1104,7 +1108,7 @@ void DerivedType::refineAbstractTypeTo(const Type *NewType) {
 //
 void DerivedType::notifyUsesThatTypeBecameConcrete() {
 #ifdef DEBUG_MERGE_TYPES
-  DEBUG(errs() << "typeIsREFINED type: " << (void*)this << " " << *this <<"\n");
+  DOUT << "typeIsREFINED type: " << (void*)this << " " << *this << "\n";
 #endif
 
   LLVMContextImpl *pImpl = getContext().pImpl;
@@ -1204,6 +1208,19 @@ bool SequentialType::indexValid(const Value *V) const {
 }
 
 namespace llvm {
+std::ostream &operator<<(std::ostream &OS, const Type *T) {
+  if (T == 0)
+    OS << "<null> value!\n";
+  else
+    T->print(OS);
+  return OS;
+}
+
+std::ostream &operator<<(std::ostream &OS, const Type &T) {
+  T.print(OS);
+  return OS;
+}
+
 raw_ostream &operator<<(raw_ostream &OS, const Type &T) {
   T.print(OS);
   return OS;

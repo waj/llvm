@@ -41,7 +41,8 @@ namespace llvm {
       FCTIDZ, FCTIWZ,
       
       /// STFIWX - The STFIWX instruction.  The first operand is an input token
-      /// chain, then an f64 value to store, then an address to store it to.
+      /// chain, then an f64 value to store, then an address to store it to,
+      /// then a SRCVALUE for the address.
       STFIWX,
       
       // VMADDFP, VNMSUBFP - The VMADDFP and VNMSUBFP instructions, taking
@@ -79,6 +80,9 @@ namespace llvm {
       /// registers.
       EXTSW_32,
 
+      /// STD_32 - This is the STD instruction for use with "32-bit" registers.
+      STD_32,
+      
       /// CALL - A direct function call.
       CALL_Darwin, CALL_SVR4,
       
@@ -120,6 +124,18 @@ namespace llvm {
       /// an optional input flag argument.
       COND_BRANCH,
       
+      /// CHAIN = STBRX CHAIN, GPRC, Ptr, SRCVALUE, Type - This is a 
+      /// byte-swapping store instruction.  It byte-swaps the low "Type" bits of
+      /// the GPRC input, then stores it through Ptr.  Type can be either i16 or
+      /// i32.
+      STBRX, 
+      
+      /// GPRC, CHAIN = LBRX CHAIN, Ptr, SRCVALUE, Type - This is a 
+      /// byte-swapping load instruction.  It loads "Type" bits, byte swaps it,
+      /// then puts it in the bottom bits of the GPRC.  TYPE can be either i16
+      /// or i32.
+      LBRX,
+
       // The following 5 instructions are used only as part of the
       // long double-to-int conversion sequence.
 
@@ -154,22 +170,7 @@ namespace llvm {
       ///   operand #1 callee (register or absolute)
       ///   operand #2 stack adjustment
       ///   operand #3 optional in flag
-      TC_RETURN,
-
-      /// STD_32 - This is the STD instruction for use with "32-bit" registers.
-      STD_32 = ISD::FIRST_TARGET_MEMORY_OPCODE,
-      
-      /// CHAIN = STBRX CHAIN, GPRC, Ptr, Type - This is a 
-      /// byte-swapping store instruction.  It byte-swaps the low "Type" bits of
-      /// the GPRC input, then stores it through Ptr.  Type can be either i16 or
-      /// i32.
-      STBRX, 
-      
-      /// GPRC, CHAIN = LBRX CHAIN, Ptr, Type - This is a 
-      /// byte-swapping load instruction.  It loads "Type" bits, byte swaps it,
-      /// then puts it in the bottom bits of the GPRC.  TYPE can be either i16
-      /// or i32.
-      LBRX
+      TC_RETURN
     };
   }
 
@@ -288,8 +289,7 @@ namespace llvm {
                                                 unsigned Depth = 0) const;
 
     virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                         MachineBasicBlock *MBB,
-                    DenseMap<MachineBasicBlock*, MachineBasicBlock*> *EM) const;
+                                                  MachineBasicBlock *MBB) const;
     MachineBasicBlock *EmitAtomicBinary(MachineInstr *MI, 
                                         MachineBasicBlock *MBB, bool is64Bit,
                                         unsigned BinOpcode) const;
@@ -332,7 +332,7 @@ namespace llvm {
 
     virtual bool
     IsEligibleForTailCallOptimization(SDValue Callee,
-                                      CallingConv::ID CalleeCC,
+                                      unsigned CalleeCC,
                                       bool isVarArg,
                                       const SmallVectorImpl<ISD::InputArg> &Ins,
                                       SelectionDAG& DAG) const;
@@ -391,11 +391,11 @@ namespace llvm {
     SDValue LowerMUL(SDValue Op, SelectionDAG &DAG);
 
     SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
-                            CallingConv::ID CallConv, bool isVarArg,
+                            unsigned CallConv, bool isVarArg,
                             const SmallVectorImpl<ISD::InputArg> &Ins,
                             DebugLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals);
-    SDValue FinishCall(CallingConv::ID CallConv, DebugLoc dl, bool isTailCall,
+    SDValue FinishCall(unsigned CallConv, DebugLoc dl, bool isTailCall,
                        bool isVarArg,
                        SelectionDAG &DAG,
                        SmallVector<std::pair<unsigned, SDValue>, 8>
@@ -408,14 +408,14 @@ namespace llvm {
 
     virtual SDValue
       LowerFormalArguments(SDValue Chain,
-                           CallingConv::ID CallConv, bool isVarArg,
+                           unsigned CallConv, bool isVarArg,
                            const SmallVectorImpl<ISD::InputArg> &Ins,
                            DebugLoc dl, SelectionDAG &DAG,
                            SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerCall(SDValue Chain, SDValue Callee,
-                CallingConv::ID CallConv, bool isVarArg, bool isTailCall,
+                unsigned CallConv, bool isVarArg, bool isTailCall,
                 const SmallVectorImpl<ISD::OutputArg> &Outs,
                 const SmallVectorImpl<ISD::InputArg> &Ins,
                 DebugLoc dl, SelectionDAG &DAG,
@@ -423,33 +423,33 @@ namespace llvm {
 
     virtual SDValue
       LowerReturn(SDValue Chain,
-                  CallingConv::ID CallConv, bool isVarArg,
+                  unsigned CallConv, bool isVarArg,
                   const SmallVectorImpl<ISD::OutputArg> &Outs,
                   DebugLoc dl, SelectionDAG &DAG);
 
     SDValue
       LowerFormalArguments_Darwin(SDValue Chain,
-                                  CallingConv::ID CallConv, bool isVarArg,
+                                  unsigned CallConv, bool isVarArg,
                                   const SmallVectorImpl<ISD::InputArg> &Ins,
                                   DebugLoc dl, SelectionDAG &DAG,
                                   SmallVectorImpl<SDValue> &InVals);
     SDValue
       LowerFormalArguments_SVR4(SDValue Chain,
-                                CallingConv::ID CallConv, bool isVarArg,
+                                unsigned CallConv, bool isVarArg,
                                 const SmallVectorImpl<ISD::InputArg> &Ins,
                                 DebugLoc dl, SelectionDAG &DAG,
                                 SmallVectorImpl<SDValue> &InVals);
 
     SDValue
       LowerCall_Darwin(SDValue Chain, SDValue Callee,
-                       CallingConv::ID CallConv, bool isVarArg, bool isTailCall,
+                       unsigned CallConv, bool isVarArg, bool isTailCall,
                        const SmallVectorImpl<ISD::OutputArg> &Outs,
                        const SmallVectorImpl<ISD::InputArg> &Ins,
                        DebugLoc dl, SelectionDAG &DAG,
                        SmallVectorImpl<SDValue> &InVals);
     SDValue
       LowerCall_SVR4(SDValue Chain, SDValue Callee,
-                     CallingConv::ID CallConv, bool isVarArg, bool isTailCall,
+                     unsigned CallConv, bool isVarArg, bool isTailCall,
                      const SmallVectorImpl<ISD::OutputArg> &Outs,
                      const SmallVectorImpl<ISD::InputArg> &Ins,
                      DebugLoc dl, SelectionDAG &DAG,

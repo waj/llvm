@@ -35,24 +35,24 @@ namespace llvm {
 
 /// EEVT::DAGISelGenValueType - These are some extended forms of
 /// MVT::SimpleValueType that we use as lattice values during type inference.
-/// The existing MVT iAny, fAny and vAny types suffice to represent
-/// arbitrary integer, floating-point, and vector types, so only an unknown
-/// value is needed.
 namespace EEVT {
   enum DAGISelGenValueType {
-    isUnknown  = MVT::LAST_VALUETYPE
+    isFP  = MVT::LAST_VALUETYPE,
+    isInt,
+    isVec,
+    isUnknown
   };
 
   /// isExtIntegerInVTs - Return true if the specified extended value type
-  /// vector contains iAny or an integer value type.
+  /// vector contains isInt or an integer value type.
   bool isExtIntegerInVTs(const std::vector<unsigned char> &EVTs);
 
   /// isExtFloatingPointInVTs - Return true if the specified extended value
-  /// type vector contains fAny or a FP value type.
+  /// type vector contains isFP or a FP value type.
   bool isExtFloatingPointInVTs(const std::vector<unsigned char> &EVTs);
 
   /// isExtVectorinVTs - Return true if the specified extended value type 
-  /// vector contains vAny or a vector value type.
+  /// vector contains isVec or a vector value type.
   bool isExtVectorInVTs(const std::vector<unsigned char> &EVTs);
 }
 
@@ -584,8 +584,6 @@ public:
     return intrinsic_wo_chain_sdnode;
   }
   
-  bool hasTargetIntrinsics() { return !TgtIntrinsics.empty(); }
-
 private:
   void ParseNodeInfo();
   void ParseNodeTransforms();

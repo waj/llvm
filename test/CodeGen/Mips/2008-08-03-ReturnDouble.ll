@@ -1,5 +1,5 @@
 ; Double return in abicall (default)
-; RUN: llc < %s -march=mips
+; RUN: llvm-as < %s | llc -march=mips
 ; PR2615
 
 define double @main(...) {

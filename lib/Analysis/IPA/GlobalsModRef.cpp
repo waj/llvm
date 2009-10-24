@@ -23,7 +23,6 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/CallGraph.h"
-#include "llvm/Analysis/MallocHelper.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InstIterator.h"
@@ -237,11 +236,6 @@ bool GlobalsModRef::AnalyzeUsesOfPointer(Value *V,
       }
     } else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(*UI)) {
       if (AnalyzeUsesOfPointer(GEP, Readers, Writers)) return true;
-    } else if (BitCastInst *BCI = dyn_cast<BitCastInst>(*UI)) {
-      if (AnalyzeUsesOfPointer(BCI, Readers, Writers, OkayStoreDest))
-        return true;
-    } else if (isa<FreeInst>(*UI) || isFreeCall(*UI)) {
-      Writers.push_back(cast<Instruction>(*UI)->getParent()->getParent());
     } else if (CallInst *CI = dyn_cast<CallInst>(*UI)) {
       // Make sure that this is just the function being called, not that it is
       // passing into the function.
@@ -263,6 +257,8 @@ bool GlobalsModRef::AnalyzeUsesOfPointer(Value *V,
     } else if (ICmpInst *ICI = dyn_cast<ICmpInst>(*UI)) {
       if (!isa<ConstantPointerNull>(ICI->getOperand(1)))
         return true;  // Allow comparison against null.
+    } else if (FreeInst *F = dyn_cast<FreeInst>(*UI)) {
+      Writers.push_back(F->getParent()->getParent());
     } else {
       return true;
     }
@@ -303,7 +299,7 @@ bool GlobalsModRef::AnalyzeIndirectGlobalMemory(GlobalValue *GV) {
       // Check the value being stored.
       Value *Ptr = SI->getOperand(0)->getUnderlyingObject();
 
-      if (isMalloc(Ptr)) {
+      if (isa<MallocInst>(Ptr)) {
         // Okay, easy case.
       } else if (CallInst *CI = dyn_cast<CallInst>(Ptr)) {
         Function *F = CI->getCalledFunction();
@@ -439,8 +435,7 @@ void GlobalsModRef::AnalyzeCallGraph(CallGraph &CG, Module &M) {
           if (cast<StoreInst>(*II).isVolatile())
             // Treat volatile stores as reading memory somewhere.
             FunctionEffect |= Ref;
-        } else if (isMalloc(&cast<Instruction>(*II)) || isa<FreeInst>(*II) ||
-                   isFreeCall(&cast<Instruction>(*II))) {
+        } else if (isa<MallocInst>(*II) || isa<FreeInst>(*II)) {
           FunctionEffect |= ModRef;
         }
 

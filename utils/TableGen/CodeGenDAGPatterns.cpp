@@ -78,24 +78,24 @@ static bool LHSIsSubsetOfRHS(const std::vector<unsigned char> &LHS,
 namespace llvm {
 namespace EEVT {
 /// isExtIntegerInVTs - Return true if the specified extended value type vector
-/// contains iAny or an integer value type.
+/// contains isInt or an integer value type.
 bool isExtIntegerInVTs(const std::vector<unsigned char> &EVTs) {
   assert(!EVTs.empty() && "Cannot check for integer in empty ExtVT list!");
-  return EVTs[0] == MVT::iAny || !(FilterEVTs(EVTs, isInteger).empty());
+  return EVTs[0] == isInt || !(FilterEVTs(EVTs, isInteger).empty());
 }
 
 /// isExtFloatingPointInVTs - Return true if the specified extended value type
-/// vector contains fAny or a FP value type.
+/// vector contains isFP or a FP value type.
 bool isExtFloatingPointInVTs(const std::vector<unsigned char> &EVTs) {
   assert(!EVTs.empty() && "Cannot check for FP in empty ExtVT list!");
-  return EVTs[0] == MVT::fAny || !(FilterEVTs(EVTs, isFloatingPoint).empty());
+  return EVTs[0] == isFP || !(FilterEVTs(EVTs, isFloatingPoint).empty());
 }
 
 /// isExtVectorInVTs - Return true if the specified extended value type
-/// vector contains vAny or a vector value type.
+/// vector contains a vector value type.
 bool isExtVectorInVTs(const std::vector<unsigned char> &EVTs) {
   assert(!EVTs.empty() && "Cannot check for vector in empty ExtVT list!");
-  return EVTs[0] == MVT::vAny || !(FilterEVTs(EVTs, isVector).empty());
+  return EVTs[0] == isVec || !(FilterEVTs(EVTs, isVector).empty());
 }
 } // end namespace EEVT.
 } // end namespace llvm.
@@ -138,14 +138,14 @@ void FindDepVars(TreePatternNode *N, MultipleUseVarSet &DepVars) {
 //! Dump the dependent variable set:
 void DumpDepVars(MultipleUseVarSet &DepVars) {
   if (DepVars.empty()) {
-    DEBUG(errs() << "<empty set>");
+    DOUT << "<empty set>";
   } else {
-    DEBUG(errs() << "[ ");
+    DOUT << "[ ";
     for (MultipleUseVarSet::const_iterator i = DepVars.begin(), e = DepVars.end();
          i != e; ++i) {
-      DEBUG(errs() << (*i) << " ");
+      DOUT << (*i) << " ";
     }
-    DEBUG(errs() << "]");
+    DOUT << "]";
   }
 }
 }
@@ -276,7 +276,7 @@ bool SDTypeConstraint::ApplyTypeConstraint(TreePatternNode *N,
     // If we found exactly one supported integer type, apply it.
     if (IntVTs.size() == 1)
       return NodeToApply->UpdateNodeType(IntVTs[0], TP);
-    return NodeToApply->UpdateNodeType(MVT::iAny, TP);
+    return NodeToApply->UpdateNodeType(EEVT::isInt, TP);
   }
   case SDTCisFP: {
     // If there is only one FP type supported, this must be it.
@@ -286,7 +286,7 @@ bool SDTypeConstraint::ApplyTypeConstraint(TreePatternNode *N,
     // If we found exactly one supported FP type, apply it.
     if (FPVTs.size() == 1)
       return NodeToApply->UpdateNodeType(FPVTs[0], TP);
-    return NodeToApply->UpdateNodeType(MVT::fAny, TP);
+    return NodeToApply->UpdateNodeType(EEVT::isFP, TP);
   }
   case SDTCisVec: {
     // If there is only one vector type supported, this must be it.
@@ -296,7 +296,7 @@ bool SDTypeConstraint::ApplyTypeConstraint(TreePatternNode *N,
     // If we found exactly one supported vector type, apply it.
     if (VecVTs.size() == 1)
       return NodeToApply->UpdateNodeType(VecVTs[0], TP);
-    return NodeToApply->UpdateNodeType(MVT::vAny, TP);
+    return NodeToApply->UpdateNodeType(EEVT::isVec, TP);
   }
   case SDTCisSameAs: {
     TreePatternNode *OtherNode =
@@ -322,7 +322,7 @@ bool SDTypeConstraint::ApplyTypeConstraint(TreePatternNode *N,
     
     // It must be integer.
     bool MadeChange = false;
-    MadeChange |= OtherNode->UpdateNodeType(MVT::iAny, TP);
+    MadeChange |= OtherNode->UpdateNodeType(EEVT::isInt, TP);
     
     // This code only handles nodes that have one type set.  Assert here so
     // that we can change this if we ever need to deal with multiple value
@@ -348,13 +348,13 @@ bool SDTypeConstraint::ApplyTypeConstraint(TreePatternNode *N,
              EEVT::isExtFloatingPointInVTs(BigOperand->getExtTypes())) &&
            "SDTCisOpSmallerThanOp does not handle mixed int/fp types!");
     if (EEVT::isExtIntegerInVTs(NodeToApply->getExtTypes()))
-      MadeChange |= BigOperand->UpdateNodeType(MVT::iAny, TP);
+      MadeChange |= BigOperand->UpdateNodeType(EEVT::isInt, TP);
     else if (EEVT::isExtFloatingPointInVTs(NodeToApply->getExtTypes()))
-      MadeChange |= BigOperand->UpdateNodeType(MVT::fAny, TP);
+      MadeChange |= BigOperand->UpdateNodeType(EEVT::isFP, TP);
     if (EEVT::isExtIntegerInVTs(BigOperand->getExtTypes()))
-      MadeChange |= NodeToApply->UpdateNodeType(MVT::iAny, TP);
+      MadeChange |= NodeToApply->UpdateNodeType(EEVT::isInt, TP);
     else if (EEVT::isExtFloatingPointInVTs(BigOperand->getExtTypes()))
-      MadeChange |= NodeToApply->UpdateNodeType(MVT::fAny, TP);
+      MadeChange |= NodeToApply->UpdateNodeType(EEVT::isFP, TP);
 
     std::vector<MVT::SimpleValueType> VTs = CGT.getLegalValueTypes();
 
@@ -476,7 +476,7 @@ bool TreePatternNode::UpdateNodeType(const std::vector<unsigned char> &ExtVTs,
 
   if (getExtTypeNum(0) == MVT::iPTR || getExtTypeNum(0) == MVT::iPTRAny) {
     if (ExtVTs[0] == MVT::iPTR || ExtVTs[0] == MVT::iPTRAny ||
-        ExtVTs[0] == MVT::iAny)
+        ExtVTs[0] == EEVT::isInt)
       return false;
     if (EEVT::isExtIntegerInVTs(ExtVTs)) {
       std::vector<unsigned char> FVTs = FilterEVTs(ExtVTs, isInteger);
@@ -487,18 +487,7 @@ bool TreePatternNode::UpdateNodeType(const std::vector<unsigned char> &ExtVTs,
     }
   }
 
-  // Merge vAny with iAny/fAny.  The latter include vector types so keep them
-  // as the more specific information.
-  if (ExtVTs[0] == MVT::vAny && 
-      (getExtTypeNum(0) == MVT::iAny || getExtTypeNum(0) == MVT::fAny))
-    return false;
-  if (getExtTypeNum(0) == MVT::vAny &&
-      (ExtVTs[0] == MVT::iAny || ExtVTs[0] == MVT::fAny)) {
-    setTypes(ExtVTs);
-    return true;
-  }
-
-  if (ExtVTs[0] == MVT::iAny &&
+  if ((ExtVTs[0] == EEVT::isInt || ExtVTs[0] == MVT::iAny) &&
       EEVT::isExtIntegerInVTs(getExtTypes())) {
     assert(hasTypeSet() && "should be handled above!");
     std::vector<unsigned char> FVTs = FilterEVTs(getExtTypes(), isInteger);
@@ -518,7 +507,7 @@ bool TreePatternNode::UpdateNodeType(const std::vector<unsigned char> &ExtVTs,
       return true;
     }
   }      
-  if (ExtVTs[0] == MVT::fAny &&
+  if ((ExtVTs[0] == EEVT::isFP || ExtVTs[0] == MVT::fAny) &&
       EEVT::isExtFloatingPointInVTs(getExtTypes())) {
     assert(hasTypeSet() && "should be handled above!");
     std::vector<unsigned char> FVTs =
@@ -528,7 +517,7 @@ bool TreePatternNode::UpdateNodeType(const std::vector<unsigned char> &ExtVTs,
     setTypes(FVTs);
     return true;
   }
-  if (ExtVTs[0] == MVT::vAny &&
+  if ((ExtVTs[0] == EEVT::isVec || ExtVTs[0] == MVT::vAny) &&
       EEVT::isExtVectorInVTs(getExtTypes())) {
     assert(hasTypeSet() && "should be handled above!");
     std::vector<unsigned char> FVTs = FilterEVTs(getExtTypes(), isVector);
@@ -537,22 +526,22 @@ bool TreePatternNode::UpdateNodeType(const std::vector<unsigned char> &ExtVTs,
     setTypes(FVTs);
     return true;
   }
-
+      
   // If we know this is an int, FP, or vector type, and we are told it is a
   // specific one, take the advice.
   //
   // Similarly, we should probably set the type here to the intersection of
-  // {iAny|fAny|vAny} and ExtVTs
-  if ((getExtTypeNum(0) == MVT::iAny &&
+  // {isInt|isFP|isVec} and ExtVTs
+  if (((getExtTypeNum(0) == EEVT::isInt || getExtTypeNum(0) == MVT::iAny) &&
        EEVT::isExtIntegerInVTs(ExtVTs)) ||
-      (getExtTypeNum(0) == MVT::fAny &&
+      ((getExtTypeNum(0) == EEVT::isFP || getExtTypeNum(0) == MVT::fAny) &&
        EEVT::isExtFloatingPointInVTs(ExtVTs)) ||
-      (getExtTypeNum(0) == MVT::vAny &&
+      ((getExtTypeNum(0) == EEVT::isVec || getExtTypeNum(0) == MVT::vAny) &&
        EEVT::isExtVectorInVTs(ExtVTs))) {
     setTypes(ExtVTs);
     return true;
   }
-  if (getExtTypeNum(0) == MVT::iAny &&
+  if (getExtTypeNum(0) == EEVT::isInt &&
       (ExtVTs[0] == MVT::iPTR || ExtVTs[0] == MVT::iPTRAny)) {
     setTypes(ExtVTs);
     return true;
@@ -581,9 +570,9 @@ void TreePatternNode::print(raw_ostream &OS) const {
   // nodes that are multiply typed.
   switch (getExtTypeNum(0)) {
   case MVT::Other: OS << ":Other"; break;
-  case MVT::iAny: OS << ":iAny"; break;
-  case MVT::fAny : OS << ":fAny"; break;
-  case MVT::vAny: OS << ":vAny"; break;
+  case EEVT::isInt: OS << ":isInt"; break;
+  case EEVT::isFP : OS << ":isFP"; break;
+  case EEVT::isVec: OS << ":isVec"; break;
   case EEVT::isUnknown: ; /*OS << ":?";*/ break;
   case MVT::iPTR:  OS << ":iPTR"; break;
   case MVT::iPTRAny:  OS << ":iPTRAny"; break;
@@ -848,7 +837,7 @@ bool TreePatternNode::ApplyTypeConstraints(TreePattern &TP, bool NotRegisters) {
       return UpdateNodeType(getImplicitType(DI->getDef(), NotRegisters, TP),TP);
     } else if (IntInit *II = dynamic_cast<IntInit*>(getLeafValue())) {
       // Int inits are always integers. :)
-      bool MadeChange = UpdateNodeType(MVT::iAny, TP);
+      bool MadeChange = UpdateNodeType(EEVT::isInt, TP);
       
       if (hasTypeSet()) {
         // At some point, it may make sense for this tree pattern to have
@@ -2396,7 +2385,7 @@ static void GenerateVariantsOf(TreePatternNode *N,
 // GenerateVariants - Generate variants.  For example, commutative patterns can
 // match multiple ways.  Add them to PatternsToMatch as well.
 void CodeGenDAGPatterns::GenerateVariants() {
-  DEBUG(errs() << "Generating instruction variants.\n");
+  DOUT << "Generating instruction variants.\n";
   
   // Loop over all of the patterns we've collected, checking to see if we can
   // generate variants of the instruction, through the exploitation of
@@ -2411,9 +2400,9 @@ void CodeGenDAGPatterns::GenerateVariants() {
     MultipleUseVarSet             DepVars;
     std::vector<TreePatternNode*> Variants;
     FindDepVars(PatternsToMatch[i].getSrcPattern(), DepVars);
-    DEBUG(errs() << "Dependent/multiply used variables: ");
+    DOUT << "Dependent/multiply used variables: ";
     DEBUG(DumpDepVars(DepVars));
-    DEBUG(errs() << "\n");
+    DOUT << "\n";
     GenerateVariantsOf(PatternsToMatch[i].getSrcPattern(), Variants, *this, DepVars);
 
     assert(!Variants.empty() && "Must create at least original variant!");
@@ -2422,16 +2411,16 @@ void CodeGenDAGPatterns::GenerateVariants() {
     if (Variants.empty())  // No variants for this pattern.
       continue;
 
-    DEBUG(errs() << "FOUND VARIANTS OF: ";
-          PatternsToMatch[i].getSrcPattern()->dump();
-          errs() << "\n");
+    DOUT << "FOUND VARIANTS OF: ";
+    DEBUG(PatternsToMatch[i].getSrcPattern()->dump());
+    DOUT << "\n";
 
     for (unsigned v = 0, e = Variants.size(); v != e; ++v) {
       TreePatternNode *Variant = Variants[v];
 
-      DEBUG(errs() << "  VAR#" << v <<  ": ";
-            Variant->dump();
-            errs() << "\n");
+      DOUT << "  VAR#" << v <<  ": ";
+      DEBUG(Variant->dump());
+      DOUT << "\n";
       
       // Scan to see if an instruction or explicit pattern already matches this.
       bool AlreadyExists = false;
@@ -2442,7 +2431,7 @@ void CodeGenDAGPatterns::GenerateVariants() {
           continue;
         // Check to see if this variant already exists.
         if (Variant->isIsomorphicTo(PatternsToMatch[p].getSrcPattern(), DepVars)) {
-          DEBUG(errs() << "  *** ALREADY EXISTS, ignoring variant.\n");
+          DOUT << "  *** ALREADY EXISTS, ignoring variant.\n";
           AlreadyExists = true;
           break;
         }
@@ -2458,7 +2447,7 @@ void CodeGenDAGPatterns::GenerateVariants() {
                                  PatternsToMatch[i].getAddedComplexity()));
     }
 
-    DEBUG(errs() << "\n");
+    DOUT << "\n";
   }
 }
 

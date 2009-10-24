@@ -19,11 +19,10 @@
 #--------------------------------------------------------------------
 # Define the various target sets
 #--------------------------------------------------------------------
-RecursiveTargets := all clean clean-all install uninstall install-bytecode \
-                    unitcheck
+RecursiveTargets := all clean clean-all install uninstall install-bytecode
 LocalTargets     := all-local clean-local clean-all-local check-local \
                     install-local printvars uninstall-local \
-		    install-bytecode-local
+		    install-bytecode-local unittests
 TopLevelTargets  := check dist dist-check dist-clean dist-gzip dist-bzip2 \
                     dist-zip unittests
 UserTargets      := $(RecursiveTargets) $(LocalTargets) $(TopLevelTargets)
@@ -246,12 +245,6 @@ LLVMC_BUILTIN_PLUGIN_2 = $(word 2, $(LLVMC_BUILTIN_PLUGINS))
 LLVMC_BUILTIN_PLUGIN_3 = $(word 3, $(LLVMC_BUILTIN_PLUGINS))
 LLVMC_BUILTIN_PLUGIN_4 = $(word 4, $(LLVMC_BUILTIN_PLUGINS))
 LLVMC_BUILTIN_PLUGIN_5 = $(word 5, $(LLVMC_BUILTIN_PLUGINS))
-LLVMC_BUILTIN_PLUGIN_6 = $(word 6, $(LLVMC_BUILTIN_PLUGINS))
-LLVMC_BUILTIN_PLUGIN_7 = $(word 7, $(LLVMC_BUILTIN_PLUGINS))
-LLVMC_BUILTIN_PLUGIN_8 = $(word 8, $(LLVMC_BUILTIN_PLUGINS))
-LLVMC_BUILTIN_PLUGIN_9 = $(word 9, $(LLVMC_BUILTIN_PLUGINS))
-LLVMC_BUILTIN_PLUGIN_10 = $(word 10, $(LLVMC_BUILTIN_PLUGINS))
-
 
 ifneq ($(LLVMC_BUILTIN_PLUGIN_1),)
 CPP.Flags += -DLLVMC_BUILTIN_PLUGIN_1=$(LLVMC_BUILTIN_PLUGIN_1)
@@ -272,27 +265,6 @@ endif
 ifneq ($(LLVMC_BUILTIN_PLUGIN_5),)
 CPP.Flags += -DLLVMC_BUILTIN_PLUGIN_5=$(LLVMC_BUILTIN_PLUGIN_5)
 endif
-
-ifneq ($(LLVMC_BUILTIN_PLUGIN_6),)
-CPP.Flags += -DLLVMC_BUILTIN_PLUGIN_5=$(LLVMC_BUILTIN_PLUGIN_6)
-endif
-
-ifneq ($(LLVMC_BUILTIN_PLUGIN_7),)
-CPP.Flags += -DLLVMC_BUILTIN_PLUGIN_5=$(LLVMC_BUILTIN_PLUGIN_7)
-endif
-
-ifneq ($(LLVMC_BUILTIN_PLUGIN_8),)
-CPP.Flags += -DLLVMC_BUILTIN_PLUGIN_5=$(LLVMC_BUILTIN_PLUGIN_8)
-endif
-
-ifneq ($(LLVMC_BUILTIN_PLUGIN_9),)
-CPP.Flags += -DLLVMC_BUILTIN_PLUGIN_5=$(LLVMC_BUILTIN_PLUGIN_9)
-endif
-
-ifneq ($(LLVMC_BUILTIN_PLUGIN_10),)
-CPP.Flags += -DLLVMC_BUILTIN_PLUGIN_5=$(LLVMC_BUILTIN_PLUGIN_10)
-endif
-
 
 endif
 
@@ -340,13 +312,6 @@ ifeq ($(ENABLE_OPTIMIZED),1)
   CXX.Flags += $(OPTIMIZE_OPTION) $(OmitFramePointer)
   C.Flags   += $(OPTIMIZE_OPTION) $(OmitFramePointer)
   LD.Flags  += $(OPTIMIZE_OPTION)
-  ifdef DEBUG_SYMBOLS
-    BuildMode := $(BuildMode)+Debug
-    CXX.Flags += -g
-    C.Flags   += -g
-    LD.Flags  += -g
-    KEEP_SYMBOLS := 1
-  endif
 else
   BuildMode := Debug
   CXX.Flags += -g
@@ -378,10 +343,9 @@ ifdef REQUIRES_FRAME_POINTER
   LD.Flags  := $(filter-out -fomit-frame-pointer,$(LD.Flags))
 endif
 
-# If REQUIRES_RTTI=1 is specified then don't disable run-time type id.
-ifeq ($(REQUIRES_RTTI), 1)
-  CXX.Flags := $(filter-out -fno-rtti,$(CXX.Flags))
-  CXXFLAGS := $(filter-out -fno-rtti,$(CXXFLAGS))
+# IF REQUIRES_RTTI=1 is specified then don't disable run-time type id
+ifndef REQUIRES_RTTI
+#  CXX.Flags += -fno-rtti
 endif
 
 ifdef ENABLE_COVERAGE
@@ -472,7 +436,6 @@ ifdef ENABLE_EXPENSIVE_CHECKS
   # GNU libstdc++ uses RTTI if you define _GLIBCXX_DEBUG, which we did above.
   # See http://gcc.gnu.org/bugzilla/show_bug.cgi?id=40160
   CXX.Flags := $(filter-out -fno-rtti,$(CXX.Flags))
-  CXXFLAGS := $(filter-out -fno-rtti,$(CXXFLAGS))
 endif
 
 #--------------------------------------------------------------------
@@ -671,10 +634,6 @@ ifeq ($(HOST_OS),SunOS)
 CPP.BaseFlags += -include llvm/System/Solaris.h
 endif
 
-ifeq ($(HOST_OS),AuroraUX)
-CPP.BaseFlags += -include llvm/System/Solaris.h
-endif # !HOST_OS - AuroraUX.
-
 LD.Flags      += -L$(LibDir) -L$(LLVMLibDir)
 CPP.BaseFlags += -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS
 # All -I flags should go here, so that they don't confuse llvm-config.
@@ -839,7 +798,6 @@ clean-all:: $(addsuffix /.makeclean-all,$(PARALLEL_DIRS))
 install  :: $(addsuffix /.makeinstall  ,$(PARALLEL_DIRS))
 uninstall:: $(addsuffix /.makeuninstall,$(PARALLEL_DIRS))
 install-bytecode  :: $(addsuffix /.makeinstall-bytecode,$(PARALLEL_DIRS))
-unitcheck:: $(addsuffix /.makeunitcheck,$(PARALLEL_DIRS))
 
 ParallelTargets := $(foreach T,$(RecursiveTargets),%/.make$(T))
 
@@ -1105,9 +1063,9 @@ $(LibName.BCA): $(ObjectsBC) $(LibDir)/.dir $(LLVMLD) \
                 $(LLVMToolDir)/llvm-ar
 	$(Echo) Building $(BuildMode) Bytecode Archive $(notdir $@) \
 	  "(internalize)"
-	$(Verb) $(BCLinkLib) -o $(ObjDir)/$(LIBRARYNAME).internalize $(ObjectsBC)
+	$(Verb) $(BCLinkLib) -o $(ObjDir)/$(LIBRARYNAME).o $(ObjectsBC)
 	$(Verb) $(RM) -f $@
-	$(Verb) $(LArchive) $@ $(ObjDir)/$(LIBRARYNAME).internalize.bc
+	$(Verb) $(LArchive) $@ $(ObjDir)/$(LIBRARYNAME).o
 else
 $(LibName.BCA): $(ObjectsBC) $(LibDir)/.dir \
                 $(LLVMToolDir)/llvm-ar
@@ -1311,7 +1269,7 @@ DEPEND_MOVEFILE = then $(MV) -f "$(ObjDir)/$*.d.tmp" "$(ObjDir)/$*.d"; \
                   else $(RM) "$(ObjDir)/$*.d.tmp"; exit 1; fi
 
 $(ObjDir)/%.o: %.cpp $(ObjDir)/.dir $(BUILT_SOURCES)
-	$(Echo) "Compiling $*.cpp for $(BuildMode) build" $(PIC_FLAG)
+	$(Echo) "Compiling $*.cpp for $(BuildMode) build " $(PIC_FLAG)
 	$(Verb) if $(Compile.CXX) $(DEPEND_OPTIONS) $< -o $(ObjDir)/$*.o ; \
 	        $(DEPEND_MOVEFILE)
 
@@ -1414,13 +1372,14 @@ $(ObjDir)/%.s: %.c $(ObjDir)/.dir $(BUILT_SOURCES)
 
 # make the C and C++ compilers strip debug info out of bytecode libraries.
 ifdef DEBUG_RUNTIME
-$(ObjectsBC): $(ObjDir)/%.bc: $(ObjDir)/%.ll $(LOPT)
+$(ObjectsBC): $(ObjDir)/%.bc: $(ObjDir)/%.ll $(LLVMAS) $(LOPT)
 	$(Echo) "Compiling $*.ll to $*.bc for $(BuildMode) build (bytecode)"
-	$(Verb) $(LOPT) $< -std-compile-opts -o $@
+	$(Verb) $(LLVMAS) $< -o - | $(LOPT) -std-compile-opts -o $@ -f
 else
-$(ObjectsBC): $(ObjDir)/%.bc: $(ObjDir)/%.ll $(LOPT)
+$(ObjectsBC): $(ObjDir)/%.bc: $(ObjDir)/%.ll $(LLVMAS) $(LOPT)
 	$(Echo) "Compiling $*.ll to $*.bc for $(BuildMode) build (bytecode)"
-	$(Verb) $(LOPT) $< -std-compile-opts -strip-debug -o $@
+	$(Verb) $(LLVMAS) $< -o - | \
+	   $(LOPT) -std-compile-opts -strip-debug -o $@ -f
 endif
 
 
@@ -1540,8 +1499,8 @@ $(ObjDir)/%GenCallingConv.inc.tmp : %.td $(ObjDir)/.dir
 	$(Verb) $(TableGen) -gen-callingconv -o $(call SYSPATH, $@) $<
 
 $(TARGET:%=$(ObjDir)/%GenIntrinsics.inc.tmp): \
-$(ObjDir)/%GenIntrinsics.inc.tmp : %.td $(ObjDir)/.dir
-	$(Echo) "Building $(<F) intrinsics information with tblgen"
+$(ObjDir)/%GenIntrinsics.inc.tmp : Intrinsics%.td $(ObjDir)/.dir
+	$(Echo) "Building $(<F) calling convention information with tblgen"
 	$(Verb) $(TableGen) -gen-tgt-intrinsic -o $(call SYSPATH, $@) $<
 
 clean-local::
@@ -1639,30 +1598,6 @@ check::
 	  $(EchoCmd) No test directory ; \
 	fi
 
-check-lit::
-	$(Verb) if test -d "$(PROJ_OBJ_ROOT)/test" ; then \
-	  if test -f "$(PROJ_OBJ_ROOT)/test/Makefile" ; then \
-	    $(EchoCmd) Running test suite ; \
-	    $(MAKE) -C $(PROJ_OBJ_ROOT)/test check-local-lit ; \
-	  else \
-	    $(EchoCmd) No Makefile in test directory ; \
-	  fi ; \
-	else \
-	  $(EchoCmd) No test directory ; \
-	fi
-
-check-all::
-	$(Verb) if test -d "$(PROJ_OBJ_ROOT)/test" ; then \
-	  if test -f "$(PROJ_OBJ_ROOT)/test/Makefile" ; then \
-	    $(EchoCmd) Running test suite ; \
-	    $(MAKE) -C $(PROJ_OBJ_ROOT)/test check-local-all ; \
-	  else \
-	    $(EchoCmd) No Makefile in test directory ; \
-	  fi ; \
-	else \
-	  $(EchoCmd) No test directory ; \
-	fi
-
 ###############################################################################
 # UNITTESTS: Running the unittests test suite
 ###############################################################################
@@ -1671,7 +1606,7 @@ unittests::
 	$(Verb) if test -d "$(PROJ_OBJ_ROOT)/unittests" ; then \
 	  if test -f "$(PROJ_OBJ_ROOT)/unittests/Makefile" ; then \
 	    $(EchoCmd) Running unittests test suite ; \
-	    $(MAKE) -C $(PROJ_OBJ_ROOT)/unittests unitcheck; \
+	    $(MAKE) -C $(PROJ_OBJ_ROOT)/unittests ; \
 	  else \
 	    $(EchoCmd) No Makefile in unittests directory ; \
 	  fi ; \

@@ -1,4 +1,4 @@
-; RUN: opt < %s -adce -disable-output
+; RUN:  llvm-as < %s | opt -adce
 
 define void @test() {
         br label %BB3

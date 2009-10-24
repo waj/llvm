@@ -51,11 +51,11 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
@@ -67,7 +67,7 @@ STATISTIC(NumReplaced, "Number of exit values replaced");
 STATISTIC(NumLFTR    , "Number of loop exit tests replaced");
 
 namespace {
-  class IndVarSimplify : public LoopPass {
+  class VISIBILITY_HIDDEN IndVarSimplify : public LoopPass {
     IVUsers         *IU;
     LoopInfo        *LI;
     ScalarEvolution *SE;
@@ -182,11 +182,11 @@ ICmpInst *IndVarSimplify::LinearFunctionTestReplace(Loop *L,
   else
     Opcode = ICmpInst::ICMP_EQ;
 
-  DEBUG(errs() << "INDVARS: Rewriting loop exit condition to:\n"
-               << "      LHS:" << *CmpIndVar << '\n'
-               << "       op:\t"
-               << (Opcode == ICmpInst::ICMP_NE ? "!=" : "==") << "\n"
-               << "      RHS:\t" << *RHS << "\n");
+  DOUT << "INDVARS: Rewriting loop exit condition to:\n"
+       << "      LHS:" << *CmpIndVar << '\n'
+       << "       op:\t"
+       << (Opcode == ICmpInst::ICMP_NE ? "!=" : "==") << "\n"
+       << "      RHS:\t" << *RHS << "\n";
 
   ICmpInst *Cond = new ICmpInst(BI, Opcode, CmpIndVar, ExitCnt, "exitcond");
 
@@ -273,8 +273,8 @@ void IndVarSimplify::RewriteLoopExitValues(Loop *L,
 
         Value *ExitVal = Rewriter.expandCodeFor(ExitValue, PN->getType(), Inst);
 
-        DEBUG(errs() << "INDVARS: RLEV: AfterLoopVal = " << *ExitVal << '\n'
-                     << "  LoopVal = " << *Inst << "\n");
+        DOUT << "INDVARS: RLEV: AfterLoopVal = " << *ExitVal << '\n'
+             << "  LoopVal = " << *Inst << "\n";
 
         PN->setIncomingValue(i, ExitVal);
 
@@ -292,7 +292,7 @@ void IndVarSimplify::RewriteLoopExitValues(Loop *L,
       if (NumPreds != 1) {
         // Clone the PHI and delete the original one. This lets IVUsers and
         // any other maps purge the original user from their records.
-        PHINode *NewPN = PN->clone();
+        PHINode *NewPN = PN->clone(PN->getContext());
         NewPN->takeName(PN);
         NewPN->insertBefore(PN);
         PN->replaceAllUsesWith(NewPN);
@@ -401,7 +401,7 @@ bool IndVarSimplify::runOnLoop(Loop *L, LPPassManager &LPM) {
 
     ++NumInserted;
     Changed = true;
-    DEBUG(errs() << "INDVARS: New CanIV: " << *IndVar << '\n');
+    DOUT << "INDVARS: New CanIV: " << *IndVar << '\n';
 
     // Now that the official induction variable is established, reinsert
     // the old canonical-looking variable after it so that the IR remains
@@ -506,8 +506,8 @@ void IndVarSimplify::RewriteIVExpressions(Loop *L, const Type *LargestType,
         NewVal->takeName(Op);
       User->replaceUsesOfWith(Op, NewVal);
       UI->setOperandValToReplace(NewVal);
-      DEBUG(errs() << "INDVARS: Rewrote IV '" << *AR << "' " << *Op << '\n'
-                   << "   into = " << *NewVal << "\n");
+      DOUT << "INDVARS: Rewrote IV '" << *AR << "' " << *Op << '\n'
+           << "   into = " << *NewVal << "\n";
       ++NumRemoved;
       Changed = true;
 

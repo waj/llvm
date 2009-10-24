@@ -117,14 +117,11 @@ public:
     return scavengeRegister(RegClass, MBBI, SPAdj);
   }
 
-  /// setUsed - Tell the scavenger a register is used.
-  ///
-  void setUsed(unsigned Reg);
 private:
   /// isReserved - Returns true if a register is reserved. It is never "unused".
   bool isReserved(unsigned Reg) const { return ReservedRegs.test(Reg); }
 
-  /// isUsed / isUnused - Test if a register is currently being used.
+  /// isUsed / isUsed - Test if a register is currently being used.
   ///
   bool isUsed(unsigned Reg) const   { return !RegsAvailable.test(Reg); }
   bool isUnused(unsigned Reg) const { return RegsAvailable.test(Reg); }
@@ -134,6 +131,7 @@ private:
 
   /// setUsed / setUnused - Mark the state of one or a number of registers.
   ///
+  void setUsed(unsigned Reg);
   void setUsed(BitVector &Regs) {
     RegsAvailable &= ~Regs;
   }

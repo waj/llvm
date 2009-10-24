@@ -91,7 +91,7 @@ public:
   ///
   bool SelectInstruction(Instruction *I);
 
-  /// SelectOperator - Do "fast" instruction selection for the given
+  /// SelectInstruction - Do "fast" instruction selection for the given
   /// LLVM IR operator (Instruction or ConstantExpr), and append
   /// generated machine instructions to the current block. Return true
   /// if selection was successful.
@@ -299,8 +299,6 @@ protected:
 
 private:
   bool SelectBinaryOp(User *I, ISD::NodeType ISDOpcode);
-
-  bool SelectFNeg(User *I);
 
   bool SelectGetElementPtr(User *I);
 

@@ -33,7 +33,7 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetRegistry.h"
 #include "llvm/Support/CallSite.h"
@@ -86,7 +86,7 @@ namespace {
     Mangler *Mang;
     LoopInfo *LI;
     const Module *TheModule;
-    const MCAsmInfo* TAsm;
+    const TargetAsmInfo* TAsm;
     const TargetData* TD;
     std::map<const Type *, std::string> TypeNames;
     std::map<const ConstantFP *, unsigned> FPConstantMap;
@@ -302,6 +302,7 @@ namespace {
     void visitInlineAsm(CallInst &I);
     bool visitBuiltinCall(CallInst &I, Intrinsic::ID ID, bool &WroteCallee);
 
+    void visitMallocInst(MallocInst &I);
     void visitAllocaInst(AllocaInst &I);
     void visitFreeInst  (FreeInst   &I);
     void visitLoadInst  (LoadInst   &I);
@@ -318,7 +319,7 @@ namespace {
 
     void visitInstruction(Instruction &I) {
 #ifndef NDEBUG
-      errs() << "C Writer does not know about " << I;
+      cerr << "C Writer does not know about " << I;
 #endif
       llvm_unreachable(0);
     }
@@ -505,7 +506,7 @@ CWriter::printSimpleType(formatted_raw_ostream &Out, const Type *Ty,
     
   default:
 #ifndef NDEBUG
-    errs() << "Unknown primitive type: " << *Ty << "\n";
+    cerr << "Unknown primitive type: " << *Ty << "\n";
 #endif
     llvm_unreachable(0);
   }
@@ -552,7 +553,7 @@ CWriter::printSimpleType(std::ostream &Out, const Type *Ty, bool isSigned,
     
   default:
 #ifndef NDEBUG
-    errs() << "Unknown primitive type: " << *Ty << "\n";
+    cerr << "Unknown primitive type: " << *Ty << "\n";
 #endif
     llvm_unreachable(0);
   }
@@ -1109,7 +1110,7 @@ void CWriter::printConstant(Constant *CPV, bool Static) {
     }
     default:
 #ifndef NDEBUG
-      errs() << "CWriter Error: Unhandled constant expression: "
+      cerr << "CWriter Error: Unhandled constant expression: "
            << *CE << "\n";
 #endif
       llvm_unreachable(0);
@@ -1322,7 +1323,7 @@ void CWriter::printConstant(Constant *CPV, bool Static) {
     // FALL THROUGH
   default:
 #ifndef NDEBUG
-    errs() << "Unknown constant type: " << *CPV << "\n";
+    cerr << "Unknown constant type: " << *CPV << "\n";
 #endif
     llvm_unreachable(0);
   }
@@ -2172,8 +2173,7 @@ void CWriter::printFloatingPointConstants(const Constant *C) {
     << " = { 0x" << utohexstr(p[0]) 
     << "ULL, 0x" << utohexstr((uint16_t)p[1]) << ",{0,0,0}"
     << "}; /* Long double constant */\n";
-  } else if (FPC->getType() == Type::getPPC_FP128Ty(FPC->getContext()) ||
-             FPC->getType() == Type::getFP128Ty(FPC->getContext())) {
+  } else if (FPC->getType() == Type::getPPC_FP128Ty(FPC->getContext())) {
     APInt api = FPC->getValueAPF().bitcastToAPInt();
     const uint64_t *p = api.getRawData();
     Out << "static const ConstantFP128Ty FPConstant" << FPCounter++
@@ -2281,8 +2281,6 @@ void CWriter::printFunctionSignature(const Function *F, bool Prototype) {
     break;
    case CallingConv::X86_FastCall:
     Out << "__attribute__((fastcall)) ";
-    break;
-   default:
     break;
   }
   
@@ -2737,7 +2735,7 @@ void CWriter::visitBinaryOperator(Instruction &I) {
     case Instruction::AShr: Out << " >> "; break;
     default: 
 #ifndef NDEBUG
-       errs() << "Invalid operator type!" << I;
+       cerr << "Invalid operator type!" << I;
 #endif
        llvm_unreachable(0);
     }
@@ -2778,7 +2776,7 @@ void CWriter::visitICmpInst(ICmpInst &I) {
   case ICmpInst::ICMP_SGT: Out << " > "; break;
   default:
 #ifndef NDEBUG
-    errs() << "Invalid icmp predicate!" << I; 
+    cerr << "Invalid icmp predicate!" << I; 
 #endif
     llvm_unreachable(0);
   }
@@ -3241,7 +3239,7 @@ std::string CWriter::InterpretASMConstraint(InlineAsm::ConstraintInfo& c) {
 
   const char *const *table = 0;
   
-  // Grab the translation table from MCAsmInfo if it exists.
+  // Grab the translation table from TargetAsmInfo if it exists.
   if (!TAsm) {
     std::string Triple = TheModule->getTargetTriple();
     if (Triple.empty())
@@ -3402,6 +3400,10 @@ void CWriter::visitInlineAsm(CallInst &CI) {
   }
   
   Out << ")";
+}
+
+void CWriter::visitMallocInst(MallocInst &I) {
+  llvm_unreachable("lowerallocations pass didn't work!");
 }
 
 void CWriter::visitAllocaInst(AllocaInst &I) {
@@ -3685,7 +3687,7 @@ bool CTargetMachine::addPassesToEmitWholeFile(PassManager &PM,
   if (FileType != TargetMachine::AssemblyFile) return true;
 
   PM.add(createGCLoweringPass());
-  PM.add(createLowerAllocationsPass());
+  PM.add(createLowerAllocationsPass(true));
   PM.add(createLowerInvokePass());
   PM.add(createCFGSimplificationPass());   // clean up after lower invoke.
   PM.add(new CBackendNameAllUsedStructsAndMergeFunctions());

@@ -19,6 +19,7 @@
 #include "llvm/Type.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Analysis/Dominators.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/ADT/STLExtras.h"
@@ -121,11 +122,11 @@ static bool getSCEVStartAndStride(const SCEV *&SH, Loop *L, Loop *UseLoop,
 
   Start = SE->getAddExpr(Start, AddRecStart);
 
-  // If stride is an instruction, make sure it properly dominates the header.
+  // If stride is an instruction, make sure it dominates the loop preheader.
   // Otherwise we could end up with a use before def situation.
   if (!isa<SCEVConstant>(AddRecStride)) {
-    BasicBlock *Header = L->getHeader();
-    if (!AddRecStride->properlyDominates(Header, DT))
+    BasicBlock *Preheader = L->getLoopPreheader();
+    if (!AddRecStride->dominates(Preheader, DT))
       return false;
 
     DEBUG(errs() << "[" << L->getHeader()->getName()
@@ -227,14 +228,14 @@ bool IVUsers::AddUsersIfInteresting(Instruction *I) {
     if (LI->getLoopFor(User->getParent()) != L) {
       if (isa<PHINode>(User) || Processed.count(User) ||
           !AddUsersIfInteresting(User)) {
-        DEBUG(errs() << "FOUND USER in other loop: " << *User << '\n'
-                     << "   OF SCEV: " << *ISE << '\n');
+        DOUT << "FOUND USER in other loop: " << *User << '\n'
+             << "   OF SCEV: " << *ISE << "\n";
         AddUserToIVUsers = true;
       }
     } else if (Processed.count(User) ||
                !AddUsersIfInteresting(User)) {
-      DEBUG(errs() << "FOUND USER: " << *User << '\n'
-                   << "   OF SCEV: " << *ISE << '\n');
+      DOUT << "FOUND USER: " << *User << '\n'
+           << "   OF SCEV: " << *ISE << "\n";
       AddUserToIVUsers = true;
     }
 
@@ -256,7 +257,7 @@ bool IVUsers::AddUsersIfInteresting(Instruction *I) {
         const SCEV *NewStart = SE->getMinusSCEV(Start, Stride);
         StrideUses->addUser(NewStart, User, I);
         StrideUses->Users.back().setIsUseOfPostIncrementedValue(true);
-        DEBUG(errs() << "   USING POSTINC SCEV, START=" << *NewStart<< "\n");
+        DOUT << "   USING POSTINC SCEV, START=" << *NewStart<< "\n";
       } else {
         StrideUses->addUser(Start, User, I);
       }
@@ -342,6 +343,11 @@ void IVUsers::print(raw_ostream &OS, const Module *M) const {
       OS << '\n';
     }
   }
+}
+
+void IVUsers::print(std::ostream &o, const Module *M) const {
+  raw_os_ostream OS(o);
+  print(OS, M);
 }
 
 void IVUsers::dump() const {

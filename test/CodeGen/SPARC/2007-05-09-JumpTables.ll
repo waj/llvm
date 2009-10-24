@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=sparc
+; RUN: llvm-as < %s | llc -march=sparc
 
 ; We cannot emit jump tables on Sparc, but we should correctly handle this case.
 

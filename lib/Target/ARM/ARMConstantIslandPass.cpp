@@ -27,12 +27,9 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
-#include <algorithm>
 using namespace llvm;
 
 STATISTIC(NumCPEs,       "Number of constpool entries");
@@ -72,36 +69,18 @@ namespace {
     /// to a return, unreachable, or unconditional branch).
     std::vector<MachineBasicBlock*> WaterList;
 
-    /// NewWaterList - The subset of WaterList that was created since the
-    /// previous iteration by inserting unconditional branches.
-    SmallSet<MachineBasicBlock*, 4> NewWaterList;
-
-    typedef std::vector<MachineBasicBlock*>::iterator water_iterator;
-
     /// CPUser - One user of a constant pool, keeping the machine instruction
     /// pointer, the constant pool being referenced, and the max displacement
-    /// allowed from the instruction to the CP.  The HighWaterMark records the
-    /// highest basic block where a new CPEntry can be placed.  To ensure this
-    /// pass terminates, the CP entries are initially placed at the end of the
-    /// function and then move monotonically to lower addresses.  The
-    /// exception to this rule is when the current CP entry for a particular
-    /// CPUser is out of range, but there is another CP entry for the same
-    /// constant value in range.  We want to use the existing in-range CP
-    /// entry, but if it later moves out of range, the search for new water
-    /// should resume where it left off.  The HighWaterMark is used to record
-    /// that point.
+    /// allowed from the instruction to the CP.
     struct CPUser {
       MachineInstr *MI;
       MachineInstr *CPEMI;
-      MachineBasicBlock *HighWaterMark;
       unsigned MaxDisp;
       bool NegOk;
       bool IsSoImm;
       CPUser(MachineInstr *mi, MachineInstr *cpemi, unsigned maxdisp,
              bool neg, bool soimm)
-        : MI(mi), CPEMI(cpemi), MaxDisp(maxdisp), NegOk(neg), IsSoImm(soimm) {
-        HighWaterMark = CPEMI->getParent();
-      }
+        : MI(mi), CPEMI(cpemi), MaxDisp(maxdisp), NegOk(neg), IsSoImm(soimm) {}
     };
 
     /// CPUsers - Keep track of all of the machine instructions that use various
@@ -181,9 +160,12 @@ namespace {
     void AdjustBBOffsetsAfter(MachineBasicBlock *BB, int delta);
     bool DecrementOldEntry(unsigned CPI, MachineInstr* CPEMI);
     int LookForExistingCPEntry(CPUser& U, unsigned UserOffset);
-    bool LookForWater(CPUser&U, unsigned UserOffset, water_iterator &WaterIter);
+    bool LookForWater(CPUser&U, unsigned UserOffset,
+                      MachineBasicBlock** NewMBB);
+    MachineBasicBlock* AcceptWater(MachineBasicBlock *WaterBB,
+                        std::vector<MachineBasicBlock*>::iterator IP);
     void CreateNewWater(unsigned CPUserIndex, unsigned UserOffset,
-                        MachineBasicBlock *&NewMBB);
+                      MachineBasicBlock** NewMBB);
     bool HandleConstantPoolUser(MachineFunction &MF, unsigned CPUserIndex);
     void RemoveDeadCPEMI(MachineInstr *CPEMI);
     bool RemoveUnusedCPEntries();
@@ -234,8 +216,8 @@ void ARMConstantIslands::verify(MachineFunction &MF) {
 /// print block size and offset information - debugging
 void ARMConstantIslands::dumpBBs() {
   for (unsigned J = 0, E = BBOffsets.size(); J !=E; ++J) {
-    DEBUG(errs() << "block " << J << " offset " << BBOffsets[J]
-                 << " size " << BBSizes[J] << "\n");
+    DOUT << "block " << J << " offset " << BBOffsets[J] <<
+                            " size " << BBSizes[J] << "\n";
   }
 }
 
@@ -301,10 +283,6 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &MF) {
     if (CPChange && ++NoCPIters > 30)
       llvm_unreachable("Constant Island pass failed to converge!");
     DEBUG(dumpBBs());
-    
-    // Clear NewWaterList now.  If we split a block for branches, it should
-    // appear as "new water" for the next iteration of constant pool placement.
-    NewWaterList.clear();
 
     bool BRChange = false;
     for (unsigned i = 0, e = ImmBranches.size(); i != e; ++i)
@@ -372,8 +350,7 @@ void ARMConstantIslands::DoInitialPlacement(MachineFunction &MF,
     CPEs.push_back(CPEntry(CPEMI, i));
     CPEntries.push_back(CPEs);
     NumCPEs++;
-    DEBUG(errs() << "Moved CPI#" << i << " to end of function as #" << i
-                 << "\n");
+    DOUT << "Moved CPI#" << i << " to end of function as #" << i << "\n";
   }
 }
 
@@ -629,7 +606,7 @@ void ARMConstantIslands::UpdateForInsertedWaterBlock(MachineBasicBlock *NewBB) {
 
   // Next, update WaterList.  Specifically, we need to add NewMBB as having
   // available water after it.
-  water_iterator IP =
+  std::vector<MachineBasicBlock*>::iterator IP =
     std::lower_bound(WaterList.begin(), WaterList.end(), NewBB,
                      CompareMBBNumbers);
   WaterList.insert(IP, NewBB);
@@ -637,7 +614,7 @@ void ARMConstantIslands::UpdateForInsertedWaterBlock(MachineBasicBlock *NewBB) {
 
 
 /// Split the basic block containing MI into two blocks, which are joined by
-/// an unconditional branch.  Update data structures and renumber blocks to
+/// an unconditional branch.  Update datastructures and renumber blocks to
 /// account for this change and returns the newly created block.
 MachineBasicBlock *ARMConstantIslands::SplitBlockBeforeInstr(MachineInstr *MI) {
   MachineBasicBlock *OrigBB = MI->getParent();
@@ -691,7 +668,7 @@ MachineBasicBlock *ARMConstantIslands::SplitBlockBeforeInstr(MachineInstr *MI) {
   // available water after it (but not if it's already there, which happens
   // when splitting before a conditional branch that is followed by an
   // unconditional branch - in that case we want to insert NewBB).
-  water_iterator IP =
+  std::vector<MachineBasicBlock*>::iterator IP =
     std::lower_bound(WaterList.begin(), WaterList.end(), OrigBB,
                      CompareMBBNumbers);
   MachineBasicBlock* WaterBB = *IP;
@@ -699,7 +676,6 @@ MachineBasicBlock *ARMConstantIslands::SplitBlockBeforeInstr(MachineInstr *MI) {
     WaterList.insert(next(IP), NewBB);
   else
     WaterList.insert(IP, OrigBB);
-  NewWaterList.insert(OrigBB);
 
   // Figure out how large the first NewMBB is.  (It cannot
   // contain a constpool_entry or tablejump.)
@@ -778,7 +754,8 @@ bool ARMConstantIslands::WaterIsInRange(unsigned UserOffset,
                        BBSizes[Water->getNumber()];
 
   // If the CPE is to be inserted before the instruction, that will raise
-  // the offset of the instruction.
+  // the offset of the instruction.  (Currently applies only to ARM, so
+  // no alignment compensation attempted here.)
   if (CPEOffset < UserOffset)
     UserOffset += U.CPEMI->getOperand(2).getImm();
 
@@ -794,11 +771,11 @@ bool ARMConstantIslands::CPEIsInRange(MachineInstr *MI, unsigned UserOffset,
   assert(CPEOffset%4 == 0 && "Misaligned CPE");
 
   if (DoDump) {
-    DEBUG(errs() << "User of CPE#" << CPEMI->getOperand(0).getImm()
-                 << " max delta=" << MaxDisp
-                 << " insn address=" << UserOffset
-                 << " CPE address=" << CPEOffset
-                 << " offset=" << int(CPEOffset-UserOffset) << "\t" << *MI);
+    DOUT << "User of CPE#" << CPEMI->getOperand(0).getImm()
+         << " max delta=" << MaxDisp
+         << " insn address=" << UserOffset
+         << " CPE address=" << CPEOffset
+         << " offset=" << int(CPEOffset-UserOffset) << "\t" << *MI;
   }
 
   return OffsetIsInRange(UserOffset, CPEOffset, MaxDisp, NegOk);
@@ -900,7 +877,7 @@ int ARMConstantIslands::LookForExistingCPEntry(CPUser& U, unsigned UserOffset)
 
   // Check to see if the CPE is already in-range.
   if (CPEIsInRange(UserMI, UserOffset, CPEMI, U.MaxDisp, U.NegOk, true)) {
-    DEBUG(errs() << "In range\n");
+    DOUT << "In range\n";
     return 1;
   }
 
@@ -915,8 +892,7 @@ int ARMConstantIslands::LookForExistingCPEntry(CPUser& U, unsigned UserOffset)
     if (CPEs[i].CPEMI == NULL)
       continue;
     if (CPEIsInRange(UserMI, UserOffset, CPEs[i].CPEMI, U.MaxDisp, U.NegOk)) {
-      DEBUG(errs() << "Replacing CPE#" << CPI << " with CPE#"
-                   << CPEs[i].CPI << "\n");
+      DOUT << "Replacing CPE#" << CPI << " with CPE#" << CPEs[i].CPI << "\n";
       // Point the CPUser node to the replacement
       U.CPEMI = CPEs[i].CPEMI;
       // Change the CPI in the instruction operand to refer to the clone.
@@ -950,54 +926,56 @@ static inline unsigned getUnconditionalBrDisp(int Opc) {
   return ((1<<23)-1)*4;
 }
 
-/// LookForWater - Look for an existing entry in the WaterList in which
-/// we can place the CPE referenced from U so it's within range of U's MI.
-/// Returns true if found, false if not.  If it returns true, WaterIter
-/// is set to the WaterList entry.  For Thumb, prefer water that will not
-/// introduce padding to water that will.  To ensure that this pass
-/// terminates, the CPE location for a particular CPUser is only allowed to
-/// move to a lower address, so search backward from the end of the list and
-/// prefer the first water that is in range.
-bool ARMConstantIslands::LookForWater(CPUser &U, unsigned UserOffset,
-                                      water_iterator &WaterIter) {
-  if (WaterList.empty())
-    return false;
+/// AcceptWater - Small amount of common code factored out of the following.
 
-  bool FoundWaterThatWouldPad = false;
-  water_iterator IPThatWouldPad;
-  for (water_iterator IP = prior(WaterList.end()),
-         B = WaterList.begin();; --IP) {
-    MachineBasicBlock* WaterBB = *IP;
-    // Check if water is in range and is either at a lower address than the
-    // current "high water mark" or a new water block that was created since
-    // the previous iteration by inserting an unconditional branch.  In the
-    // latter case, we want to allow resetting the high water mark back to
-    // this new water since we haven't seen it before.  Inserting branches
-    // should be relatively uncommon and when it does happen, we want to be
-    // sure to take advantage of it for all the CPEs near that block, so that
-    // we don't insert more branches than necessary.
-    if (WaterIsInRange(UserOffset, WaterBB, U) &&
-        (WaterBB->getNumber() < U.HighWaterMark->getNumber() ||
-         NewWaterList.count(WaterBB))) {
-      unsigned WBBId = WaterBB->getNumber();
-      if (isThumb &&
-          (BBOffsets[WBBId] + BBSizes[WBBId])%4 != 0) {
-        // This is valid Water, but would introduce padding.  Remember
-        // it in case we don't find any Water that doesn't do this.
-        if (!FoundWaterThatWouldPad) {
-          FoundWaterThatWouldPad = true;
-          IPThatWouldPad = IP;
+MachineBasicBlock* ARMConstantIslands::AcceptWater(MachineBasicBlock *WaterBB,
+                          std::vector<MachineBasicBlock*>::iterator IP) {
+  DOUT << "found water in range\n";
+  // Remove the original WaterList entry; we want subsequent
+  // insertions in this vicinity to go after the one we're
+  // about to insert.  This considerably reduces the number
+  // of times we have to move the same CPE more than once.
+  WaterList.erase(IP);
+  // CPE goes before following block (NewMBB).
+  return next(MachineFunction::iterator(WaterBB));
+}
+
+/// LookForWater - look for an existing entry in the WaterList in which
+/// we can place the CPE referenced from U so it's within range of U's MI.
+/// Returns true if found, false if not.  If it returns true, *NewMBB
+/// is set to the WaterList entry.
+/// For ARM, we prefer the water that's farthest away. For Thumb, prefer
+/// water that will not introduce padding to water that will; within each
+/// group, prefer the water that's farthest away.
+bool ARMConstantIslands::LookForWater(CPUser &U, unsigned UserOffset,
+                                      MachineBasicBlock** NewMBB) {
+  std::vector<MachineBasicBlock*>::iterator IPThatWouldPad;
+  MachineBasicBlock* WaterBBThatWouldPad = NULL;
+  if (!WaterList.empty()) {
+    for (std::vector<MachineBasicBlock*>::iterator IP = prior(WaterList.end()),
+           B = WaterList.begin();; --IP) {
+      MachineBasicBlock* WaterBB = *IP;
+      if (WaterIsInRange(UserOffset, WaterBB, U)) {
+        unsigned WBBId = WaterBB->getNumber();
+        if (isThumb &&
+            (BBOffsets[WBBId] + BBSizes[WBBId])%4 != 0) {
+          // This is valid Water, but would introduce padding.  Remember
+          // it in case we don't find any Water that doesn't do this.
+          if (!WaterBBThatWouldPad) {
+            WaterBBThatWouldPad = WaterBB;
+            IPThatWouldPad = IP;
+          }
+        } else {
+          *NewMBB = AcceptWater(WaterBB, IP);
+          return true;
         }
-      } else {
-        WaterIter = IP;
-        return true;
       }
+      if (IP == B)
+        break;
     }
-    if (IP == B)
-      break;
   }
-  if (FoundWaterThatWouldPad) {
-    WaterIter = IPThatWouldPad;
+  if (isThumb && WaterBBThatWouldPad) {
+    *NewMBB = AcceptWater(WaterBBThatWouldPad, IPThatWouldPad);
     return true;
   }
   return false;
@@ -1007,12 +985,12 @@ bool ARMConstantIslands::LookForWater(CPUser &U, unsigned UserOffset,
 /// CPUsers[CPUserIndex], so create a place to put the CPE.  The end of the
 /// block is used if in range, and the conditional branch munged so control
 /// flow is correct.  Otherwise the block is split to create a hole with an
-/// unconditional branch around it.  In either case NewMBB is set to a
+/// unconditional branch around it.  In either case *NewMBB is set to a
 /// block following which the new island can be inserted (the WaterList
 /// is not adjusted).
+
 void ARMConstantIslands::CreateNewWater(unsigned CPUserIndex,
-                                        unsigned UserOffset,
-                                        MachineBasicBlock *&NewMBB) {
+                        unsigned UserOffset, MachineBasicBlock** NewMBB) {
   CPUser &U = CPUsers[CPUserIndex];
   MachineInstr *UserMI = U.MI;
   MachineInstr *CPEMI  = U.CPEMI;
@@ -1021,18 +999,20 @@ void ARMConstantIslands::CreateNewWater(unsigned CPUserIndex,
                                BBSizes[UserMBB->getNumber()];
   assert(OffsetOfNextBlock== BBOffsets[UserMBB->getNumber()+1]);
 
-  // If the block does not end in an unconditional branch already, and if the
-  // end of the block is within range, make new water there.  (The addition
-  // below is for the unconditional branch we will be adding: 4 bytes on ARM +
-  // Thumb2, 2 on Thumb1.  Possible Thumb1 alignment padding is allowed for
+  // If the use is at the end of the block, or the end of the block
+  // is within range, make new water there.  (The addition below is
+  // for the unconditional branch we will be adding:  4 bytes on ARM + Thumb2,
+  // 2 on Thumb1.  Possible Thumb1 alignment padding is allowed for
   // inside OffsetIsInRange.
-  if (BBHasFallthrough(UserMBB) &&
+  // If the block ends in an unconditional branch already, it is water,
+  // and is known to be out of range, so we'll always be adding a branch.)
+  if (&UserMBB->back() == UserMI ||
       OffsetIsInRange(UserOffset, OffsetOfNextBlock + (isThumb1 ? 2: 4),
                       U.MaxDisp, U.NegOk, U.IsSoImm)) {
-    DEBUG(errs() << "Split at end of block\n");
+    DOUT << "Split at end of block\n";
     if (&UserMBB->back() == UserMI)
       assert(BBHasFallthrough(UserMBB) && "Expected a fallthrough BB!");
-    NewMBB = next(MachineFunction::iterator(UserMBB));
+    *NewMBB = next(MachineFunction::iterator(UserMBB));
     // Add an unconditional branch from UserMBB to fallthrough block.
     // Record it for branch lengthening; this new branch will not get out of
     // range, but if the preceding conditional branch is out of range, the
@@ -1040,7 +1020,7 @@ void ARMConstantIslands::CreateNewWater(unsigned CPUserIndex,
     // range, so the machinery has to know about it.
     int UncondBr = isThumb ? ((isThumb2) ? ARM::t2B : ARM::tB) : ARM::B;
     BuildMI(UserMBB, DebugLoc::getUnknownLoc(),
-            TII->get(UncondBr)).addMBB(NewMBB);
+            TII->get(UncondBr)).addMBB(*NewMBB);
     unsigned MaxDisp = getUnconditionalBrDisp(UncondBr);
     ImmBranches.push_back(ImmBranch(&UserMBB->back(),
                           MaxDisp, false, UncondBr));
@@ -1094,8 +1074,8 @@ void ARMConstantIslands::CreateNewWater(unsigned CPUserIndex,
         CPUIndex++;
       }
     }
-    DEBUG(errs() << "Split in middle of big block\n");
-    NewMBB = SplitBlockBeforeInstr(prior(MI));
+    DOUT << "Split in middle of big block\n";
+    *NewMBB = SplitBlockBeforeInstr(prior(MI));
   }
 }
 
@@ -1110,6 +1090,7 @@ bool ARMConstantIslands::HandleConstantPoolUser(MachineFunction &MF,
   MachineInstr *CPEMI  = U.CPEMI;
   unsigned CPI = CPEMI->getOperand(1).getIndex();
   unsigned Size = CPEMI->getOperand(2).getImm();
+  MachineBasicBlock *NewMBB;
   // Compute this only once, it's expensive.  The 4 or 8 is the value the
   // hardware keeps in the PC.
   unsigned UserOffset = GetOffsetOf(UserMI) + (isThumb ? 4 : 8);
@@ -1124,51 +1105,18 @@ bool ARMConstantIslands::HandleConstantPoolUser(MachineFunction &MF,
   // We will be generating a new clone.  Get a UID for it.
   unsigned ID = AFI->createConstPoolEntryUId();
 
-  // Look for water where we can place this CPE.
-  MachineBasicBlock *NewIsland = MF.CreateMachineBasicBlock();
-  MachineBasicBlock *NewMBB;
-  water_iterator IP;
-  if (LookForWater(U, UserOffset, IP)) {
-    DEBUG(errs() << "found water in range\n");
-    MachineBasicBlock *WaterBB = *IP;
+  // Look for water where we can place this CPE.  We look for the farthest one
+  // away that will work.  Forward references only for now (although later
+  // we might find some that are backwards).
 
-    // If the original WaterList entry was "new water" on this iteration,
-    // propagate that to the new island.  This is just keeping NewWaterList
-    // updated to match the WaterList, which will be updated below.
-    if (NewWaterList.count(WaterBB)) {
-      NewWaterList.erase(WaterBB);
-      NewWaterList.insert(NewIsland);
-    }
-    // The new CPE goes before the following block (NewMBB).
-    NewMBB = next(MachineFunction::iterator(WaterBB));
-
-  } else {
+  if (!LookForWater(U, UserOffset, &NewMBB)) {
     // No water found.
-    DEBUG(errs() << "No water found\n");
-    CreateNewWater(CPUserIndex, UserOffset, NewMBB);
-
-    // SplitBlockBeforeInstr adds to WaterList, which is important when it is
-    // called while handling branches so that the water will be seen on the
-    // next iteration for constant pools, but in this context, we don't want
-    // it.  Check for this so it will be removed from the WaterList.
-    // Also remove any entry from NewWaterList.
-    MachineBasicBlock *WaterBB = prior(MachineFunction::iterator(NewMBB));
-    IP = std::find(WaterList.begin(), WaterList.end(), WaterBB);
-    if (IP != WaterList.end())
-      NewWaterList.erase(WaterBB);
-
-    // We are adding new water.  Update NewWaterList.
-    NewWaterList.insert(NewIsland);
+    DOUT << "No water found\n";
+    CreateNewWater(CPUserIndex, UserOffset, &NewMBB);
   }
 
-  // Remove the original WaterList entry; we want subsequent insertions in
-  // this vicinity to go after the one we're about to insert.  This
-  // considerably reduces the number of times we have to move the same CPE
-  // more than once and is also important to ensure the algorithm terminates.
-  if (IP != WaterList.end())
-    WaterList.erase(IP);
-
   // Okay, we know we can put an island before NewMBB now, do it!
+  MachineBasicBlock *NewIsland = MF.CreateMachineBasicBlock();
   MF.insert(NewMBB, NewIsland);
 
   // Update internal data structures to account for the newly inserted MBB.
@@ -1179,7 +1127,6 @@ bool ARMConstantIslands::HandleConstantPoolUser(MachineFunction &MF,
 
   // Now that we have an island to add the CPE to, clone the original CPE and
   // add it to the island.
-  U.HighWaterMark = NewIsland;
   U.CPEMI = BuildMI(NewIsland, DebugLoc::getUnknownLoc(),
                     TII->get(ARM::CONSTPOOL_ENTRY))
                 .addImm(ID).addConstantPoolIndex(CPI).addImm(Size);
@@ -1201,8 +1148,7 @@ bool ARMConstantIslands::HandleConstantPoolUser(MachineFunction &MF,
       break;
     }
 
-  DEBUG(errs() << "  Moved CPE to #" << ID << " CPI=" << CPI
-           << '\t' << *UserMI);
+  DOUT << "  Moved CPE to #" << ID << " CPI=" << CPI << "\t" << *UserMI;
 
   return true;
 }
@@ -1258,11 +1204,11 @@ bool ARMConstantIslands::BBIsInRange(MachineInstr *MI,MachineBasicBlock *DestBB,
   unsigned BrOffset   = GetOffsetOf(MI) + PCAdj;
   unsigned DestOffset = BBOffsets[DestBB->getNumber()];
 
-  DEBUG(errs() << "Branch of destination BB#" << DestBB->getNumber()
-               << " from BB#" << MI->getParent()->getNumber()
-               << " max delta=" << MaxDisp
-               << " from " << GetOffsetOf(MI) << " to " << DestOffset
-               << " offset " << int(DestOffset-BrOffset) << "\t" << *MI);
+  DOUT << "Branch of destination BB#" << DestBB->getNumber()
+       << " from BB#" << MI->getParent()->getNumber()
+       << " max delta=" << MaxDisp
+       << " from " << GetOffsetOf(MI) << " to " << DestOffset
+       << " offset " << int(DestOffset-BrOffset) << "\t" << *MI;
 
   if (BrOffset <= DestOffset) {
     // Branch before the Dest.
@@ -1309,7 +1255,7 @@ ARMConstantIslands::FixUpUnconditionalBr(MachineFunction &MF, ImmBranch &Br) {
   HasFarJump = true;
   NumUBrFixed++;
 
-  DEBUG(errs() << "  Changed B to long jump " << *MI);
+  DOUT << "  Changed B to long jump " << *MI;
 
   return true;
 }
@@ -1353,8 +1299,7 @@ ARMConstantIslands::FixUpConditionalBr(MachineFunction &MF, ImmBranch &Br) {
       // b   L1
       MachineBasicBlock *NewDest = BMI->getOperand(0).getMBB();
       if (BBIsInRange(MI, NewDest, Br.MaxDisp)) {
-        DEBUG(errs() << "  Invert Bcc condition and swap its destination with "
-                     << *BMI);
+        DOUT << "  Invert Bcc condition and swap its destination with " << *BMI;
         BMI->getOperand(0).setMBB(DestBB);
         MI->getOperand(0).setMBB(NewDest);
         MI->getOperand(1).setImm(CC);
@@ -1376,9 +1321,9 @@ ARMConstantIslands::FixUpConditionalBr(MachineFunction &MF, ImmBranch &Br) {
   }
   MachineBasicBlock *NextBB = next(MachineFunction::iterator(MBB));
 
-  DEBUG(errs() << "  Insert B to BB#" << DestBB->getNumber()
-               << " also invert condition and change dest. to BB#"
-               << NextBB->getNumber() << "\n");
+  DOUT << "  Insert B to BB#" << DestBB->getNumber()
+       << " also invert condition and change dest. to BB#"
+       << NextBB->getNumber() << "\n";
 
   // Insert a new conditional branch and a new unconditional branch.
   // Also update the ImmBranch as well as adding a new entry for the new branch.
@@ -1409,11 +1354,9 @@ bool ARMConstantIslands::UndoLRSpillRestore() {
   bool MadeChange = false;
   for (unsigned i = 0, e = PushPopMIs.size(); i != e; ++i) {
     MachineInstr *MI = PushPopMIs[i];
-    // First two operands are predicates, the third is a zero since there
-    // is no writeback.
     if (MI->getOpcode() == ARM::tPOP_RET &&
-        MI->getOperand(3).getReg() == ARM::PC &&
-        MI->getNumExplicitOperands() == 4) {
+        MI->getOperand(2).getReg() == ARM::PC &&
+        MI->getNumExplicitOperands() == 3) {
       BuildMI(MI->getParent(), MI->getDebugLoc(), TII->get(ARM::tBX_RET));
       MI->eraseFromParent();
       MadeChange = true;

@@ -1,4 +1,4 @@
-; RUN: opt < %s -loop-index-split -disable-output
+; RUN: llvm-as < %s | opt -loop-index-split -disable-output
 ; PR 2030
 	%struct.FULL = type { i32, i32, [1000 x float*] }
 

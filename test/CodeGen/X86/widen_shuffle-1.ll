@@ -1,6 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse42 -disable-mmx | FileCheck %s
-; CHECK: insertps
-; CHECK: extractps
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse42 -disable-mmx -o %t -f
 
 ; widening shuffle v3float and then a add
 

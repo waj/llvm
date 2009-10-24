@@ -24,16 +24,47 @@
 #define LLVM_SUPPORT_GRAPHWRITER_H
 
 #include "llvm/Support/DOTGraphTraits.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/System/Path.h"
+#include <fstream>
 #include <vector>
 #include <cassert>
 
 namespace llvm {
 
 namespace DOT {  // Private functions...
-  std::string EscapeString(const std::string &Label);
+  inline std::string EscapeString(const std::string &Label) {
+    std::string Str(Label);
+    for (unsigned i = 0; i != Str.length(); ++i)
+      switch (Str[i]) {
+      case '\n':
+        Str.insert(Str.begin()+i, '\\');  // Escape character...
+        ++i;
+        Str[i] = 'n';
+        break;
+      case '\t':
+        Str.insert(Str.begin()+i, ' ');  // Convert to two spaces
+        ++i;
+        Str[i] = ' ';
+        break;
+      case '\\':
+        if (i+1 != Str.length())
+          switch (Str[i+1]) {
+            case 'l': continue; // don't disturb \l
+            case '|': case '{': case '}':
+               Str.erase(Str.begin()+i); continue;
+            default: break;
+          }
+      case '{': case '}':
+      case '<': case '>':
+      case '|': case '"':
+        Str.insert(Str.begin()+i, '\\');  // Escape character...
+        ++i;  // don't infinite loop
+        break;
+      }
+    return Str;
+  }
 }
 
 namespace GraphProgram {
@@ -45,12 +76,12 @@ namespace GraphProgram {
       CIRCO
    };
 }
-
+   
 void DisplayGraph(const sys::Path& Filename, bool wait=true, GraphProgram::Name program = GraphProgram::DOT);
 
 template<typename GraphType>
 class GraphWriter {
-  raw_ostream &O;
+  std::ostream &O;
   const GraphType &G;
   bool ShortNames;
 
@@ -60,7 +91,7 @@ class GraphWriter {
   typedef typename GTraits::nodes_iterator    node_iterator;
   typedef typename GTraits::ChildIteratorType child_iterator;
 public:
-  GraphWriter(raw_ostream &o, const GraphType &g, bool SN) :
+  GraphWriter(std::ostream &o, const GraphType &g, bool SN) :
     O(o), G(g), ShortNames(SN) {}
 
   void writeHeader(const std::string &Name) {
@@ -223,9 +254,9 @@ public:
     O << " -> Node" << DestNodeID;
     if (DestNodePort >= 0) {
       if (DOTTraits::hasEdgeDestLabels())
-        O << ":d" << DestNodePort;
+	O << ":d" << DestNodePort;
       else
-        O << ":s" << DestNodePort;
+	O << ":s" << DestNodePort;
     }
 
     if (!Attrs.empty())
@@ -235,10 +266,10 @@ public:
 };
 
 template<typename GraphType>
-raw_ostream &WriteGraph(raw_ostream &O, const GraphType &G,
-                        bool ShortNames = false,
-                        const std::string &Name = "",
-                        const std::string &Title = "") {
+std::ostream &WriteGraph(std::ostream &O, const GraphType &G,
+                         bool ShortNames = false,
+                         const std::string &Name = "",
+                         const std::string &Title = "") {
   // Start the graph emission process...
   GraphWriter<GraphType> W(O, G, ShortNames);
 
@@ -257,30 +288,33 @@ raw_ostream &WriteGraph(raw_ostream &O, const GraphType &G,
 }
 
 template<typename GraphType>
-sys::Path WriteGraph(const GraphType &G, const std::string &Name,
-                     bool ShortNames = false, const std::string &Title = "") {
+sys::Path WriteGraph(const GraphType &G,
+                     const std::string& Name,
+                     bool ShortNames = false,
+                     const std::string& Title = "") {
   std::string ErrMsg;
   sys::Path Filename = sys::Path::GetTemporaryDirectory(&ErrMsg);
   if (Filename.isEmpty()) {
-    errs() << "Error: " << ErrMsg << "\n";
+    cerr << "Error: " << ErrMsg << "\n";
     return Filename;
   }
   Filename.appendComponent(Name + ".dot");
   if (Filename.makeUnique(true,&ErrMsg)) {
-    errs() << "Error: " << ErrMsg << "\n";
+    cerr << "Error: " << ErrMsg << "\n";
     return sys::Path();
   }
 
-  errs() << "Writing '" << Filename.str() << "'... ";
+  cerr << "Writing '" << Filename << "'... ";
 
-  std::string ErrorInfo;
-  raw_fd_ostream O(Filename.c_str(), ErrorInfo);
+  std::ofstream O(Filename.c_str());
 
-  if (ErrorInfo.empty()) {
+  if (O.good()) {
     WriteGraph(O, G, ShortNames, Name, Title);
-    errs() << " done. \n";
+    cerr << " done. \n";
+
+    O.close();
   } else {
-    errs() << "error opening file '" << Filename.str() << "' for writing!\n";
+    cerr << "error opening file for writing!\n";
     Filename.clear();
   }
 
@@ -291,13 +325,16 @@ sys::Path WriteGraph(const GraphType &G, const std::string &Name,
 /// then cleanup.  For use from the debugger.
 ///
 template<typename GraphType>
-void ViewGraph(const GraphType &G, const std::string &Name,
-               bool ShortNames = false, const std::string &Title = "",
+void ViewGraph(const GraphType& G,
+               const std::string& Name,
+               bool ShortNames = false,
+               const std::string& Title = "",
                GraphProgram::Name Program = GraphProgram::DOT) {
-  sys::Path Filename = WriteGraph(G, Name, ShortNames, Title);
+  sys::Path Filename =  WriteGraph(G, Name, ShortNames, Title);
 
-  if (Filename.isEmpty())
+  if (Filename.isEmpty()) {
     return;
+  }
 
   DisplayGraph(Filename, true, Program);
 }

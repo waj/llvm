@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=cellspu > %t1.s
+; RUN: llvm-as -o - %s | llc -march=cellspu > %t1.s
 ; RUN: grep cntb    %t1.s | count 3
 ; RUN: grep andi    %t1.s | count 3
 ; RUN: grep rotmi   %t1.s | count 2

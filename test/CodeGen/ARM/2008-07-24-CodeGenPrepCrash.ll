@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=arm
+; RUN: llvm-as < %s | llc -march=arm
 ; PR2589
 
 define void @main({ i32 }*) {

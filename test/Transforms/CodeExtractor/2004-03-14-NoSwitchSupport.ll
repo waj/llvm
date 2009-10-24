@@ -1,4 +1,4 @@
-; RUN: opt < %s -loop-extract-single -disable-output
+; RUN: llvm-as < %s | opt -loop-extract-single -disable-output
 
 define void @ab() {
 entry:

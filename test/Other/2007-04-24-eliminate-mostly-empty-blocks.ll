@@ -1,4 +1,4 @@
-;RUN: opt < %s -codegenprepare -disable-output
+;RUN: llvm-as < %s | opt -codegenprepare -disable-output
 
 define void @foo() {
 entry:

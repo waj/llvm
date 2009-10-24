@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 > %t
+; RUN: llvm-as < %s | llc -march=x86 > %t
 ; RUN: grep adcl %t | count 7
 ; RUN: grep sbbl %t | count 7
 

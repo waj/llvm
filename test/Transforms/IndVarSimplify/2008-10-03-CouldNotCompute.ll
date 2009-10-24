@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars
+; RUN: llvm-as < %s | opt -indvars
 ; PR2857
 
 @foo = external global i32		; <i32*> [#uses=1]

@@ -60,10 +60,6 @@ namespace llvm {
       return true;
     }
 
-    bool properlyDominates(BasicBlock *BB, DominatorTree *DT) const {
-      return true;
-    }
-
     virtual void print(raw_ostream &OS) const;
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -101,8 +97,6 @@ namespace llvm {
     }
 
     virtual bool dominates(BasicBlock *BB, DominatorTree *DT) const;
-
-    virtual bool properlyDominates(BasicBlock *BB, DominatorTree *DT) const;
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVCastExpr *S) { return true; }
@@ -230,18 +224,7 @@ namespace llvm {
 
     bool dominates(BasicBlock *BB, DominatorTree *DT) const;
 
-    bool properlyDominates(BasicBlock *BB, DominatorTree *DT) const;
-
     virtual const Type *getType() const { return getOperand(0)->getType(); }
-
-    bool hasNoUnsignedWrap() const { return SubclassData & (1 << 0); }
-    void setHasNoUnsignedWrap(bool B) {
-      SubclassData = (SubclassData & ~(1 << 0)) | (B << 0);
-    }
-    bool hasNoSignedWrap() const { return SubclassData & (1 << 1); }
-    void setHasNoSignedWrap(bool B) {
-      SubclassData = (SubclassData & ~(1 << 1)) | (B << 1);
-    }
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static inline bool classof(const SCEVNAryExpr *S) { return true; }
@@ -354,8 +337,6 @@ namespace llvm {
 
     bool dominates(BasicBlock *BB, DominatorTree *DT) const;
 
-    bool properlyDominates(BasicBlock *BB, DominatorTree *DT) const;
-
     virtual const Type *getType() const;
 
     void print(raw_ostream &OS) const;
@@ -445,6 +426,15 @@ namespace llvm {
       return cast<SCEVAddRecExpr>(SE.getAddExpr(this, getStepRecurrence(SE)));
     }
 
+    bool hasNoUnsignedWrap() const { return SubclassData & (1 << 0); }
+    void setHasNoUnsignedWrap(bool B) {
+      SubclassData = (SubclassData & ~(1 << 0)) | (B << 0);
+    }
+    bool hasNoSignedWrap() const { return SubclassData & (1 << 1); }
+    void setHasNoSignedWrap(bool B) {
+      SubclassData = (SubclassData & ~(1 << 1)) | (B << 1);
+    }
+
     virtual void print(raw_ostream &OS) const;
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -464,9 +454,6 @@ namespace llvm {
     SCEVSMaxExpr(const FoldingSetNodeID &ID,
                  const SmallVectorImpl<const SCEV *> &ops)
       : SCEVCommutativeExpr(ID, scSMaxExpr, ops) {
-      // Max never overflows.
-      setHasNoUnsignedWrap(true);
-      setHasNoSignedWrap(true);
     }
 
   public:
@@ -489,9 +476,6 @@ namespace llvm {
     SCEVUMaxExpr(const FoldingSetNodeID &ID,
                  const SmallVectorImpl<const SCEV *> &ops)
       : SCEVCommutativeExpr(ID, scUMaxExpr, ops) {
-      // Max never overflows.
-      setHasNoUnsignedWrap(true);
-      setHasNoSignedWrap(true);
     }
 
   public:
@@ -526,10 +510,6 @@ namespace llvm {
     }
 
     bool dominates(BasicBlock *, DominatorTree *) const {
-      return true;
-    }
-
-    bool properlyDominates(BasicBlock *, DominatorTree *) const {
       return true;
     }
 
@@ -595,7 +575,7 @@ namespace llvm {
 
   //===--------------------------------------------------------------------===//
   /// SCEVUnknown - This means that we are dealing with an entirely unknown SCEV
-  /// value, and only represent it as its LLVM Value.  This is the "bottom"
+  /// value, and only represent it as it's LLVM Value.  This is the "bottom"
   /// value for the analysis.
   ///
   class SCEVUnknown : public SCEV {
@@ -618,8 +598,6 @@ namespace llvm {
     }
 
     bool dominates(BasicBlock *BB, DominatorTree *DT) const;
-
-    bool properlyDominates(BasicBlock *BB, DominatorTree *DT) const;
 
     virtual const Type *getType() const;
 

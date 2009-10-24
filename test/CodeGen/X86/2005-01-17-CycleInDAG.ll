@@ -3,7 +3,7 @@
 ; is invalid code (there is no correct way to order the instruction).  Check
 ; that we do not fold the load into the sub.
 
-; RUN: llc < %s -march=x86 | not grep sub.*GLOBAL
+; RUN: llvm-as < %s | llc -march=x86 | not grep sub.*GLOBAL
 
 @GLOBAL = external global i32           ; <i32*> [#uses=1]
 

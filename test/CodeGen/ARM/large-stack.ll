@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=arm
+; RUN: llvm-as < %s | llc -march=arm
 
 define void @test1() {
     %tmp = alloca [ 64 x i32 ] , align 4

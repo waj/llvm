@@ -1,6 +1,6 @@
 ; This testcase was reduced from Shootout-C++/reversefile.cpp by bugpoint
 
-; RUN: opt < %s -lowerinvoke -disable-output
+; RUN: llvm-as < %s | opt -lowerinvoke -disable-output
 
 declare void @baz()
 

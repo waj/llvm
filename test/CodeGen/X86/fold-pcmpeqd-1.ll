@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse2 > %t
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse2 > %t
 ; RUN: grep pcmpeqd %t | count 1
 ; RUN: grep xor %t | count 1
 ; RUN: not grep LCP %t

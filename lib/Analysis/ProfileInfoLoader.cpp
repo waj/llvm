@@ -16,7 +16,7 @@
 #include "llvm/Analysis/ProfileInfoTypes.h"
 #include "llvm/Module.h"
 #include "llvm/InstrTypes.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Streams.h"
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -26,17 +26,10 @@ using namespace llvm;
 //
 static inline unsigned ByteSwap(unsigned Var, bool Really) {
   if (!Really) return Var;
-  return ((Var & (255U<< 0U)) << 24U) |
-         ((Var & (255U<< 8U)) <<  8U) |
-         ((Var & (255U<<16U)) >>  8U) |
-         ((Var & (255U<<24U)) >> 24U);
-}
-
-static unsigned AddCounts(unsigned A, unsigned B) {
-  // If either value is undefined, use the other.
-  if (A == ProfileInfoLoader::Uncounted) return B;
-  if (B == ProfileInfoLoader::Uncounted) return A;
-  return A + B;
+  return ((Var & (255<< 0)) << 24) |
+         ((Var & (255<< 8)) <<  8) |
+         ((Var & (255<<16)) >>  8) |
+         ((Var & (255<<24)) >> 24);
 }
 
 static void ReadProfilingBlock(const char *ToolName, FILE *F,
@@ -45,7 +38,7 @@ static void ReadProfilingBlock(const char *ToolName, FILE *F,
   // Read the number of entries...
   unsigned NumEntries;
   if (fread(&NumEntries, sizeof(unsigned), 1, F) != 1) {
-    errs() << ToolName << ": data packet truncated!\n";
+    cerr << ToolName << ": data packet truncated!\n";
     perror(0);
     exit(1);
   }
@@ -56,29 +49,24 @@ static void ReadProfilingBlock(const char *ToolName, FILE *F,
 
   // Read in the block of data...
   if (fread(&TempSpace[0], sizeof(unsigned)*NumEntries, 1, F) != 1) {
-    errs() << ToolName << ": data packet truncated!\n";
+    cerr << ToolName << ": data packet truncated!\n";
     perror(0);
     exit(1);
   }
 
-  // Make sure we have enough space... The space is initialised to -1 to
-  // facitiltate the loading of missing values for OptimalEdgeProfiling.
+  // Make sure we have enough space...
   if (Data.size() < NumEntries)
-    Data.resize(NumEntries, ProfileInfoLoader::Uncounted);
+    Data.resize(NumEntries);
 
   // Accumulate the data we just read into the data.
   if (!ShouldByteSwap) {
-    for (unsigned i = 0; i != NumEntries; ++i) {
-      Data[i] = AddCounts(TempSpace[i], Data[i]);
-    }
+    for (unsigned i = 0; i != NumEntries; ++i)
+      Data[i] += TempSpace[i];
   } else {
-    for (unsigned i = 0; i != NumEntries; ++i) {
-      Data[i] = AddCounts(ByteSwap(TempSpace[i], true), Data[i]);
-    }
+    for (unsigned i = 0; i != NumEntries; ++i)
+      Data[i] += ByteSwap(TempSpace[i], true);
   }
 }
-
-const unsigned ProfileInfoLoader::Uncounted = ~0U;
 
 // ProfileInfoLoader ctor - Read the specified profiling data file, exiting the
 // program if the file is invalid or broken.
@@ -88,9 +76,9 @@ ProfileInfoLoader::ProfileInfoLoader(const char *ToolName,
                                      Module &TheModule) :
                                      Filename(Filename), 
                                      M(TheModule), Warned(false) {
-  FILE *F = fopen(Filename.c_str(), "rb");
+  FILE *F = fopen(Filename.c_str(), "r");
   if (F == 0) {
-    errs() << ToolName << ": Error opening '" << Filename << "': ";
+    cerr << ToolName << ": Error opening '" << Filename << "': ";
     perror(0);
     exit(1);
   }
@@ -108,7 +96,7 @@ ProfileInfoLoader::ProfileInfoLoader(const char *ToolName,
     case ArgumentInfo: {
       unsigned ArgLength;
       if (fread(&ArgLength, sizeof(unsigned), 1, F) != 1) {
-        errs() << ToolName << ": arguments packet truncated!\n";
+        cerr << ToolName << ": arguments packet truncated!\n";
         perror(0);
         exit(1);
       }
@@ -119,7 +107,7 @@ ProfileInfoLoader::ProfileInfoLoader(const char *ToolName,
 
       if (ArgLength)
         if (fread(&Chars[0], (ArgLength+3) & ~3, 1, F) != 1) {
-          errs() << ToolName << ": arguments packet truncated!\n";
+          cerr << ToolName << ": arguments packet truncated!\n";
           perror(0);
           exit(1);
         }
@@ -139,16 +127,12 @@ ProfileInfoLoader::ProfileInfoLoader(const char *ToolName,
       ReadProfilingBlock(ToolName, F, ShouldByteSwap, EdgeCounts);
       break;
 
-    case OptEdgeInfo:
-      ReadProfilingBlock(ToolName, F, ShouldByteSwap, OptimalEdgeCounts);
-      break;
-
     case BBTraceInfo:
       ReadProfilingBlock(ToolName, F, ShouldByteSwap, BBTrace);
       break;
 
     default:
-      errs() << ToolName << ": Unknown packet type #" << PacketType << "!\n";
+      cerr << ToolName << ": Unknown packet type #" << PacketType << "!\n";
       exit(1);
     }
   }

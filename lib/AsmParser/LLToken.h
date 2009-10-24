@@ -62,7 +62,6 @@ namespace lltok {
     kw_module,
     kw_asm,
     kw_sideeffect,
-    kw_alignstack,
     kw_gc,
     kw_c,
 
@@ -83,7 +82,6 @@ namespace lltok {
     kw_readnone,
     kw_readonly,
 
-    kw_inlinehint,
     kw_noinline,
     kw_alwaysinline,
     kw_optsize,
@@ -127,7 +125,7 @@ namespace lltok {
     GlobalVar,         // @foo @"foo"
     LocalVar,          // %foo %"foo"
     StringConstant,    // "foo"
-    NamedOrCustomMD,   // !foo
+    NamedMD,           // !foo
 
     // Metadata valued tokens.
     Metadata,          // !"foo" !{i8 42}

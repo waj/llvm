@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=thumb
+; RUN: llvm-as < %s | llc -march=thumb
 
 ; Test Thumb-mode "I" constraint, for ADD immediate.
 define i32 @testI(i32 %x) {

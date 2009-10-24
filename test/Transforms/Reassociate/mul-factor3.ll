@@ -1,6 +1,7 @@
 ; This should be one add and two multiplies.
 
-; RUN: opt < %s -reassociate -instcombine -S > %t
+; RUN: llvm-as < %s | \
+; RUN:   opt -reassociate -instcombine | llvm-dis > %t 
 ; RUN: grep mul %t | count 2
 ; RUN: grep add %t | count 1
 

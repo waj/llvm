@@ -20,12 +20,12 @@
 
 #include <vector>
 #include <cassert>
+#include <iosfwd>
 
 namespace llvm {
   class BasicBlock;
   class Function;
   class Module;
-  class raw_ostream;
 
 class Trace {
   typedef std::vector<BasicBlock *> BasicBlockListType;
@@ -106,12 +106,13 @@ public:
 
   /// print - Write trace to output stream.
   ///
-  void print(raw_ostream &O) const;
+  void print (std::ostream &O) const;
+  void print (std::ostream *O) const { if (O) print(*O); }
 
   /// dump - Debugger convenience method; writes trace to standard error
   /// output stream.
   ///
-  void dump() const;
+  void dump () const;
 };
 
 } // end namespace llvm

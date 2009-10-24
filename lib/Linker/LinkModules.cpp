@@ -25,10 +25,11 @@
 #include "llvm/ValueSymbolTable.h"
 #include "llvm/Instructions.h"
 #include "llvm/Assembly/Writer.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/System/Path.h"
 #include "llvm/ADT/DenseMap.h"
+#include <sstream>
 using namespace llvm;
 
 // Error - Simple wrapper function to conditionally assign to E and return true.
@@ -144,7 +145,7 @@ protected:
 
   // for debugging...
   virtual void dump() const {
-    errs() << "AbstractTypeSet!\n";
+    cerr << "AbstractTypeSet!\n";
   }
 };
 }
@@ -337,11 +338,11 @@ static bool LinkTypes(Module *Dest, const Module *Src, std::string *Err) {
 static void PrintMap(const std::map<const Value*, Value*> &M) {
   for (std::map<const Value*, Value*>::const_iterator I = M.begin(), E =M.end();
        I != E; ++I) {
-    errs() << " Fr: " << (void*)I->first << " ";
+    cerr << " Fr: " << (void*)I->first << " ";
     I->first->dump();
-    errs() << " To: " << (void*)I->second << " ";
+    cerr << " To: " << (void*)I->second << " ";
     I->second->dump();
-    errs() << "\n";
+    cerr << "\n";
   }
 }
 #endif
@@ -394,8 +395,14 @@ static Value *RemapOperand(const Value *In,
       assert(!isa<GlobalValue>(CPV) && "Unmapped global?");
       llvm_unreachable("Unknown type of derived type constant value!");
     }
-  } else if (isa<MetadataBase>(In)) {
-    Result = const_cast<Value*>(In);
+  } else if (const MDNode *N = dyn_cast<MDNode>(In)) {
+    std::vector<Value*> Elems;
+    for (unsigned i = 0, e = N->getNumElements(); i !=e; ++i)
+      Elems.push_back(RemapOperand(N->getElement(i), ValueMap, Context));
+    if (!Elems.empty())
+      Result = MDNode::get(Context, &Elems[0], Elems.size());
+  } else if (const MDString *MDS = dyn_cast<MDString>(In)) {
+    Result = MDString::get(Context, MDS->getString());
   } else if (isa<InlineAsm>(In)) {
     Result = const_cast<Value*>(In);
   }
@@ -407,10 +414,10 @@ static Value *RemapOperand(const Value *In,
   }
 
 #ifndef NDEBUG
-  errs() << "LinkModules ValueMap: \n";
+  cerr << "LinkModules ValueMap: \n";
   PrintMap(ValueMap);
 
-  errs() << "Couldn't remap value: " << (void*)In << " " << *In << "\n";
+  cerr << "Couldn't remap value: " << (void*)In << " " << *In << "\n";
   llvm_unreachable("Couldn't remap value!");
 #endif
   return 0;
@@ -1273,10 +1280,10 @@ Linker::LinkModules(Module *Dest, Module *Src, std::string *ErrorMsg) {
 
   if (!Src->getDataLayout().empty() && !Dest->getDataLayout().empty() &&
       Src->getDataLayout() != Dest->getDataLayout())
-    errs() << "WARNING: Linking two modules of different data layouts!\n";
+    cerr << "WARNING: Linking two modules of different data layouts!\n";
   if (!Src->getTargetTriple().empty() &&
       Dest->getTargetTriple() != Src->getTargetTriple())
-    errs() << "WARNING: Linking two modules of different target triples!\n";
+    cerr << "WARNING: Linking two modules of different target triples!\n";
 
   // Append the module inline asm string.
   if (!Src->getModuleInlineAsm().empty()) {

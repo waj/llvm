@@ -25,23 +25,20 @@ namespace llvm {
   /// stack frame (e.g., a spill slot), below the stack frame (e.g., argument
   /// space), or constant pool.
   class PseudoSourceValue : public Value {
-  private:
-    /// printCustom - Implement printing for PseudoSourceValue. This is called
-    /// from Value::print or Value's operator<<.
-    ///
-    virtual void printCustom(raw_ostream &O) const;
-
   public:
     PseudoSourceValue();
 
-    /// isConstant - Test whether the memory pointed to by this
-    /// PseudoSourceValue has a constant value.
+    /// dump - Support for debugging, callable in GDB: V->dump()
+    //
+    virtual void dump() const;
+
+    /// print - Implement operator<< on PseudoSourceValue.
+    ///
+    virtual void print(raw_ostream &OS) const;
+
+    /// isConstant - Test whether this PseudoSourceValue has a constant value.
     ///
     virtual bool isConstant(const MachineFrameInfo *) const;
-
-    /// isAliased - Test whether the memory pointed to by this
-    /// PseudoSourceValue may also be pointed to by an LLVM IR Value.
-    virtual bool isAliased(const MachineFrameInfo *) const;
 
     /// classof - Methods for support type inquiry through isa, cast, and
     /// dyn_cast:
@@ -55,21 +52,18 @@ namespace llvm {
     /// e.g., a spill slot.
     static const PseudoSourceValue *getFixedStack(int FI);
 
-    /// A pseudo source value referencing the area below the stack frame of
-    /// a function, e.g., the argument space.
+    /// A source value referencing the area below the stack frame of a function,
+    /// e.g., the argument space.
     static const PseudoSourceValue *getStack();
 
-    /// A pseudo source value referencing the global offset table
-    /// (or something the like).
+    /// A source value referencing the global offset table (or something the
+    /// like).
     static const PseudoSourceValue *getGOT();
 
-    /// A pseudo source value referencing the constant pool. Since constant
-    /// pools are constant, this doesn't need to identify a specific constant
-    /// pool entry.
+    /// A SV referencing the constant pool
     static const PseudoSourceValue *getConstantPool();
 
-    /// A pseudo source value referencing a jump table. Since jump tables are
-    /// constant, this doesn't need to identify a specific jump table.
+    /// A SV referencing the jump table
     static const PseudoSourceValue *getJumpTable();
   };
 } // End llvm namespace

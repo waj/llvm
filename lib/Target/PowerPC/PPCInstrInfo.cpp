@@ -22,7 +22,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 using namespace llvm;
 
 extern cl::opt<bool> EnablePPC32RS;  // FIXME (64-bit): See PPCRegisterInfo.cpp.
@@ -768,7 +768,7 @@ unsigned PPCInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
   case PPC::INLINEASM: {       // Inline Asm: Variable size.
     const MachineFunction *MF = MI->getParent()->getParent();
     const char *AsmStr = MI->getOperand(0).getSymbolName();
-    return getInlineAsmLength(AsmStr, *MF->getTarget().getMCAsmInfo());
+    return getInlineAsmLength(AsmStr, *MF->getTarget().getTargetAsmInfo());
   }
   case PPC::DBG_LABEL:
   case PPC::EH_LABEL:

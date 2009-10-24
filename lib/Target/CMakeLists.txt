@@ -1,6 +1,9 @@
 add_llvm_library(LLVMTarget
+  COFFTargetAsmInfo.cpp
+  DarwinTargetAsmInfo.cpp
   SubtargetFeature.cpp
   Target.cpp
+  TargetAsmInfo.cpp
   TargetData.cpp
   TargetELFWriterInfo.cpp
   TargetFrameInfo.cpp
@@ -12,3 +15,5 @@ add_llvm_library(LLVMTarget
   TargetRegisterInfo.cpp
   TargetSubtarget.cpp
   )
+
+# TODO: Support other targets besides X86. See Makefile.

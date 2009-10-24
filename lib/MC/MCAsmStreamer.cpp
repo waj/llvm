@@ -8,18 +8,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/MC/MCAsmInfo.h"
-#include "llvm/MC/MCCodeEmitter.h"
+#include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/MC/MCContext.h"
-#include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
-#include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCValue.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
@@ -27,14 +24,12 @@ namespace {
 
 class MCAsmStreamer : public MCStreamer {
   raw_ostream &OS;
-  const MCAsmInfo &MAI;
-  MCInstPrinter *InstPrinter;
-  MCCodeEmitter *Emitter;
+  const TargetAsmInfo &TAI;
+  AsmPrinter *Printer;
 public:
-  MCAsmStreamer(MCContext &Context, raw_ostream &_OS, const MCAsmInfo &tai,
-                MCInstPrinter *_Printer, MCCodeEmitter *_Emitter)
-    : MCStreamer(Context), OS(_OS), MAI(tai), InstPrinter(_Printer),
-      Emitter(_Emitter) {}
+  MCAsmStreamer(MCContext &Context, raw_ostream &_OS, const TargetAsmInfo &tai,
+                AsmPrinter *_AsmPrinter)
+    : MCStreamer(Context), OS(_OS), TAI(tai), Printer(_AsmPrinter) {}
   ~MCAsmStreamer() {}
 
   /// @name MCStreamer Interface
@@ -46,27 +41,30 @@ public:
 
   virtual void EmitAssemblerFlag(AssemblerFlag Flag);
 
-  virtual void EmitAssignment(MCSymbol *Symbol, const MCExpr *Value);
+  virtual void EmitAssignment(MCSymbol *Symbol, const MCValue &Value,
+                              bool MakeAbsolute = false);
 
   virtual void EmitSymbolAttribute(MCSymbol *Symbol, SymbolAttr Attribute);
 
   virtual void EmitSymbolDesc(MCSymbol *Symbol, unsigned DescValue);
 
-  virtual void EmitCommonSymbol(MCSymbol *Symbol, unsigned Size,
-                                unsigned ByteAlignment);
+  virtual void EmitLocalSymbol(MCSymbol *Symbol, const MCValue &Value);
 
-  virtual void EmitZerofill(const MCSection *Section, MCSymbol *Symbol = 0,
-                            unsigned Size = 0, unsigned ByteAlignment = 0);
+  virtual void EmitCommonSymbol(MCSymbol *Symbol, unsigned Size,
+                                unsigned Pow2Alignment, bool IsLocal);
+
+  virtual void EmitZerofill(MCSection *Section, MCSymbol *Symbol = NULL,
+                            unsigned Size = 0, unsigned Pow2Alignment = 0);
 
   virtual void EmitBytes(const StringRef &Data);
 
-  virtual void EmitValue(const MCExpr *Value, unsigned Size);
+  virtual void EmitValue(const MCValue &Value, unsigned Size);
 
   virtual void EmitValueToAlignment(unsigned ByteAlignment, int64_t Value = 0,
                                     unsigned ValueSize = 1,
                                     unsigned MaxBytesToEmit = 0);
 
-  virtual void EmitValueToOffset(const MCExpr *Offset,
+  virtual void EmitValueToOffset(const MCValue &Offset, 
                                  unsigned char Value = 0);
   
   virtual void EmitInstruction(const MCInst &Inst);
@@ -78,32 +76,45 @@ public:
 
 } // end anonymous namespace.
 
+/// Allow printing symbols directly to a raw_ostream with proper quoting.
+static inline raw_ostream &operator<<(raw_ostream &os, const MCSymbol *S) {
+  S->print(os);
+  return os;
+}
+
+/// Allow printing values directly to a raw_ostream.
+static inline raw_ostream &operator<<(raw_ostream &os, const MCValue &Value) {
+  Value.print(os);
+  return os;
+}
+
 static inline int64_t truncateToSize(int64_t Value, unsigned Bytes) {
   assert(Bytes && "Invalid size!");
   return Value & ((uint64_t) (int64_t) -1 >> (64 - Bytes * 8));
 }
 
-static inline const MCExpr *truncateToSize(const MCExpr *Value,
-                                           unsigned Bytes) {
-  // FIXME: Do we really need this routine?
-  return Value;
+static inline MCValue truncateToSize(const MCValue &Value, unsigned Bytes) {
+  return MCValue::get(Value.getSymA(), Value.getSymB(), 
+                      truncateToSize(Value.getConstant(), Bytes));
 }
 
 void MCAsmStreamer::SwitchSection(const MCSection *Section) {
   assert(Section && "Cannot switch to a null section!");
   if (Section != CurSection) {
     CurSection = Section;
-    Section->PrintSwitchToSection(MAI, OS);
+    Section->PrintSwitchToSection(TAI, OS);
   }
 }
 
 void MCAsmStreamer::EmitLabel(MCSymbol *Symbol) {
-  assert(Symbol->isUndefined() && "Cannot define a symbol twice!");
+  assert(Symbol->getSection() == 0 && "Cannot emit a symbol twice!");
   assert(CurSection && "Cannot emit before setting section!");
+  assert(!getContext().GetSymbolValue(Symbol) && 
+         "Cannot emit symbol which was directly assigned to!");
 
-  Symbol->print(OS, &MAI);
-  OS << ":\n";
-  Symbol->setSection(*CurSection);
+  OS << Symbol << ":\n";
+  Symbol->setSection(CurSection);
+  Symbol->setExternal(false);
 }
 
 void MCAsmStreamer::EmitAssemblerFlag(AssemblerFlag Flag) {
@@ -114,61 +125,68 @@ void MCAsmStreamer::EmitAssemblerFlag(AssemblerFlag Flag) {
   OS << '\n';
 }
 
-void MCAsmStreamer::EmitAssignment(MCSymbol *Symbol, const MCExpr *Value) {
-  // Only absolute symbols can be redefined.
-  assert((Symbol->isUndefined() || Symbol->isAbsolute()) &&
-         "Cannot define a symbol twice!");
+void MCAsmStreamer::EmitAssignment(MCSymbol *Symbol, const MCValue &Value,
+                                   bool MakeAbsolute) {
+  assert(!Symbol->getSection() && "Cannot assign to a label!");
 
-  Symbol->print(OS, &MAI);
-  OS << " = ";
-  Value->print(OS, &MAI);
-  OS << '\n';
+  if (MakeAbsolute) {
+    OS << ".set " << Symbol << ", " << Value << '\n';
 
-  // FIXME: Lift context changes into super class.
-  // FIXME: Set associated section.
-  Symbol->setValue(Value);
+    // HACK: If the value isn't already absolute, set the symbol value to
+    // itself, we want to use the .set absolute value, not the actual
+    // expression.
+    if (!Value.isAbsolute())
+      getContext().SetSymbolValue(Symbol, MCValue::get(Symbol));
+    else
+      getContext().SetSymbolValue(Symbol, Value);
+  } else {
+    OS << Symbol << " = " << Value << '\n';
+    getContext().SetSymbolValue(Symbol, Value);
+  }
 }
 
-void MCAsmStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
+void MCAsmStreamer::EmitSymbolAttribute(MCSymbol *Symbol, 
                                         SymbolAttr Attribute) {
   switch (Attribute) {
-  case Global:         OS << ".globl";           break;
-  case Hidden:         OS << ".hidden";          break;
+  case Global: OS << ".globl"; break;
+  case Hidden: OS << ".hidden"; break;
   case IndirectSymbol: OS << ".indirect_symbol"; break;
-  case Internal:       OS << ".internal";        break;
-  case LazyReference:  OS << ".lazy_reference";  break;
-  case NoDeadStrip:    OS << ".no_dead_strip";   break;
-  case PrivateExtern:  OS << ".private_extern";  break;
-  case Protected:      OS << ".protected";       break;
-  case Reference:      OS << ".reference";       break;
-  case Weak:           OS << ".weak";            break;
+  case Internal: OS << ".internal"; break;
+  case LazyReference: OS << ".lazy_reference"; break;
+  case NoDeadStrip: OS << ".no_dead_strip"; break;
+  case PrivateExtern: OS << ".private_extern"; break;
+  case Protected: OS << ".protected"; break;
+  case Reference: OS << ".reference"; break;
+  case Weak: OS << ".weak"; break;
   case WeakDefinition: OS << ".weak_definition"; break;
-  case WeakReference:  OS << ".weak_reference";  break;
+  case WeakReference: OS << ".weak_reference"; break;
   }
 
-  OS << ' ';
-  Symbol->print(OS, &MAI);
-  OS << '\n';
+  OS << ' ' << Symbol << '\n';
 }
 
 void MCAsmStreamer::EmitSymbolDesc(MCSymbol *Symbol, unsigned DescValue) {
-  OS << ".desc" << ' ';
-  Symbol->print(OS, &MAI);
-  OS << ',' << DescValue << '\n';
+  OS << ".desc" << ' ' << Symbol << ',' << DescValue << '\n';
+}
+
+void MCAsmStreamer::EmitLocalSymbol(MCSymbol *Symbol, const MCValue &Value) {
+  OS << ".lsym" << ' ' << Symbol << ',' << Value << '\n';
 }
 
 void MCAsmStreamer::EmitCommonSymbol(MCSymbol *Symbol, unsigned Size,
-                                     unsigned ByteAlignment) {
-  OS << ".comm ";
-  Symbol->print(OS, &MAI);
-  OS << ',' << Size;
-  if (ByteAlignment != 0)
-    OS << ',' << Log2_32(ByteAlignment);
+                                     unsigned Pow2Alignment, bool IsLocal) {
+  if (IsLocal)
+    OS << ".lcomm";
+  else
+    OS << ".comm";
+  OS << ' ' << Symbol << ',' << Size;
+  if (Pow2Alignment != 0)
+    OS << ',' << Pow2Alignment;
   OS << '\n';
 }
 
-void MCAsmStreamer::EmitZerofill(const MCSection *Section, MCSymbol *Symbol,
-                                 unsigned Size, unsigned ByteAlignment) {
+void MCAsmStreamer::EmitZerofill(MCSection *Section, MCSymbol *Symbol,
+                                 unsigned Size, unsigned Pow2Alignment) {
   // Note: a .zerofill directive does not switch sections.
   OS << ".zerofill ";
   
@@ -177,11 +195,9 @@ void MCAsmStreamer::EmitZerofill(const MCSection *Section, MCSymbol *Symbol,
   OS << MOSection->getSegmentName() << "," << MOSection->getSectionName();
   
   if (Symbol != NULL) {
-    OS << ',';
-    Symbol->print(OS, &MAI);
-    OS << ',' << Size;
-    if (ByteAlignment != 0)
-      OS << ',' << Log2_32(ByteAlignment);
+    OS << ',' << Symbol << ',' << Size;
+    if (Pow2Alignment != 0)
+      OS << ',' << Pow2Alignment;
   }
   OS << '\n';
 }
@@ -192,7 +208,7 @@ void MCAsmStreamer::EmitBytes(const StringRef &Data) {
     OS << ".byte " << (unsigned) (unsigned char) Data[i] << '\n';
 }
 
-void MCAsmStreamer::EmitValue(const MCExpr *Value, unsigned Size) {
+void MCAsmStreamer::EmitValue(const MCValue &Value, unsigned Size) {
   assert(CurSection && "Cannot emit contents before setting section!");
   // Need target hooks to know how to print this.
   switch (Size) {
@@ -204,9 +220,7 @@ void MCAsmStreamer::EmitValue(const MCExpr *Value, unsigned Size) {
   case 8: OS << ".quad"; break;
   }
 
-  OS << ' ';
-  truncateToSize(Value, Size)->print(OS, &MAI);
-  OS << '\n';
+  OS << ' ' << truncateToSize(Value, Size) << '\n';
 }
 
 void MCAsmStreamer::EmitValueToAlignment(unsigned ByteAlignment, int64_t Value,
@@ -217,21 +231,20 @@ void MCAsmStreamer::EmitValueToAlignment(unsigned ByteAlignment, int64_t Value,
   if (isPowerOf2_32(ByteAlignment)) {
     switch (ValueSize) {
     default: llvm_unreachable("Invalid size for machine code value!");
-    case 1: OS << MAI.getAlignDirective(); break;
-    // FIXME: use MAI for this!
+    case 1: OS << TAI.getAlignDirective(); break;
+    // FIXME: use TAI for this!
     case 2: OS << ".p2alignw "; break;
     case 4: OS << ".p2alignl "; break;
     case 8: llvm_unreachable("Unsupported alignment size!");
     }
     
-    if (MAI.getAlignmentIsInBytes())
+    if (TAI.getAlignmentIsInBytes())
       OS << ByteAlignment;
     else
       OS << Log2_32(ByteAlignment);
 
     if (Value || MaxBytesToEmit) {
-      OS << ", 0x";
-      OS.write_hex(truncateToSize(Value, ValueSize));
+      OS << ", " << truncateToSize(Value, ValueSize);
 
       if (MaxBytesToEmit) 
         OS << ", " << MaxBytesToEmit;
@@ -241,7 +254,7 @@ void MCAsmStreamer::EmitValueToAlignment(unsigned ByteAlignment, int64_t Value,
   }
   
   // Non-power of two alignment.  This is not widely supported by assemblers.
-  // FIXME: Parameterize this based on MAI.
+  // FIXME: Parameterize this based on TAI.
   switch (ValueSize) {
   default: llvm_unreachable("Invalid size for machine code value!");
   case 1: OS << ".balign";  break;
@@ -257,46 +270,44 @@ void MCAsmStreamer::EmitValueToAlignment(unsigned ByteAlignment, int64_t Value,
   OS << '\n';
 }
 
-void MCAsmStreamer::EmitValueToOffset(const MCExpr *Offset,
+void MCAsmStreamer::EmitValueToOffset(const MCValue &Offset, 
                                       unsigned char Value) {
   // FIXME: Verify that Offset is associated with the current section.
-  OS << ".org ";
-  Offset->print(OS, &MAI);
-  OS << ", " << (unsigned) Value << '\n';
+  OS << ".org " << Offset << ", " << (unsigned) Value << '\n';
+}
+
+static raw_ostream &operator<<(raw_ostream &OS, const MCOperand &Op) {
+  if (Op.isReg())
+    return OS << "reg:" << Op.getReg();
+  if (Op.isImm())
+    return OS << "imm:" << Op.getImm();
+  if (Op.isMBBLabel())
+    return OS << "mbblabel:(" 
+              << Op.getMBBLabelFunction() << ", " << Op.getMBBLabelBlock();
+  assert(Op.isMCValue() && "Invalid operand!");
+  return OS << "val:" << Op.getMCValue();
 }
 
 void MCAsmStreamer::EmitInstruction(const MCInst &Inst) {
   assert(CurSection && "Cannot emit contents before setting section!");
 
   // If we have an AsmPrinter, use that to print.
-  if (InstPrinter) {
-    InstPrinter->printInst(&Inst);
-    OS << '\n';
-
-    // Show the encoding if we have a code emitter.
-    if (Emitter) {
-      SmallString<256> Code;
-      raw_svector_ostream VecOS(Code);
-      Emitter->EncodeInstruction(Inst, VecOS);
-      VecOS.flush();
-  
-      OS.indent(20);
-      OS << " # encoding: [";
-      for (unsigned i = 0, e = Code.size(); i != e; ++i) {
-        if (i)
-          OS << ',';
-        OS << format("%#04x", uint8_t(Code[i]));
-      }
-      OS << "]\n";
-    }
-
+  if (Printer) {
+    Printer->printMCInst(&Inst);
     return;
   }
 
   // Otherwise fall back to a structural printing for now. Eventually we should
   // always have access to the target specific printer.
-  Inst.print(OS, &MAI);
-  OS << '\n';
+  OS << "MCInst("
+     << "opcode=" << Inst.getOpcode() << ", "
+     << "operands=[";
+  for (unsigned i = 0, e = Inst.getNumOperands(); i != e; ++i) {
+    if (i)
+      OS << ", ";
+    OS << Inst.getOperand(i);
+  }
+  OS << "])\n";
 }
 
 void MCAsmStreamer::Finish() {
@@ -304,7 +315,6 @@ void MCAsmStreamer::Finish() {
 }
     
 MCStreamer *llvm::createAsmStreamer(MCContext &Context, raw_ostream &OS,
-                                    const MCAsmInfo &MAI, MCInstPrinter *IP,
-                                    MCCodeEmitter *CE) {
-  return new MCAsmStreamer(Context, OS, MAI, IP, CE);
+                                    const TargetAsmInfo &TAI, AsmPrinter *AP) {
+  return new MCAsmStreamer(Context, OS, TAI, AP);
 }

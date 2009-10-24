@@ -2,7 +2,7 @@
 ; insertion of register-register copies.
 
 ; Make sure there are only 3 mov's for each testcase
-; RUN: llc < %s -march=x86 -x86-asm-syntax=intel | \
+; RUN: llvm-as < %s | llc -march=x86 -x86-asm-syntax=intel | \
 ; RUN:   grep {\\\<mov\\\>} | count 6
 
 

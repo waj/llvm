@@ -1,6 +1,6 @@
 ;test for SUBC and SUBE expansion
 ;
-; RUN: llc < %s -march=alpha
+; RUN: llvm-as < %s | llc -march=alpha
 
 define i128 @sub128(i128 %x, i128 %y) {
 entry:

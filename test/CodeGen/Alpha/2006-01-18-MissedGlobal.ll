@@ -1,5 +1,5 @@
 ; The global symbol should be legalized
-; RUN: llc < %s -march=alpha 
+; RUN: llvm-as < %s | llc -march=alpha 
 
 target datalayout = "e-p:64:64"
         %struct.LIST_HELP = type { %struct.LIST_HELP*, i8* }

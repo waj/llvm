@@ -17,6 +17,7 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include <iosfwd>
 #include <vector>
 #include <set>
 
@@ -31,7 +32,6 @@ namespace llvm {
   class Function;
   class SparseSolver;
   class LLVMContext;
-  class raw_ostream;
 
   template<typename T> class SmallVectorImpl;
   
@@ -72,12 +72,6 @@ public:
   virtual LatticeVal ComputeConstant(Constant *C) {
     return getOverdefinedVal(); // always safe
   }
-
-  /// IsSpecialCasedPHI - Given a PHI node, determine whether this PHI node is
-  /// one that the we want to handle through ComputeInstructionState.
-  virtual bool IsSpecialCasedPHI(PHINode *PN) {
-    return false;
-  }
   
   /// GetConstant - If the specified lattice value is representable as an LLVM
   /// constant value, return it.  Otherwise return null.  The returned value
@@ -106,7 +100,7 @@ public:
   }
   
   /// PrintValue - Render the specified lattice value to the specified stream.
-  virtual void PrintValue(LatticeVal V, raw_ostream &OS);
+  virtual void PrintValue(LatticeVal V, std::ostream &OS);
 };
 
   
@@ -147,7 +141,7 @@ public:
   ///
   void Solve(Function &F);
   
-  void Print(Function &F, raw_ostream &OS) const;
+  void Print(Function &F, std::ostream &OS) const;
 
   /// getLatticeState - Return the LatticeVal object that corresponds to the
   /// value.  If an value is not in the map, it is returned as untracked,

@@ -46,10 +46,9 @@ namespace llvm {
   class MCContext;
   class MCSection;
   class MCStreamer;
-  class MCSymbol;
   class DwarfWriter;
   class Mangler;
-  class MCAsmInfo;
+  class TargetAsmInfo;
   class TargetLoweringObjectFile;
   class Type;
   class formatted_raw_ostream;
@@ -76,11 +75,10 @@ namespace llvm {
     ///
     MachineLoopInfo *LI;
 
-  public:
+  protected:
     /// MMI - If available, this is a pointer to the current MachineModuleInfo.
     MachineModuleInfo *MMI;
     
-  protected:
     /// DW - If available, this is a pointer to the current dwarf writer.
     DwarfWriter *DW;
 
@@ -98,7 +96,7 @@ namespace llvm {
     
     /// Target Asm Printer information.
     ///
-    const MCAsmInfo *MAI;
+    const TargetAsmInfo *TAI;
 
     /// Target Register Information.
     ///
@@ -135,18 +133,23 @@ namespace llvm {
     ///
     bool VerboseAsm;
 
+    /// ExuberantAsm - Emit many more comments in assembly output if
+    /// this is true.
+    ///
+    bool ExuberantAsm;
+
     /// Private state for PrintSpecial()
     // Assign a unique ID to this machine instruction.
     mutable const MachineInstr *LastMI;
     mutable const Function *LastFn;
     mutable unsigned Counter;
     
-    // Private state for processDebugLoc()
+    // Private state for processDebugLock()
     mutable DebugLocTuple PrevDLT;
 
   protected:
     explicit AsmPrinter(formatted_raw_ostream &o, TargetMachine &TM,
-                        const MCAsmInfo *T, bool V);
+                        const TargetAsmInfo *T, bool V);
     
   public:
     virtual ~AsmPrinter();
@@ -155,10 +158,20 @@ namespace llvm {
     ///
     bool isVerbose() const { return VerboseAsm; }
 
-    /// getFunctionNumber - Return a unique ID for the current function.
-    ///
-    unsigned getFunctionNumber() const { return FunctionNumber; }
-    
+    /// getGlobalLinkName - Returns the asm/link name of of the specified
+    /// global variable.  Should be overridden by each target asm printer to
+    /// generate the appropriate value.
+    virtual const std::string &getGlobalLinkName(const GlobalVariable *GV,
+                                                 std::string &LinkName) const;
+
+    /// EmitExternalGlobal - Emit the external reference to a global variable.
+    /// Should be overridden if an indirect reference should be used.
+    virtual void EmitExternalGlobal(const GlobalVariable *GV);
+
+    /// getCurrentFunctionEHName - Called to return the CurrentFnEHName.
+    /// 
+    std::string getCurrentFunctionEHName(const MachineFunction *MF) const;
+
   protected:
     /// getAnalysisUsage - Record analysis usage.
     /// 
@@ -169,14 +182,6 @@ namespace llvm {
     /// call this implementation.
     bool doInitialization(Module &M);
 
-    /// EmitStartOfAsmFile - This virtual method can be overridden by targets
-    /// that want to emit something at the start of their file.
-    virtual void EmitStartOfAsmFile(Module &M) {}
-    
-    /// EmitEndOfAsmFile - This virtual method can be overridden by targets that
-    /// want to emit something at the end of their file.
-    virtual void EmitEndOfAsmFile(Module &M) {}
-    
     /// doFinalization - Shut down the asmprinter.  If you override this in your
     /// pass, you must make sure to call it explicitly.
     bool doFinalization(Module &M);
@@ -211,6 +216,10 @@ namespace llvm {
     /// SetupMachineFunction - This should be called when a new MachineFunction
     /// is being processed from runOnMachineFunction.
     void SetupMachineFunction(MachineFunction &MF);
+    
+    /// getFunctionNumber - Return a unique ID for the current function.
+    ///
+    unsigned getFunctionNumber() const { return FunctionNumber; }
     
     /// IncrementFunctionNumber - Increase Function Number.  AsmPrinters should
     /// not normally call this, as the counter is automatically bumped by
@@ -259,8 +268,7 @@ namespace llvm {
     void EOL() const;
     void EOL(const std::string &Comment) const;
     void EOL(const char* Comment) const;
-    void EOL(const char *Comment, unsigned Encoding) const;
-
+    
     /// EmitULEB128Bytes - Emit an assembler byte data directive to compose an
     /// unsigned leb128 value.
     void EmitULEB128Bytes(unsigned Value) const;
@@ -327,17 +335,17 @@ namespace llvm {
 
     /// EmitComments - Pretty-print comments for instructions
     void EmitComments(const MachineInstr &MI) const;
+    /// EmitComments - Pretty-print comments for instructions
+    void EmitComments(const MCInst &MI) const;
     /// EmitComments - Pretty-print comments for basic blocks
     void EmitComments(const MachineBasicBlock &MBB) const;
 
-    /// GetMBBSymbol - Return the MCSymbol corresponding to the specified basic
-    /// block label.
-    MCSymbol *GetMBBSymbol(unsigned MBBID) const;
-    
-    /// EmitBasicBlockStart - This method prints the label for the specified
-    /// MachineBasicBlock, an alignment (if present) and a comment describing
-    /// it if appropriate.
-    void EmitBasicBlockStart(const MachineBasicBlock *MBB) const;
+    /// printMCInst - Print an MCInst for this target.
+    ///
+    /// Note, this is only a temporary hack to allow the MCStreamer to print
+    /// instructions, do not use this function outside of llvm-mc.
+    virtual void printMCInst(const MCInst *MI);
+
   protected:
     /// EmitZeros - Emit a block of zeros.
     ///
@@ -357,8 +365,8 @@ namespace llvm {
     virtual void EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV);
 
     /// processDebugLoc - Processes the debug information of each machine
-    /// instruction's DebugLoc. 
-    void processDebugLoc(const MachineInstr *MI, bool BeforePrintingInsn);
+    /// instruction's DebugLoc.
+    void processDebugLoc(DebugLoc DL);
     
     /// printInlineAsm - This method formats and prints the specified machine
     /// instruction that is an inline asm.
@@ -368,7 +376,13 @@ namespace llvm {
     /// that is an implicit def.
     virtual void printImplicitDef(const MachineInstr *MI) const;
     
-    
+    /// printBasicBlockLabel - This method prints the label for the specified
+    /// MachineBasicBlock
+    virtual void printBasicBlockLabel(const MachineBasicBlock *MBB,
+                                      bool printAlign = false,
+                                      bool printColon = false,
+                                      bool printComment = true) const;
+                                      
     /// printPICJumpTableSetLabel - This method prints a set label for the
     /// specified MachineBasicBlock for a jumptable entry.
     virtual void printPICJumpTableSetLabel(unsigned uid,

@@ -98,6 +98,7 @@ namespace llvm {
     virtual bool runOnFunction(Function &F);
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
     void print(raw_ostream &OS, const Module* = 0) const;
+    virtual void print(std::ostream &OS, const Module* = 0) const;
   private:
     Function *FF;
     TargetData *TD;

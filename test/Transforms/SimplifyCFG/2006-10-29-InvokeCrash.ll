@@ -1,4 +1,4 @@
-; RUN: opt < %s -simplifycfg -disable-output
+; RUN: llvm-as < %s | opt -simplifycfg -disable-output
 ; END.
 	%struct..4._102 = type { %struct.QVectorData* }
 	%struct..5._125 = type { %struct.QMapData* }

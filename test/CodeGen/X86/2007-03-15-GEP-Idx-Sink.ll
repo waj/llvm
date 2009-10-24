@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mtriple=i686-darwin | \
+; RUN: llvm-as < %s | llc -march=x86 -mtriple=i686-darwin | \
 ; RUN:   grep push | count 3
 
 define void @foo(i8** %buf, i32 %size, i32 %col, i8* %p) {

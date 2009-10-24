@@ -297,6 +297,9 @@ namespace {
 
     uint8_t *GOTBase;     // Target Specific reserved memory
     void *DlsymTable;     // Stub external symbol information
+
+    std::map<const Function*, MemoryRangeHeader*> FunctionBlocks;
+    std::map<const Function*, MemoryRangeHeader*> TableBlocks;
   public:
     DefaultJITMemoryManager();
     ~DefaultJITMemoryManager();
@@ -354,7 +357,7 @@ namespace {
       // another block of memory and add it to the free list.
       if (largest < ActualSize ||
           largest <= FreeRangeHeader::getMinBlockSize()) {
-        DEBUG(errs() << "JIT: Allocating another slab of memory for function.");
+        DOUT << "JIT: Allocating another slab of memory for function.";
         candidateBlock = allocateNewCodeSlab((size_t)ActualSize);
       }
 
@@ -411,6 +414,7 @@ namespace {
              "Mismatched function start/end!");
 
       uintptr_t BlockSize = FunctionEnd - (uint8_t *)CurBlock;
+      FunctionBlocks[F] = CurBlock;
 
       // Release the memory at the end of this block that isn't needed.
       FreeMemoryList =CurBlock->TrimAllocationToSize(FreeMemoryList, BlockSize);
@@ -460,6 +464,7 @@ namespace {
              "Mismatched table start/end!");
       
       uintptr_t BlockSize = TableEnd - (uint8_t *)CurBlock;
+      TableBlocks[F] = CurBlock;
 
       // Release the memory at the end of this block that isn't needed.
       FreeMemoryList =CurBlock->TrimAllocationToSize(FreeMemoryList, BlockSize);
@@ -473,9 +478,15 @@ namespace {
       return DlsymTable;
     }
     
-    void deallocateBlock(void *Block) {
+    /// deallocateMemForFunction - Deallocate all memory for the specified
+    /// function body.
+    void deallocateMemForFunction(const Function *F) {
+      std::map<const Function*, MemoryRangeHeader*>::iterator
+        I = FunctionBlocks.find(F);
+      if (I == FunctionBlocks.end()) return;
+      
       // Find the block that is allocated for this function.
-      MemoryRangeHeader *MemRange = static_cast<MemoryRangeHeader*>(Block) - 1;
+      MemoryRangeHeader *MemRange = I->second;
       assert(MemRange->ThisAllocated && "Block isn't allocated!");
 
       // Fill the buffer with garbage!
@@ -485,18 +496,27 @@ namespace {
 
       // Free the memory.
       FreeMemoryList = MemRange->FreeBlock(FreeMemoryList);
-    }
+      
+      // Finally, remove this entry from FunctionBlocks.
+      FunctionBlocks.erase(I);
+      
+      I = TableBlocks.find(F);
+      if (I == TableBlocks.end()) return;
+      
+      // Find the block that is allocated for this function.
+      MemRange = I->second;
+      assert(MemRange->ThisAllocated && "Block isn't allocated!");
 
-    /// deallocateFunctionBody - Deallocate all memory for the specified
-    /// function body.
-    void deallocateFunctionBody(void *Body) {
-      if (Body) deallocateBlock(Body);
-    }
+      // Fill the buffer with garbage!
+      if (PoisonMemory) {
+        memset(MemRange+1, 0xCD, MemRange->BlockSize-sizeof(*MemRange));
+      }
 
-    /// deallocateExceptionTable - Deallocate memory for the specified
-    /// exception table.
-    void deallocateExceptionTable(void *ET) {
-      if (ET) deallocateBlock(ET);
+      // Free the memory.
+      FreeMemoryList = MemRange->FreeBlock(FreeMemoryList);
+      
+      // Finally, remove this entry from TableBlocks.
+      TableBlocks.erase(I);
     }
 
     /// setMemoryWritable - When code generation is in progress,
@@ -536,16 +556,16 @@ void JITSlabAllocator::Deallocate(MemSlab *Slab) {
 }
 
 DefaultJITMemoryManager::DefaultJITMemoryManager()
-  :
-#ifdef NDEBUG
-    PoisonMemory(false),
-#else
-    PoisonMemory(true),
-#endif
-    LastSlab(0, 0),
+  : LastSlab(0, 0),
     BumpSlabAllocator(*this),
     StubAllocator(DefaultSlabSize, DefaultSizeThreshold, BumpSlabAllocator),
     DataAllocator(DefaultSlabSize, DefaultSizeThreshold, BumpSlabAllocator) {
+
+#ifdef NDEBUG
+  PoisonMemory = false;
+#else
+  PoisonMemory = true;
+#endif
 
   // Allocate space for code.
   sys::MemoryBlock MemBlock = allocateNewSlab(DefaultCodeSlabSize);

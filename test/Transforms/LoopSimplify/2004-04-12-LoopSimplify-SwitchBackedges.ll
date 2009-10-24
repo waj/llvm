@@ -1,4 +1,4 @@
-; RUN: opt < %s -loopsimplify -disable-output
+; RUN: llvm-as < %s | opt -loopsimplify -disable-output
 
 define void @test() {
 loopentry.0:

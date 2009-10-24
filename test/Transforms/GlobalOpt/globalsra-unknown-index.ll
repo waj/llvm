@@ -1,4 +1,4 @@
-; RUN: opt < %s -globalopt -S > %t
+; RUN: llvm-as < %s | opt -globalopt | llvm-dis > %t
 ; RUN: grep {@Y = internal global \\\[3 x \[%\]struct.X\\\] zeroinitializer} %t
 ; RUN: grep load %t | count 6
 ; RUN: grep {add i32 \[%\]a, \[%\]b} %t | count 3

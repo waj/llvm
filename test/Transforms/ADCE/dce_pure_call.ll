@@ -1,4 +1,4 @@
-; RUN: opt -adce -S < %s | not grep call
+; RUN: llvm-as < %s | opt -adce | llvm-dis | not grep call
 
 declare i32 @strlen(i8*) readonly nounwind
 

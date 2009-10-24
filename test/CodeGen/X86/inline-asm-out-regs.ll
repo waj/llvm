@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=i386-unknown-linux-gnu
+; RUN: llvm-as < %s | llc -mtriple=i386-unknown-linux-gnu
 ; PR3391
 
 @pci_indirect = external global { }             ; <{ }*> [#uses=1]

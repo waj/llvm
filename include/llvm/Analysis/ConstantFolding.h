@@ -1,4 +1,4 @@
-//===-- ConstantFolding.h - Fold instructions into constants --------------===//
+//===-- ConstantFolding.h - Analyze constant folding possibilities --------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,12 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file declares routines for folding instructions into constants.
-//
-// Also, to supplement the basic VMCore ConstantExpr simplifications,
-// this file declares some additional folding routines that can make use of
-// TargetData information. These functions cannot go in VMCore due to library
-// dependency issues.
+// This family of functions determines the possibility of performing constant
+// folding.
 //
 //===----------------------------------------------------------------------===//
 
@@ -62,15 +58,12 @@ Constant *ConstantFoldCompareInstOperands(unsigned Predicate,
                                           LLVMContext &Context,
                                           const TargetData *TD = 0);
 
-/// ConstantFoldLoadFromConstPtr - Return the value that a load from C would
-/// produce if it is constant and determinable.  If this is not determinable,
-/// return null.
-Constant *ConstantFoldLoadFromConstPtr(Constant *C, const TargetData *TD = 0);
 
 /// ConstantFoldLoadThroughGEPConstantExpr - Given a constant and a
 /// getelementptr constantexpr, return the constant value being addressed by the
 /// constant expression, or null if something is funny and we can't decide.
-Constant *ConstantFoldLoadThroughGEPConstantExpr(Constant *C, ConstantExpr *CE);
+Constant *ConstantFoldLoadThroughGEPConstantExpr(Constant *C, ConstantExpr *CE,
+                                                 LLVMContext &Context);
   
 /// canConstantFoldCallTo - Return true if its even possible to fold a call to
 /// the specified function.

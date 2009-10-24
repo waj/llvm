@@ -2,6 +2,7 @@ add_llvm_library(LLVMCodeGen
   BranchFolding.cpp
   CodePlacementOpt.cpp
   DeadMachineInstructionElim.cpp
+  Dump.cpp
   DwarfEHPrepare.cpp
   ELFCodeEmitter.cpp
   ELFWriter.cpp
@@ -13,6 +14,7 @@ add_llvm_library(LLVMCodeGen
   IntrinsicLowering.cpp
   LLVMTargetMachine.cpp
   LatencyPriorityQueue.cpp
+  LazyLiveness.cpp
   LiveInterval.cpp
   LiveIntervalAnalysis.cpp
   LiveStackAnalysis.cpp
@@ -29,7 +31,6 @@ add_llvm_library(LLVMCodeGen
   MachineLICM.cpp
   MachineLoopInfo.cpp
   MachineModuleInfo.cpp
-  MachineModuleInfoImpls.cpp
   MachinePassRegistry.cpp
   MachineRegisterInfo.cpp
   MachineSink.cpp
@@ -45,6 +46,7 @@ add_llvm_library(LLVMCodeGen
   RegAllocLinearScan.cpp
   RegAllocLocal.cpp
   RegAllocPBQP.cpp
+  RegAllocSimple.cpp
   RegisterCoalescer.cpp
   RegisterScavenging.cpp
   ScheduleDAG.cpp

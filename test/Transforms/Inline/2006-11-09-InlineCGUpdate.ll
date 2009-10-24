@@ -1,4 +1,4 @@
-; RUN: opt < %s -inline -prune-eh -disable-output
+; RUN: llvm-as < %s | opt -inline -prune-eh -disable-output
 ; PR992
 target datalayout = "e-p:32:32"
 target triple = "i686-pc-linux-gnu"

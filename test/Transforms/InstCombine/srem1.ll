@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine
+; RUN: llvm-as < %s | opt -instcombine
 ; PR2670
 
 @g_127 = external global i32		; <i32*> [#uses=1]

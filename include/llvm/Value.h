@@ -19,6 +19,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Casting.h"
+#include <iosfwd>
 #include <string>
 
 namespace llvm {
@@ -42,7 +43,6 @@ class raw_ostream;
 class AssemblyAnnotationWriter;
 class ValueHandleBase;
 class LLVMContext;
-class MetadataContextImpl;
 
 //===----------------------------------------------------------------------===//
 //                                 Value Class
@@ -64,7 +64,6 @@ class MetadataContextImpl;
 class Value {
   const unsigned char SubclassID;   // Subclass identifier (for isa/dyn_cast)
   unsigned char HasValueHandle : 1; // Has a ValueHandle pointing to this?
-  unsigned char HasMetadata : 1;    // Has a metadata attached to this ?
 protected:
   /// SubclassOptionalData - This member is similar to SubclassData, however it
   /// is for holding information which may be used to aid optimization, but
@@ -83,17 +82,10 @@ private:
   friend class ValueSymbolTable; // Allow ValueSymbolTable to directly mod Name.
   friend class SymbolTable;      // Allow SymbolTable to directly poke Name.
   friend class ValueHandleBase;
-  friend class MetadataContextImpl;
-  friend class AbstractTypeUser;
   ValueName *Name;
 
   void operator=(const Value &);     // Do not implement
   Value(const Value &);              // Do not implement
-
-protected:
-  /// printCustom - Value subclasses can override this to implement custom
-  /// printing behavior.
-  virtual void printCustom(raw_ostream &O) const;
 
 public:
   Value(const Type *Ty, unsigned scid);
@@ -101,10 +93,11 @@ public:
 
   /// dump - Support for debugging, callable in GDB: V->dump()
   //
-  void dump() const;
+  virtual void dump() const;
 
   /// print - Implement operator<< on Value.
   ///
+  void print(std::ostream &O, AssemblyAnnotationWriter *AAW = 0) const;
   void print(raw_ostream &O, AssemblyAnnotationWriter *AAW = 0) const;
 
   /// All values are typed, get the type of this value.
@@ -154,6 +147,12 @@ public:
   // uncheckedReplaceAllUsesWith - Just like replaceAllUsesWith but dangerous.
   // Only use when in type resolution situations!
   void uncheckedReplaceAllUsesWith(Value *V);
+
+  /// clearOptionalData - Clear any optional optimization data from this Value.
+  /// Transformation passes must call this method whenever changing the IR
+  /// in a way that would affect the values produced by this Value, unless
+  /// it takes special care to ensure correctness in some other way.
+  void clearOptionalData() { SubclassOptionalData = 0; }
 
   //----------------------------------------------------------------------
   // Methods for handling the chain of uses of this Value.
@@ -243,13 +242,6 @@ public:
     return SubclassID;
   }
 
-  /// getRawSubclassOptionalData - Return the raw optional flags value
-  /// contained in this value. This should only be used when testing two
-  /// Values for equivalence.
-  unsigned getRawSubclassOptionalData() const {
-    return SubclassOptionalData;
-  }
-
   /// hasSameSubclassOptionalData - Test whether the optional flags contained
   /// in this value are equal to the optional flags in the given value.
   bool hasSameSubclassOptionalData(const Value *V) const {
@@ -298,11 +290,12 @@ public:
                                 const BasicBlock *PredBB) const{
     return const_cast<Value*>(this)->DoPHITranslation(CurBB, PredBB);
   }
-
-  /// hasMetadata - Return true if metadata is attached with this value.
-  bool hasMetadata() const { return HasMetadata; }
 };
 
+inline std::ostream &operator<<(std::ostream &OS, const Value &V) {
+  V.print(OS);
+  return OS;
+}
 inline raw_ostream &operator<<(raw_ostream &OS, const Value &V) {
   V.print(OS);
   return OS;

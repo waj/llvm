@@ -1,6 +1,6 @@
-; RUN: opt < %s -constprop -S | \
+; RUN: llvm-as < %s | opt -constprop | llvm-dis | \
 ; RUN:   grep {i32 -1}
-; RUN: opt < %s -constprop -S | \
+; RUN: llvm-as < %s | opt -constprop | llvm-dis | \
 ; RUN:   not grep zeroinitializer
 
 define <4 x i32> @test() {

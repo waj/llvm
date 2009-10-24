@@ -1,4 +1,4 @@
-//===-- TypesContext.h - Types-related Context Internals ------------------===//
+//===-------------------- TypesContext.h - Implementation ------*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -221,6 +221,7 @@ public:
     // PATypeHolder won't destroy non-abstract types.
     // We can't destroy them by simply iterating, because
     // they may contain references to each-other.
+#if 0
     for (std::multimap<unsigned, PATypeHolder>::iterator I
          = TypesByHash.begin(), E = TypesByHash.end(); I != E; ++I) {
       Type *Ty = const_cast<Type*>(I->second.Ty);
@@ -234,6 +235,7 @@ public:
         operator delete(Ty);
       }
     }
+#endif
   }
 
   void RemoveFromTypesByHash(unsigned Hash, const Type *Ty) {
@@ -302,8 +304,8 @@ public:
   void RefineAbstractType(TypeClass *Ty, const DerivedType *OldType,
                         const Type *NewType) {
 #ifdef DEBUG_MERGE_TYPES
-    DEBUG(errs() << "RefineAbstractType(" << (void*)OldType << "[" << *OldType
-                 << "], " << (void*)NewType << " [" << *NewType << "])\n");
+    DOUT << "RefineAbstractType(" << (void*)OldType << "[" << *OldType
+         << "], " << (void*)NewType << " [" << *NewType << "])\n";
 #endif
     
     // Otherwise, we are changing one subelement type into another.  Clearly the
@@ -408,12 +410,12 @@ public:
 
   void print(const char *Arg) const {
 #ifdef DEBUG_MERGE_TYPES
-    DEBUG(errs() << "TypeMap<>::" << Arg << " table contents:\n");
+    DOUT << "TypeMap<>::" << Arg << " table contents:\n";
     unsigned i = 0;
     for (typename std::map<ValType, PATypeHolder>::const_iterator I
            = Map.begin(), E = Map.end(); I != E; ++I)
-      DEBUG(errs() << " " << (++i) << ". " << (void*)I->second.get() << " "
-                   << *I->second.get() << "\n");
+      DOUT << " " << (++i) << ". " << (void*)I->second.get() << " "
+           << *I->second.get() << "\n";
 #endif
   }
 

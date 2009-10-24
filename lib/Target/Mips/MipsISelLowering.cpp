@@ -259,8 +259,7 @@ static Mips::CondCode FPCondCCodeToFCC(ISD::CondCode CC) {
 
 MachineBasicBlock *
 MipsTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                MachineBasicBlock *BB,
-                   DenseMap<MachineBasicBlock*, MachineBasicBlock*> *EM) const {
+                                                MachineBasicBlock *BB) const {
   const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
   bool isFPCmp = false;
   DebugLoc dl = MI->getDebugLoc();
@@ -308,12 +307,9 @@ MipsTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
     F->insert(It, sinkMBB);
     // Update machine-CFG edges by first adding all successors of the current
     // block to the new block which will contain the Phi node for the select.
-    // Also inform sdisel of the edge changes.
     for(MachineBasicBlock::succ_iterator i = BB->succ_begin(),
-          e = BB->succ_end(); i != e; ++i) {
-      EM->insert(std::make_pair(*i, sinkMBB));
+        e = BB->succ_end(); i != e; ++i)
       sinkMBB->addSuccessor(*i);
-    }
     // Next, remove all successors of the current block, and add the true
     // and fallthrough blocks as its successors.
     while(!BB->succ_empty())
@@ -492,6 +488,7 @@ SDValue MipsTargetLowering::LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) {
   // FIXME there isn't actually debug info here
   DebugLoc dl = Op.getDebugLoc();
   GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
+  SDValue GA = DAG.getTargetGlobalAddress(GV, MVT::i32);
 
   if (getTargetMachine().getRelocationModel() != Reloc::PIC_) {
     SDVTList VTs = DAG.getVTList(MVT::i32);
@@ -500,22 +497,16 @@ SDValue MipsTargetLowering::LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) {
     
     // %gp_rel relocation
     if (TLOF.IsGlobalInSmallSection(GV, getTargetMachine())) { 
-      SDValue GA = DAG.getTargetGlobalAddress(GV, MVT::i32, 0, 
-                                              MipsII::MO_GPREL);
       SDValue GPRelNode = DAG.getNode(MipsISD::GPRel, dl, VTs, &GA, 1);
       SDValue GOT = DAG.getGLOBAL_OFFSET_TABLE(MVT::i32);
       return DAG.getNode(ISD::ADD, dl, MVT::i32, GOT, GPRelNode); 
     }
     // %hi/%lo relocation
-    SDValue GA = DAG.getTargetGlobalAddress(GV, MVT::i32, 0,
-                                            MipsII::MO_ABS_HILO);
     SDValue HiPart = DAG.getNode(MipsISD::Hi, dl, VTs, &GA, 1);
     SDValue Lo = DAG.getNode(MipsISD::Lo, dl, MVT::i32, GA);
     return DAG.getNode(ISD::ADD, dl, MVT::i32, HiPart, Lo);
 
-  } else {
-    SDValue GA = DAG.getTargetGlobalAddress(GV, MVT::i32, 0,
-                                            MipsII::MO_GOT);
+  } else { // Abicall relocations, TODO: make this cleaner.
     SDValue ResNode = DAG.getLoad(MVT::i32, dl, 
                                   DAG.getEntryNode(), GA, NULL, 0);
     // On functions and global targets not internal linked only
@@ -544,17 +535,15 @@ LowerJumpTable(SDValue Op, SelectionDAG &DAG)
   SDValue HiPart; 
   // FIXME there isn't actually debug info here
   DebugLoc dl = Op.getDebugLoc();
-  bool IsPIC = getTargetMachine().getRelocationModel() == Reloc::PIC_;
-  unsigned char OpFlag = IsPIC ? MipsII::MO_GOT : MipsII::MO_ABS_HILO;
 
   EVT PtrVT = Op.getValueType();
   JumpTableSDNode *JT  = cast<JumpTableSDNode>(Op);
+  SDValue JTI = DAG.getTargetJumpTable(JT->getIndex(), PtrVT);
 
-  SDValue JTI = DAG.getTargetJumpTable(JT->getIndex(), PtrVT, OpFlag);
-
-  if (IsPIC) {
+  if (getTargetMachine().getRelocationModel() != Reloc::PIC_) {
+    SDVTList VTs = DAG.getVTList(MVT::i32);
     SDValue Ops[] = { JTI };
-    HiPart = DAG.getNode(MipsISD::Hi, dl, DAG.getVTList(MVT::i32), Ops, 1);
+    HiPart = DAG.getNode(MipsISD::Hi, dl, VTs, Ops, 1);
   } else // Emit Load from Global Pointer
     HiPart = DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), JTI, NULL, 0);
 
@@ -570,8 +559,7 @@ LowerConstantPool(SDValue Op, SelectionDAG &DAG)
   SDValue ResNode;
   ConstantPoolSDNode *N = cast<ConstantPoolSDNode>(Op);
   Constant *C = N->getConstVal();
-  SDValue CP = DAG.getTargetConstantPool(C, MVT::i32, N->getAlignment(), 
-                                         MipsII::MO_ABS_HILO);
+  SDValue CP = DAG.getTargetConstantPool(C, MVT::i32, N->getAlignment());
   // FIXME there isn't actually debug info here
   DebugLoc dl = Op.getDebugLoc();
 
@@ -687,7 +675,7 @@ static bool CC_MipsO32(unsigned ValNo, EVT ValVT,
 /// TODO: isVarArg, isTailCall.
 SDValue
 MipsTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
-                              CallingConv::ID CallConv, bool isVarArg,
+                              unsigned CallConv, bool isVarArg,
                               bool isTailCall,
                               const SmallVectorImpl<ISD::OutputArg> &Outs,
                               const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -696,7 +684,6 @@ MipsTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
-  bool IsPIC = getTargetMachine().getRelocationModel() == Reloc::PIC_;
 
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
@@ -805,13 +792,10 @@ MipsTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
   // If the callee is a GlobalAddress/ExternalSymbol node (quite common, every
   // direct call is) turn it into a TargetGlobalAddress/TargetExternalSymbol 
   // node so that legalize doesn't hack it. 
-  unsigned char OpFlag = IsPIC ? MipsII::MO_GOT_CALL : MipsII::MO_NO_FLAG;
   if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) 
-    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), 
-                                getPointerTy(), 0, OpFlag);
+    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), getPointerTy());
   else if (ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(Callee))
-    Callee = DAG.getTargetExternalSymbol(S->getSymbol(), 
-                                getPointerTy(), OpFlag);
+    Callee = DAG.getTargetExternalSymbol(S->getSymbol(), getPointerTy());
 
   // MipsJmpLink = #chain, #target_address, #opt_in_flags...
   //             = Chain, Callee, Reg#1, Reg#2, ...  
@@ -842,7 +826,7 @@ MipsTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
   // Create a stack location to hold GP when PIC is used. This stack 
   // location is used on function prologue to save GP and also after all 
   // emited CALL's to restore GP. 
-  if (IsPIC) {
+  if (getTargetMachine().getRelocationModel() == Reloc::PIC_) {
       // Function can have an arbitrary number of calls, so 
       // hold the LastArgStackLoc with the biggest offset.
       int FI;
@@ -878,7 +862,7 @@ MipsTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
 /// appropriate copies out of appropriate physical registers.
 SDValue
 MipsTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
-                                    CallingConv::ID CallConv, bool isVarArg,
+                                    unsigned CallConv, bool isVarArg,
                                     const SmallVectorImpl<ISD::InputArg> &Ins,
                                     DebugLoc dl, SelectionDAG &DAG,
                                     SmallVectorImpl<SDValue> &InVals) {
@@ -911,7 +895,7 @@ MipsTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
 /// TODO: isVarArg
 SDValue
 MipsTargetLowering::LowerFormalArguments(SDValue Chain,
-                                         CallingConv::ID CallConv, bool isVarArg,
+                                         unsigned CallConv, bool isVarArg,
                                          const SmallVectorImpl<ISD::InputArg>
                                            &Ins,
                                          DebugLoc dl, SelectionDAG &DAG,
@@ -1060,7 +1044,7 @@ MipsTargetLowering::LowerFormalArguments(SDValue Chain,
 
 SDValue
 MipsTargetLowering::LowerReturn(SDValue Chain,
-                                CallingConv::ID CallConv, bool isVarArg,
+                                unsigned CallConv, bool isVarArg,
                                 const SmallVectorImpl<ISD::OutputArg> &Outs,
                                 DebugLoc dl, SelectionDAG &DAG) {
 

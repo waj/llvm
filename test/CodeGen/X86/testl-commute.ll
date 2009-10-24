@@ -1,4 +1,4 @@
-; RUN: llc < %s | grep {testl.*\(%r.i\), %} | count 3
+; RUN: llvm-as < %s | llc | grep {testl.*\(%r.i\), %} | count 3
 ; rdar://5671654
 ; The loads should fold into the testl instructions, no matter how
 ; the inputs are commuted.

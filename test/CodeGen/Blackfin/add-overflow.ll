@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=bfin -verify-machineinstrs > %t
+; RUN: llvm-as < %s | llc -march=bfin -verify-machineinstrs > %t
 
 	type { i24, i1 }		; type %0
 

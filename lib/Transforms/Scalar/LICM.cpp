@@ -35,8 +35,8 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
-#include "llvm/IntrinsicInst.h"
 #include "llvm/Instructions.h"
+#include "llvm/LLVMContext.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPass.h"
@@ -46,6 +46,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Support/CFG.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Debug.h"
@@ -73,7 +74,7 @@ EnableLICMConstantMotion("enable-licm-constant-variables", cl::Hidden,
                                   "global variables"));
 
 namespace {
-  struct LICM : public LoopPass {
+  struct VISIBILITY_HIDDEN LICM : public LoopPass {
     static char ID; // Pass identification, replacement for typeid
     LICM() : LoopPass(&ID) {}
 
@@ -91,7 +92,6 @@ namespace {
       AU.addRequired<AliasAnalysis>();
       AU.addPreserved<ScalarEvolution>();
       AU.addPreserved<DominanceFrontier>();
-      AU.addPreservedID(LoopSimplifyID);
     }
 
     bool doFinalization() {
@@ -339,6 +339,7 @@ void LICM::SinkRegion(DomTreeNode *N) {
   }
 }
 
+
 /// HoistRegion - Walk the specified region of the CFG (defined by all blocks
 /// dominated by the specified block, and that are in the current loop) in depth
 /// first order w.r.t the DominatorTree.  This allows us to visit definitions
@@ -392,10 +393,6 @@ bool LICM::canSinkOrHoistInst(Instruction &I) {
       Size = AA->getTypeStoreSize(LI->getType());
     return !pointerInvalidatedByLoop(LI->getOperand(0), Size);
   } else if (CallInst *CI = dyn_cast<CallInst>(&I)) {
-    if (isa<DbgStopPointInst>(CI)) {
-      // Don't hoist/sink dbgstoppoints, we handle them separately
-      return false;
-    }
     // Handle obvious cases efficiently.
     AliasAnalysis::ModRefBehavior Behavior = AA->getModRefBehavior(CI);
     if (Behavior == AliasAnalysis::DoesNotAccessMemory)
@@ -469,7 +466,7 @@ bool LICM::isLoopInvariantInst(Instruction &I) {
 /// position, and may either delete it or move it to outside of the loop.
 ///
 void LICM::sink(Instruction &I) {
-  DEBUG(errs() << "LICM sinking instruction: " << I);
+  DOUT << "LICM sinking instruction: " << I;
 
   SmallVector<BasicBlock*, 8> ExitBlocks;
   CurLoop->getExitBlocks(ExitBlocks);
@@ -479,6 +476,8 @@ void LICM::sink(Instruction &I) {
   ++NumSunk;
   Changed = true;
 
+  LLVMContext &Context = I.getContext();
+
   // The case where there is only a single exit node of this loop is common
   // enough that we handle it as a special (more efficient) case.  It is more
   // efficient to handle because there are no PHI nodes that need to be placed.
@@ -486,26 +485,21 @@ void LICM::sink(Instruction &I) {
     if (!isExitBlockDominatedByBlockInLoop(ExitBlocks[0], I.getParent())) {
       // Instruction is not used, just delete it.
       CurAST->deleteValue(&I);
-      // If I has users in unreachable blocks, eliminate.
-      // If I is not void type then replaceAllUsesWith undef.
-      // This allows ValueHandlers and custom metadata to adjust itself.
-      if (!I.getType()->isVoidTy())
+      if (!I.use_empty())  // If I has users in unreachable blocks, eliminate.
         I.replaceAllUsesWith(UndefValue::get(I.getType()));
       I.eraseFromParent();
     } else {
       // Move the instruction to the start of the exit block, after any PHI
       // nodes in it.
       I.removeFromParent();
+
       BasicBlock::iterator InsertPt = ExitBlocks[0]->getFirstNonPHI();
       ExitBlocks[0]->getInstList().insert(InsertPt, &I);
     }
   } else if (ExitBlocks.empty()) {
     // The instruction is actually dead if there ARE NO exit blocks.
     CurAST->deleteValue(&I);
-    // If I has users in unreachable blocks, eliminate.
-    // If I is not void type then replaceAllUsesWith undef.
-    // This allows ValueHandlers and custom metadata to adjust itself.
-    if (!I.getType()->isVoidTy())
+    if (!I.use_empty())  // If I has users in unreachable blocks, eliminate.
       I.replaceAllUsesWith(UndefValue::get(I.getType()));
     I.eraseFromParent();
   } else {
@@ -516,7 +510,7 @@ void LICM::sink(Instruction &I) {
     // Firstly, we create a stack object to hold the value...
     AllocaInst *AI = 0;
 
-    if (!I.getType()->isVoidTy()) {
+    if (I.getType() != Type::getVoidTy(I.getContext())) {
       AI = new AllocaInst(I.getType(), 0, I.getName(),
                           I.getParent()->getParent()->getEntryBlock().begin());
       CurAST->add(AI);
@@ -579,7 +573,7 @@ void LICM::sink(Instruction &I) {
             ExitBlock->getInstList().insert(InsertPt, &I);
             New = &I;
           } else {
-            New = I.clone();
+            New = I.clone(Context);
             CurAST->copyValue(&I, New);
             if (!I.getName().empty())
               New->setName(I.getName()+".le");
@@ -602,7 +596,7 @@ void LICM::sink(Instruction &I) {
     if (AI) {
       std::vector<AllocaInst*> Allocas;
       Allocas.push_back(AI);
-      PromoteMemToReg(Allocas, *DT, *DF, AI->getContext(), CurAST);
+      PromoteMemToReg(Allocas, *DT, *DF, Context, CurAST);
     }
   }
 }
@@ -611,8 +605,7 @@ void LICM::sink(Instruction &I) {
 /// that is safe to hoist, this instruction is called to do the dirty work.
 ///
 void LICM::hoist(Instruction &I) {
-  DEBUG(errs() << "LICM hoisting to " << Preheader->getName() << ": "
-        << I << "\n");
+  DEBUG(errs() << "LICM hoisting to " << Preheader->getName() << ": " << I);
 
   // Remove the instruction from its current basic block... but don't delete the
   // instruction.
@@ -867,7 +860,7 @@ void LICM::FindPromotableValuesInLoop(
     for (AliasSet::iterator I = AS.begin(), E = AS.end(); I != E; ++I)
       ValueToAllocaMap.insert(std::make_pair(I->getValue(), AI));
 
-    DEBUG(errs() << "LICM: Promoting value: " << *V << "\n");
+    DOUT << "LICM: Promoting value: " << *V << "\n";
   }
 }
 

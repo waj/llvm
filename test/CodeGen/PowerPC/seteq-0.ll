@@ -1,4 +1,5 @@
-; RUN: llc < %s -march=ppc32 -mtriple=powerpc-apple-darwin8 | \
+; RUN: llvm-as < %s | \
+; RUN:   llc -march=ppc32 -mtriple=powerpc-apple-darwin8 | \
 ; RUN:   grep {srwi r., r., 5}
 
 define i32 @eq0(i32 %a) {

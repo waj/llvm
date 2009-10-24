@@ -1,6 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse42 -disable-mmx | FileCheck %s
-; CHECK: movl
-; CHECK: movd
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse42 -disable-mmx -o %t -f
 
 ; bitcast a i64 to v2i32
 

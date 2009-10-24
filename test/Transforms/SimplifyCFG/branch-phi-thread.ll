@@ -1,4 +1,4 @@
-; RUN: opt < %s -simplifycfg -adce -S | \
+; RUN: llvm-as < %s | opt -simplifycfg -adce | llvm-dis | \
 ; RUN:   not grep {call void @f1}
 ; END.
 

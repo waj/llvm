@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | grep mov | grep ebp
+; RUN: llvm-as < %s | llc -march=x86 | grep mov | grep ebp
 
 define i8* @t() nounwind {
 entry:

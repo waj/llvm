@@ -1,6 +1,6 @@
 ; This test makes sure that these instructions are properly eliminated.
 ;
-; RUN: opt < %s -instcombine -S | not grep rem
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep rem
 ; END.
 
 define i32 @test1(i32 %A) {

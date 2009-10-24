@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=alpha | grep zapnot
+; RUN: llvm-as < %s | llc -march=alpha | grep zapnot
 
 ;demanded bits mess up this mask in a hard to fix way
 ;define i64 @foo(i64 %y) {

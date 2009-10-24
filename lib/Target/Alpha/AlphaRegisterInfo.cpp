@@ -151,10 +151,8 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 //variable locals
 //<- SP
 
-unsigned
-AlphaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                       int SPAdj, int *Value,
-                                       RegScavenger *RS) const {
+void AlphaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                            int SPAdj, RegScavenger *RS) const {
   assert(SPAdj == 0 && "Unexpected");
 
   unsigned i = 0;
@@ -176,16 +174,16 @@ AlphaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   // Now add the frame object offset to the offset from the virtual frame index.
   int Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex);
 
-  DEBUG(errs() << "FI: " << FrameIndex << " Offset: " << Offset << "\n");
+  DOUT << "FI: " << FrameIndex << " Offset: " << Offset << "\n";
 
   Offset += MF.getFrameInfo()->getStackSize();
 
-  DEBUG(errs() << "Corrected Offset " << Offset
-       << " for stack size: " << MF.getFrameInfo()->getStackSize() << "\n");
+  DOUT << "Corrected Offset " << Offset
+       << " for stack size: " << MF.getFrameInfo()->getStackSize() << "\n";
 
   if (Offset > IMM_HIGH || Offset < IMM_LOW) {
-    DEBUG(errs() << "Unconditionally using R28 for evil purposes Offset: "
-          << Offset << "\n");
+    DOUT << "Unconditionally using R28 for evil purposes Offset: "
+         << Offset << "\n";
     //so in this case, we need to use a temporary register, and move the
     //original inst off the SP/FP
     //fix up the old:
@@ -199,7 +197,6 @@ AlphaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   } else {
     MI.getOperand(i).ChangeToImmediate(Offset);
   }
-  return 0;
 }
 
 

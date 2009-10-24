@@ -16,7 +16,7 @@
 //===          is guaranteed to work on *all* UNIX variants.
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/SmallVector.h"
+#include "llvm/Config/alloca.h"
 #include "Unix.h"
 #if HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -55,10 +55,6 @@
 
 #if HAVE_DLFCN_H
 #include <dlfcn.h>
-#endif
-
-#ifdef __APPLE__
-#include <mach-o/dyld.h>
 #endif
 
 // Put in a hack for Cygwin which falsely reports that the mkdtemp function
@@ -123,7 +119,7 @@ void Path::makeAbsolute() {
 
   CWD.appendComponent(path);
 
-  path = CWD.str();
+  path = CWD.toString();
 }
 
 Path
@@ -340,17 +336,7 @@ getprogpath(char ret[PATH_MAX], const char *bin)
 /// GetMainExecutable - Return the path to the main executable, given the
 /// value of argv[0] from program startup.
 Path Path::GetMainExecutable(const char *argv0, void *MainAddr) {
-#if defined(__APPLE__)
-  // On OS X the executable path is saved to the stack by dyld. Reading it
-  // from there is much faster than calling dladdr, especially for large
-  // binaries with symbols.
-  char exe_path[MAXPATHLEN];
-  uint32_t size = sizeof(exe_path);
-  if (_NSGetExecutablePath(exe_path, &size) == 0) {
-    char link_path[MAXPATHLEN];
-    return Path(std::string(realpath(exe_path, link_path)));
-  }
-#elif defined(__FreeBSD__)
+#if defined(__FreeBSD__)
   char exe_path[PATH_MAX];
 
   if (getprogpath(exe_path, argv0) != NULL)
@@ -414,9 +400,7 @@ Path::getSuffix() const {
 
 bool Path::getMagicNumber(std::string& Magic, unsigned len) const {
   assert(len < 1024 && "Request for magic string too long");
-  SmallVector<char, 128> Buf;
-  Buf.resize(1 + len);
-  char* buf = Buf.data();
+  char* buf = (char*) alloca(1 + len);
   int fd = ::open(path.c_str(), O_RDONLY);
   if (fd < 0)
     return false;
@@ -518,7 +502,7 @@ static bool AddPermissionBits(const Path &File, int bits) {
 
   // Get the file's current mode.
   struct stat buf;
-  if (0 != stat(File.c_str(), &buf))
+  if (0 != stat(File.toString().c_str(), &buf))
     return false;
   // Change the file to have whichever permissions bits from 'bits'
   // that the umask would not disable.
@@ -775,7 +759,7 @@ bool
 Path::renamePathOnDisk(const Path& newName, std::string* ErrMsg) {
   if (0 != ::rename(path.c_str(), newName.c_str()))
     return MakeErrMsg(ErrMsg, std::string("can't rename '") + path + "' as '" +
-               newName.str() + "'");
+               newName.toString() + "'");
   return false;
 }
 
@@ -797,13 +781,13 @@ sys::CopyFile(const sys::Path &Dest, const sys::Path &Src, std::string* ErrMsg){
   int outFile = -1;
   inFile = ::open(Src.c_str(), O_RDONLY);
   if (inFile == -1)
-    return MakeErrMsg(ErrMsg, Src.str() +
+    return MakeErrMsg(ErrMsg, Src.toString() +
       ": can't open source file to copy");
 
   outFile = ::open(Dest.c_str(), O_WRONLY|O_CREAT, 0666);
   if (outFile == -1) {
     ::close(inFile);
-    return MakeErrMsg(ErrMsg, Dest.str() +
+    return MakeErrMsg(ErrMsg, Dest.toString() +
       ": can't create destination file for copy");
   }
 
@@ -813,7 +797,7 @@ sys::CopyFile(const sys::Path &Dest, const sys::Path &Src, std::string* ErrMsg){
       if (errno != EINTR && errno != EAGAIN) {
         ::close(inFile);
         ::close(outFile);
-        return MakeErrMsg(ErrMsg, Src.str()+": can't read source file");
+        return MakeErrMsg(ErrMsg, Src.toString()+": can't read source file");
       }
     } else {
       char *BufPtr = Buffer;
@@ -823,7 +807,7 @@ sys::CopyFile(const sys::Path &Dest, const sys::Path &Src, std::string* ErrMsg){
           if (errno != EINTR && errno != EAGAIN) {
             ::close(inFile);
             ::close(outFile);
-            return MakeErrMsg(ErrMsg, Dest.str() +
+            return MakeErrMsg(ErrMsg, Dest.toString() +
               ": can't write destination file");
           }
         } else {
@@ -845,9 +829,7 @@ Path::makeUnique(bool reuse_current, std::string* ErrMsg) {
 
   // Append an XXXXXX pattern to the end of the file for use with mkstemp,
   // mktemp or our own implementation.
-  SmallVector<char, 128> Buf;
-  Buf.resize(path.size()+8);
-  char *FNBuffer = Buf.data();
+  char *FNBuffer = (char*) alloca(path.size()+8);
     path.copy(FNBuffer,path.size());
   if (isDirectory())
     strcpy(FNBuffer+path.size(), "/XXXXXX");

@@ -31,7 +31,7 @@ dnl===
 dnl===-----------------------------------------------------------------------===
 dnl Initialize autoconf and define the package name, version number and
 dnl email address for reporting bugs.
-AC_INIT([[llvm]],[[2.7svn]],[llvmbugs@cs.uiuc.edu])
+AC_INIT([[llvm]],[[2.6]],[llvmbugs@cs.uiuc.edu])
 
 dnl Provide a copyright substitution and ensure the copyright notice is included
 dnl in the output of --version option of the generated configure script.
@@ -165,11 +165,6 @@ AC_CACHE_CHECK([type of operating system we're going to host on],
     llvm_cv_no_link_all_option="-Wl,-z,defaultextract"
     llvm_cv_os_type="SunOS"
     llvm_cv_platform_type="Unix" ;;
-  *-*-auroraux*)
-    llvm_cv_link_all_option="-Wl,-z,allextract"
-    llvm_cv_link_all_option="-Wl,-z,defaultextract"
-    llvm_cv_os_type="AuroraUX"
-    llvm_cv_platform_type="Unix" ;;
   *-*-win32*)
     llvm_cv_link_all_option="-Wl,--whole-archive"
     llvm_cv_no_link_all_option="-Wl,--no-whole-archive"
@@ -180,11 +175,6 @@ AC_CACHE_CHECK([type of operating system we're going to host on],
     llvm_cv_no_link_all_option="-Wl,--no-whole-archive"
     llvm_cv_os_type="MingW"
     llvm_cv_platform_type="Win32" ;;
-  *-*-haiku*)
-    llvm_cv_link_all_option="-Wl,--whole-archive"
-    llvm_cv_no_link_all_option="-Wl,--no-whole-archive"
-    llvm_cv_os_type="Haiku"
-    llvm_cv_platform_type="Unix" ;;  
   *-unknown-eabi*)
     llvm_cv_link_all_option="-Wl,--whole-archive"
     llvm_cv_no_link_all_option="-Wl,--no-whole-archive"
@@ -229,14 +219,10 @@ AC_CACHE_CHECK([type of operating system we're going to target],
     llvm_cv_target_os_type="Linux" ;;
   *-*-solaris*)
     llvm_cv_target_os_type="SunOS" ;;
-  *-*-auroraux*)
-    llvm_cv_target_os_type="AuroraUX" ;;
   *-*-win32*)
     llvm_cv_target_os_type="Win32" ;;
   *-*-mingw*)
     llvm_cv_target_os_type="MingW" ;;
-  *-*-haiku*)
-    llvm_cv_target_os_type="Haiku" ;;  
   *-unknown-eabi*)
     llvm_cv_target_os_type="Freestanding" ;;
   *)
@@ -375,6 +361,17 @@ else
   AC_SUBST(DISABLE_ASSERTIONS,[[DISABLE_ASSERTIONS=1]])
 fi
 
+dnl LLVM_COMPACT_SENTINELS : can be used to shrink ilist's end iterators and disable certain checks on them:
+if test ${ENABLE_OPTIMIZED},${DISABLE_ASSERTIONS} = "ENABLE_OPTIMIZED=1,DISABLE_ASSERTIONS=1" ; then
+  AC_SUBST(LLVM_COMPACT_SENTINELS,[1])
+else
+  AC_SUBST(LLVM_COMPACT_SENTINELS,[0])
+fi
+
+AC_DEFINE_UNQUOTED([LLVM_COMPACT_SENTINELS],$LLVM_COMPACT_SENTINELS,
+                   [Define to 1 for ilist sentinel compaction])
+
+
 dnl --enable-expensive-checks : check whether they want to turn on expensive debug checks:
 AC_ARG_ENABLE(expensive-checks,AS_HELP_STRING(
   --enable-expensive-checks,[Compile with expensive debug checks enabled (default is NO)]),, enableval="no")
@@ -393,16 +390,6 @@ if test ${enableval} = "no" ; then
   AC_SUBST(DEBUG_RUNTIME,[[]])
 else
   AC_SUBST(DEBUG_RUNTIME,[[DEBUG_RUNTIME=1]])
-fi
-
-dnl --enable-debug-symbols : should even optimized compiler libraries
-dnl have debug symbols?
-AC_ARG_ENABLE(debug-symbols,
-   AS_HELP_STRING(--enable-debug-symbols,[Build compiler with debug symbols (default is NO if optimization is on and YES if it's off)]),,enableval=no)
-if test ${enableval} = "no" ; then
-  AC_SUBST(DEBUG_SYMBOLS,[[]])
-else
-  AC_SUBST(DEBUG_SYMBOLS,[[DEBUG_SYMBOLS=1]])
 fi
 
 dnl --enable-jit: check whether they want to enable the jit
@@ -473,15 +460,28 @@ AC_DEFINE_UNQUOTED([ENABLE_PIC],$ENABLE_PIC,
 dnl Allow specific targets to be specified for building (or not)
 TARGETS_TO_BUILD=""
 AC_ARG_ENABLE([targets],AS_HELP_STRING([--enable-targets],
-    [Build specific host targets: all or target1,target2,... Valid targets are:
-     host, x86, x86_64, sparc, powerpc, alpha, arm, mips, spu, pic16,
-     xcore, msp430, systemz, blackfin, cbe, msil, and cpp (default=all)]),,
+    [Build specific host targets: all,host-only,{target-name} (default=all)]),,
     enableval=all)
-if test "$enableval" = host-only ; then
-  enableval=host
-fi
 case "$enableval" in
   all) TARGETS_TO_BUILD="X86 Sparc PowerPC Alpha ARM Mips CellSPU PIC16 XCore MSP430 SystemZ Blackfin CBackend MSIL CppBackend" ;;
+  host-only)
+    case "$llvm_cv_target_arch" in
+      x86)         TARGETS_TO_BUILD="X86" ;;
+      x86_64)      TARGETS_TO_BUILD="X86" ;;
+      Sparc)       TARGETS_TO_BUILD="Sparc" ;;
+      PowerPC)     TARGETS_TO_BUILD="PowerPC" ;;
+      Alpha)       TARGETS_TO_BUILD="Alpha" ;;
+      ARM)         TARGETS_TO_BUILD="ARM" ;;
+      Mips)        TARGETS_TO_BUILD="Mips" ;;
+      CellSPU|SPU) TARGETS_TO_BUILD="CellSPU" ;;
+      PIC16)       TARGETS_TO_BUILD="PIC16" ;;
+      XCore)       TARGETS_TO_BUILD="XCore" ;;
+      MSP430)      TARGETS_TO_BUILD="MSP430" ;;
+      SystemZ)     TARGETS_TO_BUILD="SystemZ" ;;
+      Blackfin)    TARGETS_TO_BUILD="Blackfin" ;;
+      *)       AC_MSG_ERROR([Can not set target to build]) ;;
+    esac
+    ;;
   *)for a_target in `echo $enableval|sed -e 's/,/ /g' ` ; do
       case "$a_target" in
         x86)      TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
@@ -500,22 +500,6 @@ case "$enableval" in
         cbe)      TARGETS_TO_BUILD="CBackend $TARGETS_TO_BUILD" ;;
         msil)     TARGETS_TO_BUILD="MSIL $TARGETS_TO_BUILD" ;;
         cpp)      TARGETS_TO_BUILD="CppBackend $TARGETS_TO_BUILD" ;;
-        host) case "$llvm_cv_target_arch" in
-            x86)         TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
-            x86_64)      TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
-            Sparc)       TARGETS_TO_BUILD="Sparc $TARGETS_TO_BUILD" ;;
-            PowerPC)     TARGETS_TO_BUILD="PowerPC $TARGETS_TO_BUILD" ;;
-            Alpha)       TARGETS_TO_BUILD="Alpha $TARGETS_TO_BUILD" ;;
-            ARM)         TARGETS_TO_BUILD="ARM $TARGETS_TO_BUILD" ;;
-            Mips)        TARGETS_TO_BUILD="Mips $TARGETS_TO_BUILD" ;;
-            CellSPU|SPU) TARGETS_TO_BUILD="CellSPU $TARGETS_TO_BUILD" ;;
-            PIC16)       TARGETS_TO_BUILD="PIC16 $TARGETS_TO_BUILD" ;;
-            XCore)       TARGETS_TO_BUILD="XCore $TARGETS_TO_BUILD" ;;
-            MSP430)      TARGETS_TO_BUILD="MSP430 $TARGETS_TO_BUILD" ;;
-            SystemZ)     TARGETS_TO_BUILD="SystemZ $TARGETS_TO_BUILD" ;;
-            Blackfin)    TARGETS_TO_BUILD="Blackfin $TARGETS_TO_BUILD" ;;
-            *)       AC_MSG_ERROR([Can not set target to build]) ;;
-          esac ;;
         *) AC_MSG_ERROR([Unrecognized target $a_target]) ;;
       esac
   done
@@ -974,7 +958,7 @@ AC_SEARCH_LIBS(mallinfo,malloc,AC_DEFINE([HAVE_MALLINFO],[1],
 dnl pthread locking functions are optional - but llvm will not be thread-safe
 dnl without locks.
 if test "$ENABLE_THREADS" -eq 1 ; then
-  AC_CHECK_LIB(pthread, pthread_mutex_init)
+  AC_CHECK_LIB(pthread,pthread_mutex_init)
   AC_SEARCH_LIBS(pthread_mutex_lock,pthread,
                  AC_DEFINE([HAVE_PTHREAD_MUTEX_LOCK],[1],
                            [Have pthread_mutex_lock]))
@@ -1013,30 +997,31 @@ AC_ARG_WITH(oprofile,
       AC_SUBST(USE_OPROFILE, [1])
       case "$withval" in
         /usr|yes) llvm_cv_oppath=/usr/lib/oprofile ;;
-        no) llvm_cv_oppath=
-            AC_SUBST(USE_OPROFILE, [0]) ;;
         *) llvm_cv_oppath="${withval}/lib/oprofile"
            CPPFLAGS="-I${withval}/include";;
       esac
-      if test -n "$llvm_cv_oppath" ; then
-        LIBS="$LIBS -L${llvm_cv_oppath} -Wl,-rpath,${llvm_cv_oppath}"
-        dnl Work around http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=537744:
-        dnl libbfd is not included properly in libopagent in some Debian
-        dnl versions.  If libbfd isn't found at all, we assume opagent works
-        dnl anyway.
-        AC_SEARCH_LIBS(bfd_init, bfd, [], [])
-        AC_SEARCH_LIBS(op_open_agent, opagent, [], [
-          echo "Error! You need to have libopagent around."
-          exit -1
-        ])
-        AC_CHECK_HEADER([opagent.h], [], [
-          echo "Error! You need to have opagent.h around."
-          exit -1
-          ])
-      fi
+      LIBS="$LIBS -L${llvm_cv_oppath} -Wl,-rpath,${llvm_cv_oppath}"
+      AC_SEARCH_LIBS(op_open_agent, opagent, [], [
+        echo "Error! You need to have libopagent around."
+        exit -1
+      ])
+      AC_CHECK_HEADER([opagent.h], [], [
+        echo "Error! You need to have opagent.h around."
+        exit -1
+      ])
     ],
     [
-      AC_SUBST(USE_OPROFILE, [0])
+      llvm_cv_old_LIBS="$LIBS"
+      LIBS="$LIBS -L/usr/lib/oprofile -Wl,-rpath,/usr/lib/oprofile"
+      dnl If either the library or header aren't present, omit oprofile support.
+      AC_SEARCH_LIBS(op_open_agent, opagent,
+                     [AC_SUBST(USE_OPROFILE, [1])],
+                     [LIBS="$llvm_cv_old_LIBS"
+                      AC_SUBST(USE_OPROFILE, [0])])
+      AC_CHECK_HEADER([opagent.h], [], [
+        LIBS="$llvm_cv_old_LIBS"
+        AC_SUBST(USE_OPROFILE, [0])
+      ])
     ])
 AC_DEFINE_UNQUOTED([USE_OPROFILE],$USE_OPROFILE,
                    [Define if we have the oprofile JIT-support library])
@@ -1103,11 +1088,10 @@ AC_CHECK_FUNCS([powf fmodf strtof round ])
 AC_CHECK_FUNCS([getpagesize getrusage getrlimit setrlimit gettimeofday ])
 AC_CHECK_FUNCS([isatty mkdtemp mkstemp ])
 AC_CHECK_FUNCS([mktemp realpath sbrk setrlimit strdup ])
-AC_CHECK_FUNCS([strerror strerror_r strerror_s setenv ])
+AC_CHECK_FUNCS([strerror strerror_r strerror_s ])
 AC_CHECK_FUNCS([strtoll strtoq sysconf malloc_zone_statistics ])
 AC_CHECK_FUNCS([setjmp longjmp sigsetjmp siglongjmp])
 AC_C_PRINTF_A
-dnl FIXME: This is no longer used, please remove (but test)!!!
 AC_FUNC_ALLOCA
 AC_FUNC_RAND48
 
@@ -1162,16 +1146,6 @@ dnl===
 dnl=== SECTION 9: Additional checks, variables, etc.
 dnl===
 dnl===-----------------------------------------------------------------------===
-
-dnl Handle 32-bit linux systems running a 64-bit kernel.
-dnl This has to come after section 4 because it invokes the compiler.
-if test "$llvm_cv_os_type" = "Linux" -a "$llvm_cv_target_arch" = "x86_64" ; then
-  AC_IS_LINUX_MIXED
-  if test "$llvm_cv_linux_mixed" = "yes"; then
-    llvm_cv_target_arch="x86"
-    ARCH="x86"
-  fi
-fi
 
 dnl Check, whether __dso_handle is present
 AC_CHECK_FUNCS([__dso_handle])
@@ -1350,6 +1324,7 @@ AC_CONFIG_FILES([include/llvm/Config/Targets.def])
 AC_CONFIG_FILES([include/llvm/Config/AsmPrinters.def])
 AC_CONFIG_FILES([include/llvm/Config/AsmParsers.def])
 AC_CONFIG_HEADERS([include/llvm/Support/DataTypes.h])
+AC_CONFIG_HEADERS([include/llvm/ADT/iterator.h])
 
 dnl Configure the makefile's configuration data
 AC_CONFIG_FILES([Makefile.config])

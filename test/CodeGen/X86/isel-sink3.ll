@@ -1,5 +1,5 @@
-; RUN: llc < %s | grep {addl.\$4, %ecx}
-; RUN: llc < %s | not grep leal
+; RUN: llvm-as < %s | llc | grep {addl.\$4, %ecx}
+; RUN: llvm-as < %s | llc | not grep leal
 ; this should not sink %1 into bb1, that would increase reg pressure.
 
 ; rdar://6399178

@@ -1,6 +1,5 @@
-; RUN: llc < %s -march=x86 -mattr=+sse42 -disable-mmx | FileCheck %s
-; CHECK: cvtsi2ss
-
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse42 -disable-mmx -o %t -f
+; grep cvtsi2ss  %t | count 1 
 ; sign to float v2i16 to v2f32
 
 define void @convert(<2 x float>* %dst.addr, <2 x i16> %src) nounwind {

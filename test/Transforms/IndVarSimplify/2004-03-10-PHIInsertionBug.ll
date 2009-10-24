@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars -disable-output
+; RUN: llvm-as < %s | opt -indvars -disable-output
 
 define void @test() {
         br label %endif.0.i

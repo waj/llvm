@@ -1,6 +1,6 @@
-; RUN: llc < %s -march=x86 -x86-asm-syntax=intel | \
+; RUN: llvm-as < %s | llc -march=x86 -x86-asm-syntax=intel | \
 ; RUN:   grep {lea	EAX, DWORD PTR \\\[... + 4\\*... - 5\\\]}
-; RUN: llc < %s -march=x86 -x86-asm-syntax=intel | \
+; RUN: llvm-as < %s | llc -march=x86 -x86-asm-syntax=intel | \
 ; RUN:   not grep add
 
 define i32 @test1(i32 %A, i32 %B) {

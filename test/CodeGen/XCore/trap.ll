@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=xcore > %t1.s
+; RUN: llvm-as < %s | llc -march=xcore > %t1.s
 ; RUN: grep "ecallf" %t1.s | count 1
 ; RUN: grep "ldc" %t1.s | count 1
 define i32 @test() noreturn nounwind  {

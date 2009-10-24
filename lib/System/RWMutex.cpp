@@ -117,7 +117,8 @@ RWMutexImpl::reader_acquire()
 
     int errorcode = pthread_rwlock_rdlock(rwlock);
     return errorcode == 0;
-  } else return false;
+  }
+  return false;
 }
 
 bool
@@ -130,7 +131,8 @@ RWMutexImpl::reader_release()
 
     int errorcode = pthread_rwlock_unlock(rwlock);
     return errorcode == 0;
-  } else return false;
+  }
+  return false;
 }
 
 bool
@@ -143,7 +145,8 @@ RWMutexImpl::writer_acquire()
 
     int errorcode = pthread_rwlock_wrlock(rwlock);
     return errorcode == 0;
-  } else return false;
+  }
+  return false;
 }
 
 bool
@@ -156,7 +159,8 @@ RWMutexImpl::writer_release()
 
     int errorcode = pthread_rwlock_unlock(rwlock);
     return errorcode == 0;
-  } else return false;
+  }
+  return false;
 }
 
 }

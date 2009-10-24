@@ -66,9 +66,8 @@ public:
                          int SPAdj, RegScavenger *RS) const;
   void lowerCRSpilling(MachineBasicBlock::iterator II, unsigned FrameIndex,
                        int SPAdj, RegScavenger *RS) const;
-  unsigned eliminateFrameIndex(MachineBasicBlock::iterator II,
-                               int SPAdj, int *Value = NULL,
-                               RegScavenger *RS = NULL) const;
+  void eliminateFrameIndex(MachineBasicBlock::iterator II,
+                           int SPAdj, RegScavenger *RS = NULL) const;
 
   /// determineFrameLayout - Determine the size of the frame and maximum call
   /// frame size.

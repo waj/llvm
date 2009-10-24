@@ -130,7 +130,7 @@ PseudoInst<(outs), (ins i32imm:$amt), NoItinerary,
 // For both thumb1 and thumb2.
 let isNotDuplicable = 1 in
 def tPICADD : TIt<(outs GPR:$dst), (ins GPR:$lhs, pclabel:$cp), IIC_iALUr,
-                 "\n$cp:\n\tadd $dst, pc",
+                 "$cp:\n\tadd $dst, pc",
                  [(set GPR:$dst, (ARMpic_add GPR:$lhs, imm:$cp))]>;
 
 // PC relative add.
@@ -139,7 +139,7 @@ def tADDrPCi : T1I<(outs tGPR:$dst), (ins i32imm:$rhs), IIC_iALUi,
 
 // ADD rd, sp, #imm8
 def tADDrSPi : T1I<(outs tGPR:$dst), (ins GPR:$sp, i32imm:$rhs), IIC_iALUi,
-                  "add $dst, $sp, $rhs * 4", []>;
+                  "add $dst, $sp, $rhs * 4 @ addrspi", []>;
 
 // ADD sp, sp, #imm7
 def tADDspi : TIt<(outs GPR:$dst), (ins GPR:$lhs, i32imm:$rhs), IIC_iALUi,
@@ -174,23 +174,22 @@ def tANDsp : PseudoInst<(outs tGPR:$dst), (ins tGPR:$lhs, tGPR:$rhs),
 //  Control Flow Instructions.
 //
 
-let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
+let isReturn = 1, isTerminator = 1 in {
   def tBX_RET : TI<(outs), (ins), IIC_Br, "bx lr", [(ARMretflag)]>;
   // Alternative return instruction used by vararg functions.
   def tBX_RET_vararg : TI<(outs), (ins tGPR:$target), IIC_Br, "bx $target", []>;
 }
 
 // FIXME: remove when we have a way to marking a MI with these properties.
-let isReturn = 1, isTerminator = 1, isBarrier = 1, mayLoad = 1,
-    hasExtraDefRegAllocReq = 1 in
-def tPOP_RET : T1I<(outs), (ins pred:$p, reglist:$wb, variable_ops), IIC_Br,
-                   "pop${p} $wb", []>;
+let isReturn = 1, isTerminator = 1, mayLoad = 1 in
+def tPOP_RET : T1I<(outs), (ins pred:$p, reglist:$dst1, variable_ops), IIC_Br,
+                   "pop${p} $dst1", []>;
 
 let isCall = 1,
   Defs = [R0,  R1,  R2,  R3,  R12, LR,
           D0,  D1,  D2,  D3,  D4,  D5,  D6,  D7,
           D16, D17, D18, D19, D20, D21, D22, D23,
-          D24, D25, D26, D27, D28, D29, D30, D31, CPSR, FPSCR] in {
+          D24, D25, D26, D27, D28, D29, D30, D31, CPSR] in {
   // Also used for Thumb2
   def tBL  : TIx2<(outs), (ins i32imm:$func, variable_ops), IIC_Br, 
                    "bl ${func:call}",
@@ -221,7 +220,7 @@ let isCall = 1,
   Defs = [R0,  R1,  R2,  R3,  R9,  R12, LR,
           D0,  D1,  D2,  D3,  D4,  D5,  D6,  D7,
           D16, D17, D18, D19, D20, D21, D22, D23,
-          D24, D25, D26, D27, D28, D29, D30, D31, CPSR, FPSCR] in {
+          D24, D25, D26, D27, D28, D29, D30, D31, CPSR] in {
   // Also used for Thumb2
   def tBLr9 : TIx2<(outs), (ins i32imm:$func, variable_ops), IIC_Br, 
                    "bl ${func:call}",
@@ -251,7 +250,7 @@ let isBranch = 1, isTerminator = 1 in {
   let isBarrier = 1 in {
     let isPredicable = 1 in
     def tB   : T1I<(outs), (ins brtarget:$target), IIC_Br,
-                   "b $target", [(br bb:$target)]>;
+                   "b.n $target", [(br bb:$target)]>;
 
   // Far jump
   let Defs = [LR] in
@@ -269,7 +268,7 @@ let isBranch = 1, isTerminator = 1 in {
 // a two-value operand where a dag node expects two operands. :(
 let isBranch = 1, isTerminator = 1 in
   def tBcc : T1I<(outs), (ins brtarget:$target, pred:$cc), IIC_Br,
-                 "b$cc $target",
+                 "b$cc.n $target",
                  [/*(ARMbrcond bb:$target, imm:$cc)*/]>;
 
 //===----------------------------------------------------------------------===//
@@ -311,9 +310,10 @@ def tRestore : T1pIs<(outs tGPR:$dst), (ins t_addrmode_sp:$addr), IIC_iLoadi,
                     "ldr", " $dst, $addr", []>;
 
 // Load tconstpool
+// FIXME: Added .n suffix to workaround a Darwin assembler bug.
 let canFoldAsLoad = 1 in
 def tLDRpci : T1pIs<(outs tGPR:$dst), (ins i32imm:$addr), IIC_iLoadi,
-                  "ldr", " $dst, $addr",
+                  "ldr", ".n $dst, $addr",
                   [(set tGPR:$dst, (load (ARMWrapper tconstpool:$addr)))]>;
 
 // Special LDR for loads from non-pc-relative constpools.
@@ -349,25 +349,25 @@ def tSpill : T1pIs<(outs), (ins tGPR:$src, t_addrmode_sp:$addr), IIC_iStorei,
 //
 
 // These requires base address to be written back or one of the loaded regs.
-let mayLoad = 1, hasExtraDefRegAllocReq = 1 in
+let mayLoad = 1 in
 def tLDM : T1I<(outs),
-               (ins addrmode4:$addr, pred:$p, reglist:$wb, variable_ops),
+               (ins addrmode4:$addr, pred:$p, reglist:$dst1, variable_ops),
                IIC_iLoadm,
-               "ldm${addr:submode}${p} $addr, $wb", []>;
+               "ldm${addr:submode}${p} $addr, $dst1", []>;
 
-let mayStore = 1, hasExtraSrcRegAllocReq = 1 in
+let mayStore = 1 in
 def tSTM : T1I<(outs),
-               (ins addrmode4:$addr, pred:$p, reglist:$wb, variable_ops),
+               (ins addrmode4:$addr, pred:$p, reglist:$src1, variable_ops),
                IIC_iStorem,
-               "stm${addr:submode}${p} $addr, $wb", []>;
+               "stm${addr:submode}${p} $addr, $src1", []>;
 
-let mayLoad = 1, Uses = [SP], Defs = [SP], hasExtraDefRegAllocReq = 1 in
-def tPOP : T1I<(outs), (ins pred:$p, reglist:$wb, variable_ops), IIC_Br,
-               "pop${p} $wb", []>;
+let mayLoad = 1, Uses = [SP], Defs = [SP] in
+def tPOP : T1I<(outs), (ins pred:$p, reglist:$dst1, variable_ops), IIC_Br,
+               "pop${p} $dst1", []>;
 
-let mayStore = 1, Uses = [SP], Defs = [SP], hasExtraSrcRegAllocReq = 1 in
-def tPUSH : T1I<(outs), (ins pred:$p, reglist:$wb, variable_ops), IIC_Br,
-                "push${p} $wb", []>;
+let mayStore = 1, Uses = [SP], Defs = [SP] in
+def tPUSH : T1I<(outs), (ins pred:$p, reglist:$src1, variable_ops), IIC_Br,
+                "push${p} $src1", []>;
 
 //===----------------------------------------------------------------------===//
 //  Arithmetic Instructions.
@@ -396,7 +396,7 @@ def tADDrr : T1sI<(outs tGPR:$dst), (ins tGPR:$lhs, tGPR:$rhs), IIC_iALUr,
 
 let neverHasSideEffects = 1 in
 def tADDhirr : T1pIt<(outs GPR:$dst), (ins GPR:$lhs, GPR:$rhs), IIC_iALUr,
-                     "add", " $dst, $rhs", []>;
+                     "add", " $dst, $rhs @ addhirr", []>;
 
 // And register
 let isCommutable = 1 in
@@ -500,11 +500,11 @@ def tMOVSr      : T1I<(outs tGPR:$dst), (ins tGPR:$src), IIC_iMOVr,
 
 // FIXME: Make these predicable.
 def tMOVgpr2tgpr : T1I<(outs tGPR:$dst), (ins GPR:$src), IIC_iMOVr,
-                       "mov $dst, $src", []>;
+                       "mov $dst, $src\t@ hir2lor", []>;
 def tMOVtgpr2gpr : T1I<(outs GPR:$dst), (ins tGPR:$src), IIC_iMOVr,
-                       "mov $dst, $src", []>;
+                       "mov $dst, $src\t@ lor2hir", []>;
 def tMOVgpr2gpr  : T1I<(outs GPR:$dst), (ins GPR:$src), IIC_iMOVr,
-                       "mov $dst, $src", []>;
+                       "mov $dst, $src\t@ hir2hir", []>;
 } // neverHasSideEffects
 
 // multiply register
@@ -701,19 +701,13 @@ def : T1Pat<(extloadi1  t_addrmode_s1:$addr),  (tLDRB t_addrmode_s1:$addr)>;
 def : T1Pat<(extloadi8  t_addrmode_s1:$addr),  (tLDRB t_addrmode_s1:$addr)>;
 def : T1Pat<(extloadi16 t_addrmode_s2:$addr),  (tLDRH t_addrmode_s2:$addr)>;
 
-// If it's impossible to use [r,r] address mode for sextload, select to
+// If it's possible to use [r,r] address mode for sextload, select to
 // ldr{b|h} + sxt{b|h} instead.
 def : T1Pat<(sextloadi8 t_addrmode_s1:$addr),
-            (tSXTB (tLDRB t_addrmode_s1:$addr))>,
-      Requires<[IsThumb1Only, HasV6]>;
+            (tSXTB (tLDRB t_addrmode_s1:$addr))>;
 def : T1Pat<(sextloadi16 t_addrmode_s2:$addr),
-            (tSXTH (tLDRH t_addrmode_s2:$addr))>,
-      Requires<[IsThumb1Only, HasV6]>;
+            (tSXTH (tLDRH t_addrmode_s2:$addr))>;
 
-def : T1Pat<(sextloadi8 t_addrmode_s1:$addr),
-            (tASRri (tLSLri (tLDRB t_addrmode_s1:$addr), 24), 24)>;
-def : T1Pat<(sextloadi16 t_addrmode_s1:$addr),
-            (tASRri (tLSLri (tLDRH t_addrmode_s1:$addr), 16), 16)>;
 
 // Large immediate handling.
 

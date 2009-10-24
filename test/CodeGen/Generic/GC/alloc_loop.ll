@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 
 declare i8* @llvm_gc_allocate(i32)

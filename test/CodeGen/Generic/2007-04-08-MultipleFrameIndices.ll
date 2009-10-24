@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; XFAIL: sparc-sun-solaris2
 ; PR1308
 ; PR1557

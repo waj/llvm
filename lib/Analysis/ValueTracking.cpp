@@ -16,7 +16,6 @@
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
 #include "llvm/GlobalVariable.h"
-#include "llvm/GlobalAlias.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Operator.h"
@@ -36,15 +35,9 @@ using namespace llvm;
 /// optimized based on the contradictory assumption that it is non-zero.
 /// Because instcombine aggressively folds operations with undef args anyway,
 /// this won't lose us code quality.
-///
-/// This function is defined on values with integer type, values with pointer
-/// type (but only if TD is non-null), and vectors of integers.  In the case
-/// where V is a vector, the mask, known zero, and known one values are the
-/// same width as the vector element, and the bit is set only if it is true
-/// for all of the elements in the vector.
 void llvm::ComputeMaskedBits(Value *V, const APInt &Mask,
                              APInt &KnownZero, APInt &KnownOne,
-                             const TargetData *TD, unsigned Depth) {
+                             TargetData *TD, unsigned Depth) {
   const unsigned MaxDepth = 6;
   assert(V && "No Value?");
   assert(Depth <= MaxDepth && "Limit Search Depth");
@@ -104,17 +97,6 @@ void llvm::ComputeMaskedBits(Value *V, const APInt &Mask,
     else
       KnownZero.clear();
     KnownOne.clear();
-    return;
-  }
-  // A weak GlobalAlias is totally unknown. A non-weak GlobalAlias has
-  // the bits of its aliasee.
-  if (GlobalAlias *GA = dyn_cast<GlobalAlias>(V)) {
-    if (GA->mayBeOverridden()) {
-      KnownZero.clear(); KnownOne.clear();
-    } else {
-      ComputeMaskedBits(GA->getAliasee(), Mask, KnownZero, KnownOne,
-                        TD, Depth+1);
-    }
     return;
   }
 
@@ -244,16 +226,12 @@ void llvm::ComputeMaskedBits(Value *V, const APInt &Mask,
     // FALL THROUGH and handle them the same as zext/trunc.
   case Instruction::ZExt:
   case Instruction::Trunc: {
-    const Type *SrcTy = I->getOperand(0)->getType();
-    
-    unsigned SrcBitWidth;
     // Note that we handle pointer operands here because of inttoptr/ptrtoint
     // which fall through here.
-    if (isa<PointerType>(SrcTy))
-      SrcBitWidth = TD->getTypeSizeInBits(SrcTy);
-    else
-      SrcBitWidth = SrcTy->getScalarSizeInBits();
-    
+    const Type *SrcTy = I->getOperand(0)->getType();
+    unsigned SrcBitWidth = TD ?
+      TD->getTypeSizeInBits(SrcTy) :
+      SrcTy->getScalarSizeInBits();
     APInt MaskIn(Mask);
     MaskIn.zextOrTrunc(SrcBitWidth);
     KnownZero.zextOrTrunc(SrcBitWidth);
@@ -281,7 +259,8 @@ void llvm::ComputeMaskedBits(Value *V, const APInt &Mask,
   }
   case Instruction::SExt: {
     // Compute the bits in the result that are not present in the input.
-    unsigned SrcBitWidth = I->getOperand(0)->getType()->getScalarSizeInBits();
+    const IntegerType *SrcTy = cast<IntegerType>(I->getOperand(0)->getType());
+    unsigned SrcBitWidth = SrcTy->getBitWidth();
       
     APInt MaskIn(Mask); 
     MaskIn.trunc(SrcBitWidth);
@@ -469,11 +448,26 @@ void llvm::ComputeMaskedBits(Value *V, const APInt &Mask,
     break;
   }
 
-  case Instruction::Alloca: {
-    AllocaInst *AI = cast<AllocaInst>(V);
+  case Instruction::Alloca:
+  case Instruction::Malloc: {
+    AllocationInst *AI = cast<AllocationInst>(V);
     unsigned Align = AI->getAlignment();
-    if (Align == 0 && TD)
-      Align = TD->getABITypeAlignment(AI->getType()->getElementType());
+    if (Align == 0 && TD) {
+      if (isa<AllocaInst>(AI))
+        Align = TD->getABITypeAlignment(AI->getType()->getElementType());
+      else if (isa<MallocInst>(AI)) {
+        // Malloc returns maximally aligned memory.
+        Align = TD->getABITypeAlignment(AI->getType()->getElementType());
+        Align =
+          std::max(Align,
+                   (unsigned)TD->getABITypeAlignment(
+                     Type::getDoubleTy(V->getContext())));
+        Align =
+          std::max(Align,
+                   (unsigned)TD->getABITypeAlignment(
+                      Type::getInt64Ty(V->getContext())));
+      }
+    }
     
     if (Align > 0)
       KnownZero = Mask & APInt::getLowBitsSet(BitWidth,
@@ -614,14 +608,8 @@ void llvm::ComputeMaskedBits(Value *V, const APInt &Mask,
 /// MaskedValueIsZero - Return true if 'V & Mask' is known to be zero.  We use
 /// this predicate to simplify operations downstream.  Mask is known to be zero
 /// for bits that V cannot have.
-///
-/// This function is defined on values with integer type, values with pointer
-/// type (but only if TD is non-null), and vectors of integers.  In the case
-/// where V is a vector, the mask, known zero, and known one values are the
-/// same width as the vector element, and the bit is set only if it is true
-/// for all of the elements in the vector.
 bool llvm::MaskedValueIsZero(Value *V, const APInt &Mask,
-                             const TargetData *TD, unsigned Depth) {
+                             TargetData *TD, unsigned Depth) {
   APInt KnownZero(Mask.getBitWidth(), 0), KnownOne(Mask.getBitWidth(), 0);
   ComputeMaskedBits(V, Mask, KnownZero, KnownOne, TD, Depth);
   assert((KnownZero & KnownOne) == 0 && "Bits known to be one AND zero?"); 
@@ -638,8 +626,7 @@ bool llvm::MaskedValueIsZero(Value *V, const APInt &Mask,
 ///
 /// 'Op' must have a scalar integer type.
 ///
-unsigned llvm::ComputeNumSignBits(Value *V, const TargetData *TD,
-                                  unsigned Depth) {
+unsigned llvm::ComputeNumSignBits(Value *V, TargetData *TD, unsigned Depth) {
   assert((TD || V->getType()->isIntOrIntVector()) &&
          "ComputeNumSignBits requires a TargetData object to operate "
          "on non-integer values!");
@@ -825,13 +812,9 @@ bool llvm::CannotBeNegativeZero(const Value *V, unsigned Depth) {
       if (F->isDeclaration()) {
         // abs(x) != -0.0
         if (F->getName() == "abs") return true;
-        // fabs[lf](x) != -0.0
-        if (F->getName() == "fabs") return true;
-        if (F->getName() == "fabsf") return true;
-        if (F->getName() == "fabsl") return true;
-        if (F->getName() == "sqrt" || F->getName() == "sqrtf" ||
-            F->getName() == "sqrtl")
-          return CannotBeNegativeZero(CI->getOperand(1), Depth+1);
+        // abs[lf](x) != -0.0
+        if (F->getName() == "absf") return true;
+        if (F->getName() == "absl") return true;
       }
     }
   
@@ -1074,11 +1057,6 @@ bool llvm::GetConstantStringInfo(Value *V, std::string &Str, uint64_t Offset,
                                  StopAtNul);
   }
   
-  if (MDString *MDStr = dyn_cast<MDString>(V)) {
-    Str = MDStr->getString();
-    return true;
-  }
-
   // The GEP instruction, constant or instruction, must reference a global
   // variable that is a constant and is initialized. The referenced constant
   // initializer is the array that we'll use for optimization.

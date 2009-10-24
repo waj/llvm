@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c
+; RUN: llvm-as < %s | llc -march=c
 
 ; The C backend was dying when there was no typename for a struct type!
 

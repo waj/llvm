@@ -33,11 +33,11 @@ namespace {
       for (Function::arg_iterator AI = F.arg_begin(), AE = F.arg_end();
            AI != AE; ++AI)
         if (!AI->hasName() && AI->getType() != Type::getVoidTy(F.getContext()))
-          AI->setName("arg");
+          AI->setName("tmp");
 
       for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB) {
         if (!BB->hasName())
-          BB->setName("bb");
+          BB->setName("BB");
         
         for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I)
           if (!I->hasName() && I->getType() != Type::getVoidTy(F.getContext()))

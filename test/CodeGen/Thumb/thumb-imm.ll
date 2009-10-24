@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=thumb | not grep CPI
+; RUN: llvm-as < %s | llc -march=thumb | not grep CPI
 
 
 define i32 @test1() {

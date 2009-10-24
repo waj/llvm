@@ -151,7 +151,7 @@ public:
 };
 
 template <>
-struct OperandTraits<GlobalVariable> : public OptionalOperandTraits<> {
+struct OperandTraits<GlobalVariable> : OptionalOperandTraits<> {
 };
 
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(GlobalVariable, Value)

@@ -15,17 +15,19 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "loop-delete"
+
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SmallVector.h"
+
 using namespace llvm;
 
 STATISTIC(NumDeleted, "Number of loops deleted");
 
 namespace {
-  class LoopDeletion : public LoopPass {
+  class VISIBILITY_HIDDEN LoopDeletion : public LoopPass {
   public:
     static char ID; // Pass ID, replacement for typeid
     LoopDeletion() : LoopPass(&ID) {}
@@ -167,7 +169,7 @@ bool LoopDeletion::runOnLoop(Loop* L, LPPassManager& LPM) {
   // Don't remove loops for which we can't solve the trip count.
   // They could be infinite, in which case we'd be changing program behavior.
   ScalarEvolution& SE = getAnalysis<ScalarEvolution>();
-  const SCEV *S = SE.getMaxBackedgeTakenCount(L);
+  const SCEV *S = SE.getBackedgeTakenCount(L);
   if (isa<SCEVCouldNotCompute>(S))
     return Changed;
   

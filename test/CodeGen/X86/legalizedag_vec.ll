@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=sse2 -disable-mmx -o %t
+; RUN: llvm-as < %s | llc -march=x86 -mattr=sse2 -disable-mmx -o %t -f
 ; RUN: grep {call.*divdi3}  %t | count 2
 
 

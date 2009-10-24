@@ -9,7 +9,7 @@
 
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCContext.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
@@ -29,7 +29,7 @@ Create(const StringRef &Name, bool IsDirective, SectionKind K, MCContext &Ctx) {
   return new (Ctx) MCSectionCOFF(Name, IsDirective, K);
 }
 
-void MCSectionCOFF::PrintSwitchToSection(const MCAsmInfo &MAI,
+void MCSectionCOFF::PrintSwitchToSection(const TargetAsmInfo &TAI,
                                          raw_ostream &OS) const {
   
   if (isDirective()) {

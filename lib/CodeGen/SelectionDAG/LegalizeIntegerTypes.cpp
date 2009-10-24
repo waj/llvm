@@ -1498,10 +1498,10 @@ void DAGTypeLegalizer::ExpandIntRes_LOAD(LoadSDNode *N,
   assert(NVT.isByteSized() && "Expanded type not byte sized!");
 
   if (N->getMemoryVT().bitsLE(NVT)) {
-    EVT MemVT = N->getMemoryVT();
+    EVT EVT = N->getMemoryVT();
 
     Lo = DAG.getExtLoad(ExtType, dl, NVT, Ch, Ptr, N->getSrcValue(), SVOffset,
-                        MemVT, isVolatile, Alignment);
+                        EVT, isVolatile, Alignment);
 
     // Remember the chain.
     Ch = Lo.getValue(1);
@@ -1544,15 +1544,14 @@ void DAGTypeLegalizer::ExpandIntRes_LOAD(LoadSDNode *N,
   } else {
     // Big-endian - high bits are at low addresses.  Favor aligned loads at
     // the cost of some bit-fiddling.
-    EVT MemVT = N->getMemoryVT();
-    unsigned EBytes = MemVT.getStoreSize();
+    EVT EVT = N->getMemoryVT();
+    unsigned EBytes = EVT.getStoreSizeInBits()/8;
     unsigned IncrementSize = NVT.getSizeInBits()/8;
     unsigned ExcessBits = (EBytes - IncrementSize)*8;
 
     // Load both the high bits and maybe some of the low bits.
     Hi = DAG.getExtLoad(ExtType, dl, NVT, Ch, Ptr, N->getSrcValue(), SVOffset,
-                        EVT::getIntegerVT(*DAG.getContext(),
-                                          MemVT.getSizeInBits() - ExcessBits),
+                        EVT::getIntegerVT(*DAG.getContext(), EVT.getSizeInBits() - ExcessBits),
                         isVolatile, Alignment);
 
     // Increment the pointer to the other half.
@@ -2230,7 +2229,7 @@ SDValue DAGTypeLegalizer::ExpandIntOp_STORE(StoreSDNode *N, unsigned OpNo) {
     GetExpandedInteger(N->getValue(), Lo, Hi);
 
     EVT ExtVT = N->getMemoryVT();
-    unsigned EBytes = ExtVT.getStoreSize();
+    unsigned EBytes = ExtVT.getStoreSizeInBits()/8;
     unsigned IncrementSize = NVT.getSizeInBits()/8;
     unsigned ExcessBits = (EBytes - IncrementSize)*8;
     EVT HiVT = EVT::getIntegerVT(*DAG.getContext(), ExtVT.getSizeInBits() - ExcessBits);

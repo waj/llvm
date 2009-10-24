@@ -21,10 +21,10 @@
 #ifndef LLVM_CODEGEN_LIVEINTERVAL_H
 #define LLVM_CODEGEN_LIVEINTERVAL_H
 
-#include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/AlignOf.h"
+#include <iosfwd>
 #include <cassert>
 #include <climits>
 
@@ -33,209 +33,6 @@ namespace llvm {
   class MachineRegisterInfo;
   class TargetRegisterInfo;
   class raw_ostream;
-  
-  /// LiveIndex - An opaque wrapper around machine indexes.
-  class LiveIndex {
-    friend class VNInfo;
-    friend class LiveInterval;
-    friend class LiveIntervals;
-    friend struct DenseMapInfo<LiveIndex>;
-
-  public:
-
-    enum Slot { LOAD, USE, DEF, STORE, NUM };
-
-  private:
-
-    unsigned index;
-
-    static const unsigned PHI_BIT = 1 << 31;
-
-  public:
-
-    /// Construct a default LiveIndex pointing to a reserved index.
-    LiveIndex() : index(0) {}
-
-    /// Construct an index from the given index, pointing to the given slot.
-    LiveIndex(LiveIndex m, Slot s)
-      : index((m.index / NUM) * NUM + s) {} 
-    
-    /// Print this index to the given raw_ostream.
-    void print(raw_ostream &os) const;
-
-    /// Compare two LiveIndex objects for equality.
-    bool operator==(LiveIndex other) const {
-      return ((index & ~PHI_BIT) == (other.index & ~PHI_BIT));
-    }
-    /// Compare two LiveIndex objects for inequality.
-    bool operator!=(LiveIndex other) const {
-      return ((index & ~PHI_BIT) != (other.index & ~PHI_BIT));
-    }
-   
-    /// Compare two LiveIndex objects. Return true if the first index
-    /// is strictly lower than the second.
-    bool operator<(LiveIndex other) const {
-      return ((index & ~PHI_BIT) < (other.index & ~PHI_BIT));
-    }
-    /// Compare two LiveIndex objects. Return true if the first index
-    /// is lower than, or equal to, the second.
-    bool operator<=(LiveIndex other) const {
-      return ((index & ~PHI_BIT) <= (other.index & ~PHI_BIT));
-    }
-
-    /// Compare two LiveIndex objects. Return true if the first index
-    /// is greater than the second.
-    bool operator>(LiveIndex other) const {
-      return ((index & ~PHI_BIT) > (other.index & ~PHI_BIT));
-    }
-
-    /// Compare two LiveIndex objects. Return true if the first index
-    /// is greater than, or equal to, the second.
-    bool operator>=(LiveIndex other) const {
-      return ((index & ~PHI_BIT) >= (other.index & ~PHI_BIT));
-    }
-
-    /// Returns true if this index represents a load.
-    bool isLoad() const {
-      return ((index % NUM) == LOAD);
-    }
-
-    /// Returns true if this index represents a use.
-    bool isUse() const {
-      return ((index % NUM) == USE);
-    }
-
-    /// Returns true if this index represents a def.
-    bool isDef() const {
-      return ((index % NUM) == DEF);
-    }
-
-    /// Returns true if this index represents a store.
-    bool isStore() const {
-      return ((index % NUM) == STORE);
-    }
-
-    /// Returns the slot for this LiveIndex.
-    Slot getSlot() const {
-      return static_cast<Slot>(index % NUM);
-    }
-
-    /// Returns true if this index represents a non-PHI use/def.
-    bool isNonPHIIndex() const {
-      return ((index & PHI_BIT) == 0);
-    }
-
-    /// Returns true if this index represents a PHI use/def.
-    bool isPHIIndex() const {
-      return ((index & PHI_BIT) == PHI_BIT);
-    }
-
-  private:
-
-    /// Construct an index from the given index, with its PHI kill marker set.
-    LiveIndex(bool phi, LiveIndex o) : index(o.index) {
-      if (phi)
-        index |= PHI_BIT;
-      else
-        index &= ~PHI_BIT;
-    }
-
-    explicit LiveIndex(unsigned idx)
-      : index(idx & ~PHI_BIT) {}
-
-    LiveIndex(bool phi, unsigned idx)
-      : index(idx & ~PHI_BIT) {
-      if (phi)
-        index |= PHI_BIT;
-    }
-
-    LiveIndex(bool phi, unsigned idx, Slot slot)
-      : index(((idx / NUM) * NUM + slot) & ~PHI_BIT) {
-      if (phi)
-        index |= PHI_BIT;
-    }
-    
-    LiveIndex nextSlot_() const {
-      assert((index & PHI_BIT) == ((index + 1) & PHI_BIT) &&
-             "Index out of bounds.");
-      return LiveIndex(index + 1);
-    }
-
-    LiveIndex nextIndex_() const {
-      assert((index & PHI_BIT) == ((index + NUM) & PHI_BIT) &&
-             "Index out of bounds.");
-      return LiveIndex(index + NUM);
-    }
-
-    LiveIndex prevSlot_() const {
-      assert((index & PHI_BIT) == ((index - 1) & PHI_BIT) &&
-             "Index out of bounds.");
-      return LiveIndex(index - 1);
-    }
-
-    LiveIndex prevIndex_() const {
-      assert((index & PHI_BIT) == ((index - NUM) & PHI_BIT) &&
-             "Index out of bounds.");
-      return LiveIndex(index - NUM);
-    }
-
-    int distance(LiveIndex other) const {
-      return (other.index & ~PHI_BIT) - (index & ~PHI_BIT);
-    }
-
-    /// Returns an unsigned number suitable as an index into a
-    /// vector over all instructions.
-    unsigned getVecIndex() const {
-      return (index & ~PHI_BIT) / NUM;
-    }
-
-    /// Scale this index by the given factor.
-    LiveIndex scale(unsigned factor) const {
-      unsigned i = (index & ~PHI_BIT) / NUM,
-               o = (index % ~PHI_BIT) % NUM;
-      assert(index <= (~0U & ~PHI_BIT) / (factor * NUM) &&
-             "Rescaled interval would overflow");
-      return LiveIndex(i * NUM * factor, o);
-    }
-
-    static LiveIndex emptyKey() {
-      return LiveIndex(true, 0x7fffffff);
-    }
-
-    static LiveIndex tombstoneKey() {
-      return LiveIndex(true, 0x7ffffffe);
-    }
-
-    static unsigned getHashValue(const LiveIndex &v) {
-      return v.index * 37;
-    }
-
-  };
-
-  inline raw_ostream& operator<<(raw_ostream &os, LiveIndex mi) {
-    mi.print(os);
-    return os;
-  }
-
-  /// Densemap specialization for LiveIndex.
-  template <>
-  struct DenseMapInfo<LiveIndex> {
-    static inline LiveIndex getEmptyKey() {
-      return LiveIndex::emptyKey();
-    }
-    static inline LiveIndex getTombstoneKey() {
-      return LiveIndex::tombstoneKey();
-    }
-    static inline unsigned getHashValue(const LiveIndex &v) {
-      return LiveIndex::getHashValue(v);
-    }
-    static inline bool isEqual(const LiveIndex &LHS,
-                               const LiveIndex &RHS) {
-      return (LHS == RHS);
-    }
-    static inline bool isPod() { return true; }
-  };
-
 
   /// VNInfo - Value Number Information.
   /// This class holds information about a machine level values, including
@@ -252,6 +49,7 @@ namespace llvm {
   /// index of the MBB in which the PHI originally existed. This can be used
   /// to insert code (spills or copies) which deals with the value, which will
   /// be live in to the block.
+
   class VNInfo {
   private:
     enum {
@@ -269,24 +67,36 @@ namespace llvm {
     } cr;
 
   public:
+    /// Holds information about individual kills.
+    struct KillInfo {
+      bool isPHIKill : 1;
+      unsigned killIdx : 31;
 
-    typedef SmallVector<LiveIndex, 4> KillSet;
+      KillInfo(bool isPHIKill, unsigned killIdx)
+        : isPHIKill(isPHIKill), killIdx(killIdx) {
+
+        assert(killIdx != 0 && "Zero kill indices are no longer permitted.");
+      }
+
+    };
+
+    typedef SmallVector<KillInfo, 4> KillSet;
 
     /// The ID number of this value.
     unsigned id;
     
     /// The index of the defining instruction (if isDefAccurate() returns true).
-    LiveIndex def;
+    unsigned def;
 
     KillSet kills;
 
     VNInfo()
-      : flags(IS_UNUSED), id(~1U) { cr.copy = 0; }
+      : flags(IS_UNUSED), id(~1U), def(0) { cr.copy = 0; }
 
     /// VNInfo constructor.
     /// d is presumed to point to the actual defining instr. If it doesn't
     /// setIsDefAccurate(false) should be called after construction.
-    VNInfo(unsigned i, LiveIndex d, MachineInstr *c)
+    VNInfo(unsigned i, unsigned d, MachineInstr *c)
       : flags(IS_DEF_ACCURATE), id(i), def(d) { cr.copy = c; }
 
     /// VNInfo construtor, copies values from orig, except for the value number.
@@ -326,7 +136,6 @@ namespace llvm {
 
     /// Returns true if one or more kills are PHI nodes.
     bool hasPHIKill() const { return flags & HAS_PHI_KILL; }
-    /// Set the PHI kill flag on this value.
     void setHasPHIKill(bool hasKill) {
       if (hasKill)
         flags |= HAS_PHI_KILL;
@@ -337,7 +146,6 @@ namespace llvm {
     /// Returns true if this value is re-defined by an early clobber somewhere
     /// during the live range.
     bool hasRedefByEC() const { return flags & REDEF_BY_EC; }
-    /// Set the "redef by early clobber" flag on this value.
     void setHasRedefByEC(bool hasRedef) {
       if (hasRedef)
         flags |= REDEF_BY_EC;
@@ -348,7 +156,6 @@ namespace llvm {
     /// Returns true if this value is defined by a PHI instruction (or was,
     /// PHI instrucions may have been eliminated).
     bool isPHIDef() const { return flags & IS_PHI_DEF; }
-    /// Set the "phi def" flag on this value.
     void setIsPHIDef(bool phiDef) {
       if (phiDef)
         flags |= IS_PHI_DEF;
@@ -358,7 +165,6 @@ namespace llvm {
 
     /// Returns true if this value is unused.
     bool isUnused() const { return flags & IS_UNUSED; }
-    /// Set the "is unused" flag on this value.
     void setIsUnused(bool unused) {
       if (unused)
         flags |= IS_UNUSED;
@@ -368,7 +174,6 @@ namespace llvm {
 
     /// Returns true if the def is accurate.
     bool isDefAccurate() const { return flags & IS_DEF_ACCURATE; }
-    /// Set the "is def accurate" flag on this value.
     void setIsDefAccurate(bool defAccurate) {
       if (defAccurate)
         flags |= IS_DEF_ACCURATE;
@@ -376,72 +181,36 @@ namespace llvm {
         flags &= ~IS_DEF_ACCURATE;
     }
 
-    /// Returns true if the given index is a kill of this value.
-    bool isKill(LiveIndex k) const {
-      KillSet::const_iterator
-        i = std::lower_bound(kills.begin(), kills.end(), k);
-      return (i != kills.end() && *i == k);
-    }
-
-    /// addKill - Add a kill instruction index to the specified value
-    /// number.
-    void addKill(LiveIndex k) {
-      if (kills.empty()) {
-        kills.push_back(k);
-      } else {
-        KillSet::iterator
-          i = std::lower_bound(kills.begin(), kills.end(), k);
-        kills.insert(i, k);
-      }
-    }
-
-    /// Remove the specified kill index from this value's kills list.
-    /// Returns true if the value was present, otherwise returns false.
-    bool removeKill(LiveIndex k) {
-      KillSet::iterator i = std::lower_bound(kills.begin(), kills.end(), k);
-      if (i != kills.end() && *i == k) {
-        kills.erase(i);
-        return true;
-      }
-      return false;
-    }
-
-    /// Remove all kills in the range [s, e).
-    void removeKills(LiveIndex s, LiveIndex e) {
-      KillSet::iterator
-        si = std::lower_bound(kills.begin(), kills.end(), s),
-        se = std::upper_bound(kills.begin(), kills.end(), e);
-
-      kills.erase(si, se);
-    }
-
   };
+
+  inline bool operator<(const VNInfo::KillInfo &k1, const VNInfo::KillInfo &k2) {
+    return k1.killIdx < k2.killIdx;
+  }
+  
+  inline bool operator<(const VNInfo::KillInfo &k, unsigned idx) {
+    return k.killIdx < idx;
+  }
+
+  inline bool operator<(unsigned idx, const VNInfo::KillInfo &k) {
+    return idx < k.killIdx;
+  }
 
   /// LiveRange structure - This represents a simple register range in the
   /// program, with an inclusive start point and an exclusive end point.
   /// These ranges are rendered as [start,end).
   struct LiveRange {
-    LiveIndex start;  // Start point of the interval (inclusive)
-    LiveIndex end;    // End point of the interval (exclusive)
+    unsigned start;  // Start point of the interval (inclusive)
+    unsigned end;    // End point of the interval (exclusive)
     VNInfo *valno;   // identifier for the value contained in this interval.
 
-    LiveRange(LiveIndex S, LiveIndex E, VNInfo *V)
-      : start(S), end(E), valno(V) {
-
+    LiveRange(unsigned S, unsigned E, VNInfo *V) : start(S), end(E), valno(V) {
       assert(S < E && "Cannot create empty or backwards range");
     }
 
     /// contains - Return true if the index is covered by this range.
     ///
-    bool contains(LiveIndex I) const {
+    bool contains(unsigned I) const {
       return start <= I && I < end;
-    }
-
-    /// containsRange - Return true if the given range, [S, E), is covered by
-    /// this range. 
-    bool containsRange(LiveIndex S, LiveIndex E) const {
-      assert((S < E) && "Backwards interval?");
-      return (start <= S && S < end) && (start < E && E <= end);
     }
 
     bool operator<(const LiveRange &LR) const {
@@ -452,20 +221,24 @@ namespace llvm {
     }
 
     void dump() const;
+    void print(std::ostream &os) const;
+    void print(std::ostream *os) const { if (os) print(*os); }
     void print(raw_ostream &os) const;
+    void print(raw_ostream *os) const { if (os) print(*os); }
 
   private:
     LiveRange(); // DO NOT IMPLEMENT
   };
 
+  std::ostream& operator<<(std::ostream& os, const LiveRange &LR);
   raw_ostream& operator<<(raw_ostream& os, const LiveRange &LR);
 
 
-  inline bool operator<(LiveIndex V, const LiveRange &LR) {
+  inline bool operator<(unsigned V, const LiveRange &LR) {
     return V < LR.start;
   }
 
-  inline bool operator<(const LiveRange &LR, LiveIndex V) {
+  inline bool operator<(const LiveRange &LR, unsigned V) {
     return LR.start < V;
   }
 
@@ -492,6 +265,14 @@ namespace llvm {
         STORE = 3,
         NUM   = 4
       };
+
+      static unsigned scale(unsigned slot, unsigned factor) {
+        unsigned index = slot / NUM,
+                 offset = slot % NUM;
+        assert(index <= ~0U / (factor * NUM) &&
+               "Rescaled interval would overflow");
+        return index * NUM * factor + offset;
+      }
 
     };
 
@@ -522,8 +303,8 @@ namespace llvm {
     /// end of the interval.  If no LiveRange contains this position, but the
     /// position is in a hole, this method returns an iterator pointing the the
     /// LiveRange immediately after the hole.
-    iterator advanceTo(iterator I, LiveIndex Pos) {
-      if (Pos >= endIndex())
+    iterator advanceTo(iterator I, unsigned Pos) {
+      if (Pos >= endNumber())
         return end();
       while (I->end <= Pos) ++I;
       return I;
@@ -569,12 +350,15 @@ namespace llvm {
 
     /// getNextValue - Create a new value number and return it.  MIIdx specifies
     /// the instruction that defines the value number.
-    VNInfo *getNextValue(LiveIndex def, MachineInstr *CopyMI,
-                         bool isDefAccurate, BumpPtrAllocator &VNInfoAllocator){
+    VNInfo *getNextValue(unsigned MIIdx, MachineInstr *CopyMI,
+                         bool isDefAccurate, BumpPtrAllocator &VNInfoAllocator) {
+
+      assert(MIIdx != ~0u && MIIdx != ~1u &&
+             "PHI def / unused flags should now be passed explicitly.");
       VNInfo *VNI =
         static_cast<VNInfo*>(VNInfoAllocator.Allocate((unsigned)sizeof(VNInfo),
                                                       alignof<VNInfo>()));
-      new (VNI) VNInfo((unsigned)valnos.size(), def, CopyMI);
+      new (VNI) VNInfo((unsigned)valnos.size(), MIIdx, CopyMI);
       VNI->setIsDefAccurate(isDefAccurate);
       valnos.push_back(VNI);
       return VNI;
@@ -582,8 +366,8 @@ namespace llvm {
 
     /// Create a copy of the given value. The new value will be identical except
     /// for the Value number.
-    VNInfo *createValueCopy(const VNInfo *orig,
-                            BumpPtrAllocator &VNInfoAllocator) {
+    VNInfo *createValueCopy(const VNInfo *orig, BumpPtrAllocator &VNInfoAllocator) {
+
       VNInfo *VNI =
         static_cast<VNInfo*>(VNInfoAllocator.Allocate((unsigned)sizeof(VNInfo),
                                                       alignof<VNInfo>()));
@@ -593,15 +377,66 @@ namespace llvm {
       return VNI;
     }
 
+    /// addKill - Add a kill instruction index to the specified value
+    /// number.
+    static void addKill(VNInfo *VNI, unsigned KillIdx, bool phiKill) {
+      VNInfo::KillSet &kills = VNI->kills;
+      VNInfo::KillInfo newKill(phiKill, KillIdx);
+      if (kills.empty()) {
+        kills.push_back(newKill);
+      } else {
+        VNInfo::KillSet::iterator
+          I = std::lower_bound(kills.begin(), kills.end(), newKill);
+        kills.insert(I, newKill);
+      }
+    }
+
     /// addKills - Add a number of kills into the VNInfo kill vector. If this
     /// interval is live at a kill point, then the kill is not added.
     void addKills(VNInfo *VNI, const VNInfo::KillSet &kills) {
       for (unsigned i = 0, e = static_cast<unsigned>(kills.size());
            i != e; ++i) {
-        if (!liveBeforeAndAt(kills[i])) {
-          VNI->addKill(kills[i]);
+        const VNInfo::KillInfo &Kill = kills[i];
+        if (!liveBeforeAndAt(Kill.killIdx)) {
+          VNInfo::KillSet::iterator
+            I = std::lower_bound(VNI->kills.begin(), VNI->kills.end(), Kill);
+          VNI->kills.insert(I, Kill);
         }
       }
+    }
+
+    /// removeKill - Remove the specified kill from the list of kills of
+    /// the specified val#.
+    static bool removeKill(VNInfo *VNI, unsigned KillIdx) {
+      VNInfo::KillSet &kills = VNI->kills;
+      VNInfo::KillSet::iterator
+        I = std::lower_bound(kills.begin(), kills.end(), KillIdx);
+      if (I != kills.end() && I->killIdx == KillIdx) {
+        kills.erase(I);
+        return true;
+      }
+      return false;
+    }
+
+    /// removeKills - Remove all the kills in specified range
+    /// [Start, End] of the specified val#.
+    static void removeKills(VNInfo *VNI, unsigned Start, unsigned End) {
+      VNInfo::KillSet &kills = VNI->kills;
+
+      VNInfo::KillSet::iterator
+        I = std::lower_bound(kills.begin(), kills.end(), Start);
+      VNInfo::KillSet::iterator
+        E = std::upper_bound(kills.begin(), kills.end(), End);
+      kills.erase(I, E);
+    }
+
+    /// isKill - Return true if the specified index is a kill of the
+    /// specified val#.
+    static bool isKill(const VNInfo *VNI, unsigned KillIdx) {
+      const VNInfo::KillSet &kills = VNI->kills;
+      VNInfo::KillSet::const_iterator
+        I = std::lower_bound(kills.begin(), kills.end(), KillIdx);
+      return I != kills.end() && I->killIdx == KillIdx;
     }
 
     /// isOnlyLROfValNo - Return true if the specified live range is the only
@@ -630,8 +465,7 @@ namespace llvm {
 
     /// MergeInClobberRange - Same as MergeInClobberRanges except it merge in a
     /// single LiveRange only.
-    void MergeInClobberRange(LiveIndex Start,
-                             LiveIndex End,
+    void MergeInClobberRange(unsigned Start, unsigned End,
                              BumpPtrAllocator &VNInfoAllocator);
 
     /// MergeValueInAsValue - Merge all of the live ranges of a specific val#
@@ -656,62 +490,58 @@ namespace llvm {
     
     bool empty() const { return ranges.empty(); }
 
-    /// beginIndex - Return the lowest numbered slot covered by interval.
-    LiveIndex beginIndex() const {
+    /// beginNumber - Return the lowest numbered slot covered by interval.
+    unsigned beginNumber() const {
       if (empty())
-        return LiveIndex();
+        return 0;
       return ranges.front().start;
     }
 
     /// endNumber - return the maximum point of the interval of the whole,
     /// exclusive.
-    LiveIndex endIndex() const {
+    unsigned endNumber() const {
       if (empty())
-        return LiveIndex();
+        return 0;
       return ranges.back().end;
     }
 
-    bool expiredAt(LiveIndex index) const {
-      return index >= endIndex();
+    bool expiredAt(unsigned index) const {
+      return index >= endNumber();
     }
 
-    bool liveAt(LiveIndex index) const;
+    bool liveAt(unsigned index) const;
 
     // liveBeforeAndAt - Check if the interval is live at the index and the
     // index just before it. If index is liveAt, check if it starts a new live
     // range.If it does, then check if the previous live range ends at index-1.
-    bool liveBeforeAndAt(LiveIndex index) const;
+    bool liveBeforeAndAt(unsigned index) const;
 
     /// getLiveRangeContaining - Return the live range that contains the
     /// specified index, or null if there is none.
-    const LiveRange *getLiveRangeContaining(LiveIndex Idx) const {
+    const LiveRange *getLiveRangeContaining(unsigned Idx) const {
       const_iterator I = FindLiveRangeContaining(Idx);
       return I == end() ? 0 : &*I;
     }
 
     /// getLiveRangeContaining - Return the live range that contains the
     /// specified index, or null if there is none.
-    LiveRange *getLiveRangeContaining(LiveIndex Idx) {
+    LiveRange *getLiveRangeContaining(unsigned Idx) {
       iterator I = FindLiveRangeContaining(Idx);
       return I == end() ? 0 : &*I;
     }
 
     /// FindLiveRangeContaining - Return an iterator to the live range that
     /// contains the specified index, or end() if there is none.
-    const_iterator FindLiveRangeContaining(LiveIndex Idx) const;
+    const_iterator FindLiveRangeContaining(unsigned Idx) const;
 
     /// FindLiveRangeContaining - Return an iterator to the live range that
     /// contains the specified index, or end() if there is none.
-    iterator FindLiveRangeContaining(LiveIndex Idx);
+    iterator FindLiveRangeContaining(unsigned Idx);
 
-    /// findDefinedVNInfo - Find the by the specified
-    /// index (register interval) or defined 
-    VNInfo *findDefinedVNInfoForRegInt(LiveIndex Idx) const;
-
-    /// findDefinedVNInfo - Find the VNInfo that's defined by the specified
-    /// register (stack inteval only).
-    VNInfo *findDefinedVNInfoForStackInt(unsigned Reg) const;
-
+    /// findDefinedVNInfo - Find the VNInfo that's defined at the specified
+    /// index (register interval) or defined by the specified register (stack
+    /// inteval).
+    VNInfo *findDefinedVNInfo(unsigned DefIdxOrReg) const;
     
     /// overlaps - Return true if the intersection of the two live intervals is
     /// not empty.
@@ -721,7 +551,7 @@ namespace llvm {
 
     /// overlaps - Return true if the live interval overlaps a range specified
     /// by [Start, End).
-    bool overlaps(LiveIndex Start, LiveIndex End) const;
+    bool overlaps(unsigned Start, unsigned End) const;
 
     /// overlapsFrom - Return true if the intersection of the two live intervals
     /// is not empty.  The specified iterator is a hint that we can begin
@@ -745,12 +575,11 @@ namespace llvm {
 
     /// isInOneLiveRange - Return true if the range specified is entirely in the
     /// a single LiveRange of the live interval.
-    bool isInOneLiveRange(LiveIndex Start, LiveIndex End);
+    bool isInOneLiveRange(unsigned Start, unsigned End);
 
     /// removeRange - Remove the specified range from this interval.  Note that
     /// the range must be a single LiveRange in its entirety.
-    void removeRange(LiveIndex Start, LiveIndex End,
-                     bool RemoveDeadValNo = false);
+    void removeRange(unsigned Start, unsigned End, bool RemoveDeadValNo = false);
 
     void removeRange(LiveRange LR, bool RemoveDeadValNo = false) {
       removeRange(LR.start, LR.end, RemoveDeadValNo);
@@ -773,24 +602,32 @@ namespace llvm {
     void ComputeJoinedWeight(const LiveInterval &Other);
 
     bool operator<(const LiveInterval& other) const {
-      const LiveIndex &thisIndex = beginIndex();
-      const LiveIndex &otherIndex = other.beginIndex();
-      return (thisIndex < otherIndex ||
-              (thisIndex == otherIndex && reg < other.reg));
+      return beginNumber() < other.beginNumber();
     }
 
+    void print(std::ostream &OS, const TargetRegisterInfo *TRI = 0) const;
+    void print(std::ostream *OS, const TargetRegisterInfo *TRI = 0) const {
+      if (OS) print(*OS, TRI);
+    }
     void print(raw_ostream &OS, const TargetRegisterInfo *TRI = 0) const;
+    void print(raw_ostream *OS, const TargetRegisterInfo *TRI = 0) const {
+      if (OS) print(*OS, TRI);
+    }
     void dump() const;
 
   private:
 
     Ranges::iterator addRangeFrom(LiveRange LR, Ranges::iterator From);
-    void extendIntervalEndTo(Ranges::iterator I, LiveIndex NewEnd);
-    Ranges::iterator extendIntervalStartTo(Ranges::iterator I, LiveIndex NewStr);
+    void extendIntervalEndTo(Ranges::iterator I, unsigned NewEnd);
+    Ranges::iterator extendIntervalStartTo(Ranges::iterator I, unsigned NewStr);
     LiveInterval& operator=(const LiveInterval& rhs); // DO NOT IMPLEMENT
 
   };
 
+  inline std::ostream &operator<<(std::ostream &OS, const LiveInterval &LI) {
+    LI.print(OS);
+    return OS;
+  }
   inline raw_ostream &operator<<(raw_ostream &OS, const LiveInterval &LI) {
     LI.print(OS);
     return OS;

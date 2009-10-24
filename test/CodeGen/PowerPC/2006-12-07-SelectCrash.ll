@@ -1,6 +1,6 @@
-; RUN: llc < %s -march=ppc64
-; RUN: llc < %s -march=ppc32
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc -march=ppc64
+; RUN: llvm-as < %s | llc -march=ppc32
+; RUN: llvm-as < %s | llc
 
 @qsz.b = external global i1             ; <i1*> [#uses=1]
 

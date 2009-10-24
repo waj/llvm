@@ -33,16 +33,18 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
+#include <fstream>
+#include <sstream>
 using namespace llvm;
 
 namespace {
   struct VISIBILITY_HIDDEN Printer : public MachineFunctionPass {
     static char ID;
 
-    raw_ostream &OS;
+    std::ostream *OS;
     const std::string Banner;
 
-    Printer(raw_ostream &os, const std::string &banner) 
+    Printer (std::ostream *os, const std::string &banner) 
       : MachineFunctionPass(&ID), OS(os), Banner(banner) {}
 
     const char *getPassName() const { return "MachineFunction Printer"; }
@@ -53,8 +55,8 @@ namespace {
     }
 
     bool runOnMachineFunction(MachineFunction &MF) {
-      OS << Banner;
-      MF.print(OS);
+      (*OS) << Banner;
+      MF.print (*OS);
       return false;
     }
   };
@@ -64,7 +66,7 @@ namespace {
 /// Returns a newly-created MachineFunction Printer pass. The default banner is
 /// empty.
 ///
-FunctionPass *llvm::createMachineFunctionPrinterPass(raw_ostream &OS,
+FunctionPass *llvm::createMachineFunctionPrinterPass(std::ostream *OS,
                                                      const std::string &Banner){
   return new Printer(OS, Banner);
 }
@@ -72,9 +74,6 @@ FunctionPass *llvm::createMachineFunctionPrinterPass(raw_ostream &OS,
 //===---------------------------------------------------------------------===//
 // MachineFunction implementation
 //===---------------------------------------------------------------------===//
-
-// Out of line virtual method.
-MachineFunctionInfo::~MachineFunctionInfo() {}
 
 void ilist_traits<MachineBasicBlock>::deleteNode(MachineBasicBlock *MBB) {
   MBB->getParent()->DeleteMachineBasicBlock(MBB);
@@ -190,6 +189,11 @@ MachineFunction::CloneMachineInstr(const MachineInstr *Orig) {
 ///
 void
 MachineFunction::DeleteMachineInstr(MachineInstr *MI) {
+  // Clear the instructions memoperands. This must be done manually because
+  // the instruction's parent pointer is now null, so it can't properly
+  // deallocate them on its own.
+  MI->clearMemOperands(*this);
+
   MI->~MachineInstr();
   InstructionRecycler.Deallocate(Allocator, MI);
 }
@@ -212,99 +216,13 @@ MachineFunction::DeleteMachineBasicBlock(MachineBasicBlock *MBB) {
   BasicBlockRecycler.Deallocate(Allocator, MBB);
 }
 
-MachineMemOperand *
-MachineFunction::getMachineMemOperand(const Value *v, unsigned f,
-                                      int64_t o, uint64_t s,
-                                      unsigned base_alignment) {
-  return new (Allocator.Allocate<MachineMemOperand>())
-             MachineMemOperand(v, f, o, s, base_alignment);
-}
-
-MachineMemOperand *
-MachineFunction::getMachineMemOperand(const MachineMemOperand *MMO,
-                                      int64_t Offset, uint64_t Size) {
-  return new (Allocator.Allocate<MachineMemOperand>())
-             MachineMemOperand(MMO->getValue(), MMO->getFlags(),
-                               int64_t(uint64_t(MMO->getOffset()) +
-                                       uint64_t(Offset)),
-                               Size, MMO->getBaseAlignment());
-}
-
-MachineInstr::mmo_iterator
-MachineFunction::allocateMemRefsArray(unsigned long Num) {
-  return Allocator.Allocate<MachineMemOperand *>(Num);
-}
-
-std::pair<MachineInstr::mmo_iterator, MachineInstr::mmo_iterator>
-MachineFunction::extractLoadMemRefs(MachineInstr::mmo_iterator Begin,
-                                    MachineInstr::mmo_iterator End) {
-  // Count the number of load mem refs.
-  unsigned Num = 0;
-  for (MachineInstr::mmo_iterator I = Begin; I != End; ++I)
-    if ((*I)->isLoad())
-      ++Num;
-
-  // Allocate a new array and populate it with the load information.
-  MachineInstr::mmo_iterator Result = allocateMemRefsArray(Num);
-  unsigned Index = 0;
-  for (MachineInstr::mmo_iterator I = Begin; I != End; ++I) {
-    if ((*I)->isLoad()) {
-      if (!(*I)->isStore())
-        // Reuse the MMO.
-        Result[Index] = *I;
-      else {
-        // Clone the MMO and unset the store flag.
-        MachineMemOperand *JustLoad =
-          getMachineMemOperand((*I)->getValue(),
-                               (*I)->getFlags() & ~MachineMemOperand::MOStore,
-                               (*I)->getOffset(), (*I)->getSize(),
-                               (*I)->getBaseAlignment());
-        Result[Index] = JustLoad;
-      }
-      ++Index;
-    }
-  }
-  return std::make_pair(Result, Result + Num);
-}
-
-std::pair<MachineInstr::mmo_iterator, MachineInstr::mmo_iterator>
-MachineFunction::extractStoreMemRefs(MachineInstr::mmo_iterator Begin,
-                                     MachineInstr::mmo_iterator End) {
-  // Count the number of load mem refs.
-  unsigned Num = 0;
-  for (MachineInstr::mmo_iterator I = Begin; I != End; ++I)
-    if ((*I)->isStore())
-      ++Num;
-
-  // Allocate a new array and populate it with the store information.
-  MachineInstr::mmo_iterator Result = allocateMemRefsArray(Num);
-  unsigned Index = 0;
-  for (MachineInstr::mmo_iterator I = Begin; I != End; ++I) {
-    if ((*I)->isStore()) {
-      if (!(*I)->isLoad())
-        // Reuse the MMO.
-        Result[Index] = *I;
-      else {
-        // Clone the MMO and unset the load flag.
-        MachineMemOperand *JustStore =
-          getMachineMemOperand((*I)->getValue(),
-                               (*I)->getFlags() & ~MachineMemOperand::MOLoad,
-                               (*I)->getOffset(), (*I)->getSize(),
-                               (*I)->getBaseAlignment());
-        Result[Index] = JustStore;
-      }
-      ++Index;
-    }
-  }
-  return std::make_pair(Result, Result + Num);
-}
-
 void MachineFunction::dump() const {
-  print(errs());
+  print(*cerr.stream());
 }
 
-void MachineFunction::print(raw_ostream &OS) const {
-  OS << "# Machine code for " << Fn->getName() << "():\n";
+void MachineFunction::print(std::ostream &OS,
+                            const PrefixPrinter &prefix) const {
+  OS << "# Machine code for " << Fn->getNameStr () << "():\n";
 
   // Print Frame Information
   FrameInfo->print(*this, OS);
@@ -313,7 +231,10 @@ void MachineFunction::print(raw_ostream &OS) const {
   JumpTableInfo->print(OS);
 
   // Print Constant Pool
-  ConstantPool->print(OS);
+  {
+    raw_os_ostream OSS(OS);
+    ConstantPool->print(OSS);
+  }
   
   const TargetRegisterInfo *TRI = getTarget().getRegisterInfo();
   
@@ -327,25 +248,27 @@ void MachineFunction::print(raw_ostream &OS) const {
         OS << " Reg #" << I->first;
       
       if (I->second)
-        OS << " in VR#" << I->second << ' ';
+        OS << " in VR#" << I->second << " ";
     }
-    OS << '\n';
+    OS << "\n";
   }
   if (RegInfo && !RegInfo->liveout_empty()) {
     OS << "Live Outs:";
     for (MachineRegisterInfo::liveout_iterator
          I = RegInfo->liveout_begin(), E = RegInfo->liveout_end(); I != E; ++I)
       if (TRI)
-        OS << ' ' << TRI->getName(*I);
+        OS << " " << TRI->getName(*I);
       else
         OS << " Reg #" << *I;
-    OS << '\n';
+    OS << "\n";
   }
   
-  for (const_iterator BB = begin(), E = end(); BB != E; ++BB)
-    BB->print(OS);
+  for (const_iterator BB = begin(); BB != end(); ++BB) {
+    prefix(OS, *BB);
+    BB->print(OS, prefix);
+  }
 
-  OS << "\n# End machine code for " << Fn->getName() << "().\n\n";
+  OS << "\n# End machine code for " << Fn->getNameStr () << "().\n\n";
 }
 
 namespace llvm {
@@ -362,16 +285,15 @@ namespace llvm {
           !Node->getBasicBlock()->getName().empty())
         return Node->getBasicBlock()->getNameStr() + ":";
 
-      std::string OutStr;
-      {
-        raw_string_ostream OSS(OutStr);
-        
-        if (ShortNames)
-          OSS << Node->getNumber() << ':';
-        else
-          Node->print(OSS);
+      std::ostringstream Out;
+      if (ShortNames) {
+        Out << Node->getNumber() << ':';
+        return Out.str();
       }
 
+      Node->print(Out);
+
+      std::string OutStr = Out.str();
       if (OutStr[0] == '\n') OutStr.erase(OutStr.begin());
 
       // Process string output to make it nicer...
@@ -390,8 +312,8 @@ void MachineFunction::viewCFG() const
 #ifndef NDEBUG
   ViewGraph(this, "mf" + getFunction()->getNameStr());
 #else
-  errs() << "SelectionDAG::viewGraph is only available in debug builds on "
-         << "systems with Graphviz or gv!\n";
+  cerr << "SelectionDAG::viewGraph is only available in debug builds on "
+       << "systems with Graphviz or gv!\n";
 #endif // NDEBUG
 }
 
@@ -400,8 +322,8 @@ void MachineFunction::viewCFGOnly() const
 #ifndef NDEBUG
   ViewGraph(this, "mf" + getFunction()->getNameStr(), true);
 #else
-  errs() << "SelectionDAG::viewGraph is only available in debug builds on "
-         << "systems with Graphviz or gv!\n";
+  cerr << "SelectionDAG::viewGraph is only available in debug builds on "
+       << "systems with Graphviz or gv!\n";
 #endif // NDEBUG
 }
 
@@ -413,6 +335,23 @@ unsigned MachineFunction::addLiveIn(unsigned PReg,
   unsigned VReg = getRegInfo().createVirtualRegister(RC);
   getRegInfo().addLiveIn(PReg, VReg);
   return VReg;
+}
+
+/// getOrCreateDebugLocID - Look up the DebugLocTuple index with the given
+/// source file, line, and column. If none currently exists, create a new
+/// DebugLocTuple, and insert it into the DebugIdMap.
+unsigned MachineFunction::getOrCreateDebugLocID(GlobalVariable *CompileUnit,
+                                                unsigned Line, unsigned Col) {
+  DebugLocTuple Tuple(CompileUnit, Line, Col);
+  DenseMap<DebugLocTuple, unsigned>::iterator II
+    = DebugLocInfo.DebugIdMap.find(Tuple);
+  if (II != DebugLocInfo.DebugIdMap.end())
+    return II->second;
+  // Add a new tuple.
+  unsigned Id = DebugLocInfo.DebugLocations.size();
+  DebugLocInfo.DebugLocations.push_back(Tuple);
+  DebugLocInfo.DebugIdMap[Tuple] = Id;
+  return Id;
 }
 
 /// getDebugLocTuple - Get the DebugLocTuple for a given DebugLoc object.
@@ -471,7 +410,7 @@ MachineFrameInfo::getPristineRegs(const MachineBasicBlock *MBB) const {
 }
 
 
-void MachineFrameInfo::print(const MachineFunction &MF, raw_ostream &OS) const{
+void MachineFrameInfo::print(const MachineFunction &MF, std::ostream &OS) const{
   const TargetFrameInfo *FI = MF.getTarget().getFrameInfo();
   int ValOffset = (FI ? FI->getOffsetOfLocalArea() : 0);
 
@@ -508,7 +447,7 @@ void MachineFrameInfo::print(const MachineFunction &MF, raw_ostream &OS) const{
 }
 
 void MachineFrameInfo::dump(const MachineFunction &MF) const {
-  print(MF, errs());
+  print(MF, *cerr.stream());
 }
 
 //===----------------------------------------------------------------------===//
@@ -547,7 +486,7 @@ MachineJumpTableInfo::ReplaceMBBInJumpTables(MachineBasicBlock *Old,
   return MadeChange;
 }
 
-void MachineJumpTableInfo::print(raw_ostream &OS) const {
+void MachineJumpTableInfo::print(std::ostream &OS) const {
   // FIXME: this is lame, maybe we could print out the MBB numbers or something
   // like {1, 2, 4, 5, 3, 0}
   for (unsigned i = 0, e = JumpTables.size(); i != e; ++i) {
@@ -556,7 +495,7 @@ void MachineJumpTableInfo::print(raw_ostream &OS) const {
   }
 }
 
-void MachineJumpTableInfo::dump() const { print(errs()); }
+void MachineJumpTableInfo::dump() const { print(*cerr.stream()); }
 
 
 //===----------------------------------------------------------------------===//

@@ -1,6 +1,6 @@
 ; bswap should be constant folded when it is passed a constant argument
 
-; RUN: opt < %s -constprop -S | not grep call
+; RUN: llvm-as < %s | opt -constprop | llvm-dis | not grep call
 
 declare i16 @llvm.bswap.i16(i16)
 

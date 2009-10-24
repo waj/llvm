@@ -26,12 +26,17 @@ namespace llvm
   public:
     /// DELETE_STREAM - Tell the destructor to delete the held stream.
     ///
-    static const bool DELETE_STREAM = true;
+    const static bool DELETE_STREAM = true;
 
     /// PRESERVE_STREAM - Tell the destructor to not delete the held
     /// stream.
     ///
-    static const bool PRESERVE_STREAM = false;
+    const static bool PRESERVE_STREAM = false;
+
+    /// MAX_COLUMN_PAD - This is the maximum column padding we ever
+    /// expect to see.
+    ///
+    const static unsigned MAX_COLUMN_PAD = 100;
 
   private:
     /// TheStream - The real stream we output to. We set it to be

@@ -1,5 +1,5 @@
-; RUN: llc < %s -march=arm | grep strb
-; RUN: llc < %s -march=arm | grep strh
+; RUN: llvm-as < %s | llc -march=arm | grep strb
+; RUN: llvm-as < %s | llc -march=arm | grep strh
 
 define void @f1() {
 entry:

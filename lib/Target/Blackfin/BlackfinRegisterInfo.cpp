@@ -219,10 +219,9 @@ static unsigned findScratchRegister(MachineBasicBlock::iterator II,
   return Reg;
 }
 
-unsigned
-BlackfinRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                          int SPAdj, int *Value,
-                                          RegScavenger *RS) const {
+void BlackfinRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                               int SPAdj,
+                                               RegScavenger *RS) const {
   MachineInstr &MI = *II;
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
@@ -259,20 +258,20 @@ BlackfinRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       MI.setDesc(TII.get(isStore
                          ? BF::STORE32p_uimm6m4
                          : BF::LOAD32p_uimm6m4));
-      return 0;
+      return;
     }
     if (BaseReg == BF::FP && isUint<7>(-Offset)) {
       MI.setDesc(TII.get(isStore
                          ? BF::STORE32fp_nimm7m4
                          : BF::LOAD32fp_nimm7m4));
       MI.getOperand(FIPos+1).setImm(-Offset);
-      return 0;
+      return;
     }
     if (isInt<18>(Offset)) {
       MI.setDesc(TII.get(isStore
                          ? BF::STORE32p_imm18m4
                          : BF::LOAD32p_imm18m4));
-      return 0;
+      return;
     }
     // Use RegScavenger to calculate proper offset...
     MI.dump();
@@ -357,7 +356,6 @@ BlackfinRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     llvm_unreachable("Cannot eliminate frame index");
     break;
   }
-  return 0;
 }
 
 void BlackfinRegisterInfo::
@@ -451,6 +449,14 @@ unsigned BlackfinRegisterInfo::getRARegister() const {
 
 unsigned BlackfinRegisterInfo::getFrameRegister(MachineFunction &MF) const {
   return hasFP(MF) ? BF::FP : BF::SP;
+}
+
+int
+BlackfinRegisterInfo::getFrameIndexOffset(MachineFunction &MF, int FI) const {
+  const TargetFrameInfo &TFI = *MF.getTarget().getFrameInfo();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  return MFI->getObjectOffset(FI) + MFI->getStackSize() -
+    TFI.getOffsetOfLocalArea() + MFI->getOffsetAdjustment();
 }
 
 unsigned BlackfinRegisterInfo::getEHExceptionRegister() const {

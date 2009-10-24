@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/StringPool.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/ADT/StringRef.h"
 
 using namespace llvm;

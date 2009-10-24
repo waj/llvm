@@ -21,7 +21,6 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Assembly/Parser.h"
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 using namespace llvm;
@@ -434,7 +433,7 @@ lltok::Kind LLLexer::LexMetadata() {
       ++CurPtr;
 
     StrVal.assign(TokStart+1, CurPtr);   // Skip !
-    return lltok::NamedOrCustomMD;
+    return lltok::NamedMD;
   }
   return lltok::Metadata;
 }
@@ -529,7 +528,6 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(module);
   KEYWORD(asm);
   KEYWORD(sideeffect);
-  KEYWORD(alignstack);
   KEYWORD(gc);
 
   KEYWORD(ccc);
@@ -557,7 +555,6 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(readnone);
   KEYWORD(readonly);
 
-  KEYWORD(inlinehint);
   KEYWORD(noinline);
   KEYWORD(alwaysinline);
   KEYWORD(optsize);
@@ -602,10 +599,6 @@ lltok::Kind LLLexer::LexIdentifier() {
     // Scan CurPtr ahead, seeing if there is just whitespace before the newline.
     if (JustWhitespaceNewLine(CurPtr))
       return lltok::kw_zeroext;
-  } else if (Len == 6 && !memcmp(StartChar, "malloc", 6)) {
-    // FIXME: Remove in LLVM 3.0.
-    // Autoupgrade malloc instruction.
-    return lltok::kw_malloc;
   }
 
   // Keywords for instructions.
@@ -645,6 +638,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   INSTKEYWORD(unwind,      Unwind);
   INSTKEYWORD(unreachable, Unreachable);
 
+  INSTKEYWORD(malloc,      Malloc);
   INSTKEYWORD(alloca,      Alloca);
   INSTKEYWORD(free,        Free);
   INSTKEYWORD(load,        Load);

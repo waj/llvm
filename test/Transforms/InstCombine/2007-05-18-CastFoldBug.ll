@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | grep {call.*sret}
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep {call.*sret}
 ; Make sure instcombine doesn't drop the sret attribute.
 
 define void @blah(i16* %tmp10) {

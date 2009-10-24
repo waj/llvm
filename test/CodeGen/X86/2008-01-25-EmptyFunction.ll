@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | grep nop
+; RUN: llvm-as < %s | llc -march=x86 | grep nop
 target triple = "i686-apple-darwin8"
 
 

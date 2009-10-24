@@ -1,4 +1,4 @@
-##===- lib/Target/Sparc/AsmPrinter/Makefile ----------------*- Makefile -*-===##
+##===- lib/Target/Sparc/Makefile ---------------------------*- Makefile -*-===##
 #
 #                     The LLVM Compiler Infrastructure
 #

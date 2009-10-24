@@ -1,4 +1,5 @@
-; RUN: llc < %s -march=x86-64 -mattr=+64bit,+sse3 -print-failed-fuse-candidates |& \
+; RUN: llvm-as < %s | \
+; RUN: llc -march=x86-64 -mattr=+64bit,+sse3 -print-failed-fuse-candidates |& \
 ; RUN:   grep fail | count 1
 
 declare float @test_f(float %f)

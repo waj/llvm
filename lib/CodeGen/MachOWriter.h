@@ -31,7 +31,7 @@ namespace llvm {
   struct MachOSym;
   class TargetData;
   class TargetMachine;
-  class MCAsmInfo;
+  class TargetAsmInfo;
   class ObjectCodeEmitter;
   class OutputBuffer;
   class raw_ostream;
@@ -78,7 +78,7 @@ namespace llvm {
     bool is64Bit, isLittleEndian;
 
     // Target Asm Info
-    const MCAsmInfo *MAI;
+    const TargetAsmInfo *TAI;
 
     /// Header - An instance of MachOHeader that we will update while we build
     /// the file, and then emit during finalization.

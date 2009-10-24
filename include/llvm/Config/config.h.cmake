@@ -6,6 +6,14 @@
 /* Define if dlopen(0) will open the symbols of the program */
 #undef CAN_DLOPEN_SELF
 
+/* Define to one of `_getb67', `GETB67', `getb67' for Cray-2 and Cray-YMP
+   systems. This function is required for `alloca.c' support on those systems.
+   */
+#undef CRAY_STACKSEG_END
+
+/* Define to 1 if using `alloca.c'. */
+#undef C_ALLOCA
+
 /* Define if CBE is enabled for printf %a output */
 #undef ENABLE_CBE_PRINTF_A
 
@@ -14,6 +22,13 @@
 
 /* Define if threads enabled */
 #cmakedefine ENABLE_THREADS ${ENABLE_THREADS}
+
+/* Define to 1 if you have `alloca', as a function or macro. */
+#cmakedefine HAVE_ALLOCA ${HAVE_ALLOCA}
+
+/* Define to 1 if you have <alloca.h> and it should be used (not on Ultrix).
+   */
+#cmakedefine HAVE_ALLOCA_H ${HAVE_ALLOCA_H}
 
 /* Define to 1 if you have the `argz_append' function. */
 #undef HAVE_ARGZ_APPEND
@@ -98,7 +113,7 @@
 #cmakedefine HAVE_FCNTL_H ${HAVE_FCNTL_H}
 
 /* Set to 1 if the finite function is found in <ieeefp.h> */
-#cmakedefine HAVE_FINITE_IN_IEEEFP_H ${HAVE_FINITE_IN_IEEEFP_H}
+#undef HAVE_FINITE_IN_IEEEFP_H
 
 /* Define to 1 if you have the `floorf' function. */
 #cmakedefine HAVE_FLOORF ${HAVE_FLOORF}
@@ -289,10 +304,7 @@
 #undef HAVE_ROUNDF
 
 /* Define to 1 if you have the `sbrk' function. */
-#cmakedefine HAVE_SBRK ${HAVE_SBRK}
-
-/* Define to 1 if you have the `setenv' function. */
-#cmakedefine HAVE_SETENV ${HAVE_SETENV}
+#undef HAVE_SBRK
 
 /* Define to 1 if you have the `setjmp' function. */
 #undef HAVE_SETJMP
@@ -427,6 +439,9 @@
 
 /* Define to 1 if you have the <windows.h> header file. */
 #cmakedefine HAVE_WINDOWS_H ${HAVE_WINDOWS_H}
+
+/* Define to 1 for ilist sentinel compaction */
+#cmakedefine LLVM_COMPACT_SENTINELS ${LLVM_COMPACT_SENTINELS}
 
 /* Installation directory for binary executables */
 #undef LLVM_BINDIR

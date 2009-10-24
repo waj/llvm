@@ -1,4 +1,4 @@
-; RUN: opt < %s -basicaa -gvn -instcombine |\
+; RUN: llvm-as < %s | opt -basicaa -gvn -instcombine |\
 ; RUN: llvm-dis | grep {load i32\\* %A}
 
 declare double* @useit(i32*)

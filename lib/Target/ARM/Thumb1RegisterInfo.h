@@ -41,7 +41,6 @@ public:
     getPhysicalRegisterRegClass(unsigned Reg, EVT VT = MVT::Other) const;
 
   bool requiresRegisterScavenging(const MachineFunction &MF) const;
-  bool requiresFrameIndexScavenging(const MachineFunction &MF) const;
 
   bool hasReservedCallFrame(MachineFunction &MF) const;
 
@@ -55,14 +54,8 @@ public:
                         unsigned FrameReg, int Offset,
                         unsigned MOVOpc, unsigned ADDriOpc, unsigned SUBriOpc) const;
 
-  bool saveScavengerRegister(MachineBasicBlock &MBB,
-                             MachineBasicBlock::iterator I,
-                             MachineBasicBlock::iterator &UseMI,
-                             const TargetRegisterClass *RC,
-                             unsigned Reg) const;
-  unsigned eliminateFrameIndex(MachineBasicBlock::iterator II,
-                               int SPAdj, int *Value = NULL,
-                               RegScavenger *RS = NULL) const;
+  void eliminateFrameIndex(MachineBasicBlock::iterator II,
+                           int SPAdj, RegScavenger *RS = NULL) const;
 
   void emitPrologue(MachineFunction &MF) const;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;

@@ -1,4 +1,4 @@
-; RUN: opt < %s -argpromotion -instcombine -S | not grep load
+; RUN: llvm-as < %s | opt -argpromotion -instcombine | llvm-dis | not grep load
 
 %QuadTy = type { i32, i32, i32, i32 }
 @G = constant %QuadTy {

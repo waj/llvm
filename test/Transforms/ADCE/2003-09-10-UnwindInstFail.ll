@@ -1,4 +1,4 @@
-; RUN: opt < %s -adce -disable-output
+; RUN: llvm-as < %s | opt -adce -disable-output
 
 define void @test() {
         br i1 false, label %then, label %endif

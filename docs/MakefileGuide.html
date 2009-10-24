@@ -261,7 +261,7 @@
 <!-- ======================================================================= -->
 <div class="doc_subsubsection"><a name="BCModules">Bitcode Modules</a></div>
 <div class="doc_text">
-  <p>In some situations, it is desirable to build a single bitcode module from
+  <p>In some situations, it is desireable to build a single bitcode module from
   a variety of sources, instead of an archive, shared library, or bitcode 
   library. Bitcode modules can be specified in addition to any of the other
   types of libraries by defining the <a href="#MODULE_NAME">MODULE_NAME</a>
@@ -626,11 +626,6 @@
     <dd>If set to any value, causes a bitcode library (.bc) to be built.</dd>
     <dt><a name="CONFIG_FILES"><tt>CONFIG_FILES</tt></a></dt>
     <dd>Specifies a set of configuration files to be installed.</dd>
-    <dt><a name="DEBUG_SYMBOLS"><tt>DEBUG_SYMBOLS</tt></a></dt>
-    <dd>If set to any value, causes the build to include debugging
-    symbols even in optimized objects, libraries and executables. This
-    alters the flags specified to the compilers and linkers. Debugging
-    isn't fun in an optimized build, but it is possible.</dd>
     <dt><a name="DIRS"><tt>DIRS</tt></a></dt>
     <dd>Specifies a set of directories, usually children of the current
     directory, that should also be made using the same goal. These directories 

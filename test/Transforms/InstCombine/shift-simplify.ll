@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | \
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | \
 ; RUN:    egrep {shl|lshr|ashr} | count 3
 
 define i32 @test0(i32 %A, i32 %B, i32 %C) {

@@ -1,4 +1,5 @@
-; RUN: llc < %s -mtriple=x86_64-pc-linux -relocation-model=pic -o %t1
+; RUN: llvm-as < %s | \
+; RUN:   llc -mtriple=x86_64-pc-linux -relocation-model=pic -o %t1 -f
 ; RUN: grep {call	f} %t1
 ; RUN: not grep {call	f@PLT} %t1
 

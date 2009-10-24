@@ -121,20 +121,19 @@ bool LowerSubregsInstructionPass::LowerExtract(MachineInstr *MI) {
          "Extract destination must be in a physical register");
   assert(SrcReg && "invalid subregister index for register");
 
-  DEBUG(errs() << "subreg: CONVERTING: " << *MI);
+  DOUT << "subreg: CONVERTING: " << *MI;
 
   if (SrcReg == DstReg) {
     // No need to insert an identity copy instruction.
     if (MI->getOperand(1).isKill()) {
-      // We must make sure the super-register gets killed. Replace the
-      // instruction with KILL.
-      MI->setDesc(TII.get(TargetInstrInfo::KILL));
+      // We must make sure the super-register gets killed.Replace the
+      // instruction with IMPLICIT_DEF.
+      MI->setDesc(TII.get(TargetInstrInfo::IMPLICIT_DEF));
       MI->RemoveOperand(2);     // SubIdx
-      DEBUG(errs() << "subreg: replace by: " << *MI);
+      DOUT << "subreg: replace by: " << *MI;
       return true;
     }
-
-    DEBUG(errs() << "subreg: eliminated!");
+    DOUT << "subreg: eliminated!";
   } else {
     // Insert copy
     const TargetRegisterClass *TRCS = TRI.getPhysicalRegisterRegClass(DstReg);
@@ -147,13 +146,14 @@ bool LowerSubregsInstructionPass::LowerExtract(MachineInstr *MI) {
       TransferDeadFlag(MI, DstReg, TRI);
     if (MI->getOperand(1).isKill())
       TransferKillFlag(MI, SuperReg, TRI, true);
-    DEBUG({
-        MachineBasicBlock::iterator dMI = MI;
-        errs() << "subreg: " << *(--dMI);
-      });
+
+#ifndef NDEBUG
+    MachineBasicBlock::iterator dMI = MI;
+    DOUT << "subreg: " << *(--dMI);
+#endif
   }
 
-  DEBUG(errs() << '\n');
+  DOUT << "\n";
   MBB->erase(MI);
   return true;
 }
@@ -181,7 +181,7 @@ bool LowerSubregsInstructionPass::LowerSubregToReg(MachineInstr *MI) {
   assert(TargetRegisterInfo::isPhysicalRegister(InsReg) &&
          "Inserted value must be in a physical register");
 
-  DEBUG(errs() << "subreg: CONVERTING: " << *MI);
+  DOUT << "subreg: CONVERTING: " << *MI;
 
   if (DstSubReg == InsReg && InsSIdx == 0) {
     // No need to insert an identify copy instruction.
@@ -190,28 +190,27 @@ bool LowerSubregsInstructionPass::LowerSubregToReg(MachineInstr *MI) {
     // %RAX<def> = SUBREG_TO_REG 0, %EAX:3<kill>, 3
     // The first def is defining RAX, not EAX so the top bits were not
     // zero extended.
-    DEBUG(errs() << "subreg: eliminated!");
+    DOUT << "subreg: eliminated!";
   } else {
     // Insert sub-register copy
     const TargetRegisterClass *TRC0= TRI.getPhysicalRegisterRegClass(DstSubReg);
     const TargetRegisterClass *TRC1= TRI.getPhysicalRegisterRegClass(InsReg);
-    bool Emitted = TII.copyRegToReg(*MBB, MI, DstSubReg, InsReg, TRC0, TRC1);
-    (void)Emitted;
-    assert(Emitted && "Subreg and Dst must be of compatible register class");
+    TII.copyRegToReg(*MBB, MI, DstSubReg, InsReg, TRC0, TRC1);
     // Transfer the kill/dead flags, if needed.
     if (MI->getOperand(0).isDead())
       TransferDeadFlag(MI, DstSubReg, TRI);
     if (MI->getOperand(2).isKill())
       TransferKillFlag(MI, InsReg, TRI);
-    DEBUG({
-        MachineBasicBlock::iterator dMI = MI;
-        errs() << "subreg: " << *(--dMI);
-      });
+
+#ifndef NDEBUG
+    MachineBasicBlock::iterator dMI = MI;
+    DOUT << "subreg: " << *(--dMI);
+#endif
   }
 
-  DEBUG(errs() << '\n');
+  DOUT << "\n";
   MBB->erase(MI);
-  return true;
+  return true;                    
 }
 
 bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
@@ -240,20 +239,20 @@ bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
   assert(TargetRegisterInfo::isPhysicalRegister(InsReg) &&
          "Inserted value must be in a physical register");
 
-  DEBUG(errs() << "subreg: CONVERTING: " << *MI);
+  DOUT << "subreg: CONVERTING: " << *MI;
 
   if (DstSubReg == InsReg) {
     // No need to insert an identity copy instruction. If the SrcReg was
-    // <undef>, we need to make sure it is alive by inserting a KILL
+    // <undef>, we need to make sure it is alive by inserting an IMPLICIT_DEF
     if (MI->getOperand(1).isUndef() && !MI->getOperand(0).isDead()) {
       MachineInstrBuilder MIB = BuildMI(*MBB, MI, MI->getDebugLoc(),
-                                TII.get(TargetInstrInfo::KILL), DstReg);
+                                TII.get(TargetInstrInfo::IMPLICIT_DEF), DstReg);
       if (MI->getOperand(2).isUndef())
-        MIB.addReg(InsReg, RegState::Undef);
+        MIB.addReg(InsReg, RegState::Implicit | RegState::Undef);
       else
-        MIB.addReg(InsReg, RegState::Kill);
+        MIB.addReg(InsReg, RegState::ImplicitKill);
     } else {
-      DEBUG(errs() << "subreg: eliminated!\n");
+      DOUT << "subreg: eliminated!\n";
       MBB->erase(MI);
       return true;
     }
@@ -262,15 +261,12 @@ bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
     const TargetRegisterClass *TRC0= TRI.getPhysicalRegisterRegClass(DstSubReg);
     const TargetRegisterClass *TRC1= TRI.getPhysicalRegisterRegClass(InsReg);
     if (MI->getOperand(2).isUndef())
-      // If the source register being inserted is undef, then this becomes a
-      // KILL.
+      // If the source register being inserted is undef, then this becomes an
+      // implicit_def.
       BuildMI(*MBB, MI, MI->getDebugLoc(),
-              TII.get(TargetInstrInfo::KILL), DstSubReg);
-    else {
-      bool Emitted = TII.copyRegToReg(*MBB, MI, DstSubReg, InsReg, TRC0, TRC1);
-      (void)Emitted;
-      assert(Emitted && "Subreg and Dst must be of compatible register class");
-    }
+              TII.get(TargetInstrInfo::IMPLICIT_DEF), DstSubReg);
+    else
+      TII.copyRegToReg(*MBB, MI, DstSubReg, InsReg, TRC0, TRC1);
     MachineBasicBlock::iterator CopyMI = MI;
     --CopyMI;
 
@@ -291,11 +287,12 @@ bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
       TransferKillFlag(MI, InsReg, TRI);
   }
 
-  DEBUG({
-      MachineBasicBlock::iterator dMI = MI;
-      errs() << "subreg: " << *(--dMI) << "\n";
-    });
+#ifndef NDEBUG
+  MachineBasicBlock::iterator dMI = MI;
+  DOUT << "subreg: " << *(--dMI);
+#endif
 
+  DOUT << "\n";
   MBB->erase(MI);
   return true;
 }
@@ -304,12 +301,13 @@ bool LowerSubregsInstructionPass::LowerInsert(MachineInstr *MI) {
 /// copies.
 ///
 bool LowerSubregsInstructionPass::runOnMachineFunction(MachineFunction &MF) {
-  DEBUG(errs() << "Machine Function\n"  
-               << "********** LOWERING SUBREG INSTRS **********\n"
-               << "********** Function: " 
-               << MF.getFunction()->getName() << '\n');
-
+  DOUT << "Machine Function\n";
+  
   bool MadeChange = false;
+
+  DOUT << "********** LOWERING SUBREG INSTRS **********\n";
+  DEBUG(errs() << "********** Function: " 
+        << MF.getFunction()->getName() << '\n');
 
   for (MachineFunction::iterator mbbi = MF.begin(), mbbe = MF.end();
        mbbi != mbbe; ++mbbi) {

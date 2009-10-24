@@ -1,4 +1,4 @@
-; RUN: llc < %s 
+; RUN: llvm-as < %s | llc 
 ; rdar://5763967
 
 define void @test() {

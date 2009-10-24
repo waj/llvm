@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 ; Examples that exhibits a bug in DAGCombine.  The case is triggered by the
 ; following program.  The bug is DAGCombine assumes that the bit convert

@@ -1,4 +1,4 @@
-; RUN: opt < %s -condprop -disable-output
+; RUN: llvm-as < %s | opt -condprop -disable-output
 ; PR979
 
 target datalayout = "e-p:32:32"

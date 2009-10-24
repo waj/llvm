@@ -26,8 +26,7 @@
 using namespace llvm;
 
 static cl::opt<std::string>
-MArch("march",
-      cl::desc("Architecture to generate assembly for (see --version)"));
+MArch("march", cl::desc("Architecture to generate assembly for (see --version)"));
 
 static cl::opt<std::string>
 MCPU("mcpu",
@@ -62,8 +61,7 @@ TargetMachine *JIT::selectTarget(ModuleProvider *MP, std::string *ErrorStr) {
     }
 
     if (!TheTarget) {
-      *ErrorStr = "No available targets are compatible with this -march, "
-        "see -version for the available targets.\n";
+      errs() << "JIT: error: invalid target '" << MArch << "'.\n";
       return 0;
     }
 

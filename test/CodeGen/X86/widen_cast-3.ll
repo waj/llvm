@@ -1,7 +1,6 @@
-; RUN: llc < %s -march=x86 -mattr=+sse42 -disable-mmx | FileCheck %s
-; CHECK: paddd
-; CHECK: pextrd
-; CHECK: pextrd
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse42 -disable-mmx -o %t -f
+; RUN: grep paddd  %t | count 1
+; RUN: grep pextrd %t | count 2
 
 ; bitcast v12i8 to v3i32
 

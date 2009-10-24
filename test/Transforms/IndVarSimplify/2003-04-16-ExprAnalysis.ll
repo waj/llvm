@@ -1,7 +1,7 @@
 ; This is a test case for the expression analysis code, not really indvars.
 ; It was assuming any constant of int type was a ConstantInteger.
 ;
-; RUN: opt < %s -indvars
+; RUN: llvm-as < %s | opt -indvars
 
 @X = global i32 7               ; <i32*> [#uses=1]
 

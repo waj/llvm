@@ -597,4 +597,9 @@ void ConstantRange::dump() const {
   print(errs());
 }
 
-
+std::ostream &llvm::operator<<(std::ostream &o,
+                               const ConstantRange &CR) {
+  raw_os_ostream OS(o);
+  OS << CR;
+  return o;
+}

@@ -22,7 +22,7 @@ static void ParseConstraint(const std::string &CStr, CodeGenInstruction *I) {
   std::string::size_type pos = CStr.find_first_of('=');
   assert(pos != std::string::npos && "Unrecognized constraint");
   std::string::size_type start = CStr.find_first_not_of(" \t");
-  std::string Name = CStr.substr(start, pos - start);
+  std::string Name = CStr.substr(start, pos);
   
   // TIED_TO: $src1 = $dst
   std::string::size_type wpos = Name.find_first_of(" \t");
@@ -70,7 +70,7 @@ static void ParseConstraints(const std::string &CStr, CodeGenInstruction *I) {
     if (eidx == std::string::npos)
       eidx = CStr.length();
     
-    ParseConstraint(CStr.substr(bidx, eidx - bidx), I);
+    ParseConstraint(CStr.substr(bidx, eidx), I);
     bidx = CStr.find_first_not_of(delims, eidx);
   }
 }
@@ -101,8 +101,6 @@ CodeGenInstruction::CodeGenInstruction(Record *R, const std::string &AsmStr)
   mayHaveSideEffects = R->getValueAsBit("mayHaveSideEffects");
   neverHasSideEffects = R->getValueAsBit("neverHasSideEffects");
   isAsCheapAsAMove = R->getValueAsBit("isAsCheapAsAMove");
-  hasExtraSrcRegAllocReq = R->getValueAsBit("hasExtraSrcRegAllocReq");
-  hasExtraDefRegAllocReq = R->getValueAsBit("hasExtraDefRegAllocReq");
   hasOptionalDef = false;
   isVariadic = false;
 

@@ -9,9 +9,11 @@
 //
 // This file implements a simple pass that applies a variety of small
 // optimizations for calls to specific well-known function calls (e.g. runtime
-// library functions).   Any optimization that takes the very simple form
-// "replace call to library function with simpler code that provides the same
-// result" belongs in this file.
+// library functions). For example, a call to the function "exit(3)" that
+// occurs within the main() function can be transformed into a simple "return 3"
+// instruction. Any optimization that takes this form (replace call to library
+// function with simpler code that provides the same result) belongs in this
+// file.
 //
 //===----------------------------------------------------------------------===//
 
@@ -28,6 +30,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Config/config.h"
@@ -43,7 +46,7 @@ STATISTIC(NumAnnotated, "Number of attributes added to library functions");
 /// This class is the abstract base class for the set of optimizations that
 /// corresponds to one library call.
 namespace {
-class LibCallOptimization {
+class VISIBILITY_HIDDEN LibCallOptimization {
 protected:
   Function *Caller;
   const TargetData *TD;
@@ -57,9 +60,9 @@ public:
   /// performed.  If it returns CI, then it transformed the call and CI is to be
   /// deleted.  If it returns something else, replace CI with the new value and
   /// delete CI.
-  virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B)
+  virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) 
     =0;
-
+  
   Value *OptimizeCall(CallInst *CI, const TargetData *TD, IRBuilder<> &B) {
     Caller = CI->getParent()->getParent();
     this->TD = TD;
@@ -75,12 +78,12 @@ public:
   /// specified pointer.  Ptr is required to be some pointer type, and the
   /// return value has 'intptr_t' type.
   Value *EmitStrLen(Value *Ptr, IRBuilder<> &B);
-
+  
   /// EmitMemCpy - Emit a call to the memcpy function to the builder.  This
   /// always expects that the size has type 'intptr_t' and Dst/Src are pointers.
-  Value *EmitMemCpy(Value *Dst, Value *Src, Value *Len,
+  Value *EmitMemCpy(Value *Dst, Value *Src, Value *Len, 
                     unsigned Align, IRBuilder<> &B);
-
+  
   /// EmitMemChr - Emit a call to the memchr function.  This assumes that Ptr is
   /// a pointer, Val is an i32 value, and Len is an 'intptr_t' value.
   Value *EmitMemChr(Value *Ptr, Value *Val, Value *Len, IRBuilder<> &B);
@@ -95,36 +98,35 @@ public:
   /// 'floor').  This function is known to take a single of type matching 'Op'
   /// and returns one value with the same type.  If 'Op' is a long double, 'l'
   /// is added as the suffix of name, if 'Op' is a float, we add a 'f' suffix.
-  Value *EmitUnaryFloatFnCall(Value *Op, const char *Name, IRBuilder<> &B,
-                              const AttrListPtr &Attrs);
-
+  Value *EmitUnaryFloatFnCall(Value *Op, const char *Name, IRBuilder<> &B);
+  
   /// EmitPutChar - Emit a call to the putchar function.  This assumes that Char
   /// is an integer.
   void EmitPutChar(Value *Char, IRBuilder<> &B);
-
+  
   /// EmitPutS - Emit a call to the puts function.  This assumes that Str is
   /// some pointer.
   void EmitPutS(Value *Str, IRBuilder<> &B);
-
+    
   /// EmitFPutC - Emit a call to the fputc function.  This assumes that Char is
   /// an i32, and File is a pointer to FILE.
   void EmitFPutC(Value *Char, Value *File, IRBuilder<> &B);
-
+  
   /// EmitFPutS - Emit a call to the puts function.  Str is required to be a
   /// pointer and File is a pointer to FILE.
   void EmitFPutS(Value *Str, Value *File, IRBuilder<> &B);
-
+  
   /// EmitFWrite - Emit a call to the fwrite function.  This assumes that Ptr is
   /// a pointer, Size is an 'intptr_t', and File is a pointer to FILE.
   void EmitFWrite(Value *Ptr, Value *Size, Value *File, IRBuilder<> &B);
-
+  
 };
 } // End anonymous namespace.
 
 /// CastToCStr - Return V if it is an i8*, otherwise cast it to i8*.
 Value *LibCallOptimization::CastToCStr(Value *V, IRBuilder<> &B) {
   return
-        B.CreateBitCast(V, Type::getInt8PtrTy(*Context), "cstr");
+        B.CreateBitCast(V, PointerType::getUnqual(Type::getInt8Ty(*Context)), "cstr");
 }
 
 /// EmitStrLen - Emit a call to the strlen function to the builder, for the
@@ -138,7 +140,7 @@ Value *LibCallOptimization::EmitStrLen(Value *Ptr, IRBuilder<> &B) {
 
   Constant *StrLen =M->getOrInsertFunction("strlen", AttrListPtr::get(AWI, 2),
                                            TD->getIntPtrType(*Context),
-					   Type::getInt8PtrTy(*Context),
+                                    PointerType::getUnqual(Type::getInt8Ty(*Context)),
                                            NULL);
   CallInst *CI = B.CreateCall(StrLen, CastToCStr(Ptr, B), "strlen");
   if (const Function *F = dyn_cast<Function>(StrLen->stripPointerCasts()))
@@ -169,10 +171,9 @@ Value *LibCallOptimization::EmitMemChr(Value *Ptr, Value *Val,
   AWI = AttributeWithIndex::get(~0u, Attribute::ReadOnly | Attribute::NoUnwind);
 
   Value *MemChr = M->getOrInsertFunction("memchr", AttrListPtr::get(&AWI, 1),
-					 Type::getInt8PtrTy(*Context),
-					 Type::getInt8PtrTy(*Context),
-                                         Type::getInt32Ty(*Context),
-					 TD->getIntPtrType(*Context),
+                                    PointerType::getUnqual(Type::getInt8Ty(*Context)),
+                                    PointerType::getUnqual(Type::getInt8Ty(*Context)),
+                                         Type::getInt32Ty(*Context), TD->getIntPtrType(*Context),
                                          NULL);
   CallInst *CI = B.CreateCall3(MemChr, CastToCStr(Ptr, B), Val, Len, "memchr");
 
@@ -194,8 +195,8 @@ Value *LibCallOptimization::EmitMemCmp(Value *Ptr1, Value *Ptr2,
 
   Value *MemCmp = M->getOrInsertFunction("memcmp", AttrListPtr::get(AWI, 3),
                                          Type::getInt32Ty(*Context),
-                                    Type::getInt8PtrTy(*Context),
-                                    Type::getInt8PtrTy(*Context),
+                                    PointerType::getUnqual(Type::getInt8Ty(*Context)),
+                                    PointerType::getUnqual(Type::getInt8Ty(*Context)),
                                          TD->getIntPtrType(*Context), NULL);
   CallInst *CI = B.CreateCall3(MemCmp, CastToCStr(Ptr1, B), CastToCStr(Ptr2, B),
                                Len, "memcmp");
@@ -223,15 +224,14 @@ Value *LibCallOptimization::EmitMemSet(Value *Dst, Value *Val,
 /// returns one value with the same type.  If 'Op' is a long double, 'l' is
 /// added as the suffix of name, if 'Op' is a float, we add a 'f' suffix.
 Value *LibCallOptimization::EmitUnaryFloatFnCall(Value *Op, const char *Name,
-                                                 IRBuilder<> &B,
-                                                 const AttrListPtr &Attrs) {
+                                                 IRBuilder<> &B) {
   char NameBuffer[20];
-  if (!Op->getType()->isDoubleTy()) {
+  if (Op->getType() != Type::getDoubleTy(*Context)) {
     // If we need to add a suffix, copy into NameBuffer.
     unsigned NameLen = strlen(Name);
     assert(NameLen < sizeof(NameBuffer)-2);
     memcpy(NameBuffer, Name, NameLen);
-    if (Op->getType()->isFloatTy())
+    if (Op->getType() == Type::getFloatTy(*Context))
       NameBuffer[NameLen] = 'f';  // floorf
     else
       NameBuffer[NameLen] = 'l';  // floorl
@@ -243,7 +243,7 @@ Value *LibCallOptimization::EmitUnaryFloatFnCall(Value *Op, const char *Name,
   Value *Callee = M->getOrInsertFunction(Name, Op->getType(),
                                          Op->getType(), NULL);
   CallInst *CI = B.CreateCall(Callee, Op, Name);
-  CI->setAttributes(Attrs);
+
   if (const Function *F = dyn_cast<Function>(Callee->stripPointerCasts()))
     CI->setCallingConv(F->getCallingConv());
 
@@ -257,9 +257,7 @@ void LibCallOptimization::EmitPutChar(Value *Char, IRBuilder<> &B) {
   Value *PutChar = M->getOrInsertFunction("putchar", Type::getInt32Ty(*Context),
                                           Type::getInt32Ty(*Context), NULL);
   CallInst *CI = B.CreateCall(PutChar,
-                              B.CreateIntCast(Char,
-					      Type::getInt32Ty(*Context),
-					      "chari"),
+                              B.CreateIntCast(Char, Type::getInt32Ty(*Context), "chari"),
                               "putchar");
 
   if (const Function *F = dyn_cast<Function>(PutChar->stripPointerCasts()))
@@ -276,7 +274,7 @@ void LibCallOptimization::EmitPutS(Value *Str, IRBuilder<> &B) {
 
   Value *PutS = M->getOrInsertFunction("puts", AttrListPtr::get(AWI, 2),
                                        Type::getInt32Ty(*Context),
-                                    Type::getInt8PtrTy(*Context),
+                                    PointerType::getUnqual(Type::getInt8Ty(*Context)),
                                        NULL);
   CallInst *CI = B.CreateCall(PutS, CastToCStr(Str, B), "puts");
   if (const Function *F = dyn_cast<Function>(PutS->stripPointerCasts()))
@@ -293,14 +291,10 @@ void LibCallOptimization::EmitFPutC(Value *Char, Value *File, IRBuilder<> &B) {
   AWI[1] = AttributeWithIndex::get(~0u, Attribute::NoUnwind);
   Constant *F;
   if (isa<PointerType>(File->getType()))
-    F = M->getOrInsertFunction("fputc", AttrListPtr::get(AWI, 2),
-			       Type::getInt32Ty(*Context),
-                               Type::getInt32Ty(*Context), File->getType(),
-			       NULL);
+    F = M->getOrInsertFunction("fputc", AttrListPtr::get(AWI, 2), Type::getInt32Ty(*Context),
+                               Type::getInt32Ty(*Context), File->getType(), NULL);
   else
-    F = M->getOrInsertFunction("fputc",
-			       Type::getInt32Ty(*Context),
-			       Type::getInt32Ty(*Context),
+    F = M->getOrInsertFunction("fputc", Type::getInt32Ty(*Context), Type::getInt32Ty(*Context),
                                File->getType(), NULL);
   Char = B.CreateIntCast(Char, Type::getInt32Ty(*Context), "chari");
   CallInst *CI = B.CreateCall2(F, Char, File, "fputc");
@@ -319,13 +313,12 @@ void LibCallOptimization::EmitFPutS(Value *Str, Value *File, IRBuilder<> &B) {
   AWI[2] = AttributeWithIndex::get(~0u, Attribute::NoUnwind);
   Constant *F;
   if (isa<PointerType>(File->getType()))
-    F = M->getOrInsertFunction("fputs", AttrListPtr::get(AWI, 3),
-			       Type::getInt32Ty(*Context),
-                               Type::getInt8PtrTy(*Context),
+    F = M->getOrInsertFunction("fputs", AttrListPtr::get(AWI, 3), Type::getInt32Ty(*Context),
+                               PointerType::getUnqual(Type::getInt8Ty(*Context)),
                                File->getType(), NULL);
   else
     F = M->getOrInsertFunction("fputs", Type::getInt32Ty(*Context),
-                               Type::getInt8PtrTy(*Context),
+                               PointerType::getUnqual(Type::getInt8Ty(*Context)),
                                File->getType(), NULL);
   CallInst *CI = B.CreateCall2(F, CastToCStr(Str, B), File, "fputs");
 
@@ -346,15 +339,13 @@ void LibCallOptimization::EmitFWrite(Value *Ptr, Value *Size, Value *File,
   if (isa<PointerType>(File->getType()))
     F = M->getOrInsertFunction("fwrite", AttrListPtr::get(AWI, 3),
                                TD->getIntPtrType(*Context),
-                               Type::getInt8PtrTy(*Context),
-                               TD->getIntPtrType(*Context),
-			       TD->getIntPtrType(*Context),
+                               PointerType::getUnqual(Type::getInt8Ty(*Context)),
+                               TD->getIntPtrType(*Context), TD->getIntPtrType(*Context),
                                File->getType(), NULL);
   else
     F = M->getOrInsertFunction("fwrite", TD->getIntPtrType(*Context),
-                               Type::getInt8PtrTy(*Context),
-                               TD->getIntPtrType(*Context),
-			       TD->getIntPtrType(*Context),
+                               PointerType::getUnqual(Type::getInt8Ty(*Context)),
+                               TD->getIntPtrType(*Context), TD->getIntPtrType(*Context),
                                File->getType(), NULL);
   CallInst *CI = B.CreateCall4(F, CastToCStr(Ptr, B), Size,
                         ConstantInt::get(TD->getIntPtrType(*Context), 1), File);
@@ -373,30 +364,30 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSet<PHINode*, 32> &PHIs) {
   // Look through noop bitcast instructions.
   if (BitCastInst *BCI = dyn_cast<BitCastInst>(V))
     return GetStringLengthH(BCI->getOperand(0), PHIs);
-
+  
   // If this is a PHI node, there are two cases: either we have already seen it
   // or we haven't.
   if (PHINode *PN = dyn_cast<PHINode>(V)) {
     if (!PHIs.insert(PN))
       return ~0ULL;  // already in the set.
-
+    
     // If it was new, see if all the input strings are the same length.
     uint64_t LenSoFar = ~0ULL;
     for (unsigned i = 0, e = PN->getNumIncomingValues(); i != e; ++i) {
       uint64_t Len = GetStringLengthH(PN->getIncomingValue(i), PHIs);
       if (Len == 0) return 0; // Unknown length -> unknown.
-
+      
       if (Len == ~0ULL) continue;
-
+      
       if (Len != LenSoFar && LenSoFar != ~0ULL)
         return 0;    // Disagree -> unknown.
       LenSoFar = Len;
     }
-
+    
     // Success, all agree.
     return LenSoFar;
   }
-
+  
   // strlen(select(c,x,y)) -> strlen(x) ^ strlen(y)
   if (SelectInst *SI = dyn_cast<SelectInst>(V)) {
     uint64_t Len1 = GetStringLengthH(SI->getTrueValue(), PHIs);
@@ -408,7 +399,7 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSet<PHINode*, 32> &PHIs) {
     if (Len1 != Len2) return 0;
     return Len1;
   }
-
+  
   // If the value is not a GEP instruction nor a constant expression with a
   // GEP instruction, then return unknown.
   User *GEP = 0;
@@ -421,11 +412,11 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSet<PHINode*, 32> &PHIs) {
   } else {
     return 0;
   }
-
+  
   // Make sure the GEP has exactly three arguments.
   if (GEP->getNumOperands() != 3)
     return 0;
-
+  
   // Check to make sure that the first operand of the GEP is an integer and
   // has value 0 so that we are sure we're indexing into the initializer.
   if (ConstantInt *Idx = dyn_cast<ConstantInt>(GEP->getOperand(1))) {
@@ -433,7 +424,7 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSet<PHINode*, 32> &PHIs) {
       return 0;
   } else
     return 0;
-
+  
   // If the second index isn't a ConstantInt, then this is a variable index
   // into the array.  If this occurs, we can't say anything meaningful about
   // the string.
@@ -442,7 +433,7 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSet<PHINode*, 32> &PHIs) {
     StartIdx = CI->getZExtValue();
   else
     return 0;
-
+  
   // The GEP instruction, constant or instruction, must reference a global
   // variable that is a constant and is initialized. The referenced constant
   // initializer is the array that we'll use for optimization.
@@ -451,21 +442,21 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSet<PHINode*, 32> &PHIs) {
       GV->mayBeOverridden())
     return 0;
   Constant *GlobalInit = GV->getInitializer();
-
+  
   // Handle the ConstantAggregateZero case, which is a degenerate case. The
   // initializer is constant zero so the length of the string must be zero.
   if (isa<ConstantAggregateZero>(GlobalInit))
     return 1;  // Len = 0 offset by 1.
-
+  
   // Must be a Constant Array
   ConstantArray *Array = dyn_cast<ConstantArray>(GlobalInit);
   if (!Array ||
       Array->getType()->getElementType() != Type::getInt8Ty(V->getContext()))
     return false;
-
+  
   // Get the number of elements in the array
   uint64_t NumElts = Array->getType()->getNumElements();
-
+  
   // Traverse the constant array from StartIdx (derived above) which is
   // the place the GEP refers to in the array.
   for (unsigned i = StartIdx; i != NumElts; ++i) {
@@ -476,7 +467,7 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSet<PHINode*, 32> &PHIs) {
     if (CI->isZero())
       return i-StartIdx+1; // We found end of string, success!
   }
-
+  
   return 0; // The array isn't null terminated, conservatively return 'unknown'.
 }
 
@@ -484,7 +475,7 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSet<PHINode*, 32> &PHIs) {
 /// the specified pointer, return 'len+1'.  If we can't, return 0.
 static uint64_t GetStringLength(Value *V) {
   if (!isa<PointerType>(V->getType())) return 0;
-
+  
   SmallPtrSet<PHINode*, 32> PHIs;
   uint64_t Len = GetStringLengthH(V, PHIs);
   // If Len is ~0ULL, we had an infinite phi cycle: this is dead code, so return
@@ -493,7 +484,7 @@ static uint64_t GetStringLength(Value *V) {
 }
 
 /// IsOnlyUsedInZeroEqualityComparison - Return true if it only matters that the
-/// value is equal or not-equal to zero.
+/// value is equal or not-equal to zero. 
 static bool IsOnlyUsedInZeroEqualityComparison(Value *V) {
   for (Value::use_iterator UI = V->use_begin(), E = V->use_end();
        UI != E; ++UI) {
@@ -509,31 +500,77 @@ static bool IsOnlyUsedInZeroEqualityComparison(Value *V) {
 }
 
 //===----------------------------------------------------------------------===//
+// Miscellaneous LibCall Optimizations
+//===----------------------------------------------------------------------===//
+
+namespace {
+//===---------------------------------------===//
+// 'exit' Optimizations
+
+/// ExitOpt - int main() { exit(4); } --> int main() { return 4; }
+struct VISIBILITY_HIDDEN ExitOpt : public LibCallOptimization {
+  virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
+    // Verify we have a reasonable prototype for exit.
+    if (Callee->arg_size() == 0 || !CI->use_empty())
+      return 0;
+
+    // Verify the caller is main, and that the result type of main matches the
+    // argument type of exit.
+    if (Caller->getName() != "main" || !Caller->hasExternalLinkage() ||
+        Caller->getReturnType() != CI->getOperand(1)->getType())
+      return 0;
+
+    TerminatorInst *OldTI = CI->getParent()->getTerminator();
+
+    // Drop all successor phi node entries.
+    for (unsigned i = 0, e = OldTI->getNumSuccessors(); i != e; ++i)
+      OldTI->getSuccessor(i)->removePredecessor(CI->getParent());
+
+    // Remove all instructions after the exit.
+    BasicBlock::iterator Dead = CI, E = OldTI; ++Dead;
+    while (Dead != E) {
+      BasicBlock::iterator Next = next(Dead);
+      if (Dead->getType() != Type::getVoidTy(*Context))
+        Dead->replaceAllUsesWith(UndefValue::get(Dead->getType()));
+      Dead->eraseFromParent();
+      Dead = Next;
+    }
+
+    // Insert a return instruction.
+    OldTI->eraseFromParent();
+    B.SetInsertPoint(B.GetInsertBlock());
+    B.CreateRet(CI->getOperand(1));
+
+    return CI;
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // String and Memory LibCall Optimizations
 //===----------------------------------------------------------------------===//
 
 //===---------------------------------------===//
 // 'strcat' Optimizations
-namespace {
-struct StrCatOpt : public LibCallOptimization {
+
+struct VISIBILITY_HIDDEN StrCatOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Verify the "strcat" function prototype.
     const FunctionType *FT = Callee->getFunctionType();
     if (FT->getNumParams() != 2 ||
-        FT->getReturnType() != Type::getInt8PtrTy(*Context) ||
+        FT->getReturnType() != PointerType::getUnqual(Type::getInt8Ty(*Context)) ||
         FT->getParamType(0) != FT->getReturnType() ||
         FT->getParamType(1) != FT->getReturnType())
       return 0;
-
+    
     // Extract some information from the instruction
     Value *Dst = CI->getOperand(1);
     Value *Src = CI->getOperand(2);
-
+    
     // See if we can get the length of the input string.
     uint64_t Len = GetStringLength(Src);
     if (Len == 0) return 0;
     --Len;  // Unbias length.
-
+    
     // Handle the simple, do-nothing case: strcat(x, "") -> x
     if (Len == 0)
       return Dst;
@@ -549,12 +586,12 @@ struct StrCatOpt : public LibCallOptimization {
     // We need to find the end of the destination string.  That's where the
     // memory is to be moved to. We just generate a call to strlen.
     Value *DstLen = EmitStrLen(Dst, B);
-
+    
     // Now that we have the destination's length, we must index into the
     // destination's pointer to get the actual memcpy destination (end of
     // the string .. we're concatenating).
     Value *CpyDst = B.CreateGEP(Dst, DstLen, "endptr");
-
+    
     // We have enough information to now generate the memcpy call to do the
     // concatenation for us.  Make a memcpy to copy the nul byte with align = 1.
     EmitMemCpy(CpyDst, Src,
@@ -565,12 +602,12 @@ struct StrCatOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'strncat' Optimizations
 
-struct StrNCatOpt : public StrCatOpt {
+struct VISIBILITY_HIDDEN StrNCatOpt : public StrCatOpt {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Verify the "strncat" function prototype.
     const FunctionType *FT = Callee->getFunctionType();
     if (FT->getNumParams() != 3 ||
-        FT->getReturnType() != Type::getInt8PtrTy(*Context) ||
+        FT->getReturnType() != PointerType::getUnqual(Type::getInt8Ty(*Context)) ||
         FT->getParamType(0) != FT->getReturnType() ||
         FT->getParamType(1) != FT->getReturnType() ||
         !isa<IntegerType>(FT->getParamType(2)))
@@ -613,17 +650,17 @@ struct StrNCatOpt : public StrCatOpt {
 //===---------------------------------------===//
 // 'strchr' Optimizations
 
-struct StrChrOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN StrChrOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Verify the "strchr" function prototype.
     const FunctionType *FT = Callee->getFunctionType();
     if (FT->getNumParams() != 2 ||
-        FT->getReturnType() != Type::getInt8PtrTy(*Context) ||
+        FT->getReturnType() != PointerType::getUnqual(Type::getInt8Ty(*Context)) ||
         FT->getParamType(0) != FT->getReturnType())
       return 0;
-
+    
     Value *SrcStr = CI->getOperand(1);
-
+    
     // If the second operand is non-constant, see if we can compute the length
     // of the input string and turn this into memchr.
     ConstantInt *CharC = dyn_cast<ConstantInt>(CI->getOperand(2));
@@ -632,10 +669,9 @@ struct StrChrOpt : public LibCallOptimization {
       if (!TD) return 0;
 
       uint64_t Len = GetStringLength(SrcStr);
-      if (Len == 0 ||
-          FT->getParamType(1) != Type::getInt32Ty(*Context)) // memchr needs i32.
+      if (Len == 0 || FT->getParamType(1) != Type::getInt32Ty(*Context)) // memchr needs i32.
         return 0;
-
+      
       return EmitMemChr(SrcStr, CI->getOperand(2), // include nul.
                         ConstantInt::get(TD->getIntPtrType(*Context), Len), B);
     }
@@ -645,11 +681,11 @@ struct StrChrOpt : public LibCallOptimization {
     std::string Str;
     if (!GetConstantStringInfo(SrcStr, Str))
       return 0;
-
+    
     // strchr can find the nul character.
     Str += '\0';
     char CharValue = CharC->getSExtValue();
-
+    
     // Compute the offset.
     uint64_t i = 0;
     while (1) {
@@ -660,7 +696,7 @@ struct StrChrOpt : public LibCallOptimization {
         break;
       ++i;
     }
-
+    
     // strchr(s+n,c)  -> gep(s+n+i,c)
     Value *Idx = ConstantInt::get(Type::getInt64Ty(*Context), i);
     return B.CreateGEP(SrcStr, Idx, "strchr");
@@ -670,33 +706,32 @@ struct StrChrOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'strcmp' Optimizations
 
-struct StrCmpOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN StrCmpOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Verify the "strcmp" function prototype.
     const FunctionType *FT = Callee->getFunctionType();
-    if (FT->getNumParams() != 2 ||
-	FT->getReturnType() != Type::getInt32Ty(*Context) ||
+    if (FT->getNumParams() != 2 || FT->getReturnType() != Type::getInt32Ty(*Context) ||
         FT->getParamType(0) != FT->getParamType(1) ||
-        FT->getParamType(0) != Type::getInt8PtrTy(*Context))
+        FT->getParamType(0) != PointerType::getUnqual(Type::getInt8Ty(*Context)))
       return 0;
-
+    
     Value *Str1P = CI->getOperand(1), *Str2P = CI->getOperand(2);
     if (Str1P == Str2P)      // strcmp(x,x)  -> 0
       return ConstantInt::get(CI->getType(), 0);
-
+    
     std::string Str1, Str2;
     bool HasStr1 = GetConstantStringInfo(Str1P, Str1);
     bool HasStr2 = GetConstantStringInfo(Str2P, Str2);
-
+    
     if (HasStr1 && Str1.empty()) // strcmp("", x) -> *x
       return B.CreateZExt(B.CreateLoad(Str2P, "strcmpload"), CI->getType());
-
+    
     if (HasStr2 && Str2.empty()) // strcmp(x,"") -> *x
       return B.CreateZExt(B.CreateLoad(Str1P, "strcmpload"), CI->getType());
-
+    
     // strcmp(x, y)  -> cnst  (if both x and y are constant strings)
     if (HasStr1 && HasStr2)
-      return ConstantInt::get(CI->getType(),
+      return ConstantInt::get(CI->getType(), 
                                      strcmp(Str1.c_str(),Str2.c_str()));
 
     // strcmp(P, "x") -> memcmp(P, "x", 2)
@@ -718,41 +753,40 @@ struct StrCmpOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'strncmp' Optimizations
 
-struct StrNCmpOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN StrNCmpOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Verify the "strncmp" function prototype.
     const FunctionType *FT = Callee->getFunctionType();
-    if (FT->getNumParams() != 3 ||
-	FT->getReturnType() != Type::getInt32Ty(*Context) ||
+    if (FT->getNumParams() != 3 || FT->getReturnType() != Type::getInt32Ty(*Context) ||
         FT->getParamType(0) != FT->getParamType(1) ||
-        FT->getParamType(0) != Type::getInt8PtrTy(*Context) ||
+        FT->getParamType(0) != PointerType::getUnqual(Type::getInt8Ty(*Context)) ||
         !isa<IntegerType>(FT->getParamType(2)))
       return 0;
-
+    
     Value *Str1P = CI->getOperand(1), *Str2P = CI->getOperand(2);
     if (Str1P == Str2P)      // strncmp(x,x,n)  -> 0
       return ConstantInt::get(CI->getType(), 0);
-
+    
     // Get the length argument if it is constant.
     uint64_t Length;
     if (ConstantInt *LengthArg = dyn_cast<ConstantInt>(CI->getOperand(3)))
       Length = LengthArg->getZExtValue();
     else
       return 0;
-
+    
     if (Length == 0) // strncmp(x,y,0)   -> 0
       return ConstantInt::get(CI->getType(), 0);
-
+    
     std::string Str1, Str2;
     bool HasStr1 = GetConstantStringInfo(Str1P, Str1);
     bool HasStr2 = GetConstantStringInfo(Str2P, Str2);
-
+    
     if (HasStr1 && Str1.empty())  // strncmp("", x, n) -> *x
       return B.CreateZExt(B.CreateLoad(Str2P, "strcmpload"), CI->getType());
-
+    
     if (HasStr2 && Str2.empty())  // strncmp(x, "", n) -> *x
       return B.CreateZExt(B.CreateLoad(Str1P, "strcmpload"), CI->getType());
-
+    
     // strncmp(x, y)  -> cnst  (if both x and y are constant strings)
     if (HasStr1 && HasStr2)
       return ConstantInt::get(CI->getType(),
@@ -765,26 +799,26 @@ struct StrNCmpOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'strcpy' Optimizations
 
-struct StrCpyOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN StrCpyOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Verify the "strcpy" function prototype.
     const FunctionType *FT = Callee->getFunctionType();
     if (FT->getNumParams() != 2 || FT->getReturnType() != FT->getParamType(0) ||
         FT->getParamType(0) != FT->getParamType(1) ||
-        FT->getParamType(0) != Type::getInt8PtrTy(*Context))
+        FT->getParamType(0) != PointerType::getUnqual(Type::getInt8Ty(*Context)))
       return 0;
-
+    
     Value *Dst = CI->getOperand(1), *Src = CI->getOperand(2);
     if (Dst == Src)      // strcpy(x,x)  -> x
       return Src;
-
+    
     // These optimizations require TargetData.
     if (!TD) return 0;
 
     // See if we can get the length of the input string.
     uint64_t Len = GetStringLength(Src);
     if (Len == 0) return 0;
-
+    
     // We have enough information to now generate the memcpy call to do the
     // concatenation for us.  Make a memcpy to copy the nul byte with align = 1.
     EmitMemCpy(Dst, Src,
@@ -796,12 +830,12 @@ struct StrCpyOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'strncpy' Optimizations
 
-struct StrNCpyOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN StrNCpyOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     if (FT->getNumParams() != 3 || FT->getReturnType() != FT->getParamType(0) ||
         FT->getParamType(0) != FT->getParamType(1) ||
-        FT->getParamType(0) != Type::getInt8PtrTy(*Context) ||
+        FT->getParamType(0) != PointerType::getUnqual(Type::getInt8Ty(*Context)) ||
         !isa<IntegerType>(FT->getParamType(2)))
       return 0;
 
@@ -816,8 +850,7 @@ struct StrNCpyOpt : public LibCallOptimization {
 
     if (SrcLen == 0) {
       // strncpy(x, "", y) -> memset(x, '\0', y, 1)
-      EmitMemSet(Dst, ConstantInt::get(Type::getInt8Ty(*Context), '\0'), LenOp,
-		 B);
+      EmitMemSet(Dst, ConstantInt::get(Type::getInt8Ty(*Context), '\0'), LenOp, B);
       return Dst;
     }
 
@@ -846,14 +879,14 @@ struct StrNCpyOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'strlen' Optimizations
 
-struct StrLenOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN StrLenOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     if (FT->getNumParams() != 1 ||
-        FT->getParamType(0) != Type::getInt8PtrTy(*Context) ||
+        FT->getParamType(0) != PointerType::getUnqual(Type::getInt8Ty(*Context)) ||
         !isa<IntegerType>(FT->getReturnType()))
       return 0;
-
+    
     Value *Src = CI->getOperand(1);
 
     // Constant folding: strlen("xyz") -> 3
@@ -872,7 +905,7 @@ struct StrLenOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'strto*' Optimizations
 
-struct StrToOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN StrToOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     if ((FT->getNumParams() != 2 && FT->getNumParams() != 3) ||
@@ -894,7 +927,7 @@ struct StrToOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'memcmp' Optimizations
 
-struct MemCmpOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN MemCmpOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     if (FT->getNumParams() != 3 || !isa<PointerType>(FT->getParamType(0)) ||
@@ -941,7 +974,7 @@ struct MemCmpOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'memcpy' Optimizations
 
-struct MemCpyOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN MemCpyOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // These optimizations require TargetData.
     if (!TD) return 0;
@@ -962,7 +995,7 @@ struct MemCpyOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'memmove' Optimizations
 
-struct MemMoveOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN MemMoveOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // These optimizations require TargetData.
     if (!TD) return 0;
@@ -992,7 +1025,7 @@ struct MemMoveOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'memset' Optimizations
 
-struct MemSetOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN MemSetOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // These optimizations require TargetData.
     if (!TD) return 0;
@@ -1005,8 +1038,7 @@ struct MemSetOpt : public LibCallOptimization {
       return 0;
 
     // memset(p, v, n) -> llvm.memset(p, v, n, 1)
-    Value *Val = B.CreateIntCast(CI->getOperand(2), Type::getInt8Ty(*Context),
-				 false);
+    Value *Val = B.CreateIntCast(CI->getOperand(2), Type::getInt8Ty(*Context), false);
     EmitMemSet(CI->getOperand(1), Val,  CI->getOperand(3), B);
     return CI->getOperand(1);
   }
@@ -1019,7 +1051,7 @@ struct MemSetOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'pow*' Optimizations
 
-struct PowOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN PowOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     // Just make sure this has 2 arguments of the same FP type, which match the
@@ -1028,38 +1060,34 @@ struct PowOpt : public LibCallOptimization {
         FT->getParamType(0) != FT->getParamType(1) ||
         !FT->getParamType(0)->isFloatingPoint())
       return 0;
-
+    
     Value *Op1 = CI->getOperand(1), *Op2 = CI->getOperand(2);
     if (ConstantFP *Op1C = dyn_cast<ConstantFP>(Op1)) {
       if (Op1C->isExactlyValue(1.0))  // pow(1.0, x) -> 1.0
         return Op1C;
       if (Op1C->isExactlyValue(2.0))  // pow(2.0, x) -> exp2(x)
-        return EmitUnaryFloatFnCall(Op2, "exp2", B, Callee->getAttributes());
+        return EmitUnaryFloatFnCall(Op2, "exp2", B);
     }
-
+    
     ConstantFP *Op2C = dyn_cast<ConstantFP>(Op2);
     if (Op2C == 0) return 0;
-
+    
     if (Op2C->getValueAPF().isZero())  // pow(x, 0.0) -> 1.0
       return ConstantFP::get(CI->getType(), 1.0);
-
+    
     if (Op2C->isExactlyValue(0.5)) {
-      // Expand pow(x, 0.5) to (x == -infinity ? +infinity : fabs(sqrt(x))).
-      // This is faster than calling pow, and still handles negative zero
-      // and negative infinite correctly.
-      // TODO: In fast-math mode, this could be just sqrt(x).
-      // TODO: In finite-only mode, this could be just fabs(sqrt(x)).
-      Value *Inf = ConstantFP::getInfinity(CI->getType());
-      Value *NegInf = ConstantFP::getInfinity(CI->getType(), true);
-      Value *Sqrt = EmitUnaryFloatFnCall(Op1, "sqrt", B,
-                                         Callee->getAttributes());
-      Value *FAbs = EmitUnaryFloatFnCall(Sqrt, "fabs", B,
-                                         Callee->getAttributes());
-      Value *FCmp = B.CreateFCmpOEQ(Op1, NegInf, "tmp");
-      Value *Sel = B.CreateSelect(FCmp, Inf, FAbs, "tmp");
-      return Sel;
+      // FIXME: This is not safe for -0.0 and -inf.  This can only be done when
+      // 'unsafe' math optimizations are allowed.
+      // x    pow(x, 0.5)  sqrt(x)
+      // ---------------------------------------------
+      // -0.0    +0.0       -0.0
+      // -inf    +inf       NaN
+#if 0
+      // pow(x, 0.5) -> sqrt(x)
+      return B.CreateCall(get_sqrt(), Op1, "sqrt");
+#endif
     }
-
+    
     if (Op2C->isExactlyValue(1.0))  // pow(x, 1.0) -> x
       return Op1;
     if (Op2C->isExactlyValue(2.0))  // pow(x, 2.0) -> x*x
@@ -1074,7 +1102,7 @@ struct PowOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'exp2' Optimizations
 
-struct Exp2Opt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN Exp2Opt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     // Just make sure this has 1 argument of FP type, which matches the
@@ -1082,38 +1110,35 @@ struct Exp2Opt : public LibCallOptimization {
     if (FT->getNumParams() != 1 || FT->getReturnType() != FT->getParamType(0) ||
         !FT->getParamType(0)->isFloatingPoint())
       return 0;
-
+    
     Value *Op = CI->getOperand(1);
     // Turn exp2(sitofp(x)) -> ldexp(1.0, sext(x))  if sizeof(x) <= 32
     // Turn exp2(uitofp(x)) -> ldexp(1.0, zext(x))  if sizeof(x) < 32
     Value *LdExpArg = 0;
     if (SIToFPInst *OpC = dyn_cast<SIToFPInst>(Op)) {
       if (OpC->getOperand(0)->getType()->getPrimitiveSizeInBits() <= 32)
-        LdExpArg = B.CreateSExt(OpC->getOperand(0),
-				Type::getInt32Ty(*Context), "tmp");
+        LdExpArg = B.CreateSExt(OpC->getOperand(0), Type::getInt32Ty(*Context), "tmp");
     } else if (UIToFPInst *OpC = dyn_cast<UIToFPInst>(Op)) {
       if (OpC->getOperand(0)->getType()->getPrimitiveSizeInBits() < 32)
-        LdExpArg = B.CreateZExt(OpC->getOperand(0),
-				Type::getInt32Ty(*Context), "tmp");
+        LdExpArg = B.CreateZExt(OpC->getOperand(0), Type::getInt32Ty(*Context), "tmp");
     }
 
     if (LdExpArg) {
       const char *Name;
-      if (Op->getType()->isFloatTy())
+      if (Op->getType() == Type::getFloatTy(*Context))
         Name = "ldexpf";
-      else if (Op->getType()->isDoubleTy())
+      else if (Op->getType() == Type::getDoubleTy(*Context))
         Name = "ldexp";
       else
         Name = "ldexpl";
 
       Constant *One = ConstantFP::get(*Context, APFloat(1.0f));
-      if (!Op->getType()->isFloatTy())
+      if (Op->getType() != Type::getFloatTy(*Context))
         One = ConstantExpr::getFPExtend(One, Op->getType());
 
       Module *M = Caller->getParent();
       Value *Callee = M->getOrInsertFunction(Name, Op->getType(),
-                                             Op->getType(),
-					     Type::getInt32Ty(*Context),NULL);
+                                             Op->getType(), Type::getInt32Ty(*Context),NULL);
       CallInst *CI = B.CreateCall2(Callee, One, LdExpArg);
       if (const Function *F = dyn_cast<Function>(Callee->stripPointerCasts()))
         CI->setCallingConv(F->getCallingConv());
@@ -1127,22 +1152,21 @@ struct Exp2Opt : public LibCallOptimization {
 //===---------------------------------------===//
 // Double -> Float Shrinking Optimizations for Unary Functions like 'floor'
 
-struct UnaryDoubleFPOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN UnaryDoubleFPOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
-    if (FT->getNumParams() != 1 || !FT->getReturnType()->isDoubleTy() ||
-        !FT->getParamType(0)->isDoubleTy())
+    if (FT->getNumParams() != 1 || FT->getReturnType() != Type::getDoubleTy(*Context) ||
+        FT->getParamType(0) != Type::getDoubleTy(*Context))
       return 0;
 
     // If this is something like 'floor((double)floatval)', convert to floorf.
     FPExtInst *Cast = dyn_cast<FPExtInst>(CI->getOperand(1));
-    if (Cast == 0 || !Cast->getOperand(0)->getType()->isFloatTy())
+    if (Cast == 0 || Cast->getOperand(0)->getType() != Type::getFloatTy(*Context))
       return 0;
 
     // floor((double)floatval) -> (double)floorf(floatval)
     Value *V = Cast->getOperand(0);
-    V = EmitUnaryFloatFnCall(V, Callee->getName().data(), B,
-                             Callee->getAttributes());
+    V = EmitUnaryFloatFnCall(V, Callee->getName().data(), B);
     return B.CreateFPExt(V, Type::getDoubleTy(*Context));
   }
 };
@@ -1154,18 +1178,17 @@ struct UnaryDoubleFPOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'ffs*' Optimizations
 
-struct FFSOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN FFSOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     // Just make sure this has 2 arguments of the same FP type, which match the
     // result type.
-    if (FT->getNumParams() != 1 ||
-	FT->getReturnType() != Type::getInt32Ty(*Context) ||
+    if (FT->getNumParams() != 1 || FT->getReturnType() != Type::getInt32Ty(*Context) ||
         !isa<IntegerType>(FT->getParamType(0)))
       return 0;
-
+    
     Value *Op = CI->getOperand(1);
-
+    
     // Constant fold.
     if (ConstantInt *CI = dyn_cast<ConstantInt>(Op)) {
       if (CI->getValue() == 0)  // ffs(0) -> 0.
@@ -1173,7 +1196,7 @@ struct FFSOpt : public LibCallOptimization {
       return ConstantInt::get(Type::getInt32Ty(*Context), // ffs(c) -> cttz(c)+1
                               CI->getValue().countTrailingZeros()+1);
     }
-
+    
     // ffs(x) -> x != 0 ? (i32)llvm.cttz(x)+1 : 0
     const Type *ArgType = Op->getType();
     Value *F = Intrinsic::getDeclaration(Callee->getParent(),
@@ -1181,29 +1204,28 @@ struct FFSOpt : public LibCallOptimization {
     Value *V = B.CreateCall(F, Op, "cttz");
     V = B.CreateAdd(V, ConstantInt::get(V->getType(), 1), "tmp");
     V = B.CreateIntCast(V, Type::getInt32Ty(*Context), false, "tmp");
-
+    
     Value *Cond = B.CreateICmpNE(Op, Constant::getNullValue(ArgType), "tmp");
-    return B.CreateSelect(Cond, V,
-			  ConstantInt::get(Type::getInt32Ty(*Context), 0));
+    return B.CreateSelect(Cond, V, ConstantInt::get(Type::getInt32Ty(*Context), 0));
   }
 };
 
 //===---------------------------------------===//
 // 'isdigit' Optimizations
 
-struct IsDigitOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN IsDigitOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     // We require integer(i32)
     if (FT->getNumParams() != 1 || !isa<IntegerType>(FT->getReturnType()) ||
         FT->getParamType(0) != Type::getInt32Ty(*Context))
       return 0;
-
+    
     // isdigit(c) -> (c-'0') <u 10
     Value *Op = CI->getOperand(1);
-    Op = B.CreateSub(Op, ConstantInt::get(Type::getInt32Ty(*Context), '0'),
+    Op = B.CreateSub(Op, ConstantInt::get(Type::getInt32Ty(*Context), '0'), 
                      "isdigittmp");
-    Op = B.CreateICmpULT(Op, ConstantInt::get(Type::getInt32Ty(*Context), 10),
+    Op = B.CreateICmpULT(Op, ConstantInt::get(Type::getInt32Ty(*Context), 10), 
                          "isdigit");
     return B.CreateZExt(Op, CI->getType());
   }
@@ -1212,14 +1234,14 @@ struct IsDigitOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'isascii' Optimizations
 
-struct IsAsciiOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN IsAsciiOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     // We require integer(i32)
     if (FT->getNumParams() != 1 || !isa<IntegerType>(FT->getReturnType()) ||
         FT->getParamType(0) != Type::getInt32Ty(*Context))
       return 0;
-
+    
     // isascii(c) -> c <u 128
     Value *Op = CI->getOperand(1);
     Op = B.CreateICmpULT(Op, ConstantInt::get(Type::getInt32Ty(*Context), 128),
@@ -1227,40 +1249,40 @@ struct IsAsciiOpt : public LibCallOptimization {
     return B.CreateZExt(Op, CI->getType());
   }
 };
-
+  
 //===---------------------------------------===//
 // 'abs', 'labs', 'llabs' Optimizations
 
-struct AbsOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN AbsOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     // We require integer(integer) where the types agree.
     if (FT->getNumParams() != 1 || !isa<IntegerType>(FT->getReturnType()) ||
         FT->getParamType(0) != FT->getReturnType())
       return 0;
-
+    
     // abs(x) -> x >s -1 ? x : -x
     Value *Op = CI->getOperand(1);
-    Value *Pos = B.CreateICmpSGT(Op,
+    Value *Pos = B.CreateICmpSGT(Op, 
                              Constant::getAllOnesValue(Op->getType()),
                                  "ispos");
     Value *Neg = B.CreateNeg(Op, "neg");
     return B.CreateSelect(Pos, Op, Neg);
   }
 };
-
+  
 
 //===---------------------------------------===//
 // 'toascii' Optimizations
 
-struct ToAsciiOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN ToAsciiOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     const FunctionType *FT = Callee->getFunctionType();
     // We require i32(i32)
     if (FT->getNumParams() != 1 || FT->getReturnType() != FT->getParamType(0) ||
         FT->getParamType(0) != Type::getInt32Ty(*Context))
       return 0;
-
+    
     // isascii(c) -> c & 0x7f
     return B.CreateAnd(CI->getOperand(1),
                        ConstantInt::get(CI->getType(),0x7F));
@@ -1274,15 +1296,15 @@ struct ToAsciiOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'printf' Optimizations
 
-struct PrintFOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN PrintFOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Require one fixed pointer argument and an integer/void result.
     const FunctionType *FT = Callee->getFunctionType();
     if (FT->getNumParams() < 1 || !isa<PointerType>(FT->getParamType(0)) ||
         !(isa<IntegerType>(FT->getReturnType()) ||
-          FT->getReturnType()->isVoidTy()))
+          FT->getReturnType() == Type::getVoidTy(*Context)))
       return 0;
-
+    
     // Check for a fixed format string.
     std::string FormatStr;
     if (!GetConstantStringInfo(CI->getOperand(1), FormatStr))
@@ -1290,16 +1312,16 @@ struct PrintFOpt : public LibCallOptimization {
 
     // Empty format string -> noop.
     if (FormatStr.empty())  // Tolerate printf's declared void.
-      return CI->use_empty() ? (Value*)CI :
+      return CI->use_empty() ? (Value*)CI : 
                                ConstantInt::get(CI->getType(), 0);
-
+    
     // printf("x") -> putchar('x'), even for '%'.
     if (FormatStr.size() == 1) {
       EmitPutChar(ConstantInt::get(Type::getInt32Ty(*Context), FormatStr[0]), B);
-      return CI->use_empty() ? (Value*)CI :
+      return CI->use_empty() ? (Value*)CI : 
                                ConstantInt::get(CI->getType(), 1);
     }
-
+    
     // printf("foo\n") --> puts("foo")
     if (FormatStr[FormatStr.size()-1] == '\n' &&
         FormatStr.find('%') == std::string::npos) {  // no format characters.
@@ -1310,19 +1332,19 @@ struct PrintFOpt : public LibCallOptimization {
       C = new GlobalVariable(*Callee->getParent(), C->getType(), true,
                              GlobalVariable::InternalLinkage, C, "str");
       EmitPutS(C, B);
-      return CI->use_empty() ? (Value*)CI :
+      return CI->use_empty() ? (Value*)CI : 
                     ConstantInt::get(CI->getType(), FormatStr.size()+1);
     }
-
+    
     // Optimize specific format strings.
     // printf("%c", chr) --> putchar(*(i8*)dst)
     if (FormatStr == "%c" && CI->getNumOperands() > 2 &&
         isa<IntegerType>(CI->getOperand(2)->getType())) {
       EmitPutChar(CI->getOperand(2), B);
-      return CI->use_empty() ? (Value*)CI :
+      return CI->use_empty() ? (Value*)CI : 
                                ConstantInt::get(CI->getType(), 1);
     }
-
+    
     // printf("%s\n", str) --> puts(str)
     if (FormatStr == "%s\n" && CI->getNumOperands() > 2 &&
         isa<PointerType>(CI->getOperand(2)->getType()) &&
@@ -1337,7 +1359,7 @@ struct PrintFOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'sprintf' Optimizations
 
-struct SPrintFOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN SPrintFOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Require two fixed pointer arguments and an integer result.
     const FunctionType *FT = Callee->getFunctionType();
@@ -1350,7 +1372,7 @@ struct SPrintFOpt : public LibCallOptimization {
     std::string FormatStr;
     if (!GetConstantStringInfo(CI->getOperand(2), FormatStr))
       return 0;
-
+    
     // If we just have a format string (nothing else crazy) transform it.
     if (CI->getNumOperands() == 3) {
       // Make sure there's no % in the constant array.  We could try to handle
@@ -1367,27 +1389,25 @@ struct SPrintFOpt : public LibCallOptimization {
           ConstantInt::get(TD->getIntPtrType(*Context), FormatStr.size()+1),1,B);
       return ConstantInt::get(CI->getType(), FormatStr.size());
     }
-
+    
     // The remaining optimizations require the format string to be "%s" or "%c"
     // and have an extra operand.
     if (FormatStr.size() != 2 || FormatStr[0] != '%' || CI->getNumOperands() <4)
       return 0;
-
+    
     // Decode the second character of the format string.
     if (FormatStr[1] == 'c') {
       // sprintf(dst, "%c", chr) --> *(i8*)dst = chr; *((i8*)dst+1) = 0
       if (!isa<IntegerType>(CI->getOperand(3)->getType())) return 0;
-      Value *V = B.CreateTrunc(CI->getOperand(3),
-			       Type::getInt8Ty(*Context), "char");
+      Value *V = B.CreateTrunc(CI->getOperand(3), Type::getInt8Ty(*Context), "char");
       Value *Ptr = CastToCStr(CI->getOperand(1), B);
       B.CreateStore(V, Ptr);
-      Ptr = B.CreateGEP(Ptr, ConstantInt::get(Type::getInt32Ty(*Context), 1),
-			"nul");
+      Ptr = B.CreateGEP(Ptr, ConstantInt::get(Type::getInt32Ty(*Context), 1), "nul");
       B.CreateStore(Constant::getNullValue(Type::getInt8Ty(*Context)), Ptr);
-
+      
       return ConstantInt::get(CI->getType(), 1);
     }
-
+    
     if (FormatStr[1] == 's') {
       // These optimizations require TargetData.
       if (!TD) return 0;
@@ -1400,7 +1420,7 @@ struct SPrintFOpt : public LibCallOptimization {
                                   ConstantInt::get(Len->getType(), 1),
                                   "leninc");
       EmitMemCpy(CI->getOperand(1), CI->getOperand(3), IncLen, 1, B);
-
+      
       // The sprintf result is the unincremented number of bytes in the string.
       return B.CreateIntCast(Len, CI->getType(), false);
     }
@@ -1411,7 +1431,7 @@ struct SPrintFOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'fwrite' Optimizations
 
-struct FWriteOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN FWriteOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Require a pointer, an integer, an integer, a pointer, returning integer.
     const FunctionType *FT = Callee->getFunctionType();
@@ -1421,17 +1441,17 @@ struct FWriteOpt : public LibCallOptimization {
         !isa<PointerType>(FT->getParamType(3)) ||
         !isa<IntegerType>(FT->getReturnType()))
       return 0;
-
+    
     // Get the element size and count.
     ConstantInt *SizeC = dyn_cast<ConstantInt>(CI->getOperand(2));
     ConstantInt *CountC = dyn_cast<ConstantInt>(CI->getOperand(3));
     if (!SizeC || !CountC) return 0;
     uint64_t Bytes = SizeC->getZExtValue()*CountC->getZExtValue();
-
+    
     // If this is writing zero records, remove the call (it's a noop).
     if (Bytes == 0)
       return ConstantInt::get(CI->getType(), 0);
-
+    
     // If this is writing one byte, turn it into fputc.
     if (Bytes == 1) {  // fwrite(S,1,1,F) -> fputc(S[0],F)
       Value *Char = B.CreateLoad(CastToCStr(CI->getOperand(1), B), "char");
@@ -1446,7 +1466,7 @@ struct FWriteOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'fputs' Optimizations
 
-struct FPutsOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN FPutsOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // These optimizations require TargetData.
     if (!TD) return 0;
@@ -1457,7 +1477,7 @@ struct FPutsOpt : public LibCallOptimization {
         !isa<PointerType>(FT->getParamType(1)) ||
         !CI->use_empty())
       return 0;
-
+    
     // fputs(s,F) --> fwrite(s,1,strlen(s),F)
     uint64_t Len = GetStringLength(CI->getOperand(1));
     if (!Len) return 0;
@@ -1471,7 +1491,7 @@ struct FPutsOpt : public LibCallOptimization {
 //===---------------------------------------===//
 // 'fprintf' Optimizations
 
-struct FPrintFOpt : public LibCallOptimization {
+struct VISIBILITY_HIDDEN FPrintFOpt : public LibCallOptimization {
   virtual Value *CallOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
     // Require two fixed paramters as pointers and integer result.
     const FunctionType *FT = Callee->getFunctionType();
@@ -1479,7 +1499,7 @@ struct FPrintFOpt : public LibCallOptimization {
         !isa<PointerType>(FT->getParamType(1)) ||
         !isa<IntegerType>(FT->getReturnType()))
       return 0;
-
+    
     // All the optimizations depend on the format string.
     std::string FormatStr;
     if (!GetConstantStringInfo(CI->getOperand(2), FormatStr))
@@ -1499,12 +1519,12 @@ struct FPrintFOpt : public LibCallOptimization {
                  CI->getOperand(1), B);
       return ConstantInt::get(CI->getType(), FormatStr.size());
     }
-
+    
     // The remaining optimizations require the format string to be "%s" or "%c"
     // and have an extra operand.
     if (FormatStr.size() != 2 || FormatStr[0] != '%' || CI->getNumOperands() <4)
       return 0;
-
+    
     // Decode the second character of the format string.
     if (FormatStr[1] == 'c') {
       // fprintf(F, "%c", chr) --> *(i8*)dst = chr
@@ -1512,7 +1532,7 @@ struct FPrintFOpt : public LibCallOptimization {
       EmitFPutC(CI->getOperand(3), CI->getOperand(1), B);
       return ConstantInt::get(CI->getType(), 1);
     }
-
+    
     if (FormatStr[1] == 's') {
       // fprintf(F, "%s", str) -> fputs(str, F)
       if (!isa<PointerType>(CI->getOperand(3)->getType()) || !CI->use_empty())
@@ -1533,8 +1553,10 @@ struct FPrintFOpt : public LibCallOptimization {
 namespace {
   /// This pass optimizes well known library functions from libc and libm.
   ///
-  class SimplifyLibCalls : public FunctionPass {
+  class VISIBILITY_HIDDEN SimplifyLibCalls : public FunctionPass {
     StringMap<LibCallOptimization*> Optimizations;
+    // Miscellaneous LibCall Optimizations
+    ExitOpt Exit; 
     // String and Memory LibCall Optimizations
     StrCatOpt StrCat; StrNCatOpt StrNCat; StrChrOpt StrChr; StrCmpOpt StrCmp;
     StrNCmpOpt StrNCmp; StrCpyOpt StrCpy; StrNCpyOpt StrNCpy; StrLenOpt StrLen;
@@ -1575,12 +1597,15 @@ X("simplify-libcalls", "Simplify well-known library calls");
 
 // Public interface to the Simplify LibCalls pass.
 FunctionPass *llvm::createSimplifyLibCallsPass() {
-  return new SimplifyLibCalls();
+  return new SimplifyLibCalls(); 
 }
 
 /// Optimizations - Populate the Optimizations map with all the optimizations
 /// we know.
 void SimplifyLibCalls::InitOptimizations() {
+  // Miscellaneous LibCall Optimizations
+  Optimizations["exit"] = &Exit;
+  
   // String and Memory LibCall Optimizations
   Optimizations["strcat"] = &StrCat;
   Optimizations["strncat"] = &StrNCat;
@@ -1601,7 +1626,7 @@ void SimplifyLibCalls::InitOptimizations() {
   Optimizations["memcpy"] = &MemCpy;
   Optimizations["memmove"] = &MemMove;
   Optimizations["memset"] = &MemSet;
-
+  
   // Math Library Optimizations
   Optimizations["powf"] = &Pow;
   Optimizations["pow"] = &Pow;
@@ -1619,7 +1644,7 @@ void SimplifyLibCalls::InitOptimizations() {
   Optimizations["llvm.exp2.f80"] = &Exp2;
   Optimizations["llvm.exp2.f64"] = &Exp2;
   Optimizations["llvm.exp2.f32"] = &Exp2;
-
+  
 #ifdef HAVE_FLOORF
   Optimizations["floor"] = &UnaryDoubleFP;
 #endif
@@ -1635,7 +1660,7 @@ void SimplifyLibCalls::InitOptimizations() {
 #ifdef HAVE_NEARBYINTF
   Optimizations["nearbyint"] = &UnaryDoubleFP;
 #endif
-
+  
   // Integer Optimizations
   Optimizations["ffs"] = &FFS;
   Optimizations["ffsl"] = &FFS;
@@ -1646,7 +1671,7 @@ void SimplifyLibCalls::InitOptimizations() {
   Optimizations["isdigit"] = &IsDigit;
   Optimizations["isascii"] = &IsAscii;
   Optimizations["toascii"] = &ToAscii;
-
+  
   // Formatting and IO Optimizations
   Optimizations["sprintf"] = &SPrintF;
   Optimizations["printf"] = &PrintF;
@@ -1661,9 +1686,9 @@ void SimplifyLibCalls::InitOptimizations() {
 bool SimplifyLibCalls::runOnFunction(Function &F) {
   if (Optimizations.empty())
     InitOptimizations();
-
+  
   const TargetData *TD = getAnalysisIfAvailable<TargetData>();
-
+  
   IRBuilder<> Builder(F.getContext());
 
   bool Changed = false;
@@ -1672,35 +1697,35 @@ bool SimplifyLibCalls::runOnFunction(Function &F) {
       // Ignore non-calls.
       CallInst *CI = dyn_cast<CallInst>(I++);
       if (!CI) continue;
-
+      
       // Ignore indirect calls and calls to non-external functions.
       Function *Callee = CI->getCalledFunction();
       if (Callee == 0 || !Callee->isDeclaration() ||
           !(Callee->hasExternalLinkage() || Callee->hasDLLImportLinkage()))
         continue;
-
+      
       // Ignore unknown calls.
       LibCallOptimization *LCO = Optimizations.lookup(Callee->getName());
       if (!LCO) continue;
-
+      
       // Set the builder to the instruction after the call.
       Builder.SetInsertPoint(BB, I);
-
+      
       // Try to optimize this call.
       Value *Result = LCO->OptimizeCall(CI, TD, Builder);
       if (Result == 0) continue;
 
       DEBUG(errs() << "SimplifyLibCalls simplified: " << *CI;
             errs() << "  into: " << *Result << "\n");
-
+      
       // Something changed!
       Changed = true;
       ++NumSimplified;
-
+      
       // Inspect the instruction after the call (which was potentially just
       // added) next.
       I = CI; ++I;
-
+      
       if (CI != Result && !CI->use_empty()) {
         CI->replaceAllUsesWith(Result);
         if (!Result->hasName())
@@ -1882,13 +1907,7 @@ bool SimplifyLibCalls::doInitialization(Module &M) {
         }
         break;
       case 'm':
-        if (Name == "malloc") {
-          if (FTy->getNumParams() != 1 ||
-              !isa<PointerType>(FTy->getReturnType()))
-            continue;
-          setDoesNotThrow(F);
-          setDoesNotAlias(F, 0);
-        } else if (Name == "memcmp") {
+        if (Name == "memcmp") {
           if (FTy->getNumParams() != 3 ||
               !isa<PointerType>(FTy->getParamType(0)) ||
               !isa<PointerType>(FTy->getParamType(1)))

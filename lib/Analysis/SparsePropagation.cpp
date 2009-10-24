@@ -29,7 +29,7 @@ using namespace llvm;
 AbstractLatticeFunction::~AbstractLatticeFunction() {}
 
 /// PrintValue - Render the specified lattice value to the specified stream.
-void AbstractLatticeFunction::PrintValue(LatticeVal V, raw_ostream &OS) {
+void AbstractLatticeFunction::PrintValue(LatticeVal V, std::ostream &OS) {
   if (V == UndefVal)
     OS << "undefined";
   else if (V == OverdefinedVal)
@@ -223,16 +223,6 @@ void SparseSolver::visitTerminatorInst(TerminatorInst &TI) {
 }
 
 void SparseSolver::visitPHINode(PHINode &PN) {
-  // The lattice function may store more information on a PHINode than could be
-  // computed from its incoming values.  For example, SSI form stores its sigma
-  // functions as PHINodes with a single incoming value.
-  if (LatticeFunc->IsSpecialCasedPHI(&PN)) {
-    LatticeVal IV = LatticeFunc->ComputeInstructionState(PN, *this);
-    if (IV != LatticeFunc->getUntrackedVal())
-      UpdateState(PN, IV);
-    return;
-  }
-
   LatticeVal PNIV = getOrInitValueState(&PN);
   LatticeVal Overdefined = LatticeFunc->getOverdefinedVal();
   
@@ -295,7 +285,7 @@ void SparseSolver::Solve(Function &F) {
       Instruction *I = InstWorkList.back();
       InstWorkList.pop_back();
 
-      DEBUG(errs() << "\nPopped off I-WL: " << *I << "\n");
+      DEBUG(errs() << "\nPopped off I-WL: " << *I);
 
       // "I" got into the work list because it made a transition.  See if any
       // users are both live and in need of updating.
@@ -322,7 +312,7 @@ void SparseSolver::Solve(Function &F) {
   }
 }
 
-void SparseSolver::Print(Function &F, raw_ostream &OS) const {
+void SparseSolver::Print(Function &F, std::ostream &OS) const {
   OS << "\nFUNCTION: " << F.getNameStr() << "\n";
   for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB) {
     if (!BBExecutable.count(BB))
@@ -334,7 +324,7 @@ void SparseSolver::Print(Function &F, raw_ostream &OS) const {
       OS << "; anon bb\n";
     for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
       LatticeFunc->PrintValue(getLatticeState(I), OS);
-      OS << *I << "\n";
+      OS << *I;
     }
     
     OS << "\n";

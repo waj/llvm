@@ -1,4 +1,4 @@
-; RUN: llvm-as %s -o /dev/null
+; RUN: llvm-as %s -o /dev/null -f
 
 %T = type i32 *
 

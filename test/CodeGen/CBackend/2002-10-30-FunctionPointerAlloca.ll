@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c
+; RUN: llvm-as < %s | llc -march=c
 
         %BitField = type i32
         %tokenptr = type i32*

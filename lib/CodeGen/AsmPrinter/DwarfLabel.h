@@ -14,16 +14,19 @@
 #ifndef CODEGEN_ASMPRINTER_DWARFLABEL_H__
 #define CODEGEN_ASMPRINTER_DWARFLABEL_H__
 
+#include "llvm/Support/Compiler.h"
+#include <iosfwd>
+#include <vector>
+
 namespace llvm {
   class FoldingSetNodeID;
-  class raw_ostream;
 
   //===--------------------------------------------------------------------===//
   /// DWLabel - Labels are used to track locations in the assembler file.
   /// Labels appear in the form @verbatim <prefix><Tag><Number> @endverbatim,
   /// where the tag is a category of label (Ex. location) and number is a value
   /// unique in that category.
-  class DWLabel {
+  class VISIBILITY_HIDDEN DWLabel {
     /// Tag - Label category tag. Should always be a statically declared C
     /// string.
     /// 
@@ -44,7 +47,8 @@ namespace llvm {
     void Profile(FoldingSetNodeID &ID) const;
 
 #ifndef NDEBUG
-    void print(raw_ostream &O) const;
+    void print(std::ostream *O) const;
+    void print(std::ostream &O) const;
 #endif
   };
 } // end llvm namespace

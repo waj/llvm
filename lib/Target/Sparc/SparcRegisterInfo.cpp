@@ -76,10 +76,8 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   MBB.erase(I);
 }
 
-unsigned
-SparcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                       int SPAdj, int *Value,
-                                       RegScavenger *RS) const {
+void SparcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                            int SPAdj, RegScavenger *RS) const {
   assert(SPAdj == 0 && "Unexpected");
 
   unsigned i = 0;
@@ -115,7 +113,6 @@ SparcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     MI.getOperand(i).ChangeToRegister(SP::G1, false);
     MI.getOperand(i+1).ChangeToImmediate(Offset & ((1 << 10)-1));
   }
-  return 0;
 }
 
 void SparcRegisterInfo::
@@ -172,11 +169,13 @@ void SparcRegisterInfo::emitEpilogue(MachineFunction &MF,
 }
 
 unsigned SparcRegisterInfo::getRARegister() const {
-  return SP::I7;
+  llvm_unreachable("What is the return address register");
+  return 0;
 }
 
 unsigned SparcRegisterInfo::getFrameRegister(MachineFunction &MF) const {
-  return SP::I6;
+  llvm_unreachable("What is the frame register");
+  return SP::G1;
 }
 
 unsigned SparcRegisterInfo::getEHExceptionRegister() const {
@@ -190,7 +189,8 @@ unsigned SparcRegisterInfo::getEHHandlerRegister() const {
 }
 
 int SparcRegisterInfo::getDwarfRegNum(unsigned RegNum, bool isEH) const {
-  return SparcGenRegisterInfo::getDwarfRegNumFull(RegNum, 0);
+  llvm_unreachable("What is the dwarf register number");
+  return -1;
 }
 
 #include "SparcGenRegisterInfo.inc"

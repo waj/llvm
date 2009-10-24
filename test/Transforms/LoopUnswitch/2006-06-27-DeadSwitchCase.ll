@@ -1,4 +1,4 @@
-; RUN: opt < %s -loop-unswitch -disable-output
+; RUN: llvm-as < %s | opt -loop-unswitch -disable-output
 
 define void @init_caller_save() {
 entry:

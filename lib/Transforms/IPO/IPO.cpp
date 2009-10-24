@@ -63,7 +63,7 @@ void LLVMAddPruneEHPass(LLVMPassManagerRef PM) {
 }
 
 void LLVMAddRaiseAllocationsPass(LLVMPassManagerRef PM) {
-  // FIXME: Remove in LLVM 3.0.
+  unwrap(PM)->add(createRaiseAllocationsPass());
 }
 
 void LLVMAddStripDeadPrototypesPass(LLVMPassManagerRef PM) {

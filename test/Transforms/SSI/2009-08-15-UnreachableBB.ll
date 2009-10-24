@@ -1,4 +1,4 @@
-; RUN: opt < %s -ssi-everything -disable-output
+; RUN: llvm-as < %s | opt -ssi-everything -disable-output
 
 declare fastcc i32 @ras_Empty(i8** nocapture) nounwind readonly
 

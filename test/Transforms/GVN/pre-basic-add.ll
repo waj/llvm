@@ -1,4 +1,4 @@
-; RUN: opt < %s -gvn -enable-pre -S | grep {.pre}
+; RUN: llvm-as < %s | opt -gvn -enable-pre | llvm-dis | grep {.pre}
 
 @H = common global i32 0		; <i32*> [#uses=2]
 @G = common global i32 0		; <i32*> [#uses=1]

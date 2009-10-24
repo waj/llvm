@@ -15,11 +15,10 @@
 #include "llvm/Support/Allocator.h"
 
 namespace llvm {
-  class MCExpr;
+  class MCValue;
   class MCSection;
   class MCSymbol;
   class StringRef;
-  class Twine;
 
   /// MCContext - Context object for machine code objects.  This class owns all
   /// of the sections that it creates.
@@ -34,6 +33,11 @@ namespace llvm {
     /// Symbols - Bindings of names to symbols.
     StringMap<MCSymbol*> Symbols;
 
+    /// SymbolValues - Bindings of symbols to values.
+    //
+    // FIXME: Is there a good reason to not just put this in the MCSymbol?
+    DenseMap<MCSymbol*, MCValue> SymbolValues;
+
     /// Allocator - Allocator object used for creating machine code objects.
     ///
     /// We use a bump pointer allocator to avoid the need to track all allocated
@@ -42,10 +46,7 @@ namespace llvm {
   public:
     MCContext();
     ~MCContext();
-
-    /// @name Symbol Managment
-    /// @{
-
+    
     /// CreateSymbol - Create a new symbol with the specified @param Name.
     ///
     /// @param Name - The symbol name, which must be unique across all symbols.
@@ -56,11 +57,8 @@ namespace llvm {
     /// reference and return it.
     ///
     /// @param Name - The symbol name, which must be unique across all symbols.
-    /// @param IsTemporary - Whether this symbol is an assembler temporary,
-    /// which should not survive into the symbol table for the translation unit.
     MCSymbol *GetOrCreateSymbol(const StringRef &Name);
-    MCSymbol *GetOrCreateSymbol(const Twine &Name);
-
+    
     /// CreateTemporarySymbol - Create a new temporary symbol with the specified
     /// @param Name.
     ///
@@ -72,12 +70,22 @@ namespace llvm {
     /// LookupSymbol - Get the symbol for @param Name, or null.
     MCSymbol *LookupSymbol(const StringRef &Name) const;
 
-    /// @}
+    /// ClearSymbolValue - Erase a value binding for @param Symbol, if one
+    /// exists.
+    void ClearSymbolValue(MCSymbol *Symbol);
+
+    /// SetSymbolValue - Set the value binding for @param Symbol to @param
+    /// Value.
+    void SetSymbolValue(MCSymbol *Symbol, const MCValue &Value);
+
+    /// GetSymbolValue - Return the current value for @param Symbol, or null if
+    /// none exists.
+    const MCValue *GetSymbolValue(MCSymbol *Symbol) const;
 
     void *Allocate(unsigned Size, unsigned Align = 8) {
       return Allocator.Allocate(Size, Align);
     }
-    void Deallocate(void *Ptr) {
+    void Deallocate(void *Ptr) { 
     }
   };
 

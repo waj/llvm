@@ -8,7 +8,8 @@
 ##===----------------------------------------------------------------------===##
 LEVEL = ../..
 TOOLNAME = opt
+REQUIRES_EH := 1
 
-LINK_COMPONENTS := bitreader bitwriter asmparser instrumentation scalaropts ipo
+LINK_COMPONENTS := bitreader bitwriter instrumentation scalaropts ipo
 
 include $(LEVEL)/Makefile.common

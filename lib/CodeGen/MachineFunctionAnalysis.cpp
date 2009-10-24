@@ -30,7 +30,6 @@ MachineFunctionAnalysis::MachineFunctionAnalysis(TargetMachine &tm,
 }
 
 MachineFunctionAnalysis::~MachineFunctionAnalysis() {
-  releaseMemory();
   assert(!MF && "MachineFunctionAnalysis left initialized!");
 }
 

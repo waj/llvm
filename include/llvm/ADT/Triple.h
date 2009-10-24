@@ -13,11 +13,6 @@
 #include "llvm/ADT/StringRef.h"
 #include <string>
 
-// Some system headers or GCC predefined macros conflict with identifiers in
-// this file.  Undefine them here.
-#undef mips
-#undef sparc
-
 namespace llvm {
 class StringRef;
 class Twine;
@@ -95,8 +90,7 @@ public:
     NetBSD,
     OpenBSD,
     Solaris,
-    Win32,
-    Haiku
+    Win32
   };
   
 private:
@@ -119,8 +113,8 @@ public:
   /// @{
   
   Triple() : Data(), Arch(InvalidArch) {}
-  explicit Triple(StringRef Str) : Data(Str), Arch(InvalidArch) {}
-  explicit Triple(StringRef ArchStr, StringRef VendorStr, StringRef OSStr)
+  explicit Triple(const StringRef &Str) : Data(Str), Arch(InvalidArch) {}
+  explicit Triple(const char *ArchStr, const char *VendorStr, const char *OSStr)
     : Data(ArchStr), Arch(InvalidArch) {
     Data += '-';
     Data += VendorStr;
@@ -244,14 +238,6 @@ public:
   /// architecture.
   static const char *getArchTypeName(ArchType Kind);
 
-  /// getArchTypePrefix - Get the "prefix" canonical name for the \arg Kind
-  /// architecture. This is the prefix used by the architecture specific
-  /// builtins, and is suitable for passing to \see
-  /// Intrinsic::getIntrinsicForGCCBuiltin().
-  ///
-  /// \return - The architecture prefix, or 0 if none is defined.
-  static const char *getArchTypePrefix(ArchType Kind);
-
   /// getVendorTypeName - Get the canonical name for the \arg Kind
   /// vendor.
   static const char *getVendorTypeName(VendorType Kind);
@@ -259,18 +245,9 @@ public:
   /// getOSTypeName - Get the canonical name for the \arg Kind vendor.
   static const char *getOSTypeName(OSType Kind);
 
-  /// @}
-  /// @name Static helpers for converting alternate architecture names.
-  /// @{
-
   /// getArchTypeForLLVMName - The canonical type for the given LLVM
   /// architecture name (e.g., "x86").
   static ArchType getArchTypeForLLVMName(const StringRef &Str);
-
-  /// getArchTypeForDarwinArchName - Get the architecture type for a "Darwin"
-  /// architecture name, for example as accepted by "gcc -arch" (see also
-  /// arch(3)).
-  static ArchType getArchTypeForDarwinArchName(const StringRef &Str);
 
   /// @}
 };

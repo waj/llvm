@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=arm-linux-gnueabi
+; RUN: llvm-as < %s | llc -mtriple=arm-linux-gnueabi
 ; PR1257
 
 	%struct.CUMULATIVE_ARGS = type { i32, i32, i32, i32, i32, i32 }

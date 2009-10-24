@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=systemz | grep larl
+; RUN: llvm-as < %s | llc -march=systemz | grep larl
 
 define i32 @main(i32 %tmp158) {
 entry:

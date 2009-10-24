@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=i386-apple-darwin
+; RUN: llvm-as < %s | llc -mtriple=i386-apple-darwin
 ; rdar://6501631
 
 	%CF = type { %Register }

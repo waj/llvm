@@ -103,10 +103,9 @@ int main(int argc, char **argv) {
   LLVMContext& Context = getGlobalContext();
   // If we have an override, set it and then track the triple we want Modules
   // to use.
-  if (!OverrideTriple.empty()) {
+  if (!OverrideTriple.empty())
     TargetTriple.setTriple(OverrideTriple);
-    outs() << "Override triple set to '" << OverrideTriple << "'\n";
-  }
+  outs() << "override triple is " << OverrideTriple << '\n';
 
   BugDriver D(argv[0], AsChild, FindBugs, TimeoutValue, MemoryLimit, Context);
   if (D.addSources(InputFilenames)) return 1;

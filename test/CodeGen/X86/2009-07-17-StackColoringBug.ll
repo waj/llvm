@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=i386-pc-linux-gnu -disable-fp-elim -color-ss-with-regs | not grep dil
+; RUN: llvm-as < %s | llc -mtriple=i386-pc-linux-gnu -disable-fp-elim -color-ss-with-regs | not grep dil
 ; PR4552
 
 target triple = "i386-pc-linux-gnu"

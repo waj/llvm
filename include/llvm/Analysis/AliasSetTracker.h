@@ -20,6 +20,7 @@
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/ValueHandle.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/iterator.h"
 #include "llvm/ADT/ilist.h"
 #include "llvm/ADT/ilist_node.h"
 #include <vector>
@@ -154,12 +155,12 @@ public:
   iterator end()   const { return iterator(); }
   bool empty() const { return PtrList == 0; }
 
-  void print(raw_ostream &OS) const;
+  void print(std::ostream &OS) const;
+  void print(std::ostream *OS) const { if (OS) print(*OS); }
   void dump() const;
 
   /// Define an iterator for alias sets... this is just a forward iterator.
-  class iterator : public std::iterator<std::forward_iterator_tag,
-                                        PointerRec, ptrdiff_t> {
+  class iterator : public forward_iterator<PointerRec, ptrdiff_t> {
     PointerRec *CurNode;
   public:
     explicit iterator(PointerRec *CN = 0) : CurNode(CN) {}
@@ -244,7 +245,7 @@ private:
   bool aliasesCallSite(CallSite CS, AliasAnalysis &AA) const;
 };
 
-inline raw_ostream& operator<<(raw_ostream &OS, const AliasSet &AS) {
+inline std::ostream& operator<<(std::ostream &OS, const AliasSet &AS) {
   AS.print(OS);
   return OS;
 }
@@ -373,7 +374,8 @@ public:
   iterator begin() { return AliasSets.begin(); }
   iterator end()   { return AliasSets.end(); }
 
-  void print(raw_ostream &OS) const;
+  void print(std::ostream &OS) const;
+  void print(std::ostream *OS) const { if (OS) print(*OS); }
   void dump() const;
 
 private:
@@ -401,7 +403,7 @@ private:
   AliasSet *findAliasSetForCallSite(CallSite CS);
 };
 
-inline raw_ostream& operator<<(raw_ostream &OS, const AliasSetTracker &AST) {
+inline std::ostream& operator<<(std::ostream &OS, const AliasSetTracker &AST) {
   AST.print(OS);
   return OS;
 }

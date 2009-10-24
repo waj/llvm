@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse41 -o %t
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse41 -o %t -f
 
 ; tests variable insert and extract of a 4 x i32
 

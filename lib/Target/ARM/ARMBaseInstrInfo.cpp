@@ -21,9 +21,7 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
-#include "llvm/CodeGen/MachineMemOperand.h"
-#include "llvm/CodeGen/PseudoSourceValue.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 using namespace llvm;
@@ -407,7 +405,7 @@ static unsigned getNumJTEntries(const std::vector<MachineJumpTableEntry> &JT,
 unsigned ARMBaseInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
   const MachineBasicBlock &MBB = *MI->getParent();
   const MachineFunction *MF = MBB.getParent();
-  const MCAsmInfo *MAI = MF->getTarget().getMCAsmInfo();
+  const TargetAsmInfo *TAI = MF->getTarget().getTargetAsmInfo();
 
   // Basic size info comes from the TSFlags field.
   const TargetInstrDesc &TID = MI->getDesc();
@@ -418,14 +416,14 @@ unsigned ARMBaseInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
   default: {
     // If this machine instr is an inline asm, measure it.
     if (MI->getOpcode() == ARM::INLINEASM)
-      return getInlineAsmLength(MI->getOperand(0).getSymbolName(), *MAI);
+      return getInlineAsmLength(MI->getOperand(0).getSymbolName(), *TAI);
     if (MI->isLabel())
       return 0;
     switch (Opc) {
     default:
       llvm_unreachable("Unknown or unset size field for instr!");
     case TargetInstrInfo::IMPLICIT_DEF:
-    case TargetInstrInfo::KILL:
+    case TargetInstrInfo::DECLARE:
     case TargetInstrInfo::DBG_LABEL:
     case TargetInstrInfo::EH_LABEL:
       return 0;
@@ -615,29 +613,14 @@ ARMBaseInstrInfo::copyRegToReg(MachineBasicBlock &MBB,
   if (I != MBB.end()) DL = I->getDebugLoc();
 
   if (DestRC != SrcRC) {
-    // Allow DPR / DPR_VFP2 / DPR_8 cross-class copies
-    // Allow QPR / QPR_VFP2 cross-class copies
-    if (DestRC == ARM::DPRRegisterClass) {
-      if (SrcRC == ARM::DPR_VFP2RegisterClass ||
-          SrcRC == ARM::DPR_8RegisterClass) {
-      } else
-        return false;
-    } else if (DestRC == ARM::DPR_VFP2RegisterClass) {
-      if (SrcRC == ARM::DPRRegisterClass ||
-          SrcRC == ARM::DPR_8RegisterClass) {
-      } else
-        return false;
-    } else if (DestRC == ARM::DPR_8RegisterClass) {
-      if (SrcRC == ARM::DPRRegisterClass ||
-          SrcRC == ARM::DPR_VFP2RegisterClass) {
-      } else
-        return false;
-    } else if ((DestRC == ARM::QPRRegisterClass &&
-                SrcRC == ARM::QPR_VFP2RegisterClass) ||
-               (DestRC == ARM::QPR_VFP2RegisterClass &&
-                SrcRC == ARM::QPRRegisterClass)) {
-    } else
+    if (((DestRC == ARM::DPRRegisterClass) &&
+         (SrcRC == ARM::DPR_VFP2RegisterClass)) ||
+        ((SrcRC == ARM::DPRRegisterClass) &&
+         (DestRC == ARM::DPR_VFP2RegisterClass))) {
+      // Allow copy between DPR and DPR_VFP2.
+    } else {
       return false;
+    }
   }
 
   if (DestRC == ARM::GPRRegisterClass) {
@@ -647,12 +630,10 @@ ARMBaseInstrInfo::copyRegToReg(MachineBasicBlock &MBB,
     AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::FCPYS), DestReg)
                    .addReg(SrcReg));
   } else if ((DestRC == ARM::DPRRegisterClass) ||
-             (DestRC == ARM::DPR_VFP2RegisterClass) ||
-             (DestRC == ARM::DPR_8RegisterClass)) {
+             (DestRC == ARM::DPR_VFP2RegisterClass)) {
     AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::FCPYD), DestReg)
                    .addReg(SrcReg));
-  } else if (DestRC == ARM::QPRRegisterClass ||
-             DestRC == ARM::QPR_VFP2RegisterClass) {
+  } else if (DestRC == ARM::QPRRegisterClass) {
     BuildMI(MBB, I, DL, get(ARM::VMOVQ), DestReg).addReg(SrcReg);
   } else {
     return false;
@@ -667,35 +648,24 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                     const TargetRegisterClass *RC) const {
   DebugLoc DL = DebugLoc::getUnknownLoc();
   if (I != MBB.end()) DL = I->getDebugLoc();
-  MachineFunction &MF = *MBB.getParent();
-  MachineFrameInfo &MFI = *MF.getFrameInfo();
-
-  MachineMemOperand *MMO =
-    MF.getMachineMemOperand(PseudoSourceValue::getFixedStack(FI),
-                            MachineMemOperand::MOStore, 0,
-                            MFI.getObjectSize(FI),
-                            MFI.getObjectAlignment(FI));
 
   if (RC == ARM::GPRRegisterClass) {
     AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::STR))
                    .addReg(SrcReg, getKillRegState(isKill))
-                   .addFrameIndex(FI).addReg(0).addImm(0).addMemOperand(MMO));
-  } else if (RC == ARM::DPRRegisterClass ||
-             RC == ARM::DPR_VFP2RegisterClass ||
-             RC == ARM::DPR_8RegisterClass) {
+                   .addFrameIndex(FI).addReg(0).addImm(0));
+  } else if (RC == ARM::DPRRegisterClass || RC == ARM::DPR_VFP2RegisterClass) {
     AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::FSTD))
                    .addReg(SrcReg, getKillRegState(isKill))
-                   .addFrameIndex(FI).addImm(0).addMemOperand(MMO));
+                   .addFrameIndex(FI).addImm(0));
   } else if (RC == ARM::SPRRegisterClass) {
     AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::FSTS))
                    .addReg(SrcReg, getKillRegState(isKill))
-                   .addFrameIndex(FI).addImm(0).addMemOperand(MMO));
+                   .addFrameIndex(FI).addImm(0));
   } else {
-    assert((RC == ARM::QPRRegisterClass ||
-            RC == ARM::QPR_VFP2RegisterClass) && "Unknown regclass!");
+    assert(RC == ARM::QPRRegisterClass && "Unknown regclass!");
     // FIXME: Neon instructions should support predicates
     BuildMI(MBB, I, DL, get(ARM::VSTRQ)).addReg(SrcReg, getKillRegState(isKill))
-      .addFrameIndex(FI).addImm(0).addMemOperand(MMO);
+      .addFrameIndex(FI).addImm(0);
   }
 }
 
@@ -705,32 +675,20 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                      const TargetRegisterClass *RC) const {
   DebugLoc DL = DebugLoc::getUnknownLoc();
   if (I != MBB.end()) DL = I->getDebugLoc();
-  MachineFunction &MF = *MBB.getParent();
-  MachineFrameInfo &MFI = *MF.getFrameInfo();
-
-  MachineMemOperand *MMO =
-    MF.getMachineMemOperand(PseudoSourceValue::getFixedStack(FI),
-                            MachineMemOperand::MOLoad, 0,
-                            MFI.getObjectSize(FI),
-                            MFI.getObjectAlignment(FI));
 
   if (RC == ARM::GPRRegisterClass) {
     AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::LDR), DestReg)
-                   .addFrameIndex(FI).addReg(0).addImm(0).addMemOperand(MMO));
-  } else if (RC == ARM::DPRRegisterClass ||
-             RC == ARM::DPR_VFP2RegisterClass ||
-             RC == ARM::DPR_8RegisterClass) {
+                   .addFrameIndex(FI).addReg(0).addImm(0));
+  } else if (RC == ARM::DPRRegisterClass || RC == ARM::DPR_VFP2RegisterClass) {
     AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::FLDD), DestReg)
-                   .addFrameIndex(FI).addImm(0).addMemOperand(MMO));
+                   .addFrameIndex(FI).addImm(0));
   } else if (RC == ARM::SPRRegisterClass) {
     AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::FLDS), DestReg)
-                   .addFrameIndex(FI).addImm(0).addMemOperand(MMO));
+                   .addFrameIndex(FI).addImm(0));
   } else {
-    assert((RC == ARM::QPRRegisterClass ||
-            RC == ARM::QPR_VFP2RegisterClass) && "Unknown regclass!");
+    assert(RC == ARM::QPRRegisterClass && "Unknown regclass!");
     // FIXME: Neon instructions should support predicates
-    BuildMI(MBB, I, DL, get(ARM::VLDRQ), DestReg).addFrameIndex(FI).addImm(0).
-      addMemOperand(MMO);
+    BuildMI(MBB, I, DL, get(ARM::VLDRQ), DestReg).addFrameIndex(FI).addImm(0);
   }
 }
 
@@ -884,8 +842,7 @@ ARMBaseInstrInfo::canFoldMemoryOperand(const MachineInstr *MI,
 /// getInstrPredicate - If instruction is predicated, returns its predicate
 /// condition, otherwise returns AL. It also returns the condition code
 /// register by reference.
-ARMCC::CondCodes
-llvm::getInstrPredicate(const MachineInstr *MI, unsigned &PredReg) {
+ARMCC::CondCodes llvm::getInstrPredicate(MachineInstr *MI, unsigned &PredReg) {
   int PIdx = MI->findFirstPredOperandIdx();
   if (PIdx == -1) {
     PredReg = 0;
@@ -937,9 +894,9 @@ void llvm::emitARMRegPlusImmediate(MachineBasicBlock &MBB,
   }
 }
 
-bool llvm::rewriteARMFrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
-                                unsigned FrameReg, int &Offset,
-                                const ARMBaseInstrInfo &TII) {
+int llvm::rewriteARMFrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
+                               unsigned FrameReg, int Offset,
+                               const ARMBaseInstrInfo &TII) {
   unsigned Opcode = MI.getOpcode();
   const TargetInstrDesc &Desc = MI.getDesc();
   unsigned AddrMode = (Desc.TSFlags & ARMII::AddrModeMask);
@@ -956,8 +913,7 @@ bool llvm::rewriteARMFrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
       MI.setDesc(TII.get(ARM::MOVr));
       MI.getOperand(FrameRegIdx).ChangeToRegister(FrameReg, false);
       MI.RemoveOperand(FrameRegIdx+1);
-      Offset = 0;
-      return true;
+      return 0;
     } else if (Offset < 0) {
       Offset = -Offset;
       isSub = true;
@@ -969,8 +925,7 @@ bool llvm::rewriteARMFrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
       // Replace the FrameIndex with sp / fp
       MI.getOperand(FrameRegIdx).ChangeToRegister(FrameReg, false);
       MI.getOperand(FrameRegIdx+1).ChangeToImmediate(Offset);
-      Offset = 0;
-      return true;
+      return 0;
     }
 
     // Otherwise, pull as much of the immedidate into this ADDri/SUBri
@@ -1008,8 +963,7 @@ bool llvm::rewriteARMFrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
       break;
     }
     case ARMII::AddrMode4:
-      // Can't fold any offset even if it's zero.
-      return false;
+     break;
     case ARMII::AddrMode5: {
       ImmIdx = FrameRegIdx+1;
       InstrOffs = ARM_AM::getAM5Offset(MI.getOperand(ImmIdx).getImm());
@@ -1043,8 +997,7 @@ bool llvm::rewriteARMFrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
         if (isSub)
           ImmedOffset |= 1 << NumBits;
         ImmOp.ChangeToImmediate(ImmedOffset);
-        Offset = 0;
-        return true;
+        return 0;
       }
 
       // Otherwise, it didn't fit. Pull in what we can to simplify the immed.
@@ -1056,6 +1009,5 @@ bool llvm::rewriteARMFrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
     }
   }
 
-  Offset = (isSub) ? -Offset : Offset;
-  return Offset == 0;
+  return (isSub) ? -Offset : Offset;
 }

@@ -44,11 +44,15 @@ static const char *const PSVNames[] = {
 // static.  For now, we can safely use the global context for the time being to
 // squeak by.
 PseudoSourceValue::PseudoSourceValue() :
-  Value(Type::getInt8PtrTy(getGlobalContext()),
+  Value(PointerType::getUnqual(Type::getInt8Ty(getGlobalContext())),
         PseudoSourceValueVal) {}
 
-void PseudoSourceValue::printCustom(raw_ostream &O) const {
-  O << PSVNames[this - *PSVs];
+void PseudoSourceValue::dump() const {
+  print(errs()); errs() << '\n';
+}
+
+void PseudoSourceValue::print(raw_ostream &OS) const {
+  OS << PSVNames[this - *PSVs];
 }
 
 namespace {
@@ -63,9 +67,7 @@ namespace {
 
     virtual bool isConstant(const MachineFrameInfo *MFI) const;
 
-    virtual bool isAliased(const MachineFrameInfo *MFI) const;
-
-    virtual void printCustom(raw_ostream &OS) const {
+    virtual void print(raw_ostream &OS) const {
       OS << "FixedStack" << FI;
     }
   };
@@ -91,26 +93,6 @@ bool PseudoSourceValue::isConstant(const MachineFrameInfo *) const {
   return false;
 }
 
-bool PseudoSourceValue::isAliased(const MachineFrameInfo *MFI) const {
-  if (this == getStack() ||
-      this == getGOT() ||
-      this == getConstantPool() ||
-      this == getJumpTable())
-    return false;
-  llvm_unreachable("Unknown PseudoSourceValue!");
-  return true;
-}
-
 bool FixedStackPseudoSourceValue::isConstant(const MachineFrameInfo *MFI) const{
   return MFI && MFI->isImmutableObjectIndex(FI);
-}
-
-bool FixedStackPseudoSourceValue::isAliased(const MachineFrameInfo *MFI) const {
-  // Negative frame indices are used for special things that don't
-  // appear in LLVM IR. Non-negative indices may be used for things
-  // like static allocas.
-  if (!MFI)
-    return FI >= 0;
-  // Spill slots should not alias others.
-  return !MFI->isFixedObjectIndex(FI) && !MFI->isSpillSlotObjectIndex(FI);
 }

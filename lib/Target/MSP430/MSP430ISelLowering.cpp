@@ -34,7 +34,6 @@
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/VectorExtras.h"
 using namespace llvm;
 
@@ -95,8 +94,6 @@ MSP430TargetLowering::MSP430TargetLowering(MSP430TargetMachine &tm) :
   setOperationAction(ISD::SELECT_CC,        MVT::i8,    Custom);
   setOperationAction(ISD::SELECT_CC,        MVT::i16,   Custom);
   setOperationAction(ISD::SIGN_EXTEND,      MVT::i16,   Custom);
-  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i8, Expand);
-  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i16, Expand);
 
   setOperationAction(ISD::CTTZ,             MVT::i8,    Expand);
   setOperationAction(ISD::CTTZ,             MVT::i16,   Expand);
@@ -151,44 +148,6 @@ unsigned MSP430TargetLowering::getFunctionAlignment(const Function *F) const {
 }
 
 //===----------------------------------------------------------------------===//
-//                       MSP430 Inline Assembly Support
-//===----------------------------------------------------------------------===//
-
-/// getConstraintType - Given a constraint letter, return the type of
-/// constraint it is for this target.
-TargetLowering::ConstraintType
-MSP430TargetLowering::getConstraintType(const std::string &Constraint) const {
-  if (Constraint.size() == 1) {
-    switch (Constraint[0]) {
-    case 'r':
-      return C_RegisterClass;
-    default:
-      break;
-    }
-  }
-  return TargetLowering::getConstraintType(Constraint);
-}
-
-std::pair<unsigned, const TargetRegisterClass*>
-MSP430TargetLowering::
-getRegForInlineAsmConstraint(const std::string &Constraint,
-                             EVT VT) const {
-  if (Constraint.size() == 1) {
-    // GCC Constraint Letters
-    switch (Constraint[0]) {
-    default: break;
-    case 'r':   // GENERAL_REGS
-      if (VT == MVT::i8)
-        return std::make_pair(0U, MSP430::GR8RegisterClass);
-
-      return std::make_pair(0U, MSP430::GR16RegisterClass);
-    }
-  }
-
-  return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
-}
-
-//===----------------------------------------------------------------------===//
 //                      Calling Convention Implementation
 //===----------------------------------------------------------------------===//
 
@@ -196,7 +155,7 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
 
 SDValue
 MSP430TargetLowering::LowerFormalArguments(SDValue Chain,
-                                           CallingConv::ID CallConv,
+                                           unsigned CallConv,
                                            bool isVarArg,
                                            const SmallVectorImpl<ISD::InputArg>
                                              &Ins,
@@ -215,7 +174,7 @@ MSP430TargetLowering::LowerFormalArguments(SDValue Chain,
 
 SDValue
 MSP430TargetLowering::LowerCall(SDValue Chain, SDValue Callee,
-                                CallingConv::ID CallConv, bool isVarArg,
+                                unsigned CallConv, bool isVarArg,
                                 bool isTailCall,
                                 const SmallVectorImpl<ISD::OutputArg> &Outs,
                                 const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -238,7 +197,7 @@ MSP430TargetLowering::LowerCall(SDValue Chain, SDValue Callee,
 // FIXME: varargs
 SDValue
 MSP430TargetLowering::LowerCCCArguments(SDValue Chain,
-                                        CallingConv::ID CallConv,
+                                        unsigned CallConv,
                                         bool isVarArg,
                                         const SmallVectorImpl<ISD::InputArg>
                                           &Ins,
@@ -266,7 +225,7 @@ MSP430TargetLowering::LowerCCCArguments(SDValue Chain,
       default: 
         {
 #ifndef NDEBUG
-          errs() << "LowerFormalArguments Unhandled argument type: "
+          cerr << "LowerFormalArguments Unhandled argument type: "
                << RegVT.getSimpleVT().SimpleTy << "\n";
 #endif
           llvm_unreachable(0);
@@ -298,7 +257,7 @@ MSP430TargetLowering::LowerCCCArguments(SDValue Chain,
       // Load the argument to a virtual register
       unsigned ObjSize = VA.getLocVT().getSizeInBits()/8;
       if (ObjSize > 2) {
-        errs() << "LowerFormalArguments Unhandled argument type: "
+        cerr << "LowerFormalArguments Unhandled argument type: "
              << VA.getLocVT().getSimpleVT().SimpleTy
              << "\n";
       }
@@ -318,7 +277,7 @@ MSP430TargetLowering::LowerCCCArguments(SDValue Chain,
 
 SDValue
 MSP430TargetLowering::LowerReturn(SDValue Chain,
-                                  CallingConv::ID CallConv, bool isVarArg,
+                                  unsigned CallConv, bool isVarArg,
                                   const SmallVectorImpl<ISD::OutputArg> &Outs,
                                   DebugLoc dl, SelectionDAG &DAG) {
 
@@ -367,7 +326,7 @@ MSP430TargetLowering::LowerReturn(SDValue Chain,
 /// TODO: sret.
 SDValue
 MSP430TargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
-                                     CallingConv::ID CallConv, bool isVarArg,
+                                     unsigned CallConv, bool isVarArg,
                                      bool isTailCall,
                                      const SmallVectorImpl<ISD::OutputArg>
                                        &Outs,
@@ -493,7 +452,7 @@ MSP430TargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
 ///
 SDValue
 MSP430TargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
-                                      CallingConv::ID CallConv, bool isVarArg,
+                                      unsigned CallConv, bool isVarArg,
                                       const SmallVectorImpl<ISD::InputArg> &Ins,
                                       DebugLoc dl, SelectionDAG &DAG,
                                       SmallVectorImpl<SDValue> &InVals) {
@@ -567,45 +526,44 @@ SDValue MSP430TargetLowering::LowerExternalSymbol(SDValue Op,
   return DAG.getNode(MSP430ISD::Wrapper, dl, getPointerTy(), Result);;
 }
 
-static SDValue EmitCMP(SDValue &LHS, SDValue &RHS, SDValue &TargetCC,
+static SDValue EmitCMP(SDValue &LHS, SDValue &RHS, unsigned &TargetCC,
                        ISD::CondCode CC,
                        DebugLoc dl, SelectionDAG &DAG) {
   // FIXME: Handle bittests someday
   assert(!LHS.getValueType().isFloatingPoint() && "We don't handle FP yet");
 
   // FIXME: Handle jump negative someday
-  MSP430CC::CondCodes TCC = MSP430CC::COND_INVALID;
+  TargetCC = MSP430::COND_INVALID;
   switch (CC) {
   default: llvm_unreachable("Invalid integer condition!");
   case ISD::SETEQ:
-    TCC = MSP430CC::COND_E;     // aka COND_Z
+    TargetCC = MSP430::COND_E;  // aka COND_Z
     break;
   case ISD::SETNE:
-    TCC = MSP430CC::COND_NE;    // aka COND_NZ
+    TargetCC = MSP430::COND_NE; // aka COND_NZ
     break;
   case ISD::SETULE:
     std::swap(LHS, RHS);        // FALLTHROUGH
   case ISD::SETUGE:
-    TCC = MSP430CC::COND_HS;    // aka COND_C
+    TargetCC = MSP430::COND_HS; // aka COND_C
     break;
   case ISD::SETUGT:
     std::swap(LHS, RHS);        // FALLTHROUGH
   case ISD::SETULT:
-    TCC = MSP430CC::COND_LO;    // aka COND_NC
+    TargetCC = MSP430::COND_LO; // aka COND_NC
     break;
   case ISD::SETLE:
     std::swap(LHS, RHS);        // FALLTHROUGH
   case ISD::SETGE:
-    TCC = MSP430CC::COND_GE;
+    TargetCC = MSP430::COND_GE;
     break;
   case ISD::SETGT:
     std::swap(LHS, RHS);        // FALLTHROUGH
   case ISD::SETLT:
-    TCC = MSP430CC::COND_L;
+    TargetCC = MSP430::COND_L;
     break;
   }
 
-  TargetCC = DAG.getConstant(TCC, MVT::i8);
   return DAG.getNode(MSP430ISD::CMP, dl, MVT::Flag, LHS, RHS);
 }
 
@@ -618,11 +576,13 @@ SDValue MSP430TargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) {
   SDValue Dest  = Op.getOperand(4);
   DebugLoc dl   = Op.getDebugLoc();
 
-  SDValue TargetCC;
+  unsigned TargetCC = MSP430::COND_INVALID;
   SDValue Flag = EmitCMP(LHS, RHS, TargetCC, CC, dl, DAG);
 
   return DAG.getNode(MSP430ISD::BR_CC, dl, Op.getValueType(),
-                     Chain, Dest, TargetCC, Flag);
+                     Chain,
+                     Dest, DAG.getConstant(TargetCC, MVT::i8),
+                     Flag);
 }
 
 SDValue MSP430TargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) {
@@ -633,14 +593,14 @@ SDValue MSP430TargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) {
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(4))->get();
   DebugLoc dl    = Op.getDebugLoc();
 
-  SDValue TargetCC;
+  unsigned TargetCC = MSP430::COND_INVALID;
   SDValue Flag = EmitCMP(LHS, RHS, TargetCC, CC, dl, DAG);
 
   SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::Flag);
   SmallVector<SDValue, 4> Ops;
   Ops.push_back(TrueV);
   Ops.push_back(FalseV);
-  Ops.push_back(TargetCC);
+  Ops.push_back(DAG.getConstant(TargetCC, MVT::i8));
   Ops.push_back(Flag);
 
   return DAG.getNode(MSP430ISD::SELECT_CC, dl, VTs, &Ops[0], Ops.size());
@@ -680,8 +640,7 @@ const char *MSP430TargetLowering::getTargetNodeName(unsigned Opcode) const {
 
 MachineBasicBlock*
 MSP430TargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                  MachineBasicBlock *BB,
-                   DenseMap<MachineBasicBlock*, MachineBasicBlock*> *EM) const {
+                                                  MachineBasicBlock *BB) const {
   const TargetInstrInfo &TII = *getTargetMachine().getInstrInfo();
   DebugLoc dl = MI->getDebugLoc();
   assert((MI->getOpcode() == MSP430::Select16 ||
@@ -711,10 +670,6 @@ MSP430TargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
     .addImm(MI->getOperand(3).getImm());
   F->insert(I, copy0MBB);
   F->insert(I, copy1MBB);
-  // Inform sdisel of the edge changes.
-  for (MachineBasicBlock::succ_iterator SI = BB->succ_begin(), 
-         SE = BB->succ_end(); SI != SE; ++SI)
-    EM->insert(std::make_pair(*SI, copy1MBB));
   // Update machine-CFG edges by transferring all successors of the current
   // block to the new block which will contain the Phi node for the select.
   copy1MBB->transferSuccessors(BB);

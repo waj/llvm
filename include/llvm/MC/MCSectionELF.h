@@ -48,7 +48,7 @@ public:
   /// ShouldOmitSectionDirective - Decides whether a '.section' directive
   /// should be printed before the section name
   bool ShouldOmitSectionDirective(const char *Name, 
-                                  const MCAsmInfo &MAI) const;
+                                  const TargetAsmInfo &TAI) const;
 
   /// ShouldPrintSectionType - Only prints the section type if supported
   bool ShouldPrintSectionType(unsigned Ty) const;
@@ -171,7 +171,7 @@ public:
   unsigned getType() const { return Type; }
   unsigned getFlags() const { return Flags; }
   
-  virtual void PrintSwitchToSection(const MCAsmInfo &MAI,
+  virtual void PrintSwitchToSection(const TargetAsmInfo &TAI,
                                     raw_ostream &OS) const;
   
   
@@ -179,7 +179,7 @@ public:
   /// MCSectionELF subclasses with target specific section flags should
   /// implement this method if they end up adding letters to the attributes
   /// list.
-  virtual void PrintTargetSpecificSectionFlags(const MCAsmInfo &MAI,
+  virtual void PrintTargetSpecificSectionFlags(const TargetAsmInfo &TAI,
                                                raw_ostream &OS) const {
   }
                                                

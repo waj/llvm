@@ -44,31 +44,6 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   return "<invalid>";
 }
 
-const char *Triple::getArchTypePrefix(ArchType Kind) {
-  switch (Kind) {
-  default:
-    return 0;
-
-  case alpha:   return "alpha";
-
-  case arm:
-  case thumb:   return "arm";
-
-  case bfin:    return "bfin";
-
-  case cellspu: return "spu";
-
-  case ppc64:
-  case ppc:     return "ppc";
-
-  case sparc:   return "sparc";
-
-  case x86:
-  case x86_64:  return "x86";
-  case xcore:   return "xcore";
-  }
-}
-
 const char *Triple::getVendorTypeName(VendorType Kind) {
   switch (Kind) {
   case UnknownVendor: return "unknown";
@@ -96,7 +71,6 @@ const char *Triple::getOSTypeName(OSType Kind) {
   case OpenBSD: return "openbsd";
   case Solaris: return "solaris";
   case Win32: return "win32";
-  case Haiku: return "haiku";
   }
 
   return "<invalid>";
@@ -139,43 +113,6 @@ Triple::ArchType Triple::getArchTypeForLLVMName(const StringRef &Name) {
     return xcore;
 
   return UnknownArch;
-}
-
-Triple::ArchType Triple::getArchTypeForDarwinArchName(const StringRef &Str) {
-  // See arch(3) and llvm-gcc's driver-driver.c. We don't implement support for
-  // archs which Darwin doesn't use.
-
-  // The matching this routine does is fairly pointless, since it is neither the
-  // complete architecture list, nor a reasonable subset. The problem is that
-  // historically the driver driver accepts this and also ties its -march=
-  // handling to the architecture name, so we need to be careful before removing
-  // support for it.
-
-  // This code must be kept in sync with Clang's Darwin specific argument
-  // translation.
-
-  if (Str == "ppc" || Str == "ppc601" || Str == "ppc603" || Str == "ppc604" ||
-      Str == "ppc604e" || Str == "ppc750" || Str == "ppc7400" ||
-      Str == "ppc7450" || Str == "ppc970")
-    return Triple::ppc;
-
-  if (Str == "ppc64")
-    return Triple::ppc64;
-
-  if (Str == "i386" || Str == "i486" || Str == "i486SX" || Str == "pentium" ||
-      Str == "i586" || Str == "pentpro" || Str == "i686" || Str == "pentIIm3" ||
-      Str == "pentIIm5" || Str == "pentium4")
-    return Triple::x86;
-
-  if (Str == "x86_64")
-    return Triple::x86_64;
-
-  // This is derived from the driver driver.
-  if (Str == "arm" || Str == "armv4t" || Str == "armv5" || Str == "xscale" ||
-      Str == "armv6" || Str == "armv7")
-    return Triple::arm;
-
-  return Triple::UnknownArch;
 }
 
 //
@@ -225,8 +162,6 @@ void Triple::Parse() const {
     Arch = systemz;
   else if (ArchName == "tce")
     Arch = tce;
-  else if (ArchName == "xcore")
-    Arch = xcore;
   else
     Arch = UnknownArch;
 
@@ -277,8 +212,6 @@ void Triple::Parse() const {
     OS = Solaris;
   else if (OSName.startswith("win32"))
     OS = Win32;
-  else if (OSName.startswith("haiku"))
-  	OS = Haiku;
   else
     OS = UnknownOS;
 

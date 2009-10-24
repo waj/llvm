@@ -60,6 +60,7 @@ class MachineFunction;
 class MachineInstr;
 class MachineModuleInfo;
 class MachineRegisterInfo;
+class MallocInst;
 class PHINode;
 class PtrToIntInst;
 class ReturnInst;
@@ -344,14 +345,8 @@ public:
   /// BitTestCases - Vector of BitTestBlock structures used to communicate
   /// SwitchInst code generation information.
   std::vector<BitTestBlock> BitTestCases;
-
-  /// PHINodesToUpdate - A list of phi instructions whose operand list will
-  /// be updated after processing the current basic block.
+  
   std::vector<std::pair<MachineInstr*, unsigned> > PHINodesToUpdate;
-
-  /// EdgeMapping - If an edge from CurMBB to any MBB is changed (e.g. due to
-  /// scheduler custom lowering), track the change here.
-  DenseMap<MachineBasicBlock*, MachineBasicBlock*> EdgeMapping;
 
   // Emit PHI-node-operand constants only once even if used by multiple
   // PHI nodes.
@@ -528,6 +523,7 @@ private:
   void visitGetElementPtr(User &I);
   void visitSelect(User &I);
 
+  void visitMalloc(MallocInst &I);
   void visitFree(FreeInst &I);
   void visitAlloca(AllocaInst &I);
   void visitLoad(LoadInst &I);

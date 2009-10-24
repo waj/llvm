@@ -1,4 +1,4 @@
-//===- LeaksContext.h - LeadDetector Implementation ------------*- C++ -*--===//
+//===---------------- ----LeaksContext.h - Implementation ------*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -13,18 +13,19 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Value.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
 
 template <class T>
 struct PrinterTrait {
-  static void print(const T* P) { errs() << P; }
+  static void print(const T* P) { cerr << P; }
 };
 
 template<>
 struct PrinterTrait<Value> {
-  static void print(const Value* P) { errs() << *P; }
+  static void print(const Value* P) { cerr << *P; }
 };
 
 template <typename T>
@@ -67,14 +68,14 @@ struct LeakDetectorImpl {
     assert(Cache == 0 && "No value should be cached anymore!");
 
     if (!Ts.empty()) {
-      errs() << "Leaked " << Name << " objects found: " << Message << ":\n";
+      cerr << "Leaked " << Name << " objects found: " << Message << ":\n";
       for (typename SmallPtrSet<const T*, 8>::iterator I = Ts.begin(),
            E = Ts.end(); I != E; ++I) {
-        errs() << '\t';
+        cerr << "\t";
         PrinterTrait<T>::print(*I);
-        errs() << '\n';
+        cerr << "\n";
       }
-      errs() << '\n';
+      cerr << '\n';
 
       return true;
     }

@@ -31,10 +31,9 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/MC/MCSymbol.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -88,7 +87,7 @@ namespace {
     uint64_t LabelID;
   public:
     explicit PPCAsmPrinter(formatted_raw_ostream &O, TargetMachine &TM,
-                           const MCAsmInfo *T, bool V)
+                           const TargetAsmInfo *T, bool V)
       : AsmPrinter(O, TM, T, V),
         Subtarget(TM.getSubtarget<PPCSubtarget>()), LabelID(0) {}
 
@@ -120,8 +119,6 @@ namespace {
     /// machine instruction was sufficiently described to print it, otherwise it
     /// returns false.
     void printInstruction(const MachineInstr *MI);
-    static const char *getRegisterName(unsigned RegNo);
-
 
     void printMachineInstruction(const MachineInstr *MI);
     void printOp(const MachineOperand &MO);
@@ -151,7 +148,7 @@ namespace {
         return;
       }
 
-      const char *RegName = getRegisterName(RegNo);
+      const char *RegName = TM.getRegisterInfo()->get(RegNo).AsmName;
       // Linux assembler (Others?) does not take register mnemonics.
       // FIXME - What about special registers used in mfspr/mtspr?
       if (!Subtarget.isDarwin()) RegName = stripRegisterPrefix(RegName);
@@ -327,7 +324,7 @@ namespace {
       // Map symbol -> label of TOC entry.
       if (TOC.count(Name) == 0) {
         std::string Label;
-        Label += MAI->getPrivateGlobalPrefix();
+        Label += TAI->getPrivateGlobalPrefix();
         Label += "C";
         Label += utostr(LabelID++);
 
@@ -341,13 +338,15 @@ namespace {
                                const char *Modifier);
 
     virtual bool runOnMachineFunction(MachineFunction &F) = 0;
+
+    virtual void EmitExternalGlobal(const GlobalVariable *GV);
   };
 
   /// PPCLinuxAsmPrinter - PowerPC assembly printer, customized for Linux
   class VISIBILITY_HIDDEN PPCLinuxAsmPrinter : public PPCAsmPrinter {
   public:
     explicit PPCLinuxAsmPrinter(formatted_raw_ostream &O, TargetMachine &TM,
-                                const MCAsmInfo *T, bool V)
+                                const TargetAsmInfo *T, bool V)
       : PPCAsmPrinter(O, TM, T, V){}
 
     virtual const char *getPassName() const {
@@ -373,7 +372,7 @@ namespace {
     formatted_raw_ostream &OS;
   public:
     explicit PPCDarwinAsmPrinter(formatted_raw_ostream &O, TargetMachine &TM,
-                                 const MCAsmInfo *T, bool V)
+                                 const TargetAsmInfo *T, bool V)
       : PPCAsmPrinter(O, TM, T, V), OS(O) {}
 
     virtual const char *getPassName() const {
@@ -381,8 +380,8 @@ namespace {
     }
 
     bool runOnMachineFunction(MachineFunction &F);
+    bool doInitialization(Module &M);
     bool doFinalization(Module &M);
-    void EmitStartOfAsmFile(Module &M);
 
     void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
@@ -404,20 +403,20 @@ void PPCAsmPrinter::printOp(const MachineOperand &MO) {
     llvm_unreachable("printOp() does not handle immediate values");
 
   case MachineOperand::MO_MachineBasicBlock:
-    GetMBBSymbol(MO.getMBB()->getNumber())->print(O, MAI);
+    printBasicBlockLabel(MO.getMBB());
     return;
   case MachineOperand::MO_JumpTableIndex:
-    O << MAI->getPrivateGlobalPrefix() << "JTI" << getFunctionNumber()
+    O << TAI->getPrivateGlobalPrefix() << "JTI" << getFunctionNumber()
       << '_' << MO.getIndex();
     // FIXME: PIC relocation model
     return;
   case MachineOperand::MO_ConstantPoolIndex:
-    O << MAI->getPrivateGlobalPrefix() << "CPI" << getFunctionNumber()
+    O << TAI->getPrivateGlobalPrefix() << "CPI" << getFunctionNumber()
       << '_' << MO.getIndex();
     return;
   case MachineOperand::MO_ExternalSymbol: {
     // Computing the address of an external symbol, not calling it.
-    std::string Name(MAI->getGlobalPrefix());
+    std::string Name(TAI->getGlobalPrefix());
     Name += MO.getSymbolName();
     
     if (TM.getRelocationModel() != Reloc::Static) {
@@ -458,6 +457,19 @@ void PPCAsmPrinter::printOp(const MachineOperand &MO) {
     O << "<unknown operand type: " << MO.getType() << ">";
     return;
   }
+}
+
+/// EmitExternalGlobal - In this case we need to use the indirect symbol.
+///
+void PPCAsmPrinter::EmitExternalGlobal(const GlobalVariable *GV) {
+  std::string Name;
+  
+  if (TM.getRelocationModel() != Reloc::Static) {
+    Name = Mang->getMangledName(GV, "$non_lazy_ptr", true);
+  } else {
+    Name = Mang->getMangledName(GV);
+  }
+  O << Name;
 }
 
 /// PrintAsmOperand - Print out an operand for an inline asm expression.
@@ -506,9 +518,7 @@ bool PPCAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
   if (ExtraCode && ExtraCode[0])
     return true; // Unknown modifier.
   assert (MI->getOperand(OpNo).isReg());
-  O << "0(";
   printOperand(MI, OpNo);
-  O << ")";
   return false;
 }
 
@@ -544,8 +554,6 @@ void PPCAsmPrinter::printPredicateOperand(const MachineInstr *MI, unsigned OpNo,
 ///
 void PPCAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
   ++EmittedInsts;
-  
-  processDebugLoc(MI, true);
 
   // Check for slwi/srwi mnemonics.
   if (MI->getOpcode() == PPC::RLWINM) {
@@ -591,12 +599,6 @@ void PPCAsmPrinter::printMachineInstruction(const MachineInstr *MI) {
   }
 
   printInstruction(MI);
-  
-  if (VerboseAsm && !MI->getDebugLoc().isUnknown())
-    EmitComments(*MI);
-  O << '\n';
-
-  processDebugLoc(MI, false);
 }
 
 /// runOnMachineFunction - This uses the printMachineInstruction()
@@ -618,13 +620,13 @@ bool PPCLinuxAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   switch (F->getLinkage()) {
   default: llvm_unreachable("Unknown linkage type!");
   case Function::PrivateLinkage:
+  case Function::LinkerPrivateLinkage:
   case Function::InternalLinkage:  // Symbols default to internal.
     break;
   case Function::ExternalLinkage:
     O << "\t.global\t" << CurrentFnName << '\n'
       << "\t.type\t" << CurrentFnName << ", @function\n";
     break;
-  case Function::LinkerPrivateLinkage:
   case Function::WeakAnyLinkage:
   case Function::WeakODRLinkage:
   case Function::LinkOnceAnyLinkage:
@@ -659,7 +661,8 @@ bool PPCLinuxAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
        I != E; ++I) {
     // Print a label for the basic block.
     if (I != MF.begin()) {
-      EmitBasicBlockStart(I);
+      printBasicBlockLabel(I, true, true);
+      O << '\n';
     }
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
@@ -716,12 +719,12 @@ void PPCLinuxAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
         O << name << ":\n";
         O << "\t.zero " << Size << '\n';
       } else if (GVar->hasLocalLinkage()) {
-        O << MAI->getLCOMMDirective() << name << ',' << Size;
+        O << TAI->getLCOMMDirective() << name << ',' << Size;
       } else {
         O << ".comm " << name << ',' << Size;
       }
       if (VerboseAsm) {
-        O << "\t\t" << MAI->getCommentString() << " '";
+        O << "\t\t" << TAI->getCommentString() << " '";
         WriteAsOperand(O, GVar, /*PrintType=*/false, GVar->getParent());
         O << "'";
       }
@@ -735,7 +738,6 @@ void PPCLinuxAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
    case GlobalValue::WeakAnyLinkage:
    case GlobalValue::WeakODRLinkage:
    case GlobalValue::CommonLinkage:
-   case GlobalValue::LinkerPrivateLinkage:
     O << "\t.global " << name << '\n'
       << "\t.type " << name << ", @object\n"
       << "\t.weak " << name << '\n';
@@ -750,6 +752,7 @@ void PPCLinuxAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
     // FALL THROUGH
    case GlobalValue::InternalLinkage:
    case GlobalValue::PrivateLinkage:
+   case GlobalValue::LinkerPrivateLinkage:
     break;
    default:
     llvm_unreachable("Unknown linkage type!");
@@ -758,7 +761,7 @@ void PPCLinuxAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
   EmitAlignment(Align, GVar);
   O << name << ":";
   if (VerboseAsm) {
-    O << "\t\t\t\t" << MAI->getCommentString() << " '";
+    O << "\t\t\t\t" << TAI->getCommentString() << " '";
     WriteAsOperand(O, GVar, /*PrintType=*/false, GVar->getParent());
     O << "'";
   }
@@ -806,6 +809,7 @@ bool PPCDarwinAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   switch (F->getLinkage()) {
   default: llvm_unreachable("Unknown linkage type!");
   case Function::PrivateLinkage:
+  case Function::LinkerPrivateLinkage:
   case Function::InternalLinkage:  // Symbols default to internal.
     break;
   case Function::ExternalLinkage:
@@ -815,7 +819,6 @@ bool PPCDarwinAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   case Function::WeakODRLinkage:
   case Function::LinkOnceAnyLinkage:
   case Function::LinkOnceODRLinkage:
-  case Function::LinkerPrivateLinkage:
     O << "\t.globl\t" << CurrentFnName << '\n';
     O << "\t.weak_definition\t" << CurrentFnName << '\n';
     break;
@@ -842,7 +845,8 @@ bool PPCDarwinAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
        I != E; ++I) {
     // Print a label for the basic block.
     if (I != MF.begin()) {
-      EmitBasicBlockStart(I);
+      printBasicBlockLabel(I, true, true, VerboseAsm);
+      O << '\n';
     }
     for (MachineBasicBlock::const_iterator II = I->begin(), IE = I->end();
          II != IE; ++II) {
@@ -862,7 +866,7 @@ bool PPCDarwinAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 }
 
 
-void PPCDarwinAsmPrinter::EmitStartOfAsmFile(Module &M) {
+bool PPCDarwinAsmPrinter::doInitialization(Module &M) {
   static const char *const CPUDirectives[] = {
     "",
     "ppc",
@@ -885,6 +889,9 @@ void PPCDarwinAsmPrinter::EmitStartOfAsmFile(Module &M) {
   assert(Directive <= PPC::DIR_64 && "Directive out of range.");
   O << "\t.machine " << CPUDirectives[Directive] << '\n';
 
+  bool Result = AsmPrinter::doInitialization(M);
+  assert(MMI);
+
   // Prime text sections so they are adjacent.  This reduces the likelihood a
   // large data or debug section causes a branch to exceed 16M limit.
   TargetLoweringObjectFileMachO &TLOFMacho = 
@@ -904,6 +911,8 @@ void PPCDarwinAsmPrinter::EmitStartOfAsmFile(Module &M) {
                                       16, SectionKind::getText()));
   }
   OutStreamer.SwitchSection(getObjFileLowering().getTextSection());
+
+  return Result;
 }
 
 void PPCDarwinAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
@@ -949,14 +958,14 @@ void PPCDarwinAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
       O << "\t.zerofill __DATA, __common, " << name << ", "
         << Size << ", " << Align;
     } else if (GVar->hasLocalLinkage()) {
-      O << MAI->getLCOMMDirective() << name << ',' << Size << ',' << Align;
+      O << TAI->getLCOMMDirective() << name << ',' << Size << ',' << Align;
     } else if (!GVar->hasCommonLinkage()) {
       O << "\t.globl " << name << '\n'
-        << MAI->getWeakDefDirective() << name << '\n';
+        << TAI->getWeakDefDirective() << name << '\n';
       EmitAlignment(Align, GVar);
       O << name << ":";
       if (VerboseAsm) {
-        O << "\t\t\t\t" << MAI->getCommentString() << " ";
+        O << "\t\t\t\t" << TAI->getCommentString() << " ";
         WriteAsOperand(O, GVar, /*PrintType=*/false, GVar->getParent());
       }
       O << '\n';
@@ -969,7 +978,7 @@ void PPCDarwinAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
         O << ',' << Align;
     }
     if (VerboseAsm) {
-      O << "\t\t" << MAI->getCommentString() << " '";
+      O << "\t\t" << TAI->getCommentString() << " '";
       WriteAsOperand(O, GVar, /*PrintType=*/false, GVar->getParent());
       O << "'";
     }
@@ -983,7 +992,6 @@ void PPCDarwinAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
    case GlobalValue::WeakAnyLinkage:
    case GlobalValue::WeakODRLinkage:
    case GlobalValue::CommonLinkage:
-   case GlobalValue::LinkerPrivateLinkage:
     O << "\t.globl " << name << '\n'
       << "\t.weak_definition " << name << '\n';
     break;
@@ -996,6 +1004,7 @@ void PPCDarwinAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
     // FALL THROUGH
    case GlobalValue::InternalLinkage:
    case GlobalValue::PrivateLinkage:
+   case GlobalValue::LinkerPrivateLinkage:
     break;
    default:
     llvm_unreachable("Unknown linkage type!");
@@ -1004,7 +1013,7 @@ void PPCDarwinAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
   EmitAlignment(Align, GVar);
   O << name << ":";
   if (VerboseAsm) {
-    O << "\t\t\t\t" << MAI->getCommentString() << " '";
+    O << "\t\t\t\t" << TAI->getCommentString() << " '";
     WriteAsOperand(O, GVar, /*PrintType=*/false, GVar->getParent());
     O << "'";
   }
@@ -1088,7 +1097,7 @@ bool PPCDarwinAsmPrinter::doFinalization(Module &M) {
 
   O << '\n';
 
-  if (MAI->doesSupportExceptionHandling() && MMI) {
+  if (TAI->doesSupportExceptionHandling() && MMI) {
     // Add the (possibly multiple) personalities to the set of global values.
     // Only referenced functions get into the Personalities list.
     const std::vector<Function *> &Personalities = MMI->getPersonalities();
@@ -1129,7 +1138,7 @@ bool PPCDarwinAsmPrinter::doFinalization(Module &M) {
   // implementation of multiple entry points).  If this doesn't occur, the
   // linker can safely perform dead code stripping.  Since LLVM never generates
   // code that does this, it is always safe to set.
-  OutStreamer.EmitAssemblerFlag(MCStreamer::SubsectionsViaSymbols);
+  O << "\t.subsections_via_symbols\n";
 
   return AsmPrinter::doFinalization(M);
 }
@@ -1142,7 +1151,7 @@ bool PPCDarwinAsmPrinter::doFinalization(Module &M) {
 ///
 static AsmPrinter *createPPCAsmPrinterPass(formatted_raw_ostream &o,
                                            TargetMachine &tm,
-                                           const MCAsmInfo *tai,
+                                           const TargetAsmInfo *tai,
                                            bool verbose) {
   const PPCSubtarget *Subtarget = &tm.getSubtarget<PPCSubtarget>();
 

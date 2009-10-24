@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=bfin
+; RUN: llvm-as < %s | llc -march=bfin
 
 define i16 @add(i16 %A, i16 %B) {
 	%R = add i16 %A, %B		; <i16> [#uses=1]

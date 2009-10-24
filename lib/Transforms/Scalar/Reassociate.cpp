@@ -31,9 +31,9 @@
 #include "llvm/Pass.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CFG.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ValueHandle.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include <algorithm>
@@ -46,7 +46,7 @@ STATISTIC(NumAnnihil, "Number of expr tree annihilated");
 STATISTIC(NumFactor , "Number of multiplies factored");
 
 namespace {
-  struct ValueEntry {
+  struct VISIBILITY_HIDDEN ValueEntry {
     unsigned Rank;
     Value *Op;
     ValueEntry(unsigned R, Value *O) : Rank(R), Op(O) {}
@@ -61,17 +61,17 @@ namespace {
 ///
 static void PrintOps(Instruction *I, const std::vector<ValueEntry> &Ops) {
   Module *M = I->getParent()->getParent()->getParent();
-  errs() << Instruction::getOpcodeName(I->getOpcode()) << " "
+  cerr << Instruction::getOpcodeName(I->getOpcode()) << " "
        << *Ops[0].Op->getType();
   for (unsigned i = 0, e = Ops.size(); i != e; ++i) {
-    WriteAsOperand(errs() << " ", Ops[i].Op, false, M);
-    errs() << "," << Ops[i].Rank;
+    WriteAsOperand(*cerr.stream() << " ", Ops[i].Op, false, M);
+    cerr << "," << Ops[i].Rank;
   }
 }
 #endif
   
 namespace {
-  class Reassociate : public FunctionPass {
+  class VISIBILITY_HIDDEN Reassociate : public FunctionPass {
     std::map<BasicBlock*, unsigned> RankMap;
     std::map<AssertingVH<>, unsigned> ValueRankMap;
     bool MadeChange;
@@ -121,6 +121,7 @@ static bool isUnmovableInstruction(Instruction *I) {
   if (I->getOpcode() == Instruction::PHI ||
       I->getOpcode() == Instruction::Alloca ||
       I->getOpcode() == Instruction::Load ||
+      I->getOpcode() == Instruction::Malloc ||
       I->getOpcode() == Instruction::Invoke ||
       (I->getOpcode() == Instruction::Call &&
        !isa<DbgInfoIntrinsic>(I)) ||
@@ -180,8 +181,8 @@ unsigned Reassociate::getRank(Value *V) {
       (!BinaryOperator::isNot(I) && !BinaryOperator::isNeg(I)))
     ++Rank;
 
-  //DEBUG(errs() << "Calculated Rank[" << V->getName() << "] = "
-  //     << Rank << "\n");
+  //DOUT << "Calculated Rank[" << V->getName() << "] = "
+  //     << Rank << "\n";
 
   return CachedRank = Rank;
 }
@@ -221,7 +222,7 @@ void Reassociate::LinearizeExpr(BinaryOperator *I) {
          isReassociableOp(RHS, I->getOpcode()) &&
          "Not an expression that needs linearization?");
 
-  DEBUG(errs() << "Linear" << *LHS << '\n' << *RHS << '\n' << *I << '\n');
+  DOUT << "Linear" << *LHS << '\n' << *RHS << '\n' << *I << '\n';
 
   // Move the RHS instruction to live immediately before I, avoiding breaking
   // dominator properties.
@@ -234,7 +235,7 @@ void Reassociate::LinearizeExpr(BinaryOperator *I) {
 
   ++NumLinear;
   MadeChange = true;
-  DEBUG(errs() << "Linearized: " << *I << '\n');
+  DOUT << "Linearized: " << *I << '\n';
 
   // If D is part of this expression tree, tail recurse.
   if (isReassociableOp(I->getOperand(1), I->getOpcode()))
@@ -333,10 +334,10 @@ void Reassociate::RewriteExprTree(BinaryOperator *I,
     if (I->getOperand(0) != Ops[i].Op ||
         I->getOperand(1) != Ops[i+1].Op) {
       Value *OldLHS = I->getOperand(0);
-      DEBUG(errs() << "RA: " << *I << '\n');
+      DOUT << "RA: " << *I << '\n';
       I->setOperand(0, Ops[i].Op);
       I->setOperand(1, Ops[i+1].Op);
-      DEBUG(errs() << "TO: " << *I << '\n');
+      DOUT << "TO: " << *I << '\n';
       MadeChange = true;
       ++NumChanged;
       
@@ -349,9 +350,9 @@ void Reassociate::RewriteExprTree(BinaryOperator *I,
   assert(i+2 < Ops.size() && "Ops index out of range!");
 
   if (I->getOperand(1) != Ops[i].Op) {
-    DEBUG(errs() << "RA: " << *I << '\n');
+    DOUT << "RA: " << *I << '\n';
     I->setOperand(1, Ops[i].Op);
-    DEBUG(errs() << "TO: " << *I << '\n');
+    DOUT << "TO: " << *I << '\n';
     MadeChange = true;
     ++NumChanged;
   }
@@ -449,7 +450,7 @@ static Instruction *BreakUpSubtract(LLVMContext &Context, Instruction *Sub,
   Sub->replaceAllUsesWith(New);
   Sub->eraseFromParent();
 
-  DEBUG(errs() << "Negated: " << *New << '\n');
+  DOUT << "Negated: " << *New << '\n';
   return New;
 }
 
@@ -727,7 +728,7 @@ Value *Reassociate::OptimizeExpression(BinaryOperator *I,
 
     // If any factor occurred more than one time, we can pull it out.
     if (MaxOcc > 1) {
-      DEBUG(errs() << "\nFACTORING [" << MaxOcc << "]: " << *MaxOccVal << "\n");
+      DOUT << "\nFACTORING [" << MaxOcc << "]: " << *MaxOccVal << "\n";
       
       // Create a new instruction that uses the MaxOccVal twice.  If we don't do
       // this, we could otherwise run into situations where removing a factor
@@ -840,7 +841,7 @@ void Reassociate::ReassociateExpression(BinaryOperator *I) {
   std::vector<ValueEntry> Ops;
   LinearizeExprTree(I, Ops);
   
-  DEBUG(errs() << "RAIn:\t"; PrintOps(I, Ops); errs() << "\n");
+  DOUT << "RAIn:\t"; DEBUG(PrintOps(I, Ops)); DOUT << "\n";
   
   // Now that we have linearized the tree to a list and have gathered all of
   // the operands and their ranks, sort the operands by their rank.  Use a
@@ -855,7 +856,7 @@ void Reassociate::ReassociateExpression(BinaryOperator *I) {
   if (Value *V = OptimizeExpression(I, Ops)) {
     // This expression tree simplified to something that isn't a tree,
     // eliminate it.
-    DEBUG(errs() << "Reassoc to scalar: " << *V << "\n");
+    DOUT << "Reassoc to scalar: " << *V << "\n";
     I->replaceAllUsesWith(V);
     RemoveDeadBinaryOp(I);
     return;
@@ -873,7 +874,7 @@ void Reassociate::ReassociateExpression(BinaryOperator *I) {
     Ops.pop_back();
   }
   
-  DEBUG(errs() << "RAOut:\t"; PrintOps(I, Ops); errs() << "\n");
+  DOUT << "RAOut:\t"; DEBUG(PrintOps(I, Ops)); DOUT << "\n";
   
   if (Ops.size() == 1) {
     // This expression tree simplified to something that isn't a tree,

@@ -117,30 +117,4 @@ TEST(raw_ostreamTest, BufferEdge) {
   EXPECT_EQ("1.20", printToString(format("%.2f", 1.2), 10));
 }
 
-TEST(raw_ostreamTest, TinyBuffer) {
-  std::string Str;
-  raw_string_ostream OS(Str);
-  OS.SetBufferSize(1);
-  OS << "hello";
-  OS << 1;
-  OS << 'w' << 'o' << 'r' << 'l' << 'd';
-  EXPECT_EQ("hello1world", OS.str());
-}
-
-TEST(raw_ostreamTest, WriteEscaped) {
-  std::string Str;
-
-  Str = "";
-  raw_string_ostream(Str).write_escaped("hi");
-  EXPECT_EQ("hi", Str);
-
-  Str = "";
-  raw_string_ostream(Str).write_escaped("\\\t\n\"");
-  EXPECT_EQ("\\\\\\t\\n\\\"", Str);
-
-  Str = "";
-  raw_string_ostream(Str).write_escaped("\1\10\200");
-  EXPECT_EQ("\\001\\010\\200", Str);
-}
-
 }

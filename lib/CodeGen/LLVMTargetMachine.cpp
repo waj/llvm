@@ -20,7 +20,7 @@
 #include "llvm/CodeGen/GCStrategy.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetRegistry.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Support/CommandLine.h"
@@ -39,18 +39,22 @@ static cl::opt<bool> PrintEmittedAsm("print-emitted-asm", cl::Hidden,
     cl::desc("Dump emitter generated instructions as assembly"));
 static cl::opt<bool> PrintGCInfo("print-gc", cl::Hidden,
     cl::desc("Dump garbage collector data"));
-static cl::opt<bool> HoistConstants("hoist-constants", cl::Hidden,
-    cl::desc("Hoist constants out of loops"));
 static cl::opt<bool> VerifyMachineCode("verify-machineinstrs", cl::Hidden,
     cl::desc("Verify generated machine code"),
     cl::init(getenv("LLVM_VERIFY_MACHINEINSTRS")!=NULL));
 
+// When this works it will be on by default.
+static cl::opt<bool>
+DisablePostRAScheduler("disable-post-RA-scheduler",
+                       cl::desc("Disable scheduling after register allocation"),
+                       cl::init(true));
+
 // Enable or disable FastISel. Both options are needed, because
 // FastISel is enabled by default with -fast, and we wish to be
-// able to enable or disable fast-isel independently from -O0.
+// able to enable or disable fast-isel independently from -fast.
 static cl::opt<cl::boolOrDefault>
 EnableFastISelOption("fast-isel", cl::Hidden,
-  cl::desc("Enable the \"fast\" instruction selector"));
+  cl::desc("Enable the experimental \"fast\" instruction selector"));
 
 
 LLVMTargetMachine::LLVMTargetMachine(const Target &T,
@@ -74,10 +78,10 @@ LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
   PM.add(createDebugLabelFoldingPass());
 
   if (PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(errs()));
+    PM.add(createMachineFunctionPrinterPass(cerr));
 
   if (addPreEmitPass(PM, OptLevel) && PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(errs()));
+    PM.add(createMachineFunctionPrinterPass(cerr));
 
   if (OptLevel != CodeGenOpt::None)
     PM.add(createCodePlacementOptPass());
@@ -104,7 +108,7 @@ bool LLVMTargetMachine::addAssemblyEmitter(PassManagerBase &PM,
                                            bool Verbose,
                                            formatted_raw_ostream &Out) {
   FunctionPass *Printer =
-    getTarget().createAsmPrinter(Out, *this, getMCAsmInfo(), Verbose);
+    getTarget().createAsmPrinter(Out, *this, getTargetAsmInfo(), Verbose);
   if (!Printer)
     return true;
 
@@ -174,7 +178,7 @@ bool LLVMTargetMachine::addPassesToEmitMachineCode(PassManagerBase &PM,
     return true;
 
   if (addPreEmitPass(PM, OptLevel) && PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(errs()));
+    PM.add(createMachineFunctionPrinterPass(cerr));
 
   addCodeEmitter(PM, OptLevel, MCE);
   if (PrintEmittedAsm)
@@ -199,7 +203,7 @@ bool LLVMTargetMachine::addPassesToEmitMachineCode(PassManagerBase &PM,
     return true;
 
   if (addPreEmitPass(PM, OptLevel) && PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(errs()));
+    PM.add(createMachineFunctionPrinterPass(cerr));
 
   addCodeEmitter(PM, OptLevel, JCE);
   if (PrintEmittedAsm)
@@ -213,7 +217,7 @@ bool LLVMTargetMachine::addPassesToEmitMachineCode(PassManagerBase &PM,
 static void printAndVerify(PassManagerBase &PM,
                            bool allowDoubleDefs = false) {
   if (PrintMachineCode)
-    PM.add(createMachineFunctionPrinterPass(errs()));
+    PM.add(createMachineFunctionPrinterPass(cerr));
 
   if (VerifyMachineCode)
     PM.add(createMachineVerifierPass(allowDoubleDefs));
@@ -235,7 +239,7 @@ bool LLVMTargetMachine::addCommonCodeGenPasses(PassManagerBase &PM,
 
   // Turn exception handling constructs into something the code generators can
   // handle.
-  switch (getMCAsmInfo()->getExceptionHandlingType())
+  switch (getTargetAsmInfo()->getExceptionHandlingType())
   {
   case ExceptionHandling::SjLj:
     // SjLj piggy-backs on dwarf for this bit. The cleanups done apply to both
@@ -255,11 +259,8 @@ bool LLVMTargetMachine::addCommonCodeGenPasses(PassManagerBase &PM,
   // Make sure that no unreachable blocks are instruction selected.
   PM.add(createUnreachableBlockEliminationPass());
 
-  if (OptLevel != CodeGenOpt::None) {
-    if (HoistConstants)
-      PM.add(createCodeGenLICMPass());
+  if (OptLevel != CodeGenOpt::None)
     PM.add(createCodeGenPreparePass(getTargetLowering()));
-  }
 
   PM.add(createStackProtectorPass(getTargetLowering()));
 
@@ -317,13 +318,9 @@ bool LLVMTargetMachine::addCommonCodeGenPasses(PassManagerBase &PM,
   PM.add(createPrologEpilogCodeInserter());
   printAndVerify(PM);
 
-  // Run pre-sched2 passes.
-  if (addPreSched2(PM, OptLevel))
-    printAndVerify(PM);
-
   // Second pass scheduler.
-  if (OptLevel != CodeGenOpt::None) {
-    PM.add(createPostRAScheduler(OptLevel));
+  if (OptLevel != CodeGenOpt::None && !DisablePostRAScheduler) {
+    PM.add(createPostRAScheduler());
     printAndVerify(PM);
   }
 
@@ -337,7 +334,7 @@ bool LLVMTargetMachine::addCommonCodeGenPasses(PassManagerBase &PM,
   printAndVerify(PM);
 
   if (PrintGCInfo)
-    PM.add(createGCInfoPrinter(errs()));
+    PM.add(createGCInfoPrinter(*cerr));
 
   return false;
 }

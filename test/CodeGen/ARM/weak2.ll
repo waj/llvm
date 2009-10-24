@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=arm | grep .weak
+; RUN: llvm-as < %s | llc -march=arm | grep .weak
 
 define i32 @f(i32 %a) {
 entry:

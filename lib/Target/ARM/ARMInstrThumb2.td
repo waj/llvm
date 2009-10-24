@@ -69,25 +69,6 @@ def t2_so_imm_neg : Operand<i32>,
   return ARM_AM::getT2SOImmVal(-((int)N->getZExtValue())) != -1;
 }], t2_so_imm_neg_XFORM>;
 
-// Break t2_so_imm's up into two pieces.  This handles immediates with up to 16
-// bits set in them.  This uses t2_so_imm2part to match and t2_so_imm2part_[12]
-// to get the first/second pieces.
-def t2_so_imm2part : Operand<i32>,
-                  PatLeaf<(imm), [{
-      return ARM_AM::isT2SOImmTwoPartVal((unsigned)N->getZExtValue());
-    }]> {
-}
-
-def t2_so_imm2part_1 : SDNodeXForm<imm, [{
-  unsigned V = ARM_AM::getT2SOImmTwoPartFirst((unsigned)N->getZExtValue());
-  return CurDAG->getTargetConstant(V, MVT::i32);
-}]>;
-
-def t2_so_imm2part_2 : SDNodeXForm<imm, [{
-  unsigned V = ARM_AM::getT2SOImmTwoPartSecond((unsigned)N->getZExtValue());
-  return CurDAG->getTargetConstant(V, MVT::i32);
-}]>;
-
 /// imm1_31 predicate - True if the 32-bit immediate is in the range [1,31].
 def imm1_31 : PatLeaf<(i32 imm), [{
   return (int32_t)N->getZExtValue() >= 1 && (int32_t)N->getZExtValue() < 32;
@@ -106,6 +87,28 @@ def imm0_4095_neg : PatLeaf<(i32 imm), [{
 def imm0_255_neg : PatLeaf<(i32 imm), [{
   return (uint32_t)(-N->getZExtValue()) < 255;
 }], imm_neg_XFORM>; 
+
+/// imm0_65535 predicate - True if the 32-bit immediate is in the range 
+/// [0.65535].
+def imm0_65535 : PatLeaf<(i32 imm), [{
+  return (uint32_t)N->getZExtValue() < 65536;
+}]>;
+
+/// Split a 32-bit immediate into two 16 bit parts.
+def t2_lo16 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((uint32_t)N->getZExtValue() & 0xffff,
+                                   MVT::i32);
+}]>;
+
+def t2_hi16 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((uint32_t)N->getZExtValue() >> 16, MVT::i32);
+}]>;
+
+def t2_lo16AllZero : PatLeaf<(i32 imm), [{
+  // Returns true if all low 16-bits are 0.
+  return (((uint32_t)N->getZExtValue()) & 0xFFFFUL) == 0;
+  }], t2_hi16>;
+
 
 // Define Thumb2 specific addressing modes.
 
@@ -381,13 +384,13 @@ multiclass T2I_st<string opc, PatFrag opnode> {
 /// T2I_picld - Defines the PIC load pattern.
 class T2I_picld<string opc, PatFrag opnode> :
       T2I<(outs GPR:$dst), (ins addrmodepc:$addr), IIC_iLoadi,
-          !strconcat("\n${addr:label}:\n\t", opc), " $dst, $addr",
+          !strconcat("${addr:label}:\n\t", opc), " $dst, $addr",
           [(set GPR:$dst, (opnode addrmodepc:$addr))]>;
 
 /// T2I_picst - Defines the PIC store pattern.
 class T2I_picst<string opc, PatFrag opnode> :
       T2I<(outs), (ins GPR:$src, addrmodepc:$addr), IIC_iStorer,
-          !strconcat("\n${addr:label}:\n\t", opc), " $src, $addr",
+          !strconcat("${addr:label}:\n\t", opc), " $src, $addr",
           [(opnode GPR:$src, addrmodepc:$addr)]>;
 
 
@@ -480,14 +483,12 @@ defm t2LDRB  : T2I_ld<"ldrb", UnOpFrag<(zextloadi8  node:$Src)>>;
 defm t2LDRSH : T2I_ld<"ldrsh", UnOpFrag<(sextloadi16 node:$Src)>>;
 defm t2LDRSB : T2I_ld<"ldrsb", UnOpFrag<(sextloadi8  node:$Src)>>;
 
-let mayLoad = 1, hasExtraDefRegAllocReq = 1 in {
+let mayLoad = 1 in {
 // Load doubleword
-def t2LDRDi8  : T2Ii8s4<(outs GPR:$dst1, GPR:$dst2),
-                        (ins t2addrmode_imm8s4:$addr),
-                        IIC_iLoadi, "ldrd", " $dst1, $addr", []>;
-def t2LDRDpci : T2Ii8s4<(outs GPR:$dst1, GPR:$dst2),
-                        (ins i32imm:$addr), IIC_iLoadi,
-                       "ldrd", " $dst1, $addr", []>;
+def t2LDRDi8 : T2Ii8s4<(outs GPR:$dst), (ins t2addrmode_imm8s4:$addr),
+                        IIC_iLoadi, "ldrd", " $dst, $addr", []>;
+def t2LDRDpci : T2Ii8s4<(outs GPR:$dst), (ins i32imm:$addr), IIC_iLoadi,
+                       "ldrd", " $dst, $addr", []>;
 }
 
 // zextload i1 -> zextload i8
@@ -595,10 +596,9 @@ defm t2STRB  : T2I_st<"strb", BinOpFrag<(truncstorei8 node:$LHS, node:$RHS)>>;
 defm t2STRH  : T2I_st<"strh", BinOpFrag<(truncstorei16 node:$LHS, node:$RHS)>>;
 
 // Store doubleword
-let mayLoad = 1, hasExtraSrcRegAllocReq = 1 in
-def t2STRDi8 : T2Ii8s4<(outs),
-                       (ins GPR:$src1, GPR:$src2, t2addrmode_imm8s4:$addr),
-               IIC_iStorer, "strd", " $src1, $addr", []>;
+let mayLoad = 1 in
+def t2STRDi8 : T2Ii8s4<(outs), (ins GPR:$src, t2addrmode_imm8s4:$addr),
+               IIC_iStorer, "strd", " $src, $addr", []>;
 
 // Indexed stores
 def t2STR_PRE  : T2Iidxldst<(outs GPR:$base_wb),
@@ -650,15 +650,15 @@ def t2STRB_POST : T2Iidxldst<(outs GPR:$base_wb),
 //  Load / store multiple Instructions.
 //
 
-let mayLoad = 1, hasExtraDefRegAllocReq = 1 in
+let mayLoad = 1 in
 def t2LDM : T2XI<(outs),
-                 (ins addrmode4:$addr, pred:$p, reglist:$wb, variable_ops),
-              IIC_iLoadm, "ldm${addr:submode}${p}${addr:wide} $addr, $wb", []>;
+                 (ins addrmode4:$addr, pred:$p, reglist:$dst1, variable_ops),
+              IIC_iLoadm, "ldm${addr:submode}${p}${addr:wide} $addr, $dst1", []>;
 
-let mayStore = 1, hasExtraSrcRegAllocReq = 1 in
+let mayStore = 1 in
 def t2STM : T2XI<(outs),
-                 (ins addrmode4:$addr, pred:$p, reglist:$wb, variable_ops),
-              IIC_iStorem, "stm${addr:submode}${p}${addr:wide} $addr, $wb", []>;
+                 (ins addrmode4:$addr, pred:$p, reglist:$src1, variable_ops),
+              IIC_iStorem, "stm${addr:submode}${p}${addr:wide} $addr, $src1", []>;
 
 //===----------------------------------------------------------------------===//
 //  Move Instructions.
@@ -668,8 +668,7 @@ let neverHasSideEffects = 1 in
 def t2MOVr : T2sI<(outs GPR:$dst), (ins GPR:$src), IIC_iMOVr,
                    "mov", ".w $dst, $src", []>;
 
-// AddedComplexity to ensure isel tries t2MOVi before t2MOVi16.
-let isReMaterializable = 1, isAsCheapAsAMove = 1, AddedComplexity = 1 in
+let isReMaterializable = 1, isAsCheapAsAMove = 1 in
 def t2MOVi : T2sI<(outs GPR:$dst), (ins t2_so_imm:$src), IIC_iMOVi,
                    "mov", ".w $dst, $src",
                    [(set GPR:$dst, t2_so_imm:$src)]>;
@@ -679,13 +678,12 @@ def t2MOVi16 : T2I<(outs GPR:$dst), (ins i32imm:$src), IIC_iMOVi,
                    "movw", " $dst, $src",
                    [(set GPR:$dst, imm0_65535:$src)]>;
 
+// FIXME: Also available in ARM mode.
 let Constraints = "$src = $dst" in
-def t2MOVTi16 : T2I<(outs GPR:$dst), (ins GPR:$src, i32imm:$imm), IIC_iMOVi,
-                    "movt", " $dst, $imm",
-                    [(set GPR:$dst,
-                          (or (and GPR:$src, 0xffff), lo16AllZero:$imm))]>;
-
-def : T2Pat<(or GPR:$src, 0xffff0000), (t2MOVTi16 GPR:$src, 0xffff)>;
+def t2MOVTi16 : T2sI<(outs GPR:$dst), (ins GPR:$src, i32imm:$imm), IIC_iMOVi,
+                     "movt", " $dst, $imm",
+                     [(set GPR:$dst,
+                           (or (and GPR:$src, 0xffff), t2_lo16AllZero:$imm))]>;
 
 //===----------------------------------------------------------------------===//
 //  Extend Instructions.
@@ -758,11 +756,9 @@ defm t2LSR  : T2I_sh_ir<"lsr", BinOpFrag<(srl  node:$LHS, node:$RHS)>>;
 defm t2ASR  : T2I_sh_ir<"asr", BinOpFrag<(sra  node:$LHS, node:$RHS)>>;
 defm t2ROR  : T2I_sh_ir<"ror", BinOpFrag<(rotr node:$LHS, node:$RHS)>>;
 
-let Uses = [CPSR] in {
 def t2MOVrx : T2sI<(outs GPR:$dst), (ins GPR:$src), IIC_iMOVsi,
-                   "rrx", " $dst, $src",
+                   "rrx", ".w $dst, $src",
                    [(set GPR:$dst, (ARMrrx GPR:$src))]>;
-}
 
 let Defs = [CPSR] in {
 def t2MOVsrl_flag : T2XI<(outs GPR:$dst), (ins GPR:$src), IIC_iMOVsi,
@@ -787,12 +783,6 @@ let Constraints = "$src = $dst" in
 def t2BFC : T2I<(outs GPR:$dst), (ins GPR:$src, bf_inv_mask_imm:$imm),
                 IIC_iALUi, "bfc", " $dst, $imm",
                 [(set GPR:$dst, (and GPR:$src, bf_inv_mask_imm:$imm))]>;
-
-def t2SBFX : T2I<(outs GPR:$dst), (ins GPR:$src, imm0_31:$lsb, imm0_31:$width),
-                 IIC_iALUi, "sbfx", " $dst, $src, $lsb, $width", []>;
-
-def t2UBFX : T2I<(outs GPR:$dst), (ins GPR:$src, imm0_31:$lsb, imm0_31:$width),
-                 IIC_iALUi, "ubfx", " $dst, $src, $lsb, $width", []>;
 
 // FIXME: A8.6.18  BFI - Bitfield insert (Encoding T1)
 
@@ -1099,11 +1089,10 @@ let Defs =
 // FIXME: $dst1 should be a def. But the extra ops must be in the end of the
 // operand list.
 // FIXME: Should pc be an implicit operand like PICADD, etc?
-let isReturn = 1, isTerminator = 1, isBarrier = 1, mayLoad = 1,
-    hasExtraDefRegAllocReq = 1 in
+let isReturn = 1, isTerminator = 1, mayLoad = 1 in
   def t2LDM_RET : T2XI<(outs),
-                    (ins addrmode4:$addr, pred:$p, reglist:$wb, variable_ops),
-                    IIC_Br, "ldm${addr:submode}${p}${addr:wide} $addr, $wb",
+                    (ins addrmode4:$addr, pred:$p, reglist:$dst1, variable_ops),
+                    IIC_Br, "ldm${addr:submode}${p}${addr:wide} $addr, $dst1",
                     []>;
 
 let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
@@ -1150,30 +1139,13 @@ def t2IT : Thumb2XI<(outs), (ins it_pred:$cc, it_mask:$mask),
 // Non-Instruction Patterns
 //
 
-// Two piece so_imms.
-def : T2Pat<(or GPR:$LHS, t2_so_imm2part:$RHS),
-             (t2ORRri (t2ORRri GPR:$LHS, (t2_so_imm2part_1 imm:$RHS)),
-                    (t2_so_imm2part_2 imm:$RHS))>;
-def : T2Pat<(xor GPR:$LHS, t2_so_imm2part:$RHS),
-             (t2EORri (t2EORri GPR:$LHS, (t2_so_imm2part_1 imm:$RHS)),
-                    (t2_so_imm2part_2 imm:$RHS))>;
-def : T2Pat<(add GPR:$LHS, t2_so_imm2part:$RHS),
-             (t2ADDri (t2ADDri GPR:$LHS, (t2_so_imm2part_1 imm:$RHS)),
-                    (t2_so_imm2part_2 imm:$RHS))>;
-def : T2Pat<(sub GPR:$LHS, t2_so_imm2part:$RHS),
-             (t2SUBri (t2SUBri GPR:$LHS, (t2_so_imm2part_1 imm:$RHS)),
-                    (t2_so_imm2part_2 imm:$RHS))>;
-
 // ConstantPool, GlobalAddress, and JumpTable
 def : T2Pat<(ARMWrapper  tglobaladdr :$dst), (t2LEApcrel tglobaladdr :$dst)>;
 def : T2Pat<(ARMWrapper  tconstpool  :$dst), (t2LEApcrel tconstpool  :$dst)>;
 def : T2Pat<(ARMWrapperJT tjumptable:$dst, imm:$id),
             (t2LEApcrelJT tjumptable:$dst, imm:$id)>;
 
-// 32-bit immediate using movw + movt.
-// This is a single pseudo instruction to make it re-materializable. Remove
-// when we can do generalized remat.
-let isReMaterializable = 1 in
-def t2MOVi32imm : T2Ix2<(outs GPR:$dst), (ins i32imm:$src), IIC_iMOVi,
-                     "movw", " $dst, ${src:lo16}\n\tmovt${p} $dst, ${src:hi16}",
-                     [(set GPR:$dst, (i32 imm:$src))]>;
+// Large immediate handling.
+
+def : T2Pat<(i32 imm:$src),
+            (t2MOVTi16 (t2MOVi16 (t2_lo16 imm:$src)), (t2_hi16 imm:$src))>;

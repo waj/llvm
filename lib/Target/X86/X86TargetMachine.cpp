@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "X86MCAsmInfo.h"
+#include "X86TargetAsmInfo.h"
 #include "X86TargetMachine.h"
 #include "X86.h"
 #include "llvm/PassManager.h"
@@ -22,20 +22,20 @@
 #include "llvm/Target/TargetRegistry.h"
 using namespace llvm;
 
-static const MCAsmInfo *createMCAsmInfo(const Target &T,
+static const TargetAsmInfo *createTargetAsmInfo(const Target &T,
                                                 const StringRef &TT) {
   Triple TheTriple(TT);
   switch (TheTriple.getOS()) {
   case Triple::Darwin:
-    return new X86MCAsmInfoDarwin(TheTriple);
+    return new X86DarwinTargetAsmInfo(TheTriple);
   case Triple::MinGW32:
   case Triple::MinGW64:
   case Triple::Cygwin:
-    return new X86MCAsmInfoCOFF(TheTriple);
+    return new X86COFFTargetAsmInfo(TheTriple);
   case Triple::Win32:
-    return new X86WinMCAsmInfo(TheTriple);
+    return new X86WinTargetAsmInfo(TheTriple);
   default:
-    return new X86ELFMCAsmInfo(TheTriple);
+    return new X86ELFTargetAsmInfo(TheTriple);
   }
 }
 
@@ -45,12 +45,8 @@ extern "C" void LLVMInitializeX86Target() {
   RegisterTargetMachine<X86_64TargetMachine> Y(TheX86_64Target);
 
   // Register the target asm info.
-  RegisterAsmInfoFn A(TheX86_32Target, createMCAsmInfo);
-  RegisterAsmInfoFn B(TheX86_64Target, createMCAsmInfo);
-
-  // Register the code emitter.
-  TargetRegistry::RegisterCodeEmitter(TheX86_32Target, createX86MCCodeEmitter);
-  TargetRegistry::RegisterCodeEmitter(TheX86_64Target, createX86MCCodeEmitter);
+  RegisterAsmInfoFn A(TheX86_32Target, createTargetAsmInfo);
+  RegisterAsmInfoFn B(TheX86_64Target, createTargetAsmInfo);
 }
 
 

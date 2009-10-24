@@ -16,10 +16,9 @@ add_llvm_target(PIC16
   PIC16ISelDAGToDAG.cpp
   PIC16ISelLowering.cpp
   PIC16MemSelOpt.cpp
-  PIC16MCAsmInfo.cpp
   PIC16RegisterInfo.cpp
-  PIC16Section.cpp
   PIC16Subtarget.cpp
+  PIC16TargetAsmInfo.cpp
   PIC16TargetMachine.cpp
   PIC16TargetObjectFile.cpp
   )

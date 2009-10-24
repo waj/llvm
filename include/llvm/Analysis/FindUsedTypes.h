@@ -37,7 +37,8 @@ public:
   /// passed in, then the types are printed symbolically if possible, using the
   /// symbol table from the module.
   ///
-  void print(raw_ostream &o, const Module *M) const;
+  void print(std::ostream &o, const Module *M) const;
+  void print(std::ostream *o, const Module *M) const { if (o) print(*o, M); }
 
 private:
   /// IncorporateType - Incorporate one type and all of its subtypes into the

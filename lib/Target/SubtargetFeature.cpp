@@ -12,9 +12,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Target/SubtargetFeature.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/Streams.h"
 #include <algorithm>
+#include <ostream>
 #include <cassert>
 #include <cctype>
 using namespace llvm;
@@ -144,22 +145,22 @@ static void Help(const SubtargetFeatureKV *CPUTable, size_t CPUTableSize,
   unsigned MaxFeatLen = getLongestEntryLength(FeatTable, FeatTableSize);
 
   // Print the CPU table.
-  errs() << "Available CPUs for this target:\n\n";
+  cerr << "Available CPUs for this target:\n\n";
   for (size_t i = 0; i != CPUTableSize; i++)
-    errs() << "  " << CPUTable[i].Key
+    cerr << "  " << CPUTable[i].Key
          << std::string(MaxCPULen - std::strlen(CPUTable[i].Key), ' ')
          << " - " << CPUTable[i].Desc << ".\n";
-  errs() << "\n";
+  cerr << "\n";
   
   // Print the Feature table.
-  errs() << "Available features for this target:\n\n";
+  cerr << "Available features for this target:\n\n";
   for (size_t i = 0; i != FeatTableSize; i++)
-    errs() << "  " << FeatTable[i].Key
+    cerr << "  " << FeatTable[i].Key
          << std::string(MaxFeatLen - std::strlen(FeatTable[i].Key), ' ')
          << " - " << FeatTable[i].Desc << ".\n";
-  errs() << "\n";
+  cerr << "\n";
   
-  errs() << "Use +feature to enable a feature, or -feature to disable it.\n"
+  cerr << "Use +feature to enable a feature, or -feature to disable it.\n"
        << "For example, llc -mcpu=mycpu -mattr=+feature1,-feature2\n";
   exit(1);
 }
@@ -282,9 +283,10 @@ uint32_t SubtargetFeatures::getBits(const SubtargetFeatureKV *CPUTable,
         SetImpliedBits(Bits, &FE, FeatureTable, FeatureTableSize);
     }
   } else {
-    errs() << "'" << Features[0]
-           << "' is not a recognized processor for this target"
-           << " (ignoring processor)\n";
+    cerr << "'" << Features[0]
+         << "' is not a recognized processor for this target"
+         << " (ignoring processor)"
+         << "\n";
   }
   // Iterate through each feature
   for (size_t i = 1; i < Features.size(); i++) {
@@ -312,9 +314,10 @@ uint32_t SubtargetFeatures::getBits(const SubtargetFeatureKV *CPUTable,
         ClearImpliedBits(Bits, FeatureEntry, FeatureTable, FeatureTableSize);
       }
     } else {
-      errs() << "'" << Feature
-             << "' is not a recognized feature for this target"
-             << " (ignoring feature)\n";
+      cerr << "'" << Feature
+           << "' is not a recognized feature for this target"
+           << " (ignoring feature)"
+           << "\n";
     }
   }
 
@@ -337,23 +340,25 @@ void *SubtargetFeatures::getInfo(const SubtargetInfoKV *Table,
   if (Entry) {
     return Entry->Value;
   } else {
-    errs() << "'" << Features[0]
-           << "' is not a recognized processor for this target"
-           << " (ignoring processor)\n";
+    cerr << "'" << Features[0]
+         << "' is not a recognized processor for this target"
+         << " (ignoring processor)"
+         << "\n";
     return NULL;
   }
 }
 
 /// print - Print feature string.
 ///
-void SubtargetFeatures::print(raw_ostream &OS) const {
-  for (size_t i = 0, e = Features.size(); i != e; ++i)
+void SubtargetFeatures::print(std::ostream &OS) const {
+  for (size_t i = 0; i < Features.size(); i++) {
     OS << Features[i] << "  ";
+  }
   OS << "\n";
 }
 
 /// dump - Dump feature info.
 ///
 void SubtargetFeatures::dump() const {
-  print(errs());
+  print(*cerr.stream());
 }

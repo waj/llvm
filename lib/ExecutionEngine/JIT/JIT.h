@@ -16,7 +16,6 @@
 
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/PassManager.h"
-#include "llvm/Support/ValueHandle.h"
 
 namespace llvm {
 
@@ -34,7 +33,7 @@ private:
 
   /// PendingFunctions - Functions which have not been code generated yet, but
   /// were called from a function being code generated.
-  std::vector<AssertingVH<Function> > PendingFunctions;
+  std::vector<Function*> PendingFunctions;
 
 public:
   explicit JITState(ModuleProvider *MP) : PM(MP), MP(MP) {}
@@ -44,7 +43,7 @@ public:
   }
   
   ModuleProvider *getMP() const { return MP; }
-  std::vector<AssertingVH<Function> > &getPendingFunctions(const MutexGuard &L){
+  std::vector<Function*> &getPendingFunctions(const MutexGuard &L) {
     return PendingFunctions;
   }
 };
@@ -186,8 +185,7 @@ public:
   void NotifyFreeingMachineCode(const Function &F, void *OldPtr);
 
 private:
-  static JITCodeEmitter *createEmitter(JIT &J, JITMemoryManager *JMM,
-                                       TargetMachine &tm);
+  static JITCodeEmitter *createEmitter(JIT &J, JITMemoryManager *JMM);
   void runJITOnFunctionUnlocked(Function *F, const MutexGuard &locked);
   void updateFunctionStub(Function *F);
   void updateDlsymStubTable();

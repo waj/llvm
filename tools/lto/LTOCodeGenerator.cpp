@@ -36,11 +36,10 @@
 #include "llvm/Support/StandardPasses.h"
 #include "llvm/Support/SystemUtils.h"
 #include "llvm/System/Host.h"
-#include "llvm/System/Program.h"
 #include "llvm/System/Signals.h"
 #include "llvm/Target/SubtargetFeature.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegistry.h"
@@ -48,7 +47,10 @@
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Config/config.h"
+
+
 #include <cstdlib>
+#include <fstream>
 #include <unistd.h>
 #include <fcntl.h>
 
@@ -137,34 +139,31 @@ void LTOCodeGenerator::addMustPreserveSymbol(const char* sym)
 }
 
 
-bool LTOCodeGenerator::writeMergedModules(const char *path,
-                                          std::string &errMsg) {
-  if (determineTarget(errMsg))
-    return true;
+bool LTOCodeGenerator::writeMergedModules(const char* path, std::string& errMsg)
+{
+    if ( this->determineTarget(errMsg) ) 
+        return true;
 
-  // mark which symbols can not be internalized 
-  applyScopeRestrictions();
+    // mark which symbols can not be internalized 
+    this->applyScopeRestrictions();
 
-  // create output file
-  std::string ErrInfo;
-  raw_fd_ostream Out(path, ErrInfo,
-                     raw_fd_ostream::F_Binary);
-  if (!ErrInfo.empty()) {
-    errMsg = "could not open bitcode file for writing: ";
-    errMsg += path;
-    return true;
-  }
+    // create output file
+    std::ofstream out(path, std::ios_base::out|std::ios::trunc|std::ios::binary);
+    if ( out.fail() ) {
+        errMsg = "could not open bitcode file for writing: ";
+        errMsg += path;
+        return true;
+    }
     
-  // write bitcode to it
-  WriteBitcodeToFile(_linker.getModule(), Out);
-  
-  if (Out.has_error()) {
-    errMsg = "could not write bitcode file: ";
-    errMsg += path;
-    return true;
-  }
-  
-  return false;
+    // write bitcode to it
+    WriteBitcodeToFile(_linker.getModule(), out);
+    if ( out.fail() ) {
+        errMsg = "could not write bitcode file: ";
+        errMsg += path;
+        return true;
+    }
+    
+    return false;
 }
 
 
@@ -179,7 +178,9 @@ const void* LTOCodeGenerator::compile(size_t* length, std::string& errMsg)
     // generate assembly code
     bool genResult = false;
     {
-      raw_fd_ostream asmFD(uniqueAsmPath.c_str(), errMsg);
+      raw_fd_ostream asmFD(uniqueAsmPath.c_str(),
+                           /*Binary=*/false, /*Force=*/true,
+                           errMsg);
       formatted_raw_ostream asmFile(asmFD);
       if (!errMsg.empty())
         return NULL;
@@ -201,8 +202,9 @@ const void* LTOCodeGenerator::compile(size_t* length, std::string& errMsg)
     sys::RemoveFileOnSignal(uniqueObjPath);
 
     // assemble the assembly code
-    const std::string& uniqueObjStr = uniqueObjPath.str();
-    bool asmResult = this->assemble(uniqueAsmPath.str(), uniqueObjStr, errMsg);
+    const std::string& uniqueObjStr = uniqueObjPath.toString();
+    bool asmResult = this->assemble(uniqueAsmPath.toString(), 
+                                                        uniqueObjStr, errMsg);
     if ( !asmResult ) {
         // remove old buffer if compile() called twice
         delete _nativeObjectFile;
@@ -357,7 +359,7 @@ void LTOCodeGenerator::applyScopeRestrictions()
         // mark which symbols can not be internalized 
         if ( !_mustPreserveSymbols.empty() ) {
             Mangler mangler(*mergedModule, 
-                                _target->getMCAsmInfo()->getGlobalPrefix());
+                                _target->getTargetAsmInfo()->getGlobalPrefix());
             std::vector<const char*> mustPreserveList;
             for (Module::iterator f = mergedModule->begin(), 
                                         e = mergedModule->end(); f != e; ++f) {
@@ -393,7 +395,7 @@ bool LTOCodeGenerator::generateAssemblyCode(formatted_raw_ostream& out,
     Module* mergedModule = _linker.getModule();
 
     // If target supports exception handling then enable it now.
-    switch (_target->getMCAsmInfo()->getExceptionHandlingType()) {
+    switch (_target->getTargetAsmInfo()->getExceptionHandlingType()) {
     case ExceptionHandling::Dwarf:
       llvm::DwarfExceptionHandling = true;
       break;
@@ -468,6 +470,8 @@ bool LTOCodeGenerator::generateAssemblyCode(formatted_raw_ostream& out,
         codeGenPasses->run(*it);
 
     codeGenPasses->doFinalization();
+
+    out.flush();
 
     return false; // success
 }

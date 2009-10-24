@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | grep jns
+; RUN: llvm-as < %s | llc -march=x86 | grep jns
 
 define i32 @f(i32 %X) {
 entry:

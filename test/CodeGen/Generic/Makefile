@@ -1,10 +1,10 @@
 # Makefile for running ad-hoc custom LLVM tests
 #
 %.bc: %.ll
-	llvm-as $< 
+	llvm-as -f $< 
 	
 %.llc.s: %.bc
-	llc $< -o $@ 
+	llc -f $< -o $@ 
 
 %.gcc.s: %.c
 	gcc -O0 -S $< -o $@

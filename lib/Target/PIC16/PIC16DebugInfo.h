@@ -16,6 +16,8 @@
 
 #include "llvm/Analysis/DebugInfo.h"
 #include "llvm/Module.h"
+#include "llvm/Target/TargetAsmInfo.h" 
+#include <map>
 
 namespace llvm {
   class MachineFunction;
@@ -92,7 +94,7 @@ namespace llvm {
 
   class PIC16DbgInfo {
     formatted_raw_ostream &O;
-    const MCAsmInfo *MAI;
+    const TargetAsmInfo *TAI;
     std::string CurFile;
     unsigned CurLine;
 
@@ -101,8 +103,8 @@ namespace llvm {
     bool EmitDebugDirectives;
 
   public:
-    PIC16DbgInfo(formatted_raw_ostream &o, const MCAsmInfo *T)
-      : O(o), MAI(T) {
+    PIC16DbgInfo(formatted_raw_ostream &o, const TargetAsmInfo *T)
+      : O(o), TAI(T) {
       CurFile = "";
       CurLine = 0;
       EmitDebugDirectives = false; 
@@ -117,7 +119,7 @@ namespace llvm {
 
 
     private:
-    void SwitchToCU (MDNode *CU);
+    void SwitchToCU (GlobalVariable *CU);
     void SwitchToLine (unsigned Line, bool IsInBeginFunction = false);
 
     void PopulateDebugInfo (DIType Ty, unsigned short &TypeNo, bool &HasAux,

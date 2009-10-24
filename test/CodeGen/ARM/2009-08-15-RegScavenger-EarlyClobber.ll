@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=arm
+; RUN: llvm-as < %s | llc -march=arm
 ; PR4528
 
 ; Inline asm is allowed to contain operands "=&r", "0".

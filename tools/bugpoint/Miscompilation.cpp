@@ -30,7 +30,6 @@
 using namespace llvm;
 
 namespace llvm {
-  extern cl::opt<std::string> OutputPrefix;
   extern cl::list<std::string> InputArgv;
 }
 
@@ -302,15 +301,12 @@ static bool ExtractLoops(BugDriver &BD,
              << " Please report a bug!\n";
       errs() << "      Continuing on with un-loop-extracted version.\n";
 
-      BD.writeProgramToFile(OutputPrefix + "-loop-extract-fail-tno.bc",
-                            ToNotOptimize);
-      BD.writeProgramToFile(OutputPrefix + "-loop-extract-fail-to.bc",
-                            ToOptimize);
-      BD.writeProgramToFile(OutputPrefix + "-loop-extract-fail-to-le.bc",
+      BD.writeProgramToFile("bugpoint-loop-extract-fail-tno.bc", ToNotOptimize);
+      BD.writeProgramToFile("bugpoint-loop-extract-fail-to.bc", ToOptimize);
+      BD.writeProgramToFile("bugpoint-loop-extract-fail-to-le.bc",
                             ToOptimizeLoopExtracted);
 
-      errs() << "Please submit the " 
-             << OutputPrefix << "-loop-extract-fail-*.bc files.\n";
+      errs() << "Please submit the bugpoint-loop-extract-fail-*.bc files.\n";
       delete ToOptimize;
       delete ToNotOptimize;
       delete ToOptimizeLoopExtracted;
@@ -704,8 +700,8 @@ static void CleanupAndPrepareModules(BugDriver &BD, Module *&Test,
   // Prototype: void *getPointerToNamedFunction(const char* Name)
   Constant *resolverFunc =
     Safe->getOrInsertFunction("getPointerToNamedFunction",
-                    Type::getInt8PtrTy(Safe->getContext()),
-                    Type::getInt8PtrTy(Safe->getContext()),
+                    PointerType::getUnqual(Type::getInt8Ty(Safe->getContext())),
+                    PointerType::getUnqual(Type::getInt8Ty(Safe->getContext())),
                        (Type *)0);
 
   // Use the function we just added to get addresses of functions we need.
@@ -830,9 +826,8 @@ static bool TestCodeGenerator(BugDriver &BD, Module *Test, Module *Safe) {
            << ErrMsg << "\n";
     exit(1);
   }
-  if (BD.writeProgramToFile(TestModuleBC.str(), Test)) {
-    errs() << "Error writing bitcode to `" << TestModuleBC.str()
-           << "'\nExiting.";
+  if (BD.writeProgramToFile(TestModuleBC.toString(), Test)) {
+    errs() << "Error writing bitcode to `" << TestModuleBC << "'\nExiting.";
     exit(1);
   }
   delete Test;
@@ -845,17 +840,16 @@ static bool TestCodeGenerator(BugDriver &BD, Module *Test, Module *Safe) {
     exit(1);
   }
 
-  if (BD.writeProgramToFile(SafeModuleBC.str(), Safe)) {
-    errs() << "Error writing bitcode to `" << SafeModuleBC.str()
-           << "'\nExiting.";
+  if (BD.writeProgramToFile(SafeModuleBC.toString(), Safe)) {
+    errs() << "Error writing bitcode to `" << SafeModuleBC << "'\nExiting.";
     exit(1);
   }
-  std::string SharedObject = BD.compileSharedObject(SafeModuleBC.str());
+  std::string SharedObject = BD.compileSharedObject(SafeModuleBC.toString());
   delete Safe;
 
   // Run the code generator on the `Test' code, loading the shared library.
   // The function returns whether or not the new output differs from reference.
-  int Result = BD.diffProgram(TestModuleBC.str(), SharedObject, false);
+  int Result = BD.diffProgram(TestModuleBC.toString(), SharedObject, false);
 
   if (Result)
     errs() << ": still failing!\n";
@@ -905,9 +899,8 @@ bool BugDriver::debugCodeGenerator() {
     exit(1);
   }
 
-  if (writeProgramToFile(TestModuleBC.str(), ToCodeGen)) {
-    errs() << "Error writing bitcode to `" << TestModuleBC.str()
-           << "'\nExiting.";
+  if (writeProgramToFile(TestModuleBC.toString(), ToCodeGen)) {
+    errs() << "Error writing bitcode to `" << TestModuleBC << "'\nExiting.";
     exit(1);
   }
   delete ToCodeGen;
@@ -920,33 +913,31 @@ bool BugDriver::debugCodeGenerator() {
     exit(1);
   }
 
-  if (writeProgramToFile(SafeModuleBC.str(), ToNotCodeGen)) {
-    errs() << "Error writing bitcode to `" << SafeModuleBC.str()
-           << "'\nExiting.";
+  if (writeProgramToFile(SafeModuleBC.toString(), ToNotCodeGen)) {
+    errs() << "Error writing bitcode to `" << SafeModuleBC << "'\nExiting.";
     exit(1);
   }
-  std::string SharedObject = compileSharedObject(SafeModuleBC.str());
+  std::string SharedObject = compileSharedObject(SafeModuleBC.toString());
   delete ToNotCodeGen;
 
   outs() << "You can reproduce the problem with the command line: \n";
   if (isExecutingJIT()) {
-    outs() << "  lli -load " << SharedObject << " " << TestModuleBC.str();
+    outs() << "  lli -load " << SharedObject << " " << TestModuleBC;
   } else {
-    outs() << "  llc -f " << TestModuleBC.str() << " -o " << TestModuleBC.str()
-           << ".s\n";
-    outs() << "  gcc " << SharedObject << " " << TestModuleBC.str()
-              << ".s -o " << TestModuleBC.str() << ".exe";
+    outs() << "  llc -f " << TestModuleBC << " -o " << TestModuleBC<< ".s\n";
+    outs() << "  gcc " << SharedObject << " " << TestModuleBC
+              << ".s -o " << TestModuleBC << ".exe";
 #if defined (HAVE_LINK_R)
     outs() << " -Wl,-R.";
 #endif
     outs() << "\n";
-    outs() << "  " << TestModuleBC.str() << ".exe";
+    outs() << "  " << TestModuleBC << ".exe";
   }
   for (unsigned i=0, e = InputArgv.size(); i != e; ++i)
     outs() << " " << InputArgv[i];
   outs() << '\n';
   outs() << "The shared object was created with:\n  llc -march=c "
-         << SafeModuleBC.str() << " -o temporary.c\n"
+         << SafeModuleBC << " -o temporary.c\n"
          << "  gcc -xc temporary.c -O2 -o " << SharedObject;
   if (TargetTriple.getArch() == Triple::sparc)
     outs() << " -G";              // Compile a shared library, `-G' for Sparc

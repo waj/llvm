@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | grep movsw
+; RUN: llvm-as < %s | llc -march=x86 | grep movsw
 ; PR2139
 
 declare void @abort()

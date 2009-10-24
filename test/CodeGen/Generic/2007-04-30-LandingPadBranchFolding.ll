@@ -1,4 +1,4 @@
-; RUN: llc < %s 
+; RUN: llvm-as < %s | llc 
 ; PR1228
 
 	"struct.std::basic_string<char,std::char_traits<char>,std::allocator<char> >::_Alloc_hider" = type { i8* }

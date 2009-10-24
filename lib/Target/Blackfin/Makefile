@@ -15,7 +15,7 @@ BUILT_SOURCES = BlackfinGenRegisterInfo.h.inc BlackfinGenRegisterNames.inc \
                 BlackfinGenRegisterInfo.inc BlackfinGenInstrNames.inc \
                 BlackfinGenInstrInfo.inc BlackfinGenAsmWriter.inc \
                 BlackfinGenDAGISel.inc BlackfinGenSubtarget.inc \
-		BlackfinGenCallingConv.inc BlackfinGenIntrinsics.inc
+		BlackfinGenCallingConv.inc
 
 DIRS = AsmPrinter TargetInfo
 

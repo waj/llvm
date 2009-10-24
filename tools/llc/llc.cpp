@@ -20,7 +20,7 @@
 #include "llvm/Pass.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/Verifier.h"
-#include "llvm/Support/IRReader.h"
+#include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/CodeGen/FileWriters.h"
 #include "llvm/CodeGen/LinkAllAsmWriterComponents.h"
 #include "llvm/CodeGen/LinkAllCodegenComponents.h"
@@ -55,8 +55,7 @@ InputFilename(cl::Positional, cl::desc("<input bitcode>"), cl::init("-"));
 static cl::opt<std::string>
 OutputFilename("o", cl::desc("Output filename"), cl::value_desc("filename"));
 
-static cl::opt<bool>
-Force("f", cl::desc("Enable binary output on terminals"));
+static cl::opt<bool> Force("f", cl::desc("Overwrite output files"));
 
 // Determine optimization level.
 static cl::opt<char>
@@ -119,9 +118,7 @@ GetFileNameRoot(const std::string &InputFilename) {
   std::string outputFilename;
   int Len = IFN.length();
   if ((Len > 2) &&
-      IFN[Len-3] == '.' &&
-      ((IFN[Len-2] == 'b' && IFN[Len-1] == 'c') ||
-       (IFN[Len-2] == 'l' && IFN[Len-1] == 'l'))) {
+      IFN[Len-3] == '.' && IFN[Len-2] == 'b' && IFN[Len-1] == 'c') {
     outputFilename = std::string(IFN.begin(), IFN.end()-3); // s/.bc/.s/
   } else {
     outputFilename = IFN;
@@ -140,11 +137,12 @@ static formatted_raw_ostream *GetOutputStream(const char *TargetName,
     sys::RemoveFileOnSignal(sys::Path(OutputFilename));
 
     std::string error;
-    raw_fd_ostream *FDOut =
-      new raw_fd_ostream(OutputFilename.c_str(), error,
-                         raw_fd_ostream::F_Binary);
+    raw_fd_ostream *FDOut = new raw_fd_ostream(OutputFilename.c_str(),
+                                               /*Binary=*/true, Force, error);
     if (!error.empty()) {
       errs() << error << '\n';
+      if (!Force)
+        errs() << "Use -f command line argument to force output\n";
       delete FDOut;
       return 0;
     }
@@ -189,12 +187,12 @@ static formatted_raw_ostream *GetOutputStream(const char *TargetName,
   sys::RemoveFileOnSignal(sys::Path(OutputFilename));
 
   std::string error;
-  unsigned OpenFlags = 0;
-  if (Binary) OpenFlags |= raw_fd_ostream::F_Binary;
-  raw_fd_ostream *FDOut = new raw_fd_ostream(OutputFilename.c_str(), error,
-                                             OpenFlags);
+  raw_fd_ostream *FDOut = new raw_fd_ostream(OutputFilename.c_str(),
+                                             Binary, Force, error);
   if (!error.empty()) {
     errs() << error << '\n';
+    if (!Force)
+      errs() << "Use -f command line argument to force output\n";
     delete FDOut;
     return 0;
   }
@@ -213,19 +211,23 @@ int main(int argc, char **argv) {
   LLVMContext &Context = getGlobalContext();
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
 
-  // Initialize targets first, so that --version shows registered targets.
+  // Initialize targets first.
   InitializeAllTargets();
   InitializeAllAsmPrinters();
 
   cl::ParseCommandLineOptions(argc, argv, "llvm system compiler\n");
   
   // Load the module to be compiled...
-  SMDiagnostic Err;
+  std::string ErrorMessage;
   std::auto_ptr<Module> M;
 
-  M.reset(ParseIRFile(InputFilename, Err, Context));
+  std::auto_ptr<MemoryBuffer> Buffer(
+                   MemoryBuffer::getFileOrSTDIN(InputFilename, &ErrorMessage));
+  if (Buffer.get())
+    M.reset(ParseBitcodeFile(Buffer.get(), Context, &ErrorMessage));
   if (M.get() == 0) {
-    Err.Print(argv[0], errs());
+    errs() << argv[0] << ": bitcode didn't read correctly.\n";
+    errs() << "Reason: " << ErrorMessage << "\n";
     return 1;
   }
   Module &mod = *M.get();
@@ -298,7 +300,7 @@ int main(int argc, char **argv) {
     return 1;
   case ' ': break;
   case '0': OLvl = CodeGenOpt::None; break;
-  case '1': OLvl = CodeGenOpt::Less; break;
+  case '1':
   case '2': OLvl = CodeGenOpt::Default; break;
   case '3': OLvl = CodeGenOpt::Aggressive; break;
   }
@@ -394,6 +396,8 @@ int main(int argc, char **argv) {
 
     Passes.doFinalization();
   }
+
+  Out->flush();
 
   // Delete the ostream if it's not a stdout stream
   if (Out != &fouts()) delete Out;

@@ -1,4 +1,4 @@
-; RUN: opt < %s -tailduplicate -disable-output
+; RUN: llvm-as < %s | opt -tailduplicate -disable-output
 
 define void @motion_result7() {
 entry:

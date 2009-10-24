@@ -59,7 +59,7 @@ endif
 # NOTE : Always put version numbers at the end because they are optional.
 install: $(OBJROOT) $(SYMROOT) $(DSTROOT)
 	cd $(OBJROOT) && \
-	  $(SRC)/utils/buildit/build_llvm "$(RC_ARCHS)" "$(TARGETS)" \
+	  $(SRC)/build_llvm "$(RC_ARCHS)" "$(TARGETS)" \
 	    $(SRC) $(PREFIX) $(DSTROOT) $(SYMROOT) \
 	    $(LLVM_ASSERTIONS) $(LLVM_OPTIMIZED) \
 	    $(RC_ProjectSourceVersion) $(RC_ProjectSourceSubversion) 
@@ -85,7 +85,6 @@ installsrc:
 	                        -type f -a -name .DS_Store -o \
 				-name \*~ -o -name .\#\* \) \
 	  -exec rm -rf {} \;
-	rm -rf "$(SRCROOT)/test"
 
 #######################################################################
 

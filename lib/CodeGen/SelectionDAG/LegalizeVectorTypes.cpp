@@ -24,7 +24,6 @@
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -32,17 +31,15 @@ using namespace llvm;
 //===----------------------------------------------------------------------===//
 
 void DAGTypeLegalizer::ScalarizeVectorResult(SDNode *N, unsigned ResNo) {
-  DEBUG(errs() << "Scalarize node result " << ResNo << ": ";
-        N->dump(&DAG);
-        errs() << "\n");
+  DEBUG(cerr << "Scalarize node result " << ResNo << ": "; N->dump(&DAG);
+        cerr << "\n");
   SDValue R = SDValue();
 
   switch (N->getOpcode()) {
   default:
 #ifndef NDEBUG
-    errs() << "ScalarizeVectorResult #" << ResNo << ": ";
-    N->dump(&DAG);
-    errs() << "\n";
+    cerr << "ScalarizeVectorResult #" << ResNo << ": ";
+    N->dump(&DAG); cerr << "\n";
 #endif
     llvm_unreachable("Do not know how to scalarize the result of this operator!");
 
@@ -170,7 +167,7 @@ SDValue DAGTypeLegalizer::ScalarizeVecRes_LOAD(LoadSDNode *N) {
                                DAG.getUNDEF(N->getBasePtr().getValueType()),
                                N->getSrcValue(), N->getSrcValueOffset(),
                                N->getMemoryVT().getVectorElementType(),
-                               N->isVolatile(), N->getOriginalAlignment());
+                               N->isVolatile(), N->getAlignment());
 
   // Legalized the chain result - switch anything that used the old chain to
   // use the new one.
@@ -270,18 +267,16 @@ SDValue DAGTypeLegalizer::ScalarizeVecRes_VSETCC(SDNode *N) {
 //===----------------------------------------------------------------------===//
 
 bool DAGTypeLegalizer::ScalarizeVectorOperand(SDNode *N, unsigned OpNo) {
-  DEBUG(errs() << "Scalarize node operand " << OpNo << ": ";
-        N->dump(&DAG);
-        errs() << "\n");
+  DEBUG(cerr << "Scalarize node operand " << OpNo << ": "; N->dump(&DAG);
+        cerr << "\n");
   SDValue Res = SDValue();
 
   if (Res.getNode() == 0) {
     switch (N->getOpcode()) {
     default:
 #ifndef NDEBUG
-      errs() << "ScalarizeVectorOperand Op #" << OpNo << ": ";
-      N->dump(&DAG);
-      errs() << "\n";
+      cerr << "ScalarizeVectorOperand Op #" << OpNo << ": ";
+      N->dump(&DAG); cerr << "\n";
 #endif
       llvm_unreachable("Do not know how to scalarize this operator's operand!");
     case ISD::BIT_CONVERT:
@@ -360,7 +355,7 @@ SDValue DAGTypeLegalizer::ScalarizeVecOp_STORE(StoreSDNode *N, unsigned OpNo){
 
   return DAG.getStore(N->getChain(), dl, GetScalarizedVector(N->getOperand(1)),
                       N->getBasePtr(), N->getSrcValue(), N->getSrcValueOffset(),
-                      N->isVolatile(), N->getOriginalAlignment());
+                      N->isVolatile(), N->getAlignment());
 }
 
 
@@ -374,17 +369,14 @@ SDValue DAGTypeLegalizer::ScalarizeVecOp_STORE(StoreSDNode *N, unsigned OpNo){
 /// legalization, we just know that (at least) one result needs vector
 /// splitting.
 void DAGTypeLegalizer::SplitVectorResult(SDNode *N, unsigned ResNo) {
-  DEBUG(errs() << "Split node result: ";
-        N->dump(&DAG);
-        errs() << "\n");
+  DEBUG(cerr << "Split node result: "; N->dump(&DAG); cerr << "\n");
   SDValue Lo, Hi;
 
   switch (N->getOpcode()) {
   default:
 #ifndef NDEBUG
-    errs() << "SplitVectorResult #" << ResNo << ": ";
-    N->dump(&DAG);
-    errs() << "\n";
+    cerr << "SplitVectorResult #" << ResNo << ": ";
+    N->dump(&DAG); cerr << "\n";
 #endif
     llvm_unreachable("Do not know how to split the result of this operator!");
 
@@ -714,7 +706,7 @@ void DAGTypeLegalizer::SplitVecRes_LOAD(LoadSDNode *LD, SDValue &Lo,
   const Value *SV = LD->getSrcValue();
   int SVOffset = LD->getSrcValueOffset();
   EVT MemoryVT = LD->getMemoryVT();
-  unsigned Alignment = LD->getOriginalAlignment();
+  unsigned Alignment = LD->getAlignment();
   bool isVolatile = LD->isVolatile();
 
   EVT LoMemVT, HiMemVT;
@@ -727,6 +719,7 @@ void DAGTypeLegalizer::SplitVecRes_LOAD(LoadSDNode *LD, SDValue &Lo,
   Ptr = DAG.getNode(ISD::ADD, dl, Ptr.getValueType(), Ptr,
                     DAG.getIntPtrConstant(IncrementSize));
   SVOffset += IncrementSize;
+  Alignment = MinAlign(Alignment, IncrementSize);
   Hi = DAG.getLoad(ISD::UNINDEXED, dl, ExtType, HiVT, Ch, Ptr, Offset,
                    SV, SVOffset, HiMemVT, isVolatile, Alignment);
 
@@ -924,18 +917,15 @@ void DAGTypeLegalizer::SplitVecRes_VECTOR_SHUFFLE(ShuffleVectorSDNode *N,
 /// result types of the node are known to be legal, but other operands of the
 /// node may need legalization as well as the specified one.
 bool DAGTypeLegalizer::SplitVectorOperand(SDNode *N, unsigned OpNo) {
-  DEBUG(errs() << "Split node operand: ";
-        N->dump(&DAG);
-        errs() << "\n");
+  DEBUG(cerr << "Split node operand: "; N->dump(&DAG); cerr << "\n");
   SDValue Res = SDValue();
 
   if (Res.getNode() == 0) {
     switch (N->getOpcode()) {
     default:
 #ifndef NDEBUG
-      errs() << "SplitVectorOperand Op #" << OpNo << ": ";
-      N->dump(&DAG);
-      errs() << "\n";
+      cerr << "SplitVectorOperand Op #" << OpNo << ": ";
+      N->dump(&DAG); cerr << "\n";
 #endif
       llvm_unreachable("Do not know how to split this operator's operand!");
 
@@ -1077,7 +1067,7 @@ SDValue DAGTypeLegalizer::SplitVecOp_STORE(StoreSDNode *N, unsigned OpNo) {
   SDValue Ptr = N->getBasePtr();
   int SVOffset = N->getSrcValueOffset();
   EVT MemoryVT = N->getMemoryVT();
-  unsigned Alignment = N->getOriginalAlignment();
+  unsigned Alignment = N->getAlignment();
   bool isVol = N->isVolatile();
   SDValue Lo, Hi;
   GetSplitVector(N->getOperand(1), Lo, Hi);
@@ -1097,14 +1087,15 @@ SDValue DAGTypeLegalizer::SplitVecOp_STORE(StoreSDNode *N, unsigned OpNo) {
   // Increment the pointer to the other half.
   Ptr = DAG.getNode(ISD::ADD, dl, Ptr.getValueType(), Ptr,
                     DAG.getIntPtrConstant(IncrementSize));
-  SVOffset += IncrementSize;
 
   if (isTruncating)
-    Hi = DAG.getTruncStore(Ch, dl, Hi, Ptr, N->getSrcValue(), SVOffset,
-                           HiMemVT, isVol, Alignment);
+    Hi = DAG.getTruncStore(Ch, dl, Hi, Ptr,
+                           N->getSrcValue(), SVOffset+IncrementSize,
+                           HiMemVT,
+                           isVol, MinAlign(Alignment, IncrementSize));
   else
-    Hi = DAG.getStore(Ch, dl, Hi, Ptr, N->getSrcValue(), SVOffset,
-                      isVol, Alignment);
+    Hi = DAG.getStore(Ch, dl, Hi, Ptr, N->getSrcValue(), SVOffset+IncrementSize,
+                      isVol, MinAlign(Alignment, IncrementSize));
 
   return DAG.getNode(ISD::TokenFactor, dl, MVT::Other, Lo, Hi);
 }
@@ -1115,17 +1106,15 @@ SDValue DAGTypeLegalizer::SplitVecOp_STORE(StoreSDNode *N, unsigned OpNo) {
 //===----------------------------------------------------------------------===//
 
 void DAGTypeLegalizer::WidenVectorResult(SDNode *N, unsigned ResNo) {
-  DEBUG(errs() << "Widen node result " << ResNo << ": ";
-        N->dump(&DAG);
-        errs() << "\n");
+  DEBUG(cerr << "Widen node result " << ResNo << ": "; N->dump(&DAG);
+        cerr << "\n");
   SDValue Res = SDValue();
 
   switch (N->getOpcode()) {
   default:
 #ifndef NDEBUG
-    errs() << "WidenVectorResult #" << ResNo << ": ";
-    N->dump(&DAG);
-    errs() << "\n";
+    cerr << "WidenVectorResult #" << ResNo << ": ";
+    N->dump(&DAG); cerr << "\n";
 #endif
     llvm_unreachable("Do not know how to widen the result of this operator!");
 
@@ -1773,23 +1762,20 @@ SDValue DAGTypeLegalizer::WidenVecRes_VSETCC(SDNode *N) {
 // Widen Vector Operand
 //===----------------------------------------------------------------------===//
 bool DAGTypeLegalizer::WidenVectorOperand(SDNode *N, unsigned ResNo) {
-  DEBUG(errs() << "Widen node operand " << ResNo << ": ";
-        N->dump(&DAG);
-        errs() << "\n");
+  DEBUG(cerr << "Widen node operand " << ResNo << ": "; N->dump(&DAG);
+        cerr << "\n");
   SDValue Res = SDValue();
 
   switch (N->getOpcode()) {
   default:
 #ifndef NDEBUG
-    errs() << "WidenVectorOperand op #" << ResNo << ": ";
-    N->dump(&DAG);
-    errs() << "\n";
+    cerr << "WidenVectorOperand op #" << ResNo << ": ";
+    N->dump(&DAG); cerr << "\n";
 #endif
     llvm_unreachable("Do not know how to widen this operator's operand!");
 
   case ISD::BIT_CONVERT:        Res = WidenVecOp_BIT_CONVERT(N); break;
   case ISD::CONCAT_VECTORS:     Res = WidenVecOp_CONCAT_VECTORS(N); break;
-  case ISD::EXTRACT_SUBVECTOR:  Res = WidenVecOp_EXTRACT_SUBVECTOR(N); break;
   case ISD::EXTRACT_VECTOR_ELT: Res = WidenVecOp_EXTRACT_VECTOR_ELT(N); break;
   case ISD::STORE:              Res = WidenVecOp_STORE(N); break;
 
@@ -1892,12 +1878,6 @@ SDValue DAGTypeLegalizer::WidenVecOp_CONCAT_VECTORS(SDNode *N) {
                                DAG.getIntPtrConstant(j));
   }
   return DAG.getNode(ISD::BUILD_VECTOR, dl, VT, &Ops[0], NumElts);
-}
-
-SDValue DAGTypeLegalizer::WidenVecOp_EXTRACT_SUBVECTOR(SDNode *N) {
-  SDValue InOp = GetWidenedVector(N->getOperand(0));
-  return DAG.getNode(ISD::EXTRACT_SUBVECTOR, N->getDebugLoc(),
-                     N->getValueType(0), InOp, N->getOperand(1));
 }
 
 SDValue DAGTypeLegalizer::WidenVecOp_EXTRACT_VECTOR_ELT(SDNode *N) {

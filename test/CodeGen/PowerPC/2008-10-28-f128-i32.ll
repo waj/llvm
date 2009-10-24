@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=ppc32 -o - | not grep fixunstfsi
+; RUN: llvm-as < %s | llc -march=ppc32 -o - | not grep fixunstfsi
 
 define i64 @__fixunstfdi(ppc_fp128 %a) nounwind readnone {
 entry:

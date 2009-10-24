@@ -1,7 +1,7 @@
 ; This is a basic sanity check for constant propogation.  The add instruction 
 ; should be eliminated.
 
-; RUN: opt < %s -constprop -die -S | not grep phi
+; RUN: llvm-as < %s | opt -constprop -die | llvm-dis | not grep phi
 
 define i32 @test(i1 %B) {
 BB0:

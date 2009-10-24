@@ -19,7 +19,7 @@
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
 #include "llvm/Bitcode/ReaderWriter.h"
-#include "llvm/Support/raw_ostream.h"
+#include <iostream>
 using namespace llvm;
 
 int main() {
@@ -56,7 +56,7 @@ int main() {
   BB->getInstList().push_back(ReturnInst::Create(Context, Add));
 
   // Output the bitcode file to stdout
-  WriteBitcodeToFile(M, outs());
+  WriteBitcodeToFile(M, std::cout);
 
   // Delete the module and all of its contents.
   delete M;

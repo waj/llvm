@@ -1,4 +1,4 @@
-; RUN: opt < %s -ipconstprop -S > %t
+; RUN: llvm-as < %s | opt -ipconstprop | llvm-dis > %t
 ; RUN: cat %t | grep {store i32 %Z, i32\\* %Q}
 ; RUN: cat %t | grep {add i32 1, 3}
 

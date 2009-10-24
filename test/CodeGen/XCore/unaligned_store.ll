@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=xcore > %t1.s
+; RUN: llvm-as < %s | llc -march=xcore > %t1.s
 ; RUN: grep "bl __misaligned_store" %t1.s | count 1
 ; RUN: grep st16 %t1.s | count 2
 ; RUN: grep shr %t1.s | count 1

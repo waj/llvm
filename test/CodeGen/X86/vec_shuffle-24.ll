@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse2  |     grep punpck
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse2  |     grep punpck
 
 define i32 @t() nounwind optsize {
 entry:

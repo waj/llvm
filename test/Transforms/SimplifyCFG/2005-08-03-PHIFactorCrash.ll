@@ -1,4 +1,4 @@
-; RUN: opt < %s -simplifycfg -disable-output
+; RUN: llvm-as < %s | opt -simplifycfg -disable-output
 ; END.
 
 	%arraytype.1.Char = type { i32, [0 x i8] }

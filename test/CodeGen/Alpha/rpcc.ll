@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=alpha | grep rpcc
+; RUN: llvm-as < %s | llc -march=alpha | grep rpcc
 
 declare i64 @llvm.readcyclecounter()
 

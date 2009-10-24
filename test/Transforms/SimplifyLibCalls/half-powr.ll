@@ -1,4 +1,4 @@
-; RUN: opt -simplify-libcalls-halfpowr %s -S | FileCheck %s
+; RUN: llvm-as < %s | opt -simplify-libcalls-halfpowr | llvm-dis | %prcontext {mul float} 1 | grep {mul float} | count 8
 
 define float @__half_powrf4(float %f, float %g) nounwind readnone {
 entry:
@@ -12,11 +12,6 @@ bb:		; preds = %entry
 bb1:		; preds = %bb, %entry
 	%f_addr.0 = phi float [ %1, %bb ], [ %f, %entry ]		; <float> [#uses=1]
 	%2 = fmul float %f_addr.0, %g		; <float> [#uses=1]
-; CHECK: fmul float %f_addr
-; CHECK: fmul float %f_addr
-; CHECK: fmul float %f_addr
-; CHECK: fmul float %f_addr
-
 	ret float %2
 }
 

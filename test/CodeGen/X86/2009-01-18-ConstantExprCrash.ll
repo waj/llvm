@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; rdar://6505632
 ; reduced from 483.xalancbmk
 

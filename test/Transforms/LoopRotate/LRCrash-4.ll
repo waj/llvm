@@ -1,4 +1,4 @@
-; RUN: opt < %s -loop-rotate -disable-output
+; RUN: llvm-as < %s | opt -loop-rotate -disable-output
 
 define void @InterpretSEIMessage(i8* %msg) {
 entry:

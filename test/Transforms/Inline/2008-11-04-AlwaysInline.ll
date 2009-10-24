@@ -1,4 +1,4 @@
-; RUN: opt < %s -always-inline -S | grep {@foo}
+; RUN: llvm-as < %s | opt -always-inline | llvm-dis | grep {@foo}
 ; Ensure that foo is not removed by always inliner
 ; PR 2945
 

@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 define void @QRiterate(double %tmp.212) {
 entry:

@@ -1,4 +1,4 @@
-; RUN: opt < %s -gvn -simplifycfg \
+; RUN: llvm-as < %s | opt -gvn -simplifycfg \
 ; RUN:   -disable-output
 ; PR867
 ; END.

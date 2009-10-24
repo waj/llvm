@@ -1,5 +1,5 @@
-; RUN: opt < %s -tailduplicate | \
-; RUN:   llc -march=x86 -o %t
+; RUN: llvm-as < %s | opt -tailduplicate | \
+; RUN:   llc -march=x86 -o %t -f
 ; RUN: grep {\\\<je\\\>} %t
 ; RUN: not grep jmp %t
 ; END.

@@ -29,11 +29,6 @@ namespace llvmc {
     /// first.
     virtual int Priority() const { return 0; }
 
-    /// PreprocessOptions - The auto-generated function that performs various
-    /// consistency checks on options (like ensuring that -O2 and -O3 are not
-    /// used together).
-    virtual void PreprocessOptions() const = 0;
-
     /// PopulateLanguageMap - The auto-generated function that fills in
     /// the language map (map from file extensions to language names).
     virtual void PopulateLanguageMap(LanguageMap&) const = 0;
@@ -65,10 +60,13 @@ namespace llvmc {
     PluginLoader();
     ~PluginLoader();
 
-    /// RunInitialization - Calls PreprocessOptions, PopulateLanguageMap and
-    /// PopulateCompilationGraph methods of all plugins. This populates the
-    /// global language map and the compilation graph.
-    void RunInitialization(LanguageMap& langMap, CompilationGraph& graph) const;
+    /// PopulateLanguageMap - Fills in the language map by calling
+    /// PopulateLanguageMap methods of all plugins.
+    void PopulateLanguageMap(LanguageMap& langMap);
+
+    /// PopulateCompilationGraph - Populates the compilation graph by
+    /// calling PopulateCompilationGraph methods of all plugins.
+    void PopulateCompilationGraph(CompilationGraph& tools);
 
   private:
     // noncopyable

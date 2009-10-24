@@ -335,7 +335,7 @@ bool FastISel::SelectCall(User *I) {
     if (isValidDebugInfoIntrinsic(*RSI, CodeGenOpt::None) && DW
         && DW->ShouldEmitDwarfDebug()) {
       unsigned ID = 
-        DW->RecordRegionStart(RSI->getContext());
+        DW->RecordRegionStart(cast<GlobalVariable>(RSI->getContext()));
       const TargetInstrDesc &II = TII.get(TargetInstrInfo::DBG_LABEL);
       BuildMI(MBB, DL, II).addImm(ID);
     }
@@ -346,7 +346,7 @@ bool FastISel::SelectCall(User *I) {
     if (isValidDebugInfoIntrinsic(*REI, CodeGenOpt::None) && DW
         && DW->ShouldEmitDwarfDebug()) {
      unsigned ID = 0;
-     DISubprogram Subprogram(REI->getContext());
+     DISubprogram Subprogram(cast<GlobalVariable>(REI->getContext()));
      if (isInlinedFnEnd(*REI, MF.getFunction())) {
         // This is end of an inlined function.
         const TargetInstrDesc &II = TII.get(TargetInstrInfo::DBG_LABEL);
@@ -359,7 +359,7 @@ bool FastISel::SelectCall(User *I) {
           BuildMI(MBB, DL, II).addImm(ID);
       } else {
         const TargetInstrDesc &II = TII.get(TargetInstrInfo::DBG_LABEL);
-        ID =  DW->RecordRegionEnd(REI->getContext());
+        ID =  DW->RecordRegionEnd(cast<GlobalVariable>(REI->getContext()));
         BuildMI(MBB, DL, II).addImm(ID);
       }
     }
@@ -384,10 +384,11 @@ bool FastISel::SelectCall(User *I) {
       setCurDebugLoc(ExtractDebugLocation(*FSI, MF.getDebugLocInfo()));
       
       DebugLocTuple PrevLocTpl = MF.getDebugLocTuple(PrevLoc);
-      DISubprogram SP(FSI->getSubprogram());
-      unsigned LabelID = 
-        DW->RecordInlinedFnStart(SP,DICompileUnit(PrevLocTpl.Scope),
-                                 PrevLocTpl.Line, PrevLocTpl.Col);
+      DISubprogram SP(cast<GlobalVariable>(FSI->getSubprogram()));
+      unsigned LabelID = DW->RecordInlinedFnStart(SP,
+                                                  DICompileUnit(PrevLocTpl.CompileUnit),
+                                                  PrevLocTpl.Line,
+                                                  PrevLocTpl.Col);
       const TargetInstrDesc &II = TII.get(TargetInstrInfo::DBG_LABEL);
       BuildMI(MBB, DL, II).addImm(LabelID);
       return true;
@@ -397,7 +398,7 @@ bool FastISel::SelectCall(User *I) {
     MF.setDefaultDebugLoc(ExtractDebugLocation(*FSI, MF.getDebugLocInfo()));
     
     // llvm.dbg.func_start also defines beginning of function scope.
-    DW->RecordRegionStart(FSI->getSubprogram());
+    DW->RecordRegionStart(cast<GlobalVariable>(FSI->getSubprogram()));
     return true;
   }
   case Intrinsic::dbg_declare: {
@@ -406,6 +407,7 @@ bool FastISel::SelectCall(User *I) {
         || !DW->ShouldEmitDwarfDebug())
       return true;
 
+    Value *Variable = DI->getVariable();
     Value *Address = DI->getAddress();
     if (BitCastInst *BCI = dyn_cast<BitCastInst>(Address))
       Address = BCI->getOperand(0);
@@ -416,11 +418,16 @@ bool FastISel::SelectCall(User *I) {
       StaticAllocaMap.find(AI);
     if (SI == StaticAllocaMap.end()) break; // VLAs.
     int FI = SI->second;
-    if (MMI)
-      MMI->setVariableDbgInfo(DI->getVariable(), FI);
-#ifndef ATTACH_DEBUG_INFO_TO_AN_INSN
-    DW->RecordVariable(DI->getVariable(), FI);
-#endif
+    
+    // Determine the debug globalvariable.
+    GlobalValue *GV = cast<GlobalVariable>(Variable);
+    
+    // Build the DECLARE instruction.
+    const TargetInstrDesc &II = TII.get(TargetInstrInfo::DECLARE);
+    MachineInstr *DeclareMI 
+      = BuildMI(MBB, DL, II).addFrameIndex(FI).addGlobalAddress(GV);
+    DIVariable DV(cast<GlobalVariable>(GV));
+    DW->RecordVariableScope(DV, DeclareMI);
     return true;
   }
   case Intrinsic::eh_exception: {
@@ -442,11 +449,15 @@ bool FastISel::SelectCall(User *I) {
     }
     break;
   }
-  case Intrinsic::eh_selector: {
+  case Intrinsic::eh_selector_i32:
+  case Intrinsic::eh_selector_i64: {
     EVT VT = TLI.getValueType(I->getType());
     switch (TLI.getOperationAction(ISD::EHSELECTION, VT)) {
     default: break;
     case TargetLowering::Expand: {
+      EVT VT = (IID == Intrinsic::eh_selector_i32 ?
+                           MVT::i32 : MVT::i64);
+
       if (MMI) {
         if (MBB->isLandingPad())
           AddCatchInfo(*cast<CallInst>(I), MMI, MBB);
@@ -460,25 +471,12 @@ bool FastISel::SelectCall(User *I) {
         }
 
         unsigned Reg = TLI.getExceptionSelectorRegister();
-        EVT SrcVT = TLI.getPointerTy();
-        const TargetRegisterClass *RC = TLI.getRegClassFor(SrcVT);
+        const TargetRegisterClass *RC = TLI.getRegClassFor(VT);
         unsigned ResultReg = createResultReg(RC);
-        bool InsertedCopy = TII.copyRegToReg(*MBB, MBB->end(), ResultReg, Reg,
-                                             RC, RC);
+        bool InsertedCopy = TII.copyRegToReg(*MBB, MBB->end(), ResultReg,
+                                             Reg, RC, RC);
         assert(InsertedCopy && "Can't copy address registers!");
         InsertedCopy = InsertedCopy;
-
-        // Cast the register to the type of the selector.
-        if (SrcVT.bitsGT(MVT::i32))
-          ResultReg = FastEmit_r(SrcVT.getSimpleVT(), MVT::i32, ISD::TRUNCATE,
-                                 ResultReg);
-        else if (SrcVT.bitsLT(MVT::i32))
-          ResultReg = FastEmit_r(SrcVT.getSimpleVT(), MVT::i32,
-                                 ISD::SIGN_EXTEND, ResultReg);
-        if (ResultReg == 0)
-          // Unhandled operand. Halt "fast" selection and bail.
-          return false;
-
         UpdateValueMap(I, ResultReg);
       } else {
         unsigned ResultReg =
@@ -618,49 +616,6 @@ FastISel::FastEmitBranch(MachineBasicBlock *MSucc) {
   MBB->addSuccessor(MSucc);
 }
 
-/// SelectFNeg - Emit an FNeg operation.
-///
-bool
-FastISel::SelectFNeg(User *I) {
-  unsigned OpReg = getRegForValue(BinaryOperator::getFNegArgument(I));
-  if (OpReg == 0) return false;
-
-  // If the target has ISD::FNEG, use it.
-  EVT VT = TLI.getValueType(I->getType());
-  unsigned ResultReg = FastEmit_r(VT.getSimpleVT(), VT.getSimpleVT(),
-                                  ISD::FNEG, OpReg);
-  if (ResultReg != 0) {
-    UpdateValueMap(I, ResultReg);
-    return true;
-  }
-
-  // Bitcast the value to integer, twiddle the sign bit with xor,
-  // and then bitcast it back to floating-point.
-  if (VT.getSizeInBits() > 64) return false;
-  EVT IntVT = EVT::getIntegerVT(I->getContext(), VT.getSizeInBits());
-  if (!TLI.isTypeLegal(IntVT))
-    return false;
-
-  unsigned IntReg = FastEmit_r(VT.getSimpleVT(), IntVT.getSimpleVT(),
-                               ISD::BIT_CONVERT, OpReg);
-  if (IntReg == 0)
-    return false;
-
-  unsigned IntResultReg = FastEmit_ri_(IntVT.getSimpleVT(), ISD::XOR, IntReg,
-                                       UINT64_C(1) << (VT.getSizeInBits()-1),
-                                       IntVT.getSimpleVT());
-  if (IntResultReg == 0)
-    return false;
-
-  ResultReg = FastEmit_r(IntVT.getSimpleVT(), VT.getSimpleVT(),
-                         ISD::BIT_CONVERT, IntResultReg);
-  if (ResultReg == 0)
-    return false;
-
-  UpdateValueMap(I, ResultReg);
-  return true;
-}
-
 bool
 FastISel::SelectOperator(User *I, unsigned Opcode) {
   switch (Opcode) {
@@ -671,9 +626,6 @@ FastISel::SelectOperator(User *I, unsigned Opcode) {
   case Instruction::Sub:
     return SelectBinaryOp(I, ISD::SUB);
   case Instruction::FSub:
-    // FNeg is currently represented in LLVM IR as a special case of FSub.
-    if (BinaryOperator::isFNeg(I))
-      return SelectFNeg(I);
     return SelectBinaryOp(I, ISD::FSUB);
   case Instruction::Mul:
     return SelectBinaryOp(I, ISD::MUL);

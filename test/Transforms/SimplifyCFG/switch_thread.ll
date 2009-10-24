@@ -1,4 +1,4 @@
-; RUN: opt < %s -simplifycfg -S | \
+; RUN: llvm-as < %s | opt -simplifycfg | llvm-dis | \
 ; RUN:   not grep {call void @DEAD}
 
 ; Test that we can thread a simple known condition through switch statements.

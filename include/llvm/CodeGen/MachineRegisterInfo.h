@@ -16,6 +16,7 @@
 
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/iterator.h"
 #include <vector>
 
 namespace llvm {
@@ -255,7 +256,7 @@ public:
   /// returns end().
   template<bool ReturnUses, bool ReturnDefs>
   class defusechain_iterator
-    : public std::iterator<std::forward_iterator_tag, MachineInstr, ptrdiff_t> {
+    : public forward_iterator<MachineInstr, ptrdiff_t> {
     MachineOperand *Op;
     explicit defusechain_iterator(MachineOperand *op) : Op(op) {
       // If the first node isn't one we're interested in, advance to one that
@@ -268,10 +269,8 @@ public:
     }
     friend class MachineRegisterInfo;
   public:
-    typedef std::iterator<std::forward_iterator_tag,
-                          MachineInstr, ptrdiff_t>::reference reference;
-    typedef std::iterator<std::forward_iterator_tag,
-                          MachineInstr, ptrdiff_t>::pointer pointer;
+    typedef forward_iterator<MachineInstr, ptrdiff_t>::reference reference;
+    typedef forward_iterator<MachineInstr, ptrdiff_t>::pointer pointer;
     
     defusechain_iterator(const defusechain_iterator &I) : Op(I.Op) {}
     defusechain_iterator() : Op(0) {}

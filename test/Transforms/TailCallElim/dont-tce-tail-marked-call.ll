@@ -1,4 +1,4 @@
-; RUN: opt < %s -tailcallelim -S | \
+; RUN: llvm-as < %s | opt -tailcallelim | llvm-dis | \
 ; RUN:    grep {call i32 @foo}
 
 declare void @bar(i32*)

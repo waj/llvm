@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=x86_64-linux-gnu
+; RUN: llvm-as < %s | llc -mtriple=x86_64-linux-gnu
 ; PR1729
 
 	%struct.CUMULATIVE_ARGS = type { i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32 }

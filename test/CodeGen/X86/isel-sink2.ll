@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 > %t
+; RUN: llvm-as < %s | llc -march=x86 > %t
 ; RUN: grep {movb.7(%...)} %t
 ; RUN: not grep leal %t
 

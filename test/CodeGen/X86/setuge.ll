@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86  | not grep set
+; RUN: llvm-as < %s | llc -march=x86  | not grep set
 
 declare i1 @llvm.isunordered.f32(float, float)
 

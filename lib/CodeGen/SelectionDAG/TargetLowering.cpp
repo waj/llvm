@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Target/TargetLowering.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
@@ -530,7 +530,7 @@ TargetLowering::TargetLowering(TargetMachine &tm,TargetLoweringObjectFile *tlof)
   InitLibcallCallingConvs(LibcallCallingConvs);
 
   // Tell Legalize whether the assembler supports DEBUG_LOC.
-  const MCAsmInfo *TASM = TM.getMCAsmInfo();
+  const TargetAsmInfo *TASM = TM.getTargetAsmInfo();
   if (!TASM || !TASM->hasDotLocAndDotFile())
     setOperationAction(ISD::DEBUG_LOC, MVT::Other, Expand);
 }
@@ -606,13 +606,13 @@ void TargetLowering::computeRegisterProperties() {
   // Every integer value type larger than this largest register takes twice as
   // many registers to represent as the previous ValueType.
   for (unsigned ExpandedReg = LargestIntReg + 1; ; ++ExpandedReg) {
-    EVT ExpandedVT = (MVT::SimpleValueType)ExpandedReg;
-    if (!ExpandedVT.isInteger())
+    EVT EVT = (MVT::SimpleValueType)ExpandedReg;
+    if (!EVT.isInteger())
       break;
     NumRegistersForVT[ExpandedReg] = 2*NumRegistersForVT[ExpandedReg-1];
     RegisterTypeForVT[ExpandedReg] = (MVT::SimpleValueType)LargestIntReg;
     TransformToType[ExpandedReg] = (MVT::SimpleValueType)(ExpandedReg - 1);
-    ValueTypeActions.setTypeAction(ExpandedVT, Expand);
+    ValueTypeActions.setTypeAction(EVT, Expand);
   }
 
   // Inspect all of the ValueType's smaller than the largest integer
@@ -1922,43 +1922,6 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
     // materialize 0.0.
     if (Cond == ISD::SETO || Cond == ISD::SETUO)
       return DAG.getSetCC(dl, VT, N0, N0, Cond);
-
-    // If the condition is not legal, see if we can find an equivalent one
-    // which is legal.
-    if (!isCondCodeLegal(Cond, N0.getValueType())) {
-      // If the comparison was an awkward floating-point == or != and one of
-      // the comparison operands is infinity or negative infinity, convert the
-      // condition to a less-awkward <= or >=.
-      if (CFP->getValueAPF().isInfinity()) {
-        if (CFP->getValueAPF().isNegative()) {
-          if (Cond == ISD::SETOEQ &&
-              isCondCodeLegal(ISD::SETOLE, N0.getValueType()))
-            return DAG.getSetCC(dl, VT, N0, N1, ISD::SETOLE);
-          if (Cond == ISD::SETUEQ &&
-              isCondCodeLegal(ISD::SETOLE, N0.getValueType()))
-            return DAG.getSetCC(dl, VT, N0, N1, ISD::SETULE);
-          if (Cond == ISD::SETUNE &&
-              isCondCodeLegal(ISD::SETUGT, N0.getValueType()))
-            return DAG.getSetCC(dl, VT, N0, N1, ISD::SETUGT);
-          if (Cond == ISD::SETONE &&
-              isCondCodeLegal(ISD::SETUGT, N0.getValueType()))
-            return DAG.getSetCC(dl, VT, N0, N1, ISD::SETOGT);
-        } else {
-          if (Cond == ISD::SETOEQ &&
-              isCondCodeLegal(ISD::SETOGE, N0.getValueType()))
-            return DAG.getSetCC(dl, VT, N0, N1, ISD::SETOGE);
-          if (Cond == ISD::SETUEQ &&
-              isCondCodeLegal(ISD::SETOGE, N0.getValueType()))
-            return DAG.getSetCC(dl, VT, N0, N1, ISD::SETUGE);
-          if (Cond == ISD::SETUNE &&
-              isCondCodeLegal(ISD::SETULT, N0.getValueType()))
-            return DAG.getSetCC(dl, VT, N0, N1, ISD::SETULT);
-          if (Cond == ISD::SETONE &&
-              isCondCodeLegal(ISD::SETULT, N0.getValueType()))
-            return DAG.getSetCC(dl, VT, N0, N1, ISD::SETOLT);
-        }
-      }
-    }
   }
 
   if (N0 == N1) {
@@ -2383,7 +2346,7 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
     
     for (TargetRegisterClass::iterator I = RC->begin(), E = RC->end(); 
          I != E; ++I) {
-      if (StringsEqualNoCase(RegName, RI->getName(*I)))
+      if (StringsEqualNoCase(RegName, RI->get(*I).AsmName))
         return std::make_pair(*I, RC);
     }
   }

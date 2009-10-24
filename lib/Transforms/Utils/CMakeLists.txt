@@ -6,8 +6,10 @@ add_llvm_library(LLVMTransformUtils
   CloneFunction.cpp
   CloneLoop.cpp
   CloneModule.cpp
+  CloneTrace.cpp
   CodeExtractor.cpp
   DemoteRegToStack.cpp
+  InlineCost.cpp
   InlineFunction.cpp
   InstructionNamer.cpp
   LCSSA.cpp
@@ -18,7 +20,6 @@ add_llvm_library(LLVMTransformUtils
   LowerSwitch.cpp
   Mem2Reg.cpp
   PromoteMemoryToRegister.cpp
-  SSAUpdater.cpp
   SSI.cpp
   SimplifyCFG.cpp
   UnifyFunctionExitNodes.cpp

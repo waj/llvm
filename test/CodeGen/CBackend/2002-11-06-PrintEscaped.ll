@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c
+; RUN: llvm-as < %s | llc -march=c
 
 @testString = internal constant [18 x i8] c"Escaped newline\5Cn\00"             ; <[18 x i8]*> [#uses=1]
 

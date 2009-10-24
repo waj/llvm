@@ -17,7 +17,7 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineRelocation.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -35,7 +35,7 @@ MachOCodeEmitter::MachOCodeEmitter(MachOWriter &mow, MachOSection &mos) :
       ObjectCodeEmitter(&mos), MOW(mow), TM(MOW.TM) {
   is64Bit = TM.getTargetData()->getPointerSizeInBits() == 64;
   isLittleEndian = TM.getTargetData()->isLittleEndian();
-  MAI = TM.getMCAsmInfo();
+  TAI = TM.getTargetAsmInfo();
 }
 
 /// startFunction - This callback is invoked when a new machine function is
@@ -61,7 +61,7 @@ void MachOCodeEmitter::startFunction(MachineFunction &MF) {
 
   // Create symbol for function entry
   const GlobalValue *FuncV = MF.getFunction();
-  MachOSym FnSym(FuncV, MOW.Mang->getMangledName(FuncV), MOS->Index, MAI);
+  MachOSym FnSym(FuncV, MOW.Mang->getMangledName(FuncV), MOS->Index, TAI);
   FnSym.n_value = getCurrentPCOffset();
 
   // add it to the symtab.

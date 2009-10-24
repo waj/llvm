@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -enable-full-lsr >%t
+; RUN: llvm-as < %s | llc -march=x86 -enable-full-lsr >%t
 ; RUN: grep {addl	\\\$4,} %t | count 3
 ; RUN: not grep {,%} %t
 

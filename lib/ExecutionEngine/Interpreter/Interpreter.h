@@ -17,12 +17,12 @@
 #include "llvm/Function.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/ExecutionEngine/GenericValue.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/Support/InstVisitor.h"
 #include "llvm/Support/CallSite.h"
+#include "llvm/Target/TargetData.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/InstVisitor.h"
-#include "llvm/Support/raw_ostream.h"
+
 namespace llvm {
 
 class IntrinsicLowering;
@@ -139,7 +139,7 @@ public:
   void visitBinaryOperator(BinaryOperator &I);
   void visitICmpInst(ICmpInst &I);
   void visitFCmpInst(FCmpInst &I);
-  void visitAllocaInst(AllocaInst &I);
+  void visitAllocationInst(AllocationInst &I);
   void visitFreeInst(FreeInst &I);
   void visitLoadInst(LoadInst &I);
   void visitStoreInst(StoreInst &I);
@@ -174,7 +174,7 @@ public:
 
   void visitVAArgInst(VAArgInst &I);
   void visitInstruction(Instruction &I) {
-    errs() << I;
+    cerr << I;
     llvm_unreachable("Instruction not interpretable yet!");
   }
 

@@ -115,7 +115,8 @@ MutexImpl::acquire()
 
     int errorcode = pthread_mutex_lock(mutex);
     return errorcode == 0;
-  } else return false;
+  }
+  return false;
 }
 
 bool
@@ -128,7 +129,8 @@ MutexImpl::release()
 
     int errorcode = pthread_mutex_unlock(mutex);
     return errorcode == 0;
-  } else return false;
+  }
+  return false;
 }
 
 bool
@@ -141,7 +143,8 @@ MutexImpl::tryacquire()
 
     int errorcode = pthread_mutex_trylock(mutex);
     return errorcode == 0;
-  } else return false;
+  }
+  return false;
 }
 
 }

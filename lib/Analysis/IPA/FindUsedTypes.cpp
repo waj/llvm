@@ -92,12 +92,13 @@ bool FindUsedTypes::runOnModule(Module &m) {
 // passed in, then the types are printed symbolically if possible, using the
 // symbol table from the module.
 //
-void FindUsedTypes::print(raw_ostream &OS, const Module *M) const {
-  OS << "Types in use by this module:\n";
+void FindUsedTypes::print(std::ostream &OS, const Module *M) const {
+  raw_os_ostream RO(OS);
+  RO << "Types in use by this module:\n";
   for (std::set<const Type *>::const_iterator I = UsedTypes.begin(),
        E = UsedTypes.end(); I != E; ++I) {
-    OS << "   ";
-    WriteTypeSymbolic(OS, *I, M);
-    OS << '\n';
+    RO << "   ";
+    WriteTypeSymbolic(RO, *I, M);
+    RO << '\n';
   }
 }

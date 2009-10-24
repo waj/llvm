@@ -389,9 +389,6 @@ void LLVMDumpValue(LLVMValueRef Val) {
   unwrap(Val)->dump();
 }
 
-void LLVMReplaceAllUsesWith(LLVMValueRef OldVal, LLVMValueRef NewVal) {
-  unwrap(OldVal)->replaceAllUsesWith(unwrap(NewVal));
-}
 
 /*--.. Conversion functions ................................................--*/
 
@@ -402,31 +399,6 @@ void LLVMReplaceAllUsesWith(LLVMValueRef OldVal, LLVMValueRef NewVal) {
 
 LLVM_FOR_EACH_VALUE_SUBCLASS(LLVM_DEFINE_VALUE_CAST)
 
-/*--.. Operations on Uses ..................................................--*/
-LLVMUseIteratorRef LLVMGetFirstUse(LLVMValueRef Val) {
-  Value *V = unwrap(Val);
-  Value::use_iterator I = V->use_begin();
-  if (I == V->use_end())
-    return 0;
-  return wrap(&(I.getUse()));
-}
-
-LLVMUseIteratorRef LLVMGetNextUse(LLVMUseIteratorRef UR) {
-  return wrap(unwrap(UR)->getNext());
-}
-
-LLVMValueRef LLVMGetUser(LLVMUseIteratorRef UR) {
-  return wrap(unwrap(UR)->getUser());
-}
-
-LLVMValueRef LLVMGetUsedValue(LLVMUseIteratorRef UR) {
-  return wrap(unwrap(UR)->get());
-}
-
-/*--.. Operations on Users .................................................--*/
-LLVMValueRef LLVMGetOperand(LLVMValueRef Val, unsigned Index) {
-  return wrap(unwrap<User>(Val)->getOperand(Index));
-}
 
 /*--.. Operations on constants of any type .................................--*/
 
@@ -493,14 +465,6 @@ LLVMValueRef LLVMConstRealOfStringAndSize(LLVMTypeRef RealTy, const char Str[],
   return wrap(ConstantFP::get(unwrap(RealTy), StringRef(Str, SLen)));
 }
 
-unsigned long long LLVMConstIntGetZExtValue(LLVMValueRef ConstantVal) {
-  return unwrap<ConstantInt>(ConstantVal)->getZExtValue();
-}
-
-long long LLVMConstIntGetSExtValue(LLVMValueRef ConstantVal) {
-  return unwrap<ConstantInt>(ConstantVal)->getSExtValue();
-}
-
 /*--.. Operations on composite constants ...................................--*/
 
 LLVMValueRef LLVMConstStringInContext(LLVMContextRef C, const char *Str,
@@ -541,10 +505,6 @@ LLVMValueRef LLVMConstVector(LLVMValueRef *ScalarConstantVals, unsigned Size) {
 }
 
 /*--.. Constant expressions ................................................--*/
-
-LLVMOpcode LLVMGetConstOpcode(LLVMValueRef ConstantVal) {
-  return (LLVMOpcode)unwrap<ConstantExpr>(ConstantVal)->getOpcode();
-}
 
 LLVMValueRef LLVMAlignOf(LLVMTypeRef Ty) {
   return wrap(ConstantExpr::getAlignOf(unwrap(Ty)));
@@ -884,10 +844,9 @@ LLVMValueRef LLVMConstInsertValue(LLVMValueRef AggConstant,
 }
 
 LLVMValueRef LLVMConstInlineAsm(LLVMTypeRef Ty, const char *AsmString, 
-                                const char *Constraints, int HasSideEffects,
-                                int IsAlignStack) {
+                                const char *Constraints, int HasSideEffects) {
   return wrap(InlineAsm::get(dyn_cast<FunctionType>(unwrap(Ty)), AsmString, 
-                             Constraints, HasSideEffects, IsAlignStack));
+                             Constraints, HasSideEffects));
 }
 
 /*--.. Operations on global variables, functions, and aliases (globals) ....--*/
@@ -1068,10 +1027,7 @@ void LLVMDeleteGlobal(LLVMValueRef GlobalVar) {
 }
 
 LLVMValueRef LLVMGetInitializer(LLVMValueRef GlobalVar) {
-  GlobalVariable* GV = unwrap<GlobalVariable>(GlobalVar);
-  if ( !GV->hasInitializer() )
-    return 0;
-  return wrap(GV->getInitializer());
+  return wrap(unwrap<GlobalVariable>(GlobalVar)->getInitializer());
 }
 
 void LLVMSetInitializer(LLVMValueRef GlobalVar, LLVMValueRef ConstantVal) {
@@ -1162,8 +1118,7 @@ unsigned LLVMGetFunctionCallConv(LLVMValueRef Fn) {
 }
 
 void LLVMSetFunctionCallConv(LLVMValueRef Fn, unsigned CC) {
-  return unwrap<Function>(Fn)->setCallingConv(
-    static_cast<CallingConv::ID>(CC));
+  return unwrap<Function>(Fn)->setCallingConv(CC);
 }
 
 const char *LLVMGetGC(LLVMValueRef Fn) {
@@ -1191,13 +1146,6 @@ void LLVMRemoveFunctionAttr(LLVMValueRef Fn, LLVMAttribute PA) {
   const AttrListPtr PAL = Func->getAttributes();
   const AttrListPtr PALnew = PAL.removeAttr(0, PA);
   Func->setAttributes(PALnew);
-}
-
-LLVMAttribute LLVMGetFunctionAttr(LLVMValueRef Fn) {
-  Function *Func = unwrap<Function>(Fn);
-  const AttrListPtr PAL = Func->getAttributes();
-  Attributes attr = PAL.getFnAttributes();
-  return (LLVMAttribute)attr;
 }
 
 /*--.. Operations on parameters ............................................--*/
@@ -1265,14 +1213,6 @@ void LLVMAddAttribute(LLVMValueRef Arg, LLVMAttribute PA) {
 void LLVMRemoveAttribute(LLVMValueRef Arg, LLVMAttribute PA) {
   unwrap<Argument>(Arg)->removeAttr(PA);
 }
-
-LLVMAttribute LLVMGetAttribute(LLVMValueRef Arg) {
-  Argument *A = unwrap<Argument>(Arg);
-  Attributes attr = A->getParent()->getAttributes().getParamAttributes(
-    A->getArgNo()+1);
-  return (LLVMAttribute)attr;
-}
-  
 
 void LLVMSetParamAlignment(LLVMValueRef Arg, unsigned align) {
   unwrap<Argument>(Arg)->addAttr(
@@ -1422,9 +1362,9 @@ unsigned LLVMGetInstructionCallConv(LLVMValueRef Instr) {
 void LLVMSetInstructionCallConv(LLVMValueRef Instr, unsigned CC) {
   Value *V = unwrap(Instr);
   if (CallInst *CI = dyn_cast<CallInst>(V))
-    return CI->setCallingConv(static_cast<CallingConv::ID>(CC));
+    return CI->setCallingConv(CC);
   else if (InvokeInst *II = dyn_cast<InvokeInst>(V))
-    return II->setCallingConv(static_cast<CallingConv::ID>(CC));
+    return II->setCallingConv(CC);
   llvm_unreachable("LLVMSetInstructionCallConv applies only to call and invoke!");
 }
 
@@ -1687,10 +1627,6 @@ LLVMValueRef LLVMBuildNeg(LLVMBuilderRef B, LLVMValueRef V, const char *Name) {
   return wrap(unwrap(B)->CreateNeg(unwrap(V), Name));
 }
 
-LLVMValueRef LLVMBuildFNeg(LLVMBuilderRef B, LLVMValueRef V, const char *Name) {
-  return wrap(unwrap(B)->CreateFNeg(unwrap(V), Name));
-}
-
 LLVMValueRef LLVMBuildNot(LLVMBuilderRef B, LLVMValueRef V, const char *Name) {
   return wrap(unwrap(B)->CreateNot(unwrap(V), Name));
 }
@@ -1699,18 +1635,12 @@ LLVMValueRef LLVMBuildNot(LLVMBuilderRef B, LLVMValueRef V, const char *Name) {
 
 LLVMValueRef LLVMBuildMalloc(LLVMBuilderRef B, LLVMTypeRef Ty,
                              const char *Name) {
-  const Type* IntPtrT = Type::getInt32Ty(unwrap(B)->GetInsertBlock()->getContext());
-  return wrap(unwrap(B)->Insert(CallInst::CreateMalloc(
-      unwrap(B)->GetInsertBlock(), IntPtrT, unwrap(Ty), 0, 0, ""),
-      Twine(Name)));
+  return wrap(unwrap(B)->CreateMalloc(unwrap(Ty), 0, Name));
 }
 
 LLVMValueRef LLVMBuildArrayMalloc(LLVMBuilderRef B, LLVMTypeRef Ty,
                                   LLVMValueRef Val, const char *Name) {
-  const Type* IntPtrT = Type::getInt32Ty(unwrap(B)->GetInsertBlock()->getContext());
-  return wrap(unwrap(B)->Insert(CallInst::CreateMalloc(
-      unwrap(B)->GetInsertBlock(), IntPtrT, unwrap(Ty), unwrap(Val), 0, ""),
-      Twine(Name)));
+  return wrap(unwrap(B)->CreateMalloc(unwrap(Ty), unwrap(Val), Name));
 }
 
 LLVMValueRef LLVMBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty,

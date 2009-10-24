@@ -55,10 +55,6 @@ protected:
   ///
   X863DNowEnum X863DNowLevel;
 
-  /// HasCMov - True if this processor has conditional move instructions
-  /// (generally pentium pro+).
-  bool HasCMov;
-  
   /// HasX86_64 - True if the processor supports X86-64 instructions.
   ///
   bool HasX86_64;
@@ -81,6 +77,9 @@ protected:
   /// DarwinVers - Nonzero if this is a darwin platform: the numeric
   /// version of the platform, e.g. 8 = 10.4 (Tiger), 9 = 10.5 (Leopard), etc.
   unsigned char DarwinVers; // Is any darwin-x86 platform.
+
+  /// isLinux - true if this is a "linux" platform.
+  bool IsLinux;
 
   /// stackAlignment - The minimum alignment known to hold of the stack frame on
   /// entry to the function and which must be maintained by every function.
@@ -145,20 +144,12 @@ public:
 
   bool isTargetDarwin() const { return TargetType == isDarwin; }
   bool isTargetELF() const { return TargetType == isELF; }
-  
   bool isTargetWindows() const { return TargetType == isWindows; }
   bool isTargetMingw() const { return TargetType == isMingw; }
-  bool isTargetCygwin() const { return TargetType == isCygwin; }
   bool isTargetCygMing() const {
     return TargetType == isMingw || TargetType == isCygwin;
   }
-  
-  /// isTargetCOFF - Return true if this is any COFF/Windows target variant.
-  bool isTargetCOFF() const {
-    return TargetType == isMingw || TargetType == isCygwin ||
-           TargetType == isWindows;
-  }
-  
+  bool isTargetCygwin() const { return TargetType == isCygwin; }
   bool isTargetWin64() const {
     return Is64Bit && (TargetType == isMingw || TargetType == isWindows);
   }
@@ -192,7 +183,11 @@ public:
   /// getDarwinVers - Return the darwin version number, 8 = Tiger, 9 = Leopard,
   /// 10 = Snow Leopard, etc.
   unsigned getDarwinVers() const { return DarwinVers; }
-    
+  
+  /// isLinux - Return true if the target is "Linux".
+  bool isLinux() const { return IsLinux; }
+
+  
   /// ClassifyGlobalReference - Classify a global variable reference for the
   /// current subtarget according to how we should reference it in a non-pcrel
   /// context.
@@ -215,15 +210,14 @@ public:
   /// indicating the number of scheduling cycles of backscheduling that
   /// should be attempted.
   unsigned getSpecialAddressLatency() const;
-
-  /// enablePostRAScheduler - X86 target is enabling post-alloc scheduling
-  /// at 'More' optimization level.
-  bool enablePostRAScheduler(CodeGenOpt::Level OptLevel,
-                             TargetSubtarget::AntiDepBreakMode& mode) const {
-    mode = TargetSubtarget::ANTIDEP_CRITICAL;
-    return OptLevel >= CodeGenOpt::Default;
-  }
 };
+
+namespace X86 {
+  /// GetCpuIDAndInfo - Execute the specified cpuid and return the 4 values in
+  /// the specified arguments.  If we can't run cpuid on the host, return true.
+  bool GetCpuIDAndInfo(unsigned value, unsigned *rEAX, unsigned *rEBX,
+                       unsigned *rECX, unsigned *rEDX);
+}
 
 } // End llvm namespace
 

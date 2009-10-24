@@ -1,4 +1,4 @@
-; RUN: opt < %s -gvn -S | grep {ret i8 \[%\]tmp3}
+; RUN: llvm-as < %s | opt -gvn | llvm-dis | grep undef
 ; PR2503
 
 @g_3 = external global i8		; <i8*> [#uses=2]

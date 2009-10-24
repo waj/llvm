@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | not grep pushf
+; RUN: llvm-as < %s | llc -march=x86 | not grep pushf
 
 	%struct.indexentry = type { i32, i8*, i8*, i8*, i8*, i8* }
 

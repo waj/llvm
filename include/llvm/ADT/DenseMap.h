@@ -17,11 +17,10 @@
 #include "llvm/Support/PointerLikeTypeTraits.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/ADT/DenseMapInfo.h"
-#include <iterator>
-#include <new>
-#include <utility>
 #include <cassert>
 #include <cstring>
+#include <utility>
+#include <new>
 
 namespace llvm {
 
@@ -94,8 +93,6 @@ public:
   void resize(size_t Size) { grow(Size); }
 
   void clear() {
-    if (NumEntries == 0 && NumTombstones == 0) return;
-    
     // If the capacity of the array is huge, and the # elements used is small,
     // shrink the array.
     if (NumEntries * 4 < NumBuckets && NumBuckets > 64) {
@@ -145,9 +142,6 @@ public:
     return ValueT();
   }
 
-  // Inserts key,value pair into the map if the key isn't already in the map.
-  // If the key is already in the map, it returns false and doesn't update the
-  // value.
   std::pair<iterator, bool> insert(const std::pair<KeyT, ValueT> &KV) {
     BucketT *TheBucket;
     if (LookupBucketFor(KV.first, TheBucket))
@@ -427,9 +421,7 @@ private:
 };
 
 template<typename KeyT, typename ValueT, typename KeyInfoT, typename ValueInfoT>
-class DenseMapIterator : 
-      public std::iterator<std::forward_iterator_tag, std::pair<KeyT, ValueT>,
-                          ptrdiff_t> {
+class DenseMapIterator {
   typedef std::pair<KeyT, ValueT> BucketT;
 protected:
   const BucketT *Ptr, *End;
@@ -454,12 +446,12 @@ public:
     return Ptr != RHS.Ptr;
   }
 
-  inline DenseMapIterator& operator++() {  // Preincrement
+  inline DenseMapIterator& operator++() {          // Preincrement
     ++Ptr;
     AdvancePastEmptyBuckets();
     return *this;
   }
-  DenseMapIterator operator++(int) {  // Postincrement
+  DenseMapIterator operator++(int) {        // Postincrement
     DenseMapIterator tmp = *this; ++*this; return tmp;
   }
 

@@ -15,18 +15,12 @@
 #define LLVM_TARGET_ARM_CONSTANTPOOLVALUE_H
 
 #include "llvm/CodeGen/MachineConstantPool.h"
+#include <iosfwd>
 
 namespace llvm {
 
 class GlobalValue;
 class LLVMContext;
-
-namespace ARMCP {
-  enum ARMCPKind {
-    CPValue,
-    CPLSDA
-  };
-}
 
 /// ARMConstantPoolValue - ARM specific constantpool value. This is used to
 /// represent PC relative displacement between the address of the load
@@ -35,7 +29,6 @@ class ARMConstantPoolValue : public MachineConstantPoolValue {
   GlobalValue *GV;         // GlobalValue being loaded.
   const char *S;           // ExtSymbol being loaded.
   unsigned LabelId;        // Label id of the load.
-  ARMCP::ARMCPKind Kind;   // Value or LSDA?
   unsigned char PCAdjust;  // Extra adjustment if constantpool is pc relative.
                            // 8 for ARM, 4 for Thumb.
   const char *Modifier;    // GV modifier i.e. (&GV(modifier)-(LPIC+8))
@@ -43,7 +36,6 @@ class ARMConstantPoolValue : public MachineConstantPoolValue {
 
 public:
   ARMConstantPoolValue(GlobalValue *gv, unsigned id,
-                       ARMCP::ARMCPKind Kind = ARMCP::CPValue,
                        unsigned char PCAdj = 0, const char *Modifier = NULL,
                        bool AddCurrentAddress = false);
   ARMConstantPoolValue(LLVMContext &C, const char *s, unsigned id,
@@ -61,7 +53,6 @@ public:
   bool mustAddCurrentAddress() const { return AddCurrentAddress; }
   unsigned getLabelId() const { return LabelId; }
   unsigned char getPCAdjustment() const { return PCAdjust; }
-  bool isLSDA() { return Kind == ARMCP::CPLSDA; }
 
   virtual unsigned getRelocationInfo() const {
     // FIXME: This is conservatively claiming that these entries require a
@@ -75,11 +66,18 @@ public:
 
   virtual void AddSelectionDAGCSEId(FoldingSetNodeID &ID);
 
+  void print(std::ostream *O) const { if (O) print(*O); }
+  void print(std::ostream &O) const;
   void print(raw_ostream *O) const { if (O) print(*O); }
   void print(raw_ostream &O) const;
   void dump() const;
 };
 
+inline std::ostream &operator<<(std::ostream &O,
+                                const ARMConstantPoolValue &V) {
+  V.print(O);
+  return O;
+}
 
 inline raw_ostream &operator<<(raw_ostream &O, const ARMConstantPoolValue &V) {
   V.print(O);

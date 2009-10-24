@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars -loop-deletion -simplifycfg -S | not grep br
+; RUN: llvm-as < %s | opt -indvars -loop-deletion -simplifycfg | llvm-dis | not grep br
 ;
 ; Testcase distilled from 256.bzip2
 

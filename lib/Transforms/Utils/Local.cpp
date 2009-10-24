@@ -24,8 +24,6 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/DebugInfo.h"
-#include "llvm/Analysis/MallocHelper.h"
-#include "llvm/Analysis/ProfileInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/MathExtras.h"
@@ -60,7 +58,7 @@ bool llvm::isSafeToLoadUnconditionally(Value *V, Instruction *ScanFrom) {
 
     // If we see a free or a call which may write to memory (i.e. which might do
     // a free) the pointer could be marked invalid.
-    if (isa<FreeInst>(BBI) || isFreeCall(BBI) ||
+    if (isa<FreeInst>(BBI) || 
         (isa<CallInst>(BBI) && BBI->mayWriteToMemory() &&
          !isa<DbgInfoIntrinsic>(BBI)))
       return false;
@@ -296,7 +294,7 @@ llvm::RecursivelyDeleteDeadPHINode(PHINode *PN) {
 /// between them, moving the instructions in the predecessor into DestBB and
 /// deleting the predecessor block.
 ///
-void llvm::MergeBasicBlockIntoOnlyPred(BasicBlock *DestBB, Pass *P) {
+void llvm::MergeBasicBlockIntoOnlyPred(BasicBlock *DestBB) {
   // If BB has single-entry PHI nodes, fold them.
   while (PHINode *PN = dyn_cast<PHINode>(DestBB->begin())) {
     Value *NewVal = PN->getIncomingValue(0);
@@ -316,13 +314,6 @@ void llvm::MergeBasicBlockIntoOnlyPred(BasicBlock *DestBB, Pass *P) {
   // Anything that branched to PredBB now branches to DestBB.
   PredBB->replaceAllUsesWith(DestBB);
   
-  if (P) {
-    ProfileInfo *PI = P->getAnalysisIfAvailable<ProfileInfo>();
-    if (PI) {
-      PI->replaceAllUses(PredBB, DestBB);
-      PI->removeEdge(ProfileInfo::getEdge(PredBB, DestBB));
-    }
-  }
   // Nuke BB.
   PredBB->eraseFromParent();
 }

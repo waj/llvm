@@ -19,8 +19,7 @@
 #include "llvm/Config/config.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/StringExtras.h"
+#include <ostream>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -84,8 +83,8 @@ void raw_ostream::SetBuffered() {
 void raw_ostream::SetBufferAndMode(char *BufferStart, size_t Size, 
                                     BufferKind Mode) {
   assert(((Mode == Unbuffered && BufferStart == 0 && Size == 0) || 
-          (Mode != Unbuffered && BufferStart && Size)) &&
-         "stream must be unbuffered or have at least one byte");
+          (Mode != Unbuffered && BufferStart && Size >= 64)) &&
+         "stream must be unbuffered, or have >= 64 bytes of buffer");
   // Make sure the current buffer is free of content (we can't flush here; the
   // child buffer management logic will be in write_impl).
   assert(GetNumBytesInBuffer() == 0 && "Current buffer is non-empty!");
@@ -168,52 +167,11 @@ raw_ostream &raw_ostream::write_hex(unsigned long long N) {
   return write(CurPtr, EndPtr-CurPtr);
 }
 
-raw_ostream &raw_ostream::write_escaped(StringRef Str) {
-  for (unsigned i = 0, e = Str.size(); i != e; ++i) {
-    unsigned char c = Str[i];
-
-    switch (c) {
-    case '\\':
-      *this << '\\' << '\\';
-      break;
-    case '\t':
-      *this << '\\' << 't';
-      break;
-    case '\n':
-      *this << '\\' << 'n';
-      break;
-    case '"':
-      *this << '\\' << '"';
-      break;
-    default:
-      if (std::isprint(c)) {
-        *this << c;
-        break;
-      }
-
-      // Always expand to a 3-character octal escape.
-      *this << '\\';
-      *this << char('0' + ((c >> 6) & 7));
-      *this << char('0' + ((c >> 3) & 7));
-      *this << char('0' + ((c >> 0) & 7));
-    }
-  }
-
-  return *this;
-}
-
 raw_ostream &raw_ostream::operator<<(const void *P) {
   *this << '0' << 'x';
 
   return write_hex((uintptr_t) P);
 }
-
-raw_ostream &raw_ostream::operator<<(double N) {
-  this->operator<<(ftostr(N));
-  return *this;
-}
-
-
 
 void raw_ostream::flush_nonempty() {
   assert(OutBufCur > OutBufStart && "Invalid call to flush_nonempty.");
@@ -331,26 +289,6 @@ raw_ostream &raw_ostream::operator<<(const format_object_base &Fmt) {
   }
 }
 
-/// indent - Insert 'NumSpaces' spaces.
-raw_ostream &raw_ostream::indent(unsigned NumSpaces) {
-  static const char Spaces[] = "                                "
-                               "                                "
-                               "                ";
-
-  // Usually the indentation is small, handle it with a fastpath.
-  if (NumSpaces < array_lengthof(Spaces))
-    return write(Spaces, NumSpaces);
-  
-  while (NumSpaces) {
-    unsigned NumToWrite = std::min(NumSpaces,
-                                   (unsigned)array_lengthof(Spaces)-1);
-    write(Spaces, NumToWrite);
-    NumSpaces -= NumToWrite;
-  }
-  return *this;
-}
-
-
 //===----------------------------------------------------------------------===//
 //  Formatted Output
 //===----------------------------------------------------------------------===//
@@ -367,12 +305,8 @@ void format_object_base::home() {
 /// occurs, information about the error is put into ErrorInfo, and the
 /// stream should be immediately destroyed; the string will be empty
 /// if no error occurred.
-raw_fd_ostream::raw_fd_ostream(const char *Filename, std::string &ErrorInfo,
-                               unsigned Flags) : pos(0) {
-  // Verify that we don't have both "append" and "excl".
-  assert((!(Flags & F_Excl) || !(Flags & F_Append)) &&
-         "Cannot specify both 'excl' and 'append' file creation flags!");
-  
+raw_fd_ostream::raw_fd_ostream(const char *Filename, bool Binary, bool Force,
+                               std::string &ErrorInfo) : pos(0) {
   ErrorInfo.clear();
 
   // Handle "-" as stdout.
@@ -380,26 +314,20 @@ raw_fd_ostream::raw_fd_ostream(const char *Filename, std::string &ErrorInfo,
     FD = STDOUT_FILENO;
     // If user requested binary then put stdout into binary mode if
     // possible.
-    if (Flags & F_Binary)
+    if (Binary)
       sys::Program::ChangeStdoutToBinary();
     ShouldClose = false;
     return;
   }
   
-  int OpenFlags = O_WRONLY|O_CREAT;
+  int Flags = O_WRONLY|O_CREAT|O_TRUNC;
 #ifdef O_BINARY
-  if (Flags & F_Binary)
-    OpenFlags |= O_BINARY;
+  if (Binary)
+    Flags |= O_BINARY;
 #endif
-  
-  if (Flags & F_Append)
-    OpenFlags |= O_APPEND;
-  else
-    OpenFlags |= O_TRUNC;
-  if (Flags & F_Excl)
-    OpenFlags |= O_EXCL;
-  
-  FD = open(Filename, OpenFlags, 0664);
+  if (!Force)
+    Flags |= O_EXCL;
+  FD = open(Filename, Flags, 0664);
   if (FD < 0) {
     ErrorInfo = "Error opening output file '" + std::string(Filename) + "'";
     ShouldClose = false;
@@ -409,13 +337,13 @@ raw_fd_ostream::raw_fd_ostream(const char *Filename, std::string &ErrorInfo,
 }
 
 raw_fd_ostream::~raw_fd_ostream() {
-  if (FD < 0) return;
-  flush();
-  if (ShouldClose)
-    if (::close(FD) != 0)
-      error_detected();
+  if (FD >= 0) {
+    flush();
+    if (ShouldClose)
+      if (::close(FD) != 0)
+        error_detected();
+  }
 }
-
 
 void raw_fd_ostream::write_impl(const char *Ptr, size_t Size) {
   assert (FD >= 0 && "File already closed.");
@@ -488,10 +416,6 @@ raw_ostream &raw_fd_ostream::resetColor() {
   return *this;
 }
 
-bool raw_fd_ostream::is_displayed() const {
-  return sys::Process::FileDescriptorIsDisplayed(FD);
-}
-
 //===----------------------------------------------------------------------===//
 //  raw_stdout/err_ostream
 //===----------------------------------------------------------------------===//
@@ -526,6 +450,19 @@ raw_ostream &llvm::nulls() {
   return S;
 }
 
+//===----------------------------------------------------------------------===//
+//  raw_os_ostream
+//===----------------------------------------------------------------------===//
+
+raw_os_ostream::~raw_os_ostream() {
+  flush();
+}
+
+void raw_os_ostream::write_impl(const char *Ptr, size_t Size) {
+  OS.write(Ptr, Size);
+}
+
+uint64_t raw_os_ostream::current_pos() { return OS.tellp(); }
 
 //===----------------------------------------------------------------------===//
 //  raw_string_ostream

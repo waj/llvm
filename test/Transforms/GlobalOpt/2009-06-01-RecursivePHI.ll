@@ -1,4 +1,4 @@
-; RUN: opt < %s -globalopt
+; RUN: llvm-as < %s | opt -globalopt
 
 	%struct.s_annealing_sched = type { i32, float, float, float, float }
 	%struct.s_bb = type { i32, i32, i32, i32 }

@@ -1,8 +1,8 @@
-; RUN: llc < %s -march=arm | \
+; RUN: llvm-as < %s | llc -march=arm | \
 ; RUN:   grep ldmia | count 2
-; RUN: llc < %s -march=arm | \
+; RUN: llvm-as < %s | llc -march=arm | \
 ; RUN:   grep ldmib | count 1
-; RUN: llc < %s -mtriple=arm-apple-darwin | \
+; RUN: llvm-as < %s | llc -mtriple=arm-apple-darwin | \
 ; RUN:   grep {ldmfd sp\!} | count 3
 
 @X = external global [0 x i32]          ; <[0 x i32]*> [#uses=5]

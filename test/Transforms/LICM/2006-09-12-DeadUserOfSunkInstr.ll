@@ -1,4 +1,4 @@
-; RUN: opt < %s -licm -disable-output
+; RUN: llvm-as < %s | opt -licm -disable-output
 ; PR908
 ; END.
 

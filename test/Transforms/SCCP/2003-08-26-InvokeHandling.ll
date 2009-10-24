@@ -1,5 +1,5 @@
 ; The PHI cannot be eliminated from this testcase, SCCP is mishandling invoke's!
-; RUN: opt < %s -sccp -S | grep phi
+; RUN: llvm-as < %s | opt -sccp | llvm-dis | grep phi
 
 declare void @foo()
 

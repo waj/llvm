@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=thumb | grep tst
+; RUN: llvm-as < %s | llc -march=thumb | grep tst
 
 define i32 @f(i32 %a) {
 entry:

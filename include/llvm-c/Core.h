@@ -89,12 +89,6 @@ typedef struct LLVMOpaqueMemoryBuffer *LLVMMemoryBufferRef;
 /** See the llvm::PassManagerBase class. */
 typedef struct LLVMOpaquePassManager *LLVMPassManagerRef;
 
-/**
- * Used to iterate through the uses of a Value, allowing access to all Values
- * that use this Value.  See the llvm::Use and llvm::value_use_iterator classes.
- */
-typedef struct LLVMOpaqueUseIterator *LLVMUseIteratorRef;
-
 typedef enum {
     LLVMZExtAttribute       = 1<<0,
     LLVMSExtAttribute       = 1<<1,
@@ -115,65 +109,8 @@ typedef enum {
     LLVMNoCaptureAttribute  = 1<<21,
     LLVMNoRedZoneAttribute  = 1<<22,
     LLVMNoImplicitFloatAttribute = 1<<23,
-    LLVMNakedAttribute      = 1<<24,
-    LLVMInlineHintAttribute = 1<<25
+    LLVMNakedAttribute      = 1<<24
 } LLVMAttribute;
-
-typedef enum {
-  LLVMRet            = 1,
-  LLVMBr             = 2,
-  LLVMSwitch         = 3,
-  LLVMInvoke         = 4,
-  LLVMUnwind         = 5,
-  LLVMUnreachable    = 6,
-  LLVMAdd            = 7,
-  LLVMFAdd           = 8,
-  LLVMSub            = 9,
-  LLVMFSub           = 10,
-  LLVMMul            = 11,
-  LLVMFMul           = 12,
-  LLVMUDiv           = 13,
-  LLVMSDiv           = 14,
-  LLVMFDiv           = 15,
-  LLVMURem           = 16,
-  LLVMSRem           = 17,
-  LLVMFRem           = 18,
-  LLVMShl            = 19,
-  LLVMLShr           = 20,
-  LLVMAShr           = 21,
-  LLVMAnd            = 22,
-  LLVMOr             = 23,
-  LLVMXor            = 24,
-  LLVMMalloc         = 25,
-  LLVMFree           = 26,
-  LLVMAlloca         = 27,
-  LLVMLoad           = 28,
-  LLVMStore          = 29,
-  LLVMGetElementPtr  = 30,
-  LLVMTrunk          = 31,
-  LLVMZExt           = 32,
-  LLVMSExt           = 33,
-  LLVMFPToUI         = 34,
-  LLVMFPToSI         = 35,
-  LLVMUIToFP         = 36,
-  LLVMSIToFP         = 37,
-  LLVMFPTrunc        = 38,
-  LLVMFPExt          = 39,
-  LLVMPtrToInt       = 40,
-  LLVMIntToPtr       = 41,
-  LLVMBitCast        = 42,
-  LLVMICmp           = 43,
-  LLVMFCmp           = 44,
-  LLVMPHI            = 45,
-  LLVMCall           = 46,
-  LLVMSelect         = 47,
-  LLVMVAArg          = 50,
-  LLVMExtractElement = 51,
-  LLVMInsertElement  = 52,
-  LLVMShuffleVector  = 53,
-  LLVMExtractValue   = 54,
-  LLVMInsertValue    = 55
-} LLVMOpcode;
 
 typedef enum {
   LLVMVoidTypeKind,        /**< type with no size */
@@ -455,7 +392,9 @@ void LLVMDisposeTypeHandle(LLVMTypeHandleRef TypeHandle);
         macro(UnreachableInst)              \
         macro(UnwindInst)                   \
     macro(UnaryInstruction)                 \
-      macro(AllocaInst)                     \
+      macro(AllocationInst)                 \
+        macro(AllocaInst)                   \
+        macro(MallocInst)                   \
       macro(CastInst)                       \
         macro(BitCastInst)                  \
         macro(FPExtInst)                    \
@@ -479,22 +418,12 @@ LLVMTypeRef LLVMTypeOf(LLVMValueRef Val);
 const char *LLVMGetValueName(LLVMValueRef Val);
 void LLVMSetValueName(LLVMValueRef Val, const char *Name);
 void LLVMDumpValue(LLVMValueRef Val);
-void LLVMReplaceAllUsesWith(LLVMValueRef OldVal, LLVMValueRef NewVal);
 
 /* Conversion functions. Return the input value if it is an instance of the
    specified class, otherwise NULL. See llvm::dyn_cast_or_null<>. */
 #define LLVM_DECLARE_VALUE_CAST(name) \
   LLVMValueRef LLVMIsA##name(LLVMValueRef Val);
 LLVM_FOR_EACH_VALUE_SUBCLASS(LLVM_DECLARE_VALUE_CAST)
-
-/* Operations on Uses */
-LLVMUseIteratorRef LLVMGetFirstUse(LLVMValueRef Val);
-LLVMUseIteratorRef LLVMGetNextUse(LLVMUseIteratorRef U);
-LLVMValueRef LLVMGetUser(LLVMUseIteratorRef U);
-LLVMValueRef LLVMGetUsedValue(LLVMUseIteratorRef U);
-
-/* Operations on Users */
-LLVMValueRef LLVMGetOperand(LLVMValueRef Val, unsigned Index);
 
 /* Operations on constants of any type */
 LLVMValueRef LLVMConstNull(LLVMTypeRef Ty); /* all zeroes */
@@ -516,8 +445,6 @@ LLVMValueRef LLVMConstReal(LLVMTypeRef RealTy, double N);
 LLVMValueRef LLVMConstRealOfString(LLVMTypeRef RealTy, const char *Text);
 LLVMValueRef LLVMConstRealOfStringAndSize(LLVMTypeRef RealTy, const char *Text,
                                           unsigned SLen);
-unsigned long long LLVMConstIntGetZExtValue(LLVMValueRef ConstantVal);
-long long LLVMConstIntGetSExtValue(LLVMValueRef ConstantVal);
 
 
 /* Operations on composite constants */
@@ -536,7 +463,6 @@ LLVMValueRef LLVMConstStruct(LLVMValueRef *ConstantVals, unsigned Count,
 LLVMValueRef LLVMConstVector(LLVMValueRef *ScalarConstantVals, unsigned Size);
 
 /* Constant expressions */
-LLVMOpcode LLVMGetConstOpcode(LLVMValueRef ConstantVal);
 LLVMValueRef LLVMAlignOf(LLVMTypeRef Ty);
 LLVMValueRef LLVMSizeOf(LLVMTypeRef Ty);
 LLVMValueRef LLVMConstNeg(LLVMValueRef ConstantVal);
@@ -660,7 +586,6 @@ void LLVMSetFunctionCallConv(LLVMValueRef Fn, unsigned CC);
 const char *LLVMGetGC(LLVMValueRef Fn);
 void LLVMSetGC(LLVMValueRef Fn, const char *Name);
 void LLVMAddFunctionAttr(LLVMValueRef Fn, LLVMAttribute PA);
-LLVMAttribute LLVMGetFunctionAttr(LLVMValueRef Fn);
 void LLVMRemoveFunctionAttr(LLVMValueRef Fn, LLVMAttribute PA);
 
 /* Operations on parameters */
@@ -674,7 +599,6 @@ LLVMValueRef LLVMGetNextParam(LLVMValueRef Arg);
 LLVMValueRef LLVMGetPreviousParam(LLVMValueRef Arg);
 void LLVMAddAttribute(LLVMValueRef Arg, LLVMAttribute PA);
 void LLVMRemoveAttribute(LLVMValueRef Arg, LLVMAttribute PA);
-LLVMAttribute LLVMGetAttribute(LLVMValueRef Arg);
 void LLVMSetParamAlignment(LLVMValueRef Arg, unsigned align);
 
 /* Operations on basic blocks */
@@ -811,7 +735,6 @@ LLVMValueRef LLVMBuildOr(LLVMBuilderRef, LLVMValueRef LHS, LLVMValueRef RHS,
 LLVMValueRef LLVMBuildXor(LLVMBuilderRef, LLVMValueRef LHS, LLVMValueRef RHS,
                           const char *Name);
 LLVMValueRef LLVMBuildNeg(LLVMBuilderRef, LLVMValueRef V, const char *Name);
-LLVMValueRef LLVMBuildFNeg(LLVMBuilderRef, LLVMValueRef V, const char *Name);
 LLVMValueRef LLVMBuildNot(LLVMBuilderRef, LLVMValueRef V, const char *Name);
 
 /* Memory */
@@ -1025,7 +948,6 @@ namespace llvm {
   DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ModuleProvider,     LLVMModuleProviderRef)
   DEFINE_SIMPLE_CONVERSION_FUNCTIONS(MemoryBuffer,       LLVMMemoryBufferRef  )
   DEFINE_SIMPLE_CONVERSION_FUNCTIONS(LLVMContext,        LLVMContextRef       )
-  DEFINE_SIMPLE_CONVERSION_FUNCTIONS(Use,                LLVMUseIteratorRef           )
   DEFINE_STDCXX_CONVERSION_FUNCTIONS(PassManagerBase,    LLVMPassManagerRef   )
   
   #undef DEFINE_STDCXX_CONVERSION_FUNCTIONS

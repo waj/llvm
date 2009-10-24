@@ -18,13 +18,13 @@
 #define LLVM_CODEGEN_VIRTREGMAP_H
 
 #include "llvm/CodeGen/MachineFunctionPass.h"
-#include "llvm/CodeGen/LiveInterval.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Streams.h"
 #include <map>
 
 namespace llvm {
@@ -80,7 +80,7 @@ namespace llvm {
 
     /// Virt2SplitKillMap - This is splitted virtual register to its last use
     /// (kill) index mapping.
-    IndexedMap<LiveIndex> Virt2SplitKillMap;
+    IndexedMap<unsigned> Virt2SplitKillMap;
 
     /// ReMatMap - This is virtual register to re-materialized instruction
     /// mapping. Each virtual register whose definition is going to be
@@ -142,7 +142,7 @@ namespace llvm {
     VirtRegMap() : MachineFunctionPass(&ID), Virt2PhysMap(NO_PHYS_REG),
                    Virt2StackSlotMap(NO_STACK_SLOT), 
                    Virt2ReMatIdMap(NO_STACK_SLOT), Virt2SplitMap(0),
-                   Virt2SplitKillMap(LiveIndex()), ReMatMap(NULL),
+                   Virt2SplitKillMap(0), ReMatMap(NULL),
                    ReMatId(MAX_STACK_SLOT+1),
                    LowSpillSlot(NO_STACK_SLOT), HighSpillSlot(NO_STACK_SLOT) { }
     virtual bool runOnMachineFunction(MachineFunction &MF);
@@ -266,17 +266,17 @@ namespace llvm {
     }
 
     /// @brief record the last use (kill) of a split virtual register.
-    void addKillPoint(unsigned virtReg, LiveIndex index) {
+    void addKillPoint(unsigned virtReg, unsigned index) {
       Virt2SplitKillMap[virtReg] = index;
     }
 
-    LiveIndex getKillPoint(unsigned virtReg) const {
+    unsigned getKillPoint(unsigned virtReg) const {
       return Virt2SplitKillMap[virtReg];
     }
 
     /// @brief remove the last use (kill) of a split virtual register.
     void removeKillPoint(unsigned virtReg) {
-      Virt2SplitKillMap[virtReg] = LiveIndex();
+      Virt2SplitKillMap[virtReg] = 0;
     }
 
     /// @brief returns true if the specified MachineInstr is a spill point.
@@ -482,10 +482,25 @@ namespace llvm {
       return 0;
     }
 
+    void print(std::ostream &OS, const Module* M = 0) const;
+    void print(std::ostream *OS) const { if (OS) print(*OS); }
     void print(raw_ostream &OS, const Module* M = 0) const;
+    void print(raw_ostream *OS) const { if (OS) print(*OS); }
     void dump() const;
   };
 
+  inline std::ostream *operator<<(std::ostream *OS, const VirtRegMap &VRM) {
+    VRM.print(OS);
+    return OS;
+  }
+  inline std::ostream &operator<<(std::ostream &OS, const VirtRegMap &VRM) {
+    VRM.print(OS);
+    return OS;
+  }
+  inline raw_ostream *operator<<(raw_ostream *OS, const VirtRegMap &VRM) {
+    VRM.print(OS);
+    return OS;
+  }
   inline raw_ostream &operator<<(raw_ostream &OS, const VirtRegMap &VRM) {
     VRM.print(OS);
     return OS;

@@ -31,7 +31,6 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/Compiler.h"
@@ -67,11 +66,6 @@ namespace {
     const std::vector<MachineConstantPoolEntry> *MCPEs;
     const std::vector<MachineJumpTableEntry> *MJTEs;
     bool IsPIC;
-
-    void getAnalysisUsage(AnalysisUsage &AU) const {
-      AU.addRequired<MachineModuleInfo>();
-      MachineFunctionPass::getAnalysisUsage(AU);
-    }
 
   public:
     static char ID;
@@ -210,7 +204,6 @@ bool Emitter<CodeEmitter>::runOnMachineFunction(MachineFunction &MF) {
   MJTEs = &MF.getJumpTableInfo()->getJumpTables();
   IsPIC = TM.getRelocationModel() == Reloc::PIC_;
   JTI->Initialize(MF, IsPIC);
-  MCE.setModuleInfo(&getAnalysis<MachineModuleInfo>());
 
   do {
     DEBUG(errs() << "JITTing function '"
@@ -268,7 +261,7 @@ unsigned Emitter<CodeEmitter>::getMachineOpValue(const MachineInstr &MI,
     emitMachineBasicBlock(MO.getMBB(), ARM::reloc_arm_branch);
   else {
 #ifndef NDEBUG
-    errs() << MO;
+    cerr << MO;
 #endif
     llvm_unreachable(0);
   }
@@ -330,23 +323,29 @@ void Emitter<CodeEmitter>::emitMachineBasicBlock(MachineBasicBlock *BB,
 
 template<class CodeEmitter>
 void Emitter<CodeEmitter>::emitWordLE(unsigned Binary) {
-  DEBUG(errs() << "  0x";
-        errs().write_hex(Binary) << "\n");
+#ifndef NDEBUG
+  DOUT << "  0x" << std::hex << std::setw(8) << std::setfill('0')
+       << Binary << std::dec << "\n";
+#endif
   MCE.emitWordLE(Binary);
 }
 
 template<class CodeEmitter>
 void Emitter<CodeEmitter>::emitDWordLE(uint64_t Binary) {
-  DEBUG(errs() << "  0x";
-        errs().write_hex(Binary) << "\n");
+#ifndef NDEBUG
+  DOUT << "  0x" << std::hex << std::setw(8) << std::setfill('0')
+       << (unsigned)Binary << std::dec << "\n";
+  DOUT << "  0x" << std::hex << std::setw(8) << std::setfill('0')
+       << (unsigned)(Binary >> 32) << std::dec << "\n";
+#endif
   MCE.emitDWordLE(Binary);
 }
 
 template<class CodeEmitter>
 void Emitter<CodeEmitter>::emitInstruction(const MachineInstr &MI) {
-  DEBUG(errs() << "JIT: " << (void*)MCE.getCurrentPCValue() << ":\t" << MI);
+  DOUT << "JIT: " << (void*)MCE.getCurrentPCValue() << ":\t" << MI;
 
-  MCE.processDebugLoc(MI.getDebugLoc(), true);
+  MCE.processDebugLoc(MI.getDebugLoc());
 
   NumEmitted++;  // Keep track of the # of mi's emitted
   switch (MI.getDesc().TSFlags & ARMII::FormMask) {
@@ -409,7 +408,6 @@ void Emitter<CodeEmitter>::emitInstruction(const MachineInstr &MI) {
     emitMiscInstruction(MI);
     break;
   }
-  MCE.processDebugLoc(MI.getDebugLoc(), false);
 }
 
 template<class CodeEmitter>
@@ -427,8 +425,8 @@ void Emitter<CodeEmitter>::emitConstPoolInstruction(const MachineInstr &MI) {
     ARMConstantPoolValue *ACPV =
       static_cast<ARMConstantPoolValue*>(MCPE.Val.MachineCPVal);
 
-    DEBUG(errs() << "  ** ARM constant pool #" << CPI << " @ "
-          << (void*)MCE.getCurrentPCValue() << " " << *ACPV << '\n');
+    DOUT << "  ** ARM constant pool #" << CPI << " @ "
+         << (void*)MCE.getCurrentPCValue() << " " << *ACPV << '\n';
 
     GlobalValue *GV = ACPV->getGV();
     if (GV) {
@@ -461,9 +459,9 @@ void Emitter<CodeEmitter>::emitConstPoolInstruction(const MachineInstr &MI) {
       uint32_t Val = *(uint32_t*)CI->getValue().getRawData();
       emitWordLE(Val);
     } else if (const ConstantFP *CFP = dyn_cast<ConstantFP>(CV)) {
-      if (CFP->getType()->isFloatTy())
+      if (CFP->getType() == Type::getFloatTy(CFP->getContext()))
         emitWordLE(CFP->getValueAPF().bitcastToAPInt().getZExtValue());
-      else if (CFP->getType()->isDoubleTy())
+      else if (CFP->getType() == Type::getDoubleTy(CFP->getContext()))
         emitDWordLE(CFP->getValueAPF().bitcastToAPInt().getZExtValue());
       else {
         llvm_unreachable("Unable to handle this constantpool entry!");
@@ -587,8 +585,8 @@ void Emitter<CodeEmitter>::emitPseudoMoveInstruction(const MachineInstr &MI) {
 
 template<class CodeEmitter>
 void Emitter<CodeEmitter>::addPCLabel(unsigned LabelID) {
-  DEBUG(errs() << "  ** LPC" << LabelID << " @ "
-        << (void*)MCE.getCurrentPCValue() << '\n');
+  DOUT << "  ** LPC" << LabelID << " @ "
+       << (void*)MCE.getCurrentPCValue() << '\n';
   JTI->addPCLabelAddr(LabelID, MCE.getCurrentPCValue());
 }
 
@@ -597,8 +595,7 @@ void Emitter<CodeEmitter>::emitPseudoInstruction(const MachineInstr &MI) {
   unsigned Opcode = MI.getDesc().Opcode;
   switch (Opcode) {
   default:
-    llvm_unreachable("ARMCodeEmitter::emitPseudoInstruction");
-  // FIXME: Add support for MOVimm32.
+    llvm_unreachable("ARMCodeEmitter::emitPseudoInstruction");//FIXME:
   case TargetInstrInfo::INLINEASM: {
     // We allow inline assembler nodes with empty bodies - they can
     // implicitly define registers, which is ok for JIT.
@@ -612,7 +609,7 @@ void Emitter<CodeEmitter>::emitPseudoInstruction(const MachineInstr &MI) {
     MCE.emitLabel(MI.getOperand(0).getImm());
     break;
   case TargetInstrInfo::IMPLICIT_DEF:
-  case TargetInstrInfo::KILL:
+  case TargetInstrInfo::DECLARE:
   case ARM::DWARF_LOC:
     // Do nothing.
     break;
@@ -999,7 +996,7 @@ void Emitter<CodeEmitter>::emitLoadStoreMultipleInstruction(
     Binary |= 0x1 << ARMII::W_BitShift;
 
   // Set registers
-  for (unsigned i = 5, e = MI.getNumOperands(); i != e; ++i) {
+  for (unsigned i = 4, e = MI.getNumOperands(); i != e; ++i) {
     const MachineOperand &MO = MI.getOperand(i);
     if (!MO.isReg() || MO.isImplicit())
       break;
@@ -1152,8 +1149,7 @@ void Emitter<CodeEmitter>::emitInlineJumpTable(unsigned JTIndex) {
   // Remember the base address of the inline jump table.
   uintptr_t JTBase = MCE.getCurrentPCValue();
   JTI->addJumpTableBaseAddr(JTIndex, JTBase);
-  DEBUG(errs() << "  ** Jump Table #" << JTIndex << " @ " << (void*)JTBase
-               << '\n');
+  DOUT << "  ** Jump Table #" << JTIndex << " @ " << (void*)JTBase << '\n';
 
   // Now emit the jump table entries.
   const std::vector<MachineBasicBlock*> &MBBs = (*MJTEs)[JTIndex].MBBs;
@@ -1404,11 +1400,11 @@ void Emitter<CodeEmitter>::emitVFPLoadStoreMultipleInstruction(
     Binary |= 0x1 << ARMII::W_BitShift;
 
   // First register is encoded in Dd.
-  Binary |= encodeVFPRd(MI, 5);
+  Binary |= encodeVFPRd(MI, 4);
 
   // Number of registers are encoded in offset field.
   unsigned NumRegs = 1;
-  for (unsigned i = 6, e = MI.getNumOperands(); i != e; ++i) {
+  for (unsigned i = 5, e = MI.getNumOperands(); i != e; ++i) {
     const MachineOperand &MO = MI.getOperand(i);
     if (!MO.isReg() || MO.isImplicit())
       break;

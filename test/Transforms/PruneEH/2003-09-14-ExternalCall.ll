@@ -1,4 +1,4 @@
-; RUN: opt < %s -prune-eh -S | grep invoke
+; RUN: llvm-as < %s | opt -prune-eh | llvm-dis | grep invoke
 
 declare void @External()
 

@@ -28,9 +28,6 @@ ModulePass *createBlockProfilerPass();
 // Insert edge profiling instrumentation
 ModulePass *createEdgeProfilerPass();
 
-// Insert optimal edge profiling instrumentation
-ModulePass *createOptimalEdgeProfilerPass();
-
 // Random Sampling Profiling Framework
 ModulePass* createNullProfilerRSPass();
 FunctionPass* createRSProfilingPass();

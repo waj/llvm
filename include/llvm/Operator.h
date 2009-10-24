@@ -21,8 +21,6 @@
 namespace llvm {
 
 class GetElementPtrInst;
-class BinaryOperator;
-class ConstantExpr;
 
 /// Operator - This is a utility class that provides an abstraction for the
 /// common functionality between Instructions and ConstantExprs.
@@ -57,8 +55,8 @@ public:
   }
 
   static inline bool classof(const Operator *) { return true; }
-  static inline bool classof(const Instruction *) { return true; }
-  static inline bool classof(const ConstantExpr *) { return true; }
+  static inline bool classof(const Instruction *I) { return true; }
+  static inline bool classof(const ConstantExpr *I) { return true; }
   static inline bool classof(const Value *V) {
     return isa<Instruction>(V) || isa<ConstantExpr>(V);
   }
@@ -69,37 +67,24 @@ public:
 /// despite that operator having the potential for overflow.
 ///
 class OverflowingBinaryOperator : public Operator {
-public:
-  enum {
-    NoUnsignedWrap = (1 << 0),
-    NoSignedWrap   = (1 << 1)
-  };
-
-private:
   ~OverflowingBinaryOperator(); // do not implement
-
-  friend class BinaryOperator;
-  friend class ConstantExpr;
-  void setHasNoUnsignedWrap(bool B) {
-    SubclassOptionalData =
-      (SubclassOptionalData & ~NoUnsignedWrap) | (B * NoUnsignedWrap);
-  }
-  void setHasNoSignedWrap(bool B) {
-    SubclassOptionalData =
-      (SubclassOptionalData & ~NoSignedWrap) | (B * NoSignedWrap);
-  }
-
 public:
   /// hasNoUnsignedWrap - Test whether this operation is known to never
   /// undergo unsigned overflow, aka the nuw property.
   bool hasNoUnsignedWrap() const {
-    return SubclassOptionalData & NoUnsignedWrap;
+    return SubclassOptionalData & (1 << 0);
+  }
+  void setHasNoUnsignedWrap(bool B) {
+    SubclassOptionalData = (SubclassOptionalData & ~(1 << 0)) | (B << 0);
   }
 
   /// hasNoSignedWrap - Test whether this operation is known to never
   /// undergo signed overflow, aka the nsw property.
   bool hasNoSignedWrap() const {
-    return SubclassOptionalData & NoSignedWrap;
+    return SubclassOptionalData & (1 << 1);
+  }
+  void setHasNoSignedWrap(bool B) {
+    SubclassOptionalData = (SubclassOptionalData & ~(1 << 1)) | (B << 1);
   }
 
   static inline bool classof(const OverflowingBinaryOperator *) { return true; }
@@ -176,25 +161,15 @@ public:
 /// SDivOperator - An Operator with opcode Instruction::SDiv.
 ///
 class SDivOperator : public Operator {
-public:
-  enum {
-    IsExact = (1 << 0)
-  };
-
-private:
   ~SDivOperator(); // do not implement
-
-  friend class BinaryOperator;
-  friend class ConstantExpr;
-  void setIsExact(bool B) {
-    SubclassOptionalData = (SubclassOptionalData & ~IsExact) | (B * IsExact);
-  }
-
 public:
   /// isExact - Test whether this division is known to be exact, with
   /// zero remainder.
   bool isExact() const {
-    return SubclassOptionalData & IsExact;
+    return SubclassOptionalData & (1 << 0);
+  }
+  void setIsExact(bool B) {
+    SubclassOptionalData = (SubclassOptionalData & ~(1 << 0)) | (B << 0);
   }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -212,24 +187,15 @@ public:
 };
 
 class GEPOperator : public Operator {
-  enum {
-    IsInBounds = (1 << 0)
-  };
-
   ~GEPOperator(); // do not implement
-
-  friend class GetElementPtrInst;
-  friend class ConstantExpr;
-  void setIsInBounds(bool B) {
-    SubclassOptionalData =
-      (SubclassOptionalData & ~IsInBounds) | (B * IsInBounds);
-  }
-
 public:
   /// isInBounds - Test whether this is an inbounds GEP, as defined
   /// by LangRef.html.
   bool isInBounds() const {
-    return SubclassOptionalData & IsInBounds;
+    return SubclassOptionalData & (1 << 0);
+  }
+  void setIsInBounds(bool B) {
+    SubclassOptionalData = (SubclassOptionalData & ~(1 << 0)) | (B << 0);
   }
 
   inline op_iterator       idx_begin()       { return op_begin()+1; }
@@ -273,18 +239,6 @@ public:
     }
     return true;
   }
-
-  /// hasAllConstantIndices - Return true if all of the indices of this GEP are
-  /// constant integers.  If so, the result pointer and the first operand have
-  /// a constant offset between them.
-  bool hasAllConstantIndices() const {
-    for (const_op_iterator I = idx_begin(), E = idx_end(); I != E; ++I) {
-      if (!isa<ConstantInt>(I))
-        return false;
-    }
-    return true;
-  }
-  
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const GEPOperator *) { return true; }

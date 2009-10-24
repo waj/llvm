@@ -22,8 +22,7 @@
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/DwarfWriter.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/MC/MCAsmInfo.h"
-#include "llvm/MC/MCSymbol.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegistry.h"
@@ -42,21 +41,19 @@ namespace {
     ///
 
     explicit AlphaAsmPrinter(formatted_raw_ostream &o, TargetMachine &tm,
-                             const MCAsmInfo *T, bool V)
+                             const TargetAsmInfo *T, bool V)
       : AsmPrinter(o, tm, T, V) {}
 
     virtual const char *getPassName() const {
       return "Alpha Assembly Printer";
     }
     void printInstruction(const MachineInstr *MI);
-    static const char *getRegisterName(unsigned RegNo);
-
     void printOp(const MachineOperand &MO, bool IsCallOp = false);
     void printOperand(const MachineInstr *MI, int opNum);
     void printBaseOffsetPair(const MachineInstr *MI, int i, bool brackets=true);
     void PrintGlobalVariable(const GlobalVariable *GVar);
     bool runOnMachineFunction(MachineFunction &F);
-    void EmitStartOfAsmFile(Module &M);
+    bool doInitialization(Module &M);
 
     bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                          unsigned AsmVariant, const char *ExtraCode);
@@ -75,7 +72,7 @@ void AlphaAsmPrinter::printOperand(const MachineInstr *MI, int opNum)
   if (MO.getType() == MachineOperand::MO_Register) {
     assert(TargetRegisterInfo::isPhysicalRegister(MO.getReg()) &&
            "Not physreg??");
-    O << getRegisterName(MO.getReg());
+    O << TM.getRegisterInfo()->get(MO.getReg()).AsmName;
   } else if (MO.isImm()) {
     O << MO.getImm();
     assert(MO.getImm() < (1 << 30));
@@ -86,9 +83,11 @@ void AlphaAsmPrinter::printOperand(const MachineInstr *MI, int opNum)
 
 
 void AlphaAsmPrinter::printOp(const MachineOperand &MO, bool IsCallOp) {
+  const TargetRegisterInfo &RI = *TM.getRegisterInfo();
+
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
-    O << getRegisterName(MO.getReg());
+    O << RI.get(MO.getReg()).AsmName;
     return;
 
   case MachineOperand::MO_Immediate:
@@ -96,11 +95,11 @@ void AlphaAsmPrinter::printOp(const MachineOperand &MO, bool IsCallOp) {
     return;
 
   case MachineOperand::MO_MachineBasicBlock:
-    GetMBBSymbol(MO.getMBB()->getNumber())->print(O, MAI);
+    printBasicBlockLabel(MO.getMBB());
     return;
 
   case MachineOperand::MO_ConstantPoolIndex:
-    O << MAI->getPrivateGlobalPrefix() << "CPI" << getFunctionNumber() << "_"
+    O << TAI->getPrivateGlobalPrefix() << "CPI" << getFunctionNumber() << "_"
       << MO.getIndex();
     return;
 
@@ -113,7 +112,7 @@ void AlphaAsmPrinter::printOp(const MachineOperand &MO, bool IsCallOp) {
     return;
 
   case MachineOperand::MO_JumpTableIndex:
-    O << MAI->getPrivateGlobalPrefix() << "JTI" << getFunctionNumber()
+    O << TAI->getPrivateGlobalPrefix() << "JTI" << getFunctionNumber()
       << '_' << MO.getIndex();
     return;
 
@@ -156,7 +155,7 @@ bool AlphaAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   case Function::WeakODRLinkage:
   case Function::LinkOnceAnyLinkage:
   case Function::LinkOnceODRLinkage:
-    O << MAI->getWeakRefDirective() << CurrentFnName << "\n";
+    O << TAI->getWeakRefDirective() << CurrentFnName << "\n";
     break;
   }
 
@@ -170,19 +169,14 @@ bool AlphaAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
        I != E; ++I) {
     if (I != MF.begin()) {
-      EmitBasicBlockStart(I);
+      printBasicBlockLabel(I, true, true);
+      O << '\n';
     }
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
       // Print the assembly for the instruction.
       ++EmittedInsts;
-      processDebugLoc(II, true);
       printInstruction(II);
-      
-      if (VerboseAsm && !II->getDebugLoc().isUnknown())
-        EmitComments(*II);
-      O << '\n';
-      processDebugLoc(II, false);
     }
   }
 
@@ -192,12 +186,14 @@ bool AlphaAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   return false;
 }
 
-void AlphaAsmPrinter::EmitStartOfAsmFile(Module &M) {
-  if (TM.getSubtarget<AlphaSubtarget>().hasCT())
+bool AlphaAsmPrinter::doInitialization(Module &M)
+{
+  if(TM.getSubtarget<AlphaSubtarget>().hasCT())
     O << "\t.arch ev6\n"; //This might need to be ev67, so leave this test here
   else
     O << "\t.arch ev6\n";
   O << "\t.set noat\n";
+  return AsmPrinter::doInitialization(M);
 }
 
 void AlphaAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
@@ -228,11 +224,11 @@ void AlphaAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
    case GlobalValue::WeakAnyLinkage:
    case GlobalValue::WeakODRLinkage:
    case GlobalValue::CommonLinkage:
-    O << MAI->getWeakRefDirective() << name << '\n';
+    O << TAI->getWeakRefDirective() << name << '\n';
     break;
    case GlobalValue::AppendingLinkage:
    case GlobalValue::ExternalLinkage:
-      O << MAI->getGlobalDirective() << name << "\n";
+      O << TAI->getGlobalDirective() << name << "\n";
       break;
     case GlobalValue::InternalLinkage:
     case GlobalValue::PrivateLinkage:
@@ -243,7 +239,7 @@ void AlphaAsmPrinter::PrintGlobalVariable(const GlobalVariable *GVar) {
     }
 
   // 3: Type, Size, Align
-  if (MAI->hasDotTypeDotSizeDirective()) {
+  if (TAI->hasDotTypeDotSizeDirective()) {
     O << "\t.type\t" << name << ", @object\n";
     O << "\t.size\t" << name << ", " << Size << "\n";
   }

@@ -23,12 +23,14 @@
 #include "llvm/Pass.h"
 #include "llvm/PassManager.h"
 #include "llvm/TypeSymbolTable.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/Target/TargetRegistry.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/config.h"
 #include <algorithm>
 #include <set>
@@ -123,7 +125,7 @@ namespace {
   private:
     void printLinkageType(GlobalValue::LinkageTypes LT);
     void printVisibilityType(GlobalValue::VisibilityTypes VisTypes);
-    void printCallingConv(CallingConv::ID cc);
+    void printCallingConv(unsigned cc);
     void printEscapedString(const std::string& str);
     void printCFP(const ConstantFP* CFP);
 
@@ -268,7 +270,7 @@ namespace {
     Out << ")";
   }
 
-  void CppWriter::printCallingConv(CallingConv::ID cc){
+  void CppWriter::printCallingConv(unsigned cc){
     // Print the calling convention.
     switch (cc) {
     case CallingConv::C:     Out << "CallingConv::C"; break;
@@ -472,7 +474,6 @@ namespace {
         HANDLE_ATTR(Nest);
         HANDLE_ATTR(ReadNone);
         HANDLE_ATTR(ReadOnly);
-        HANDLE_ATTR(InlineHint);
         HANDLE_ATTR(NoInline);
         HANDLE_ATTR(AlwaysInline);
         HANDLE_ATTR(OptimizeForSize);
@@ -755,7 +756,7 @@ namespace {
       Out << "ConstantInt* " << constName
           << " = ConstantInt::get(getGlobalContext(), APInt("
           << cast<IntegerType>(CI->getType())->getBitWidth()
-          << ", StringRef(\"" <<  constValue << "\"), 10));";
+          << ",  StringRef(\"" <<  constValue << "\"), 10));";
     } else if (isa<ConstantAggregateZero>(CV)) {
       Out << "ConstantAggregateZero* " << constName
           << " = ConstantAggregateZero::get(" << typeName << ");";
@@ -842,7 +843,7 @@ namespace {
             << getCppName(CE->getOperand(0)) << ", "
             << "&" << constName << "_indices[0], "
             << constName << "_indices.size()"
-            << ");";
+            << " );";
       } else if (CE->isCast()) {
         printConstant(CE->getOperand(0));
         Out << "Constant* " << constName << " = ConstantExpr::getCast(";
@@ -1256,6 +1257,20 @@ namespace {
       Out << ", " << opNames[0] << ", " << opNames[1] << ", \"";
       printEscapedString(I->getName());
       Out << "\");";
+      break;
+    }
+    case Instruction::Malloc: {
+      const MallocInst* mallocI = cast<MallocInst>(I);
+      Out << "MallocInst* " << iName << " = new MallocInst("
+          << getCppName(mallocI->getAllocatedType()) << ", ";
+      if (mallocI->isArrayAllocation())
+        Out << opNames[0] << ", " ;
+      Out << "\"";
+      printEscapedString(mallocI->getName());
+      Out << "\", " << bbname << ");";
+      if (mallocI->getAlignment())
+        nl(Out) << iName << "->setAlignment("
+            << mallocI->getAlignment() << ");";
       break;
     }
     case Instruction::Free: {

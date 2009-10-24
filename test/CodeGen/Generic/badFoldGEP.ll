@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 ;; GetMemInstArgs() folded the two getElementPtr instructions together,
 ;; producing an illegal getElementPtr.  That's because the type generated

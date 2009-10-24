@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | not grep cltd
+; RUN: llvm-as < %s | llc -march=x86 | not grep cltd
 
 define i32 @test(i32 %X) nounwind readnone {
 entry:

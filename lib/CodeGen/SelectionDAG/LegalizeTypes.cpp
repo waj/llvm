@@ -15,11 +15,10 @@
 
 #include "LegalizeTypes.h"
 #include "llvm/CallingConv.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetData.h"
 using namespace llvm;
 
 static cl::opt<bool>
@@ -115,42 +114,42 @@ void DAGTypeLegalizer::PerformExpensiveChecks() {
 
       if (I->getNodeId() != Processed) {
         if (Mapped != 0) {
-          errs() << "Unprocessed value in a map!";
+          cerr << "Unprocessed value in a map!";
           Failed = true;
         }
       } else if (isTypeLegal(Res.getValueType()) || IgnoreNodeResults(I)) {
         if (Mapped > 1) {
-          errs() << "Value with legal type was transformed!";
+          cerr << "Value with legal type was transformed!";
           Failed = true;
         }
       } else {
         if (Mapped == 0) {
-          errs() << "Processed value not in any map!";
+          cerr << "Processed value not in any map!";
           Failed = true;
         } else if (Mapped & (Mapped - 1)) {
-          errs() << "Value in multiple maps!";
+          cerr << "Value in multiple maps!";
           Failed = true;
         }
       }
 
       if (Failed) {
         if (Mapped & 1)
-          errs() << " ReplacedValues";
+          cerr << " ReplacedValues";
         if (Mapped & 2)
-          errs() << " PromotedIntegers";
+          cerr << " PromotedIntegers";
         if (Mapped & 4)
-          errs() << " SoftenedFloats";
+          cerr << " SoftenedFloats";
         if (Mapped & 8)
-          errs() << " ScalarizedVectors";
+          cerr << " ScalarizedVectors";
         if (Mapped & 16)
-          errs() << " ExpandedIntegers";
+          cerr << " ExpandedIntegers";
         if (Mapped & 32)
-          errs() << " ExpandedFloats";
+          cerr << " ExpandedFloats";
         if (Mapped & 64)
-          errs() << " SplitVectors";
+          cerr << " SplitVectors";
         if (Mapped & 128)
-          errs() << " WidenedVectors";
-        errs() << "\n";
+          cerr << " WidenedVectors";
+        cerr << "\n";
         llvm_unreachable(0);
       }
     }
@@ -338,7 +337,7 @@ ScanOperands:
     }
 
     if (i == NumOperands) {
-      DEBUG(errs() << "Legally typed node: "; N->dump(&DAG); errs() << "\n");
+      DEBUG(cerr << "Legally typed node: "; N->dump(&DAG); cerr << "\n");
     }
     }
 NodeDone:
@@ -407,7 +406,7 @@ NodeDone:
     if (!IgnoreNodeResults(I))
       for (unsigned i = 0, NumVals = I->getNumValues(); i < NumVals; ++i)
         if (!isTypeLegal(I->getValueType(i))) {
-          errs() << "Result type " << i << " illegal!\n";
+          cerr << "Result type " << i << " illegal!\n";
           Failed = true;
         }
 
@@ -415,24 +414,24 @@ NodeDone:
     for (unsigned i = 0, NumOps = I->getNumOperands(); i < NumOps; ++i)
       if (!IgnoreNodeResults(I->getOperand(i).getNode()) &&
           !isTypeLegal(I->getOperand(i).getValueType())) {
-        errs() << "Operand type " << i << " illegal!\n";
+        cerr << "Operand type " << i << " illegal!\n";
         Failed = true;
       }
 
     if (I->getNodeId() != Processed) {
        if (I->getNodeId() == NewNode)
-         errs() << "New node not analyzed?\n";
+         cerr << "New node not analyzed?\n";
        else if (I->getNodeId() == Unanalyzed)
-         errs() << "Unanalyzed node not noticed?\n";
+         cerr << "Unanalyzed node not noticed?\n";
        else if (I->getNodeId() > 0)
-         errs() << "Operand not processed?\n";
+         cerr << "Operand not processed?\n";
        else if (I->getNodeId() == ReadyToProcess)
-         errs() << "Not added to worklist?\n";
+         cerr << "Not added to worklist?\n";
        Failed = true;
     }
 
     if (Failed) {
-      I->dump(&DAG); errs() << "\n";
+      I->dump(&DAG); cerr << "\n";
       llvm_unreachable(0);
     }
   }

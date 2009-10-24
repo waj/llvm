@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=armv6-apple-darwin
+; RUN: llvm-as < %s | llc -mtriple=armv6-apple-darwin
 
   %struct.term = type { i32, i32, i32 }
 

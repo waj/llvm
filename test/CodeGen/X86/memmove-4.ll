@@ -1,4 +1,4 @@
-; RUN: llc < %s | not grep call
+; RUN: llvm-as < %s | llc | not grep call
 
 target triple = "i686-pc-linux-gnu"
 

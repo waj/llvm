@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=bfin > %t
+; RUN: llvm-as < %s | llc -march=bfin > %t
 
 ; DAGCombiner::SimplifyBinOpWithSameOpcodeHands can produce an illegal i16 OR
 ; operation after LegalizeOps.

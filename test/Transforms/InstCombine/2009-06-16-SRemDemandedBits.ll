@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | grep srem
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep srem
 ; PR3439
 
 define i32 @a(i32 %x) nounwind {

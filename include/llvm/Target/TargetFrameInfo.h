@@ -31,22 +31,13 @@ public:
     StackGrowsUp,        // Adding to the stack increases the stack address
     StackGrowsDown       // Adding to the stack decreases the stack address
   };
-
-  // Maps a callee saved register to a stack slot with a fixed offset.
-  struct SpillSlot {
-    unsigned Reg;
-    int Offset; // Offset relative to stack pointer on function entry.
-  };
 private:
   StackDirection StackDir;
   unsigned StackAlignment;
-  unsigned TransientStackAlignment;
   int LocalAreaOffset;
 public:
-  TargetFrameInfo(StackDirection D, unsigned StackAl, int LAO,
-                  unsigned TransAl = 1)
-    : StackDir(D), StackAlignment(StackAl), TransientStackAlignment(TransAl),
-      LocalAreaOffset(LAO) {}
+  TargetFrameInfo(StackDirection D, unsigned StackAl, int LAO)
+    : StackDir(D), StackAlignment(StackAl), LocalAreaOffset(LAO) {}
 
   virtual ~TargetFrameInfo();
 
@@ -57,19 +48,11 @@ public:
   ///
   StackDirection getStackGrowthDirection() const { return StackDir; }
 
-  /// getStackAlignment - This method returns the number of bytes to which the
-  /// stack pointer must be aligned on entry to a function.  Typically, this
-  /// is the largest alignment for any data object in the target.
+  /// getStackAlignment - This method returns the number of bytes that the stack
+  /// pointer must be aligned to.  Typically, this is the largest alignment for
+  /// any data object in the target.
   ///
   unsigned getStackAlignment() const { return StackAlignment; }
-
-  /// getTransientStackAlignment - This method returns the number of bytes to
-  /// which the stack pointer must be aligned at all times, even between
-  /// calls.
-  ///
-  unsigned getTransientStackAlignment() const {
-    return TransientStackAlignment;
-  }
 
   /// getOffsetOfLocalArea - This method returns the offset of the local area
   /// from the stack pointer on entrance to a function.
@@ -82,10 +65,10 @@ public:
   ///
   /// Each entry in this array contains a <register,offset> pair, indicating the
   /// fixed offset from the incoming stack pointer that each register should be
-  /// spilled at. If a register is not listed here, the code generator is
+  /// spilled at.  If a register is not listed here, the code generator is
   /// allowed to spill it anywhere it chooses.
   ///
-  virtual const SpillSlot *
+  virtual const std::pair<unsigned, int> *
   getCalleeSavedSpillSlots(unsigned &NumEntries) const {
     NumEntries = 0;
     return 0;

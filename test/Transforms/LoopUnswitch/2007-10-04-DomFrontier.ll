@@ -1,4 +1,4 @@
-; RUN: opt < %s -licm -loop-unroll -disable-output
+; RUN: llvm-as < %s | opt -licm -loop-unroll -disable-output
 
 @resonant = external global i32		; <i32*> [#uses=2]
 

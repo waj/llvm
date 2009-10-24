@@ -60,11 +60,9 @@ void ScheduleDAG::Run(MachineBasicBlock *bb,
 
   Schedule();
 
-  DEBUG({
-      errs() << "*** Final schedule ***\n";
-      dumpSchedule();
-      errs() << '\n';
-    });
+  DOUT << "*** Final schedule ***\n";
+  DEBUG(dumpSchedule());
+  DOUT << "\n";
 }
 
 /// addPred - This adds the specified edge as a pred of the current node if
@@ -82,19 +80,13 @@ void SUnit::addPred(const SDep &D) {
   SUnit *N = D.getSUnit();
   // Update the bookkeeping.
   if (D.getKind() == SDep::Data) {
-    assert(NumPreds < UINT_MAX && "NumPreds will overflow!");
-    assert(N->NumSuccs < UINT_MAX && "NumSuccs will overflow!");
     ++NumPreds;
     ++N->NumSuccs;
   }
-  if (!N->isScheduled) {
-    assert(NumPredsLeft < UINT_MAX && "NumPredsLeft will overflow!");
+  if (!N->isScheduled)
     ++NumPredsLeft;
-  }
-  if (!isScheduled) {
-    assert(N->NumSuccsLeft < UINT_MAX && "NumSuccsLeft will overflow!");
+  if (!isScheduled)
     ++N->NumSuccsLeft;
-  }
   Preds.push_back(D);
   N->Succs.push_back(P);
   if (P.getLatency() != 0) {
@@ -127,19 +119,13 @@ void SUnit::removePred(const SDep &D) {
       Preds.erase(I);
       // Update the bookkeeping.
       if (P.getKind() == SDep::Data) {
-        assert(NumPreds > 0 && "NumPreds will underflow!");
-        assert(N->NumSuccs > 0 && "NumSuccs will underflow!");
         --NumPreds;
         --N->NumSuccs;
       }
-      if (!N->isScheduled) {
-        assert(NumPredsLeft > 0 && "NumPredsLeft will underflow!");
+      if (!N->isScheduled)
         --NumPredsLeft;
-      }
-      if (!isScheduled) {
-        assert(N->NumSuccsLeft > 0 && "NumSuccsLeft will underflow!");
+      if (!isScheduled)
         --N->NumSuccsLeft;
-      }
       if (P.getLatency() != 0) {
         this->setDepthDirty();
         N->setHeightDirty();

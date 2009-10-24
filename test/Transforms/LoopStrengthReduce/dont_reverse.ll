@@ -1,4 +1,4 @@
-; RUN: opt < %s -loop-reduce -S \
+; RUN: llvm-as < %s | opt -loop-reduce | llvm-dis \
 ; RUN:    | grep {icmp eq i2 %lsr.iv.next, %xmp4344}
 
 ; Don't reverse the iteration if the rhs of the compare is defined

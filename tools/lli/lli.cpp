@@ -28,7 +28,6 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/PluginLoader.h"
 #include "llvm/Support/PrettyStackTrace.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/System/Process.h"
 #include "llvm/System/Signals.h"
 #include "llvm/Target/TargetSelect.h"
@@ -148,7 +147,7 @@ int main(int argc, char **argv, char * const *envp) {
     return 1;
   case ' ': break;
   case '0': OLvl = CodeGenOpt::None; break;
-  case '1': OLvl = CodeGenOpt::Less; break;
+  case '1':
   case '2': OLvl = CodeGenOpt::Default; break;
   case '3': OLvl = CodeGenOpt::Aggressive; break;
   }
@@ -163,6 +162,7 @@ int main(int argc, char **argv, char * const *envp) {
     exit(1);
   }
 
+  EE->RegisterJITEventListener(createMacOSJITEventListener());
   EE->RegisterJITEventListener(createOProfileJITEventListener());
 
   if (NoLazyCompilation)

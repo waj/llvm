@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=sse41 -o %t
+; RUN: llvm-as < %s | llc -march=x86 -mattr=sse41 -o %t -f
 ; RUN: grep pshufb %t | count 1
 
 

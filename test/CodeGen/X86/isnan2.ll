@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mcpu=yonah | not grep pxor
+; RUN: llvm-as < %s | llc -march=x86 -mcpu=yonah | not grep pxor
 
 ; This should not need to materialize 0.0 to evaluate the condition.
 

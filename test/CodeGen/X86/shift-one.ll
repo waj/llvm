@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | not grep leal
+; RUN: llvm-as < %s | llc -march=x86 | not grep leal
 
 @x = external global i32                ; <i32*> [#uses=1]
 

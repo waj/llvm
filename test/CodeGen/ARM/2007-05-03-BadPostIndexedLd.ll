@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=arm-apple-darwin
+; RUN: llvm-as < %s | llc -mtriple=arm-apple-darwin
 
 	%struct.Connection = type { i32, [10 x i8], i32 }
 	%struct.IntChunk = type { %struct.cppobjtype, i32, i32*, i32 }

@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars
+; RUN: llvm-as < %s | opt -indvars
 
 define void @t() nounwind {
 entry:

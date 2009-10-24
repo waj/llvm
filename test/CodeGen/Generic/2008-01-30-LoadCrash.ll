@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 @letters.3100 = external constant [63 x i8]		; <[63 x i8]*> [#uses=2]
 

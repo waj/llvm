@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=arm | not grep CPI
+; RUN: llvm-as < %s | llc -march=arm | not grep CPI
 
 define i32 @test1(i32 %A) {
         %B = add i32 %A, -268435441             ; <i32> [#uses=1]

@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=arm-apple-darwin
+; RUN: llvm-as < %s | llc -mtriple=arm-apple-darwin
 
 	%struct.BiContextType = type { i16, i8, i32 }
 	%struct.Bitstream = type { i32, i32, i8, i32, i32, i8, i8, i32, i32, i8*, i32 }

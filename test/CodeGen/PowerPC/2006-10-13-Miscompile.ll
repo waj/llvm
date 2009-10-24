@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=ppc32 | not grep IMPLICIT_DEF
+; RUN: llvm-as < %s | llc -march=ppc32 | not grep IMPLICIT_DEF
 
 define void @foo(i64 %X) {
 entry:

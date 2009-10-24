@@ -46,6 +46,9 @@ def really_hidden;
 def required;
 def zero_or_one;
 
+// Empty DAG marker.
+def empty;
+
 // The 'case' construct.
 def case;
 
@@ -56,21 +59,14 @@ def false;
 // Boolean operators.
 def and;
 def or;
-def not;
 
 // Primitive tests.
 def switch_on;
 def parameter_equals;
 def element_in_list;
 def input_languages_contain;
-def empty;
 def not_empty;
 def default;
-def single_input_file;
-def multiple_input_files;
-def any_switch_on;
-def any_not_empty;
-def any_empty;
 
 // Possible actions.
 
@@ -79,30 +75,20 @@ def forward;
 def forward_as;
 def stop_compilation;
 def unpack_values;
-def warning;
 def error;
-def unset_option;
 
 // Increase/decrease the edge weight.
 def inc_weight;
 def dec_weight;
-
-// Empty DAG marker.
-def empty_dag_marker;
 
 // Used to specify plugin priority.
 class PluginPriority<int p> {
       int priority = p;
 }
 
-// Option list - a single place to specify options.
+// Option list - used to specify aliases and sometimes help strings.
 class OptionList<list<dag> l> {
       list<dag> options = l;
-}
-
-// Option preprocessor - actions taken during plugin loading.
-class OptionPreprocessor<dag d> {
-      dag preprocessor = d;
 }
 
 // Map from suffixes to language names
@@ -124,10 +110,10 @@ class EdgeBase<string t1, string t2, dag d> {
       dag weight = d;
 }
 
-class Edge<string t1, string t2> : EdgeBase<t1, t2, (empty_dag_marker)>;
+class Edge<string t1, string t2> : EdgeBase<t1, t2, (empty)>;
 
 // Edge and SimpleEdge are synonyms.
-class SimpleEdge<string t1, string t2> : EdgeBase<t1, t2, (empty_dag_marker)>;
+class SimpleEdge<string t1, string t2> : EdgeBase<t1, t2, (empty)>;
 
 // Optionally enabled edge.
 class OptionalEdge<string t1, string t2, dag props> : EdgeBase<t1, t2, props>;

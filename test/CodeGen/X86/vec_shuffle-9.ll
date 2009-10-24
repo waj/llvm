@@ -1,10 +1,9 @@
-; RUN: llc < %s -march=x86 -mattr=+sse2 | FileCheck %s
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse2 -o %t -f
+; RUN: grep punpck %t | count 2
+; RUN: not grep pextrw %t
 
 define <4 x i32> @test(i8** %ptr) {
-; CHECK: xorps
-; CHECK: punpcklbw
-; CHECK: punpcklwd
-
+entry:
 	%tmp = load i8** %ptr		; <i8*> [#uses=1]
 	%tmp.upgrd.1 = bitcast i8* %tmp to float*		; <float*> [#uses=1]
 	%tmp.upgrd.2 = load float* %tmp.upgrd.1		; <float> [#uses=1]

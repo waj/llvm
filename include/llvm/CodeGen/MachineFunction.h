@@ -18,16 +18,16 @@
 #ifndef LLVM_CODEGEN_MACHINEFUNCTION_H
 #define LLVM_CODEGEN_MACHINEFUNCTION_H
 
-#include "llvm/CodeGen/MachineBasicBlock.h"
+#include <map>
 #include "llvm/ADT/ilist.h"
 #include "llvm/Support/DebugLoc.h"
+#include "llvm/CodeGen/Dump.h"
+#include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Recycler.h"
-#include <map>
 
 namespace llvm {
 
-class Value;
 class Function;
 class MachineRegisterInfo;
 class MachineFrameInfo;
@@ -39,7 +39,7 @@ class TargetRegisterClass;
 template <>
 struct ilist_traits<MachineBasicBlock>
     : public ilist_default_traits<MachineBasicBlock> {
-  mutable ilist_half_node<MachineBasicBlock> Sentinel;
+  mutable ilist_node<MachineBasicBlock> Sentinel;
 public:
   MachineBasicBlock *createSentinel() const {
     return static_cast<MachineBasicBlock*>(&Sentinel);
@@ -64,7 +64,7 @@ private:
 /// of type are accessed/created with MF::getInfo and destroyed when the
 /// MachineFunction is destroyed.
 struct MachineFunctionInfo {
-  virtual ~MachineFunctionInfo();
+  virtual ~MachineFunctionInfo() {}
 };
 
 class MachineFunction {
@@ -160,8 +160,8 @@ public:
   ///
   void setAlignment(unsigned A) { Alignment = A; }
 
-  /// getInfo - Keep track of various per-function pieces of information for
-  /// backends that would like to do so.
+  /// MachineFunctionInfo - Keep track of various per-function pieces of
+  /// information for backends that would like to do so.
   ///
   template<typename Ty>
   Ty *getInfo() {
@@ -208,7 +208,12 @@ public:
   /// print - Print out the MachineFunction in a format suitable for debugging
   /// to the specified stream.
   ///
-  void print(raw_ostream &OS) const;
+  void print(std::ostream &OS, 
+             const PrefixPrinter &prefix = PrefixPrinter()) const;
+  void print(std::ostream *OS,
+             const PrefixPrinter &prefix = PrefixPrinter()) const {
+    if (OS) print(*OS, prefix); 
+  }
 
   /// viewCFG - This function is meant for use from the debugger.  You can just
   /// say 'call F->viewCFG()' and a ghostview window should pop up from the
@@ -267,9 +272,6 @@ public:
   void splice(iterator InsertPt, iterator MBBI) {
     BasicBlocks.splice(InsertPt, BasicBlocks, MBBI);
   }
-  void splice(iterator InsertPt, iterator MBBI, iterator MBBE) {
-    BasicBlocks.splice(InsertPt, BasicBlocks, MBBI, MBBE);
-  }
 
   void remove(iterator MBBI) {
     BasicBlocks.remove(MBBI);
@@ -324,41 +326,15 @@ public:
   ///
   void DeleteMachineBasicBlock(MachineBasicBlock *MBB);
 
-  /// getMachineMemOperand - Allocate a new MachineMemOperand.
-  /// MachineMemOperands are owned by the MachineFunction and need not be
-  /// explicitly deallocated.
-  MachineMemOperand *getMachineMemOperand(const Value *v, unsigned f,
-                                          int64_t o, uint64_t s,
-                                          unsigned base_alignment);
-
-  /// getMachineMemOperand - Allocate a new MachineMemOperand by copying
-  /// an existing one, adjusting by an offset and using the given size.
-  /// MachineMemOperands are owned by the MachineFunction and need not be
-  /// explicitly deallocated.
-  MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
-                                          int64_t Offset, uint64_t Size);
-
-  /// allocateMemRefsArray - Allocate an array to hold MachineMemOperand
-  /// pointers.  This array is owned by the MachineFunction.
-  MachineInstr::mmo_iterator allocateMemRefsArray(unsigned long Num);
-
-  /// extractLoadMemRefs - Allocate an array and populate it with just the
-  /// load information from the given MachineMemOperand sequence.
-  std::pair<MachineInstr::mmo_iterator,
-            MachineInstr::mmo_iterator>
-    extractLoadMemRefs(MachineInstr::mmo_iterator Begin,
-                       MachineInstr::mmo_iterator End);
-
-  /// extractStoreMemRefs - Allocate an array and populate it with just the
-  /// store information from the given MachineMemOperand sequence.
-  std::pair<MachineInstr::mmo_iterator,
-            MachineInstr::mmo_iterator>
-    extractStoreMemRefs(MachineInstr::mmo_iterator Begin,
-                        MachineInstr::mmo_iterator End);
-
   //===--------------------------------------------------------------------===//
   // Debug location.
   //
+
+  /// getOrCreateDebugLocID - Look up the DebugLocTuple index with the given
+  /// source file, line, and column. If none currently exists, create a new
+  /// DebugLocTuple, and insert it into the DebugIdMap.
+  unsigned getOrCreateDebugLocID(GlobalVariable *CompileUnit,
+                                 unsigned Line, unsigned Col);
 
   /// getDebugLocTuple - Get the DebugLocTuple for a given DebugLoc object.
   DebugLocTuple getDebugLocTuple(DebugLoc DL) const;

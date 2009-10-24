@@ -18,7 +18,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/SystemUtils.h"
-#include "llvm/Support/raw_ostream.h"
 #include <fstream>
 
 using namespace llvm;
@@ -100,10 +99,6 @@ namespace llvm {
   cl::list<std::string>
   InputArgv("args", cl::Positional, cl::desc("<program arguments>..."),
             cl::ZeroOrMore, cl::PositionalEatsArgs);
-
-  cl::opt<std::string>
-  OutputPrefix("output-prefix", cl::init("bugpoint"),
-            cl::desc("Prefix to use for outputs (default: 'bugpoint')"));
 }
 
 namespace {
@@ -278,16 +273,16 @@ bool BugDriver::initializeExecutionEnvironment() {
 ///
 void BugDriver::compileProgram(Module *M) {
   // Emit the program to a bitcode file...
-  sys::Path BitcodeFile (OutputPrefix + "-test-program.bc");
+  sys::Path BitcodeFile ("bugpoint-test-program.bc");
   std::string ErrMsg;
   if (BitcodeFile.makeUnique(true,&ErrMsg)) {
     errs() << ToolName << ": Error making unique filename: " << ErrMsg 
            << "\n";
     exit(1);
   }
-  if (writeProgramToFile(BitcodeFile.str(), M)) {
+  if (writeProgramToFile(BitcodeFile.toString(), M)) {
     errs() << ToolName << ": Error emitting bitcode to file '"
-           << BitcodeFile.str() << "'!\n";
+           << BitcodeFile << "'!\n";
     exit(1);
   }
 
@@ -295,7 +290,7 @@ void BugDriver::compileProgram(Module *M) {
   FileRemover BitcodeFileRemover(BitcodeFile, !SaveTemps);
 
   // Actually compile the program!
-  Interpreter->compileProgram(BitcodeFile.str());
+  Interpreter->compileProgram(BitcodeFile.toString());
 }
 
 
@@ -314,13 +309,13 @@ std::string BugDriver::executeProgram(std::string OutputFile,
   std::string ErrMsg;
   if (BitcodeFile.empty()) {
     // Emit the program to a bitcode file...
-    sys::Path uniqueFilename(OutputPrefix + "-test-program.bc");
+    sys::Path uniqueFilename("bugpoint-test-program.bc");
     if (uniqueFilename.makeUnique(true, &ErrMsg)) {
       errs() << ToolName << ": Error making unique filename: "
              << ErrMsg << "!\n";
       exit(1);
     }
-    BitcodeFile = uniqueFilename.str();
+    BitcodeFile = uniqueFilename.toString();
 
     if (writeProgramToFile(BitcodeFile, Program)) {
       errs() << ToolName << ": Error emitting bitcode to file '"
@@ -334,7 +329,7 @@ std::string BugDriver::executeProgram(std::string OutputFile,
   sys::Path BitcodePath (BitcodeFile);
   FileRemover BitcodeFileRemover(BitcodePath, CreatedBitcode && !SaveTemps);
 
-  if (OutputFile.empty()) OutputFile = OutputPrefix + "-execution-output";
+  if (OutputFile.empty()) OutputFile = "bugpoint-execution-output";
 
   // Check to see if this is a valid output filename...
   sys::Path uniqueFile(OutputFile);
@@ -343,7 +338,7 @@ std::string BugDriver::executeProgram(std::string OutputFile,
            << ErrMsg << "\n";
     exit(1);
   }
-  OutputFile = uniqueFile.str();
+  OutputFile = uniqueFile.toString();
 
   // Figure out which shared objects to run, if any.
   std::vector<std::string> SharedObjs(AdditionalSOs);
@@ -398,7 +393,7 @@ std::string BugDriver::compileSharedObject(const std::string &BitcodeFile) {
   GCC::FileType FT = SafeInterpreter->OutputCode(BitcodeFile, OutputFile);
 
   std::string SharedObjectFile;
-  if (gcc->MakeSharedObject(OutputFile.str(), FT,
+  if (gcc->MakeSharedObject(OutputFile.toString(), FT,
                             SharedObjectFile, AdditionalLinkerArgs))
     exit(1);
 
@@ -452,7 +447,7 @@ bool BugDriver::diffProgram(const std::string &BitcodeFile,
   std::string Error;
   bool FilesDifferent = false;
   if (int Diff = DiffFilesWithTolerance(sys::Path(ReferenceOutputFile),
-                                        sys::Path(Output.str()),
+                                        sys::Path(Output.toString()),
                                         AbsTolerance, RelTolerance, &Error)) {
     if (Diff == 2) {
       errs() << "While diffing output: " << Error << '\n';

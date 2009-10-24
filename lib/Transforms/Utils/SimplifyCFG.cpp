@@ -16,6 +16,7 @@
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
 #include "llvm/IntrinsicInst.h"
+#include "llvm/LLVMContext.h"
 #include "llvm/Type.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/GlobalVariable.h"
@@ -184,7 +185,7 @@ static bool TryToSimplifyUncondBranchFromEmptyBlock(BasicBlock *BB,
     }
   }
 
-  DEBUG(errs() << "Killing Trivial BB: \n" << *BB);
+  DOUT << "Killing Trivial BB: \n" << *BB;
   
   if (isa<PHINode>(Succ->begin())) {
     // If there is more than one pred of succ, and there are PHI nodes in
@@ -613,13 +614,12 @@ static bool SimplifyEqualityComparisonWithOnlyPredecessor(TerminatorInst *TI,
         assert(ThisCases.size() == 1 && "Branch can only have one case!");
         // Insert the new branch.
         Instruction *NI = BranchInst::Create(ThisDef, TI);
-        (void) NI;
 
         // Remove PHI node entries for the dead edge.
         ThisCases[0].second->removePredecessor(TI->getParent());
 
-        DEBUG(errs() << "Threading pred instr: " << *Pred->getTerminator()
-             << "Through successor TI: " << *TI << "Leaving: " << *NI << "\n");
+        DOUT << "Threading pred instr: " << *Pred->getTerminator()
+             << "Through successor TI: " << *TI << "Leaving: " << *NI << "\n";
 
         EraseTerminatorInstAndDCECond(TI);
         return true;
@@ -631,8 +631,8 @@ static bool SimplifyEqualityComparisonWithOnlyPredecessor(TerminatorInst *TI,
         for (unsigned i = 0, e = PredCases.size(); i != e; ++i)
           DeadCases.insert(PredCases[i].first);
 
-        DEBUG(errs() << "Threading pred instr: " << *Pred->getTerminator()
-                     << "Through successor TI: " << *TI);
+        DOUT << "Threading pred instr: " << *Pred->getTerminator()
+             << "Through successor TI: " << *TI;
 
         for (unsigned i = SI->getNumCases()-1; i != 0; --i)
           if (DeadCases.count(SI->getCaseValue(i))) {
@@ -640,7 +640,7 @@ static bool SimplifyEqualityComparisonWithOnlyPredecessor(TerminatorInst *TI,
             SI->removeCase(i);
           }
 
-        DEBUG(errs() << "Leaving: " << *TI << "\n");
+        DOUT << "Leaving: " << *TI << "\n";
         return true;
       }
     }
@@ -681,10 +681,9 @@ static bool SimplifyEqualityComparisonWithOnlyPredecessor(TerminatorInst *TI,
 
     // Insert the new branch.
     Instruction *NI = BranchInst::Create(TheRealDest, TI);
-    (void) NI;
 
-    DEBUG(errs() << "Threading pred instr: " << *Pred->getTerminator()
-              << "Through successor TI: " << *TI << "Leaving: " << *NI << "\n");
+    DOUT << "Threading pred instr: " << *Pred->getTerminator()
+         << "Through successor TI: " << *TI << "Leaving: " << *NI << "\n";
 
     EraseTerminatorInstAndDCECond(TI);
     return true;
@@ -910,7 +909,7 @@ HoistTerminator:
     return true;
 
   // Okay, it is safe to hoist the terminator.
-  Instruction *NT = I1->clone();
+  Instruction *NT = I1->clone(BB1->getContext());
   BIParent->getInstList().insert(BI, NT);
   if (NT->getType() != Type::getVoidTy(BB1->getContext())) {
     I1->replaceAllUsesWith(NT);
@@ -1150,6 +1149,7 @@ static bool BlockIsSimpleEnoughToThreadThrough(BasicBlock *BB) {
 /// ultimate destination.
 static bool FoldCondBranchOnPHI(BranchInst *BI) {
   BasicBlock *BB = BI->getParent();
+  LLVMContext &Context = BB->getContext();
   PHINode *PN = dyn_cast<PHINode>(BI->getCondition());
   // NOTE: we currently cannot transform this case if the PHI node is used
   // outside of the block.
@@ -1203,7 +1203,7 @@ static bool FoldCondBranchOnPHI(BranchInst *BI) {
           TranslateMap[PN] = PN->getIncomingValueForBlock(PredBB);
         } else {
           // Clone the instruction.
-          Instruction *N = BBI->clone();
+          Instruction *N = BBI->clone(Context);
           if (BBI->hasName()) N->setName(BBI->getName()+".c");
           
           // Update operands due to translation.
@@ -1216,7 +1216,7 @@ static bool FoldCondBranchOnPHI(BranchInst *BI) {
           }
           
           // Check for trivial simplification.
-          if (Constant *C = ConstantFoldInstruction(N, BB->getContext())) {
+          if (Constant *C = ConstantFoldInstruction(N, Context)) {
             TranslateMap[BBI] = C;
             delete N;   // Constant folded away, don't need actual inst
           } else {
@@ -1452,11 +1452,10 @@ static bool SimplifyCondBranchToTwoReturns(BranchInst *BI) {
   Value *RI = !TrueValue ?
               ReturnInst::Create(BI->getContext(), BI) :
               ReturnInst::Create(BI->getContext(), TrueValue, BI);
-  (void) RI;
       
-  DEBUG(errs() << "\nCHANGING BRANCH TO TWO RETURNS INTO SELECT:"
-               << "\n  " << *BI << "NewRet = " << *RI
-               << "TRUEBLOCK: " << *TrueSucc << "FALSEBLOCK: "<< *FalseSucc);
+  DOUT << "\nCHANGING BRANCH TO TWO RETURNS INTO SELECT:"
+       << "\n  " << *BI << "NewRet = " << *RI
+       << "TRUEBLOCK: " << *TrueSucc << "FALSEBLOCK: "<< *FalseSucc;
       
   EraseTerminatorInstAndDCECond(BI);
 
@@ -1536,7 +1535,7 @@ bool llvm::FoldBranchToCommonDest(BranchInst *BI) {
     else
       continue;
 
-    DEBUG(errs() << "FOLDING BRANCH TO COMMON DEST:\n" << *PBI << *BB);
+    DOUT << "FOLDING BRANCH TO COMMON DEST:\n" << *PBI << *BB;
     
     // If we need to invert the condition in the pred block to match, do so now.
     if (InvertPredCond) {
@@ -1552,7 +1551,7 @@ bool llvm::FoldBranchToCommonDest(BranchInst *BI) {
     
     // Clone Cond into the predecessor basic block, and or/and the
     // two conditions together.
-    Instruction *New = Cond->clone();
+    Instruction *New = Cond->clone(BB->getContext());
     PredBlock->getInstList().insert(PBI, New);
     New->takeName(Cond);
     Cond->setName(New->getName()+".old");
@@ -1670,8 +1669,8 @@ static bool SimplifyCondBranchToCondBranch(BranchInst *PBI, BranchInst *BI) {
   // Finally, if everything is ok, fold the branches to logical ops.
   BasicBlock *OtherDest  = BI->getSuccessor(BIOp ^ 1);
   
-  DEBUG(errs() << "FOLDING BRs:" << *PBI->getParent()
-               << "AND: " << *BI->getParent());
+  DOUT << "FOLDING BRs:" << *PBI->getParent()
+       << "AND: " << *BI->getParent();
   
   
   // If OtherDest *is* BB, then BB is a basic block with a single conditional
@@ -1690,7 +1689,7 @@ static bool SimplifyCondBranchToCondBranch(BranchInst *PBI, BranchInst *BI) {
     OtherDest = InfLoopBlock;
   }  
   
-  DEBUG(errs() << *PBI->getParent()->getParent());
+  DOUT << *PBI->getParent()->getParent();
   
   // BI may have other predecessors.  Because of this, we leave
   // it alone, but modify PBI.
@@ -1740,8 +1739,9 @@ static bool SimplifyCondBranchToCondBranch(BranchInst *PBI, BranchInst *BI) {
     }
   }
   
-  DEBUG(errs() << "INTO: " << *PBI->getParent());
-  DEBUG(errs() << *PBI->getParent()->getParent());
+  DOUT << "INTO: " << *PBI->getParent();
+  
+  DOUT << *PBI->getParent()->getParent();
   
   // This basic block is probably dead.  We know it has at least
   // one fewer predecessor.
@@ -1768,7 +1768,7 @@ bool llvm::SimplifyCFG(BasicBlock *BB) {
   // Remove basic blocks that have no predecessors... or that just have themself
   // as a predecessor.  These are unreachable.
   if (pred_begin(BB) == pred_end(BB) || BB->getSinglePredecessor() == BB) {
-    DEBUG(errs() << "Removing BB: \n" << *BB);
+    DOUT << "Removing BB: \n" << *BB;
     DeleteDeadBlock(BB);
     return true;
   }
@@ -1808,11 +1808,11 @@ bool llvm::SimplifyCFG(BasicBlock *BB) {
       if (!UncondBranchPreds.empty()) {
         while (!UncondBranchPreds.empty()) {
           BasicBlock *Pred = UncondBranchPreds.pop_back_val();
-          DEBUG(errs() << "FOLDING: " << *BB
-                       << "INTO UNCOND BRANCH PRED: " << *Pred);
+          DOUT << "FOLDING: " << *BB
+               << "INTO UNCOND BRANCH PRED: " << *Pred;
           Instruction *UncondBranch = Pred->getTerminator();
           // Clone the return and add it to the end of the predecessor.
-          Instruction *NewRet = RI->clone();
+          Instruction *NewRet = RI->clone(BB->getContext());
           Pred->getInstList().push_back(NewRet);
 
           BasicBlock::iterator BBI = RI;
@@ -1860,26 +1860,33 @@ bool llvm::SimplifyCFG(BasicBlock *BB) {
   } else if (isa<UnwindInst>(BB->begin())) {
     // Check to see if the first instruction in this block is just an unwind.
     // If so, replace any invoke instructions which use this as an exception
-    // destination with call instructions.
+    // destination with call instructions, and any unconditional branch
+    // predecessor with an unwind.
     //
     SmallVector<BasicBlock*, 8> Preds(pred_begin(BB), pred_end(BB));
     while (!Preds.empty()) {
       BasicBlock *Pred = Preds.back();
-      if (InvokeInst *II = dyn_cast<InvokeInst>(Pred->getTerminator()))
+      if (BranchInst *BI = dyn_cast<BranchInst>(Pred->getTerminator())) {
+        if (BI->isUnconditional()) {
+          Pred->getInstList().pop_back();  // nuke uncond branch
+          new UnwindInst(Pred->getContext(), Pred);            // Use unwind.
+          Changed = true;
+        }
+      } else if (InvokeInst *II = dyn_cast<InvokeInst>(Pred->getTerminator()))
         if (II->getUnwindDest() == BB) {
           // Insert a new branch instruction before the invoke, because this
-          // is now a fall through.
+          // is now a fall through...
           BranchInst *BI = BranchInst::Create(II->getNormalDest(), II);
           Pred->getInstList().remove(II);   // Take out of symbol table
 
-          // Insert the call now.
+          // Insert the call now...
           SmallVector<Value*,8> Args(II->op_begin()+3, II->op_end());
           CallInst *CI = CallInst::Create(II->getCalledValue(),
                                           Args.begin(), Args.end(),
                                           II->getName(), BI);
           CI->setCallingConv(II->getCallingConv());
           CI->setAttributes(II->getAttributes());
-          // If the invoke produced a value, the Call now does instead.
+          // If the invoke produced a value, the Call now does instead
           II->replaceAllUsesWith(CI);
           delete II;
           Changed = true;

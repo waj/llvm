@@ -1,4 +1,4 @@
-; RUN: opt < %s -lcssa -disable-output
+; RUN: llvm-as < %s | opt -lcssa -disable-output
 ; PR977
 ; END.
 

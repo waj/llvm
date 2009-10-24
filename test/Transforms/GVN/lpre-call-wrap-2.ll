@@ -1,4 +1,6 @@
-; RUN: opt -S -gvn -enable-load-pre %s | FileCheck %s
+; RUN: llvm-as < %s | opt -gvn -enable-load-pre | llvm-dis > %t
+; RUN: %prcontext bb1: 2 < %t | grep phi
+; RUN: %prcontext bb1: 2 < %t | not grep load
 ;
 ; The partially redundant load in bb1 should be hoisted to "bb".  This comes
 ; from this C code (GCC PR 23455):
@@ -28,9 +30,6 @@ bb:		; preds = %entry
 	br label %bb1
 
 bb1:		; preds = %bb, %entry
-; CHECK: bb1:
-; CHECK-NEXT: phi
-; CHECK-NEXT: getelementptr
 	%4 = load i32* @outcnt, align 4		; <i32> [#uses=1]
 	%5 = getelementptr i8* %outbuf, i32 %4		; <i8*> [#uses=1]
 	store i8 %bi_buf, i8* %5, align 1

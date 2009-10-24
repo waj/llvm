@@ -52,12 +52,15 @@ void ClangDiagsDefsEmitter::run(raw_ostream &OS) {
     
     // Description string.
     OS << ", \"";
-    OS.write_escaped(R.getValueAsString("Text")) << '"';
+    std::string S = R.getValueAsString("Text");
+    EscapeString(S);
+    OS << S << "\"";
     
     // Warning associated with the diagnostic.
     if (DefInit *DI = dynamic_cast<DefInit*>(R.getValueInit("Group"))) {
-      OS << ", \"";
-      OS.write_escaped(DI->getDef()->getValueAsString("GroupName")) << '"';
+      S = DI->getDef()->getValueAsString("GroupName");
+      EscapeString(S);
+      OS << ", \"" << S << "\"";
     } else {
       OS << ", 0";
     }
@@ -148,10 +151,11 @@ void ClangDiagGroupsEmitter::run(raw_ostream &OS) {
   OS << "\n#ifdef GET_DIAG_TABLE\n";
   for (std::map<std::string, GroupInfo>::iterator
        I = DiagsInGroup.begin(), E = DiagsInGroup.end(); I != E; ++I) {
+    std::string S = I->first;
+    EscapeString(S);
     // Group option string.
-    OS << "  { \"";
-    OS.write_escaped(I->first) << "\","
-                               << std::string(MaxLen-I->first.size()+1, ' ');
+    OS << "  { \"" << S << "\","
+      << std::string(MaxLen-I->first.size()+1, ' ');
     
     // Diagnostics in the group.
     if (I->second.DiagsInGroup.empty())

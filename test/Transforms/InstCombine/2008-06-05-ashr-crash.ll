@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine
+; RUN: llvm-as < %s | opt -instcombine
 
 define i65 @foo(i65 %x) nounwind  {
 entry:

@@ -77,7 +77,7 @@ FunctionPass *llvm::createBlackfinISelDag(BlackfinTargetMachine &TM,
 void BlackfinDAGToDAGISel::InstructionSelect() {
   // Select target instructions for the DAG.
   SelectRoot(*CurDAG);
-  DEBUG(errs() << "Selected selection DAG before regclass fixup:\n");
+  DOUT << "Selected selection DAG before regclass fixup:\n";
   DEBUG(CurDAG->dump());
   FixRegisterClasses(*CurDAG);
 }
@@ -177,11 +177,11 @@ void BlackfinDAGToDAGISel::FixRegisterClasses(SelectionDAG &DAG) {
       // We cannot copy CC <-> !(CC/D)
       if ((isCC(DefRC) && !isDCC(UseRC)) || (isCC(UseRC) && !isDCC(DefRC))) {
         SDNode *Copy =
-          DAG.getMachineNode(TargetInstrInfo::COPY_TO_REGCLASS,
-                             NI->getDebugLoc(),
-                             MVT::i32,
-                             UI.getUse().get(),
-                             DAG.getTargetConstant(BF::DRegClassID, MVT::i32));
+          DAG.getTargetNode(TargetInstrInfo::COPY_TO_REGCLASS,
+                            NI->getDebugLoc(),
+                            MVT::i32,
+                            UI.getUse().get(),
+                            DAG.getTargetConstant(BF::DRegClassID, MVT::i32));
         UpdateNodeOperand(DAG, *UI, UI.getOperandNo(), SDValue(Copy, 0));
       }
     }

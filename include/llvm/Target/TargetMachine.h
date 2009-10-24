@@ -21,7 +21,7 @@
 namespace llvm {
 
 class Target;
-class MCAsmInfo;
+class TargetAsmInfo;
 class TargetData;
 class TargetSubtarget;
 class TargetInstrInfo;
@@ -74,10 +74,9 @@ namespace FileModel {
 // Code generation optimization level.
 namespace CodeGenOpt {
   enum Level {
-    None,        // -O0
-    Less,        // -O1
-    Default,     // -O2, -Os
-    Aggressive   // -O3
+    Default,
+    None,
+    Aggressive
   };
 }
 
@@ -103,7 +102,7 @@ protected: // Can only create subclasses.
   
   /// AsmInfo - Contains target specific asm information.
   ///
-  const MCAsmInfo *AsmInfo;
+  const TargetAsmInfo *AsmInfo;
   
 public:
   virtual ~TargetMachine();
@@ -121,9 +120,9 @@ public:
   virtual       TargetLowering    *getTargetLowering() const { return 0; }
   virtual const TargetData            *getTargetData() const { return 0; }
   
-  /// getMCAsmInfo - Return target specific asm information.
+  /// getTargetAsmInfo - Return target specific asm information.
   ///
-  const MCAsmInfo *getMCAsmInfo() const { return AsmInfo; }
+  const TargetAsmInfo *getTargetAsmInfo() const { return AsmInfo; }
   
   /// getSubtarget - This method returns a pointer to the specified type of
   /// TargetSubtarget.  In debug builds, it verifies that the object being
@@ -363,26 +362,18 @@ public:
     return true;
   }
 
-  /// addPreRegAlloc - This method may be implemented by targets that want to
-  /// run passes immediately before register allocation. This should return
+  /// addPreRegAllocPasses - This method may be implemented by targets that want
+  /// to run passes immediately before register allocation. This should return
   /// true if -print-machineinstrs should print after these passes.
   virtual bool addPreRegAlloc(PassManagerBase &, CodeGenOpt::Level) {
     return false;
   }
 
-  /// addPostRegAlloc - This method may be implemented by targets that want
-  /// to run passes after register allocation but before prolog-epilog
+  /// addPostRegAllocPasses - This method may be implemented by targets that
+  /// want to run passes after register allocation but before prolog-epilog
   /// insertion.  This should return true if -print-machineinstrs should print
   /// after these passes.
   virtual bool addPostRegAlloc(PassManagerBase &, CodeGenOpt::Level) {
-    return false;
-  }
-
-  /// addPreSched2 - This method may be implemented by targets that want to
-  /// run passes after prolog-epilog insertion and before the second instruction
-  /// scheduling pass.  This should return true if -print-machineinstrs should
-  /// print after these passes.
-  virtual bool addPreSched2(PassManagerBase &, CodeGenOpt::Level) {
     return false;
   }
   

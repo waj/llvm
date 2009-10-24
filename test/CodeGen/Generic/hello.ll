@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 @.str_1 = internal constant [7 x i8] c"hello\0A\00"             ; <[7 x i8]*> [#uses=1]
 

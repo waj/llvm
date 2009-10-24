@@ -1,4 +1,4 @@
-; RUN: llc < %s 
+; RUN: llvm-as < %s | llc 
 
 
 define void @test(<4 x float>* %tmp2.i) {

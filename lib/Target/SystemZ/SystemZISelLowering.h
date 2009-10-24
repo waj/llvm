@@ -86,12 +86,11 @@ namespace llvm {
 
 
     MachineBasicBlock* EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                   MachineBasicBlock *BB,
-                    DenseMap<MachineBasicBlock*, MachineBasicBlock*> *EM) const;
+                                                   MachineBasicBlock *BB) const;
 
   private:
     SDValue LowerCCCCallTo(SDValue Chain, SDValue Callee,
-                           CallingConv::ID CallConv, bool isVarArg,
+                           unsigned CallConv, bool isVarArg,
                            bool isTailCall,
                            const SmallVectorImpl<ISD::OutputArg> &Outs,
                            const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -99,7 +98,7 @@ namespace llvm {
                            SmallVectorImpl<SDValue> &InVals);
 
     SDValue LowerCCCArguments(SDValue Chain,
-                              CallingConv::ID CallConv,
+                              unsigned CallConv,
                               bool isVarArg,
                               const SmallVectorImpl<ISD::InputArg> &Ins,
                               DebugLoc dl,
@@ -107,20 +106,20 @@ namespace llvm {
                               SmallVectorImpl<SDValue> &InVals);
 
     SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
-                            CallingConv::ID CallConv, bool isVarArg,
+                            unsigned CallConv, bool isVarArg,
                             const SmallVectorImpl<ISD::InputArg> &Ins,
                             DebugLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerFormalArguments(SDValue Chain,
-                           CallingConv::ID CallConv, bool isVarArg,
+                           unsigned CallConv, bool isVarArg,
                            const SmallVectorImpl<ISD::InputArg> &Ins,
                            DebugLoc dl, SelectionDAG &DAG,
                            SmallVectorImpl<SDValue> &InVals);
     virtual SDValue
       LowerCall(SDValue Chain, SDValue Callee,
-                CallingConv::ID CallConv, bool isVarArg, bool isTailCall,
+                unsigned CallConv, bool isVarArg, bool isTailCall,
                 const SmallVectorImpl<ISD::OutputArg> &Outs,
                 const SmallVectorImpl<ISD::InputArg> &Ins,
                 DebugLoc dl, SelectionDAG &DAG,
@@ -128,7 +127,7 @@ namespace llvm {
 
     virtual SDValue
       LowerReturn(SDValue Chain,
-                  CallingConv::ID CallConv, bool isVarArg,
+                  unsigned CallConv, bool isVarArg,
                   const SmallVectorImpl<ISD::OutputArg> &Outs,
                   DebugLoc dl, SelectionDAG &DAG);
 

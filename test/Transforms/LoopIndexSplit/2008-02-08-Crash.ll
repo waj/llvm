@@ -1,4 +1,4 @@
-; RUN: opt < %s -loop-index-split -disable-output
+; RUN: llvm-as < %s | opt -loop-index-split -disable-output
 ; PR 1995
 
 define void @add_blkdev_randomness(i32 %major) nounwind  {

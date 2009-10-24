@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | grep nounwind
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep nounwind
 
 define void @bar() {
 entry:

@@ -19,7 +19,6 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/Statistic.h"
 #include <limits>
 using namespace llvm;
@@ -53,16 +52,15 @@ bool LiveStacks::runOnMachineFunction(MachineFunction &) {
 }
 
 /// print - Implement the dump method.
-void LiveStacks::print(raw_ostream &OS, const Module*) const {
-
-  OS << "********** INTERVALS **********\n";
+void LiveStacks::print(std::ostream &O, const Module*) const {
+  O << "********** INTERVALS **********\n";
   for (const_iterator I = begin(), E = end(); I != E; ++I) {
-    I->second.print(OS);
+    I->second.print(O);
     int Slot = I->first;
     const TargetRegisterClass *RC = getIntervalRegClass(Slot);
     if (RC)
-      OS << " [" << RC->getName() << "]\n";
+      O << " [" << RC->getName() << "]\n";
     else
-      OS << " [Unknown]\n";
+      O << " [Unknown]\n";
   }
 }

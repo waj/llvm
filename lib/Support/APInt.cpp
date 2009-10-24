@@ -1481,7 +1481,9 @@ APInt::ms APInt::magic() const {
   const APInt& d = *this;
   unsigned p;
   APInt ad, anc, delta, q1, r1, q2, r2, t;
+  APInt allOnes = APInt::getAllOnesValue(d.getBitWidth());
   APInt signedMin = APInt::getSignedMinValue(d.getBitWidth());
+  APInt signedMax = APInt::getSignedMaxValue(d.getBitWidth());
   struct ms mag;
 
   ad = d.abs();
@@ -2054,7 +2056,7 @@ void APInt::fromString(unsigned numbits, const StringRef& str, uint8_t radix) {
   assert(((slen-1)*3 <= numbits || radix != 8) && "Insufficient bit width");
   assert(((slen-1)*4 <= numbits || radix != 16) && "Insufficient bit width");
   assert((((slen-1)*64)/22 <= numbits || radix != 10)
-         && "Insufficient bit width");
+	 && "Insufficient bit width");
 
   // Allocate memory
   if (!isSingleWord())
@@ -2201,11 +2203,17 @@ void APInt::print(raw_ostream &OS, bool isSigned) const {
   OS << S.str();
 }
 
+std::ostream &llvm::operator<<(std::ostream &o, const APInt &I) {
+  raw_os_ostream OS(o);
+  OS << I;
+  return o;
+}
+
 // This implements a variety of operations on a representation of
 // arbitrary precision, two's-complement, bignum integer values.
 
-// Assumed by lowHalf, highHalf, partMSB and partLSB.  A fairly safe
-// and unrestricting assumption.
+/* Assumed by lowHalf, highHalf, partMSB and partLSB.  A fairly safe
+   and unrestricting assumption.  */
 #define COMPILE_TIME_ASSERT(cond) extern int CTAssert[(cond) ? 1 : -1]
 COMPILE_TIME_ASSERT(integerPartWidth % 2 == 0);
 

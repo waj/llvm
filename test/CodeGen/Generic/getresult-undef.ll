@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 define double @foo() {
   %t = getresult {double, double} undef, 1

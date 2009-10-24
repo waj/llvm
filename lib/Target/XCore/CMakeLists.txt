@@ -16,9 +16,9 @@ add_llvm_target(XCore
   XCoreInstrInfo.cpp
   XCoreISelDAGToDAG.cpp
   XCoreISelLowering.cpp
-  XCoreMCAsmInfo.cpp
   XCoreRegisterInfo.cpp
   XCoreSubtarget.cpp
+  XCoreTargetAsmInfo.cpp
   XCoreTargetMachine.cpp
   XCoreTargetObjectFile.cpp
   )

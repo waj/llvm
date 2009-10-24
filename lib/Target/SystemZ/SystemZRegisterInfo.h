@@ -55,9 +55,8 @@ struct SystemZRegisterInfo : public SystemZGenRegisterInfo {
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I) const;
 
-  unsigned eliminateFrameIndex(MachineBasicBlock::iterator II,
-                               int SPAdj, int *Value = NULL,
-                               RegScavenger *RS = NULL) const;
+  void eliminateFrameIndex(MachineBasicBlock::iterator II,
+                           int SPAdj, RegScavenger *RS = NULL) const;
 
 
   void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,

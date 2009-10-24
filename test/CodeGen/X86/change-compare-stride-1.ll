@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86-64 > %t
+; RUN: llvm-as < %s | llc -march=x86-64 > %t
 ; RUN: grep {cmpq	\$-478,} %t
 ; RUN: not grep inc %t
 ; RUN: not grep {leal	1(} %t

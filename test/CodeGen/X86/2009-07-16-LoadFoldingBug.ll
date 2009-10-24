@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=x86_64-apple-darwin10 | FileCheck %s
+; RUN: llvm-as < %s | llc -mtriple=x86_64-apple-darwin10 | FileCheck %s
 
 ; CHECK: _foo:
 ; CHECK: pavgw LCPI1_4(%rip)

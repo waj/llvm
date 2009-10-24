@@ -13,7 +13,7 @@ namespace llvmc {
 // FIXME: This currently work on linux and windows only. It does not 
 // work on other unices. 
 static std::string GetDirSeparator() {
-#if __linux__ || __APPLE__
+#ifdef __linux__
   return "/";
 #else
   return "\\";

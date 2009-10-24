@@ -20,86 +20,61 @@
 #include "llvm/GlobalAlias.h"
 #include "llvm/GlobalVariable.h"
 #include "llvm/Function.h"
-#include "llvm/Metadata.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/ConstantFolder.h"
 
 namespace llvm {
 
-/// IRBuilderDefaultInserter - This provides the default implementation of the
-/// IRBuilder 'InsertHelper' method that is called whenever an instruction is
-/// created by IRBuilder and needs to be inserted.  By default, this inserts the
-/// instruction at the insertion point.
-template <bool preserveNames = true>
-class IRBuilderDefaultInserter {
-protected:
-  void InsertHelper(Instruction *I, const Twine &Name,
-                    BasicBlock *BB, BasicBlock::iterator InsertPt) const {
-    if (BB) BB->getInstList().insert(InsertPt, I);
-    if (preserveNames)
-      I->setName(Name);
-  }
-};
-  
-  
 /// IRBuilder - This provides a uniform API for creating instructions and
 /// inserting them into a basic block: either at the end of a BasicBlock, or
 /// at a specific iterator location in a block.
 ///
 /// Note that the builder does not expose the full generality of LLVM
-/// instructions.  For access to extra instruction properties, use the mutators
+/// instructions.  For example, it cannot be used to create instructions with
+/// arbitrary names (specifically, names with nul characters in them) - It only
+/// supports nul-terminated C strings.  For fully generic names, use
+/// I->setName().  For access to extra instruction properties, use the mutators
 /// (e.g. setVolatile) on the instructions after they have been created.
 /// The first template argument handles whether or not to preserve names in the
 /// final instruction output. This defaults to on.  The second template argument
 /// specifies a class to use for creating constants.  This defaults to creating
-/// minimally folded constants.  The fourth template argument allows clients to
-/// specify custom insertion hooks that are called on every newly created
-/// insertion.
-template<bool preserveNames = true, typename T = ConstantFolder,
-         typename Inserter = IRBuilderDefaultInserter<preserveNames> >
-class IRBuilder : public Inserter {
+/// minimally folded constants.
+template <bool preserveNames=true, typename T = ConstantFolder> class IRBuilder{
   BasicBlock *BB;
   BasicBlock::iterator InsertPt;
-  unsigned MDKind;
-  MDNode *CurDbgLocation;
   LLVMContext &Context;
   T Folder;
 public:
-  IRBuilder(LLVMContext &C, const T &F, const Inserter &I = Inserter())
-    : Inserter(I), MDKind(0), CurDbgLocation(0), Context(C), Folder(F) {
-    ClearInsertionPoint(); 
-  }
+  IRBuilder(LLVMContext &C, const T& F) :
+    Context(C), Folder(F) { ClearInsertionPoint(); }
   
-  explicit IRBuilder(LLVMContext &C) 
-    : MDKind(0), CurDbgLocation(0), Context(C), Folder(C) {
+  explicit IRBuilder(LLVMContext &C) : Context(C), Folder(C) {
     ClearInsertionPoint();
   }
   
-  explicit IRBuilder(BasicBlock *TheBB, const T &F)
-    : MDKind(0), CurDbgLocation(0), Context(TheBB->getContext()), Folder(F) {
+  explicit IRBuilder(BasicBlock *TheBB, const T& F)
+      : Context(TheBB->getContext()), Folder(F) {
     SetInsertPoint(TheBB);
   }
   
   explicit IRBuilder(BasicBlock *TheBB)
-    : MDKind(0), CurDbgLocation(0), Context(TheBB->getContext()), 
-      Folder(Context) {
+      : Context(TheBB->getContext()), Folder(Context) {
     SetInsertPoint(TheBB);
   }
   
   IRBuilder(BasicBlock *TheBB, BasicBlock::iterator IP, const T& F)
-    : MDKind(0), CurDbgLocation(0), Context(TheBB->getContext()), Folder(F) {
+      : Context(TheBB->getContext()), Folder(F) {
     SetInsertPoint(TheBB, IP);
   }
   
   IRBuilder(BasicBlock *TheBB, BasicBlock::iterator IP)
-    : MDKind(0), CurDbgLocation(0), Context(TheBB->getContext()), 
-      Folder(Context) {
+      : Context(TheBB->getContext()), Folder(Context) {
     SetInsertPoint(TheBB, IP);
   }
 
   /// getFolder - Get the constant folder being used.
-  const T &getFolder() { return Folder; }
+  const T& getFolder() { return Folder; }
 
   /// isNamePreserving - Return true if this builder is configured to actually
   /// add the requested names to IR created through it.
@@ -133,31 +108,20 @@ public:
     InsertPt = IP;
   }
 
-  /// SetCurrentDebugLocation - Set location information used by debugging
-  /// information.
-  void SetCurrentDebugLocation(MDNode *L) {
-    if (MDKind == 0) 
-      MDKind = Context.getMetadata().getMDKind("dbg");
-    if (MDKind == 0)
-      MDKind = Context.getMetadata().registerMDKind("dbg");
-    CurDbgLocation = L;
-  }
-
-  MDNode *getCurrentDebugLocation() const { return CurDbgLocation; }
-
-  /// SetDebugLocation -  Set location information for the given instruction.
-  void SetDebugLocation(Instruction *I) {
-    if (CurDbgLocation)
-      Context.getMetadata().addMD(MDKind, CurDbgLocation, I);
-  }
-
   /// Insert - Insert and return the specified instruction.
   template<typename InstTy>
   InstTy *Insert(InstTy *I, const Twine &Name = "") const {
-    this->InsertHelper(I, Name, BB, InsertPt);
-    if (CurDbgLocation)
-      Context.getMetadata().addMD(MDKind, CurDbgLocation, I);
+    InsertHelper(I, Name);
     return I;
+  }
+
+  /// InsertHelper - Insert the specified instruction at the specified insertion
+  /// point.  This is split out of Insert so that it isn't duplicated for every
+  /// template instantiation.
+  void InsertHelper(Instruction *I, const Twine &Name) const {
+    if (BB) BB->getInstList().insert(InsertPt, I);
+    if (preserveNames)
+      I->setName(Name);
   }
 
   //===--------------------------------------------------------------------===//
@@ -298,12 +262,6 @@ public:
         return Folder.CreateSub(LC, RC);
     return Insert(BinaryOperator::CreateSub(LHS, RHS), Name);
   }
-  Value *CreateNSWSub(Value *LHS, Value *RHS, const Twine &Name = "") {
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      if (Constant *RC = dyn_cast<Constant>(RHS))
-        return Folder.CreateNSWSub(LC, RC);
-    return Insert(BinaryOperator::CreateNSWSub(LHS, RHS), Name);
-  }
   Value *CreateFSub(Value *LHS, Value *RHS, const Twine &Name = "") {
     if (Constant *LC = dyn_cast<Constant>(LHS))
       if (Constant *RC = dyn_cast<Constant>(RHS))
@@ -429,6 +387,10 @@ public:
   // Instruction creation methods: Memory Instructions
   //===--------------------------------------------------------------------===//
 
+  MallocInst *CreateMalloc(const Type *Ty, Value *ArraySize = 0,
+                           const Twine &Name = "") {
+    return Insert(new MallocInst(Ty, ArraySize), Name);
+  }
   AllocaInst *CreateAlloca(const Type *Ty, Value *ArraySize = 0,
                            const Twine &Name = "") {
     return Insert(new AllocaInst(Ty, ArraySize), Name);
@@ -444,7 +406,8 @@ public:
   LoadInst *CreateLoad(Value *Ptr, const Twine &Name = "") {
     return Insert(new LoadInst(Ptr), Name);
   }
-  LoadInst *CreateLoad(Value *Ptr, bool isVolatile, const Twine &Name = "") {
+  LoadInst *CreateLoad(Value *Ptr, bool isVolatile,
+                       const Twine &Name = "") {
     return Insert(new LoadInst(Ptr, 0, isVolatile), Name);
   }
   StoreInst *CreateStore(Value *Val, Value *Ptr, bool isVolatile = false) {
@@ -781,14 +744,14 @@ public:
     if (Constant *LC = dyn_cast<Constant>(LHS))
       if (Constant *RC = dyn_cast<Constant>(RHS))
         return Folder.CreateICmp(P, LC, RC);
-    return Insert(new ICmpInst(P, LHS, RHS), Name);
+    return Insert(new ICmpInst(Context, P, LHS, RHS), Name);
   }
   Value *CreateFCmp(CmpInst::Predicate P, Value *LHS, Value *RHS,
                     const Twine &Name = "") {
     if (Constant *LC = dyn_cast<Constant>(LHS))
       if (Constant *RC = dyn_cast<Constant>(RHS))
         return Folder.CreateFCmp(P, LC, RC);
-    return Insert(new FCmpInst(P, LHS, RHS), Name);
+    return Insert(new FCmpInst(Context, P, LHS, RHS), Name);
   }
 
   //===--------------------------------------------------------------------===//
@@ -898,7 +861,8 @@ public:
                            const Twine &Name = "") {
     if (Constant *AggC = dyn_cast<Constant>(Agg))
       if (Constant *ValC = dyn_cast<Constant>(Val))
-        return Folder.CreateInsertValue(AggC, ValC, IdxBegin, IdxEnd-IdxBegin);
+        return Folder.CreateInsertValue(AggC, ValC,
+                                            IdxBegin, IdxEnd - IdxBegin);
     return Insert(InsertValueInst::Create(Agg, Val, IdxBegin, IdxEnd), Name);
   }
 

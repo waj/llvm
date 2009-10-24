@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 using namespace llvm;
@@ -73,21 +73,21 @@ bool TargetInstrInfo::isUnpredicatedTerminator(const MachineInstr *MI) const {
 /// Variable-length instructions are not handled here; this function
 /// may be overloaded in the target code to do that.
 unsigned TargetInstrInfo::getInlineAsmLength(const char *Str,
-                                             const MCAsmInfo &MAI) const {
+                                             const TargetAsmInfo &TAI) const {
   
   
   // Count the number of instructions in the asm.
   bool atInsnStart = true;
   unsigned Length = 0;
   for (; *Str; ++Str) {
-    if (*Str == '\n' || *Str == MAI.getSeparatorChar())
+    if (*Str == '\n' || *Str == TAI.getSeparatorChar())
       atInsnStart = true;
     if (atInsnStart && !isspace(*Str)) {
-      Length += MAI.getMaxInstLength();
+      Length += TAI.getMaxInstLength();
       atInsnStart = false;
     }
-    if (atInsnStart && strncmp(Str, MAI.getCommentString(),
-                               strlen(MAI.getCommentString())) == 0)
+    if (atInsnStart && strncmp(Str, TAI.getCommentString(),
+                               strlen(TAI.getCommentString())) == 0)
       atInsnStart = false;
   }
   

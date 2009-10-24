@@ -23,7 +23,6 @@
 #include "llvm/IntrinsicInst.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Pass.h"
-#include "llvm/Analysis/ProfileInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Transforms/Utils/AddrModeMatcher.h"
@@ -34,6 +33,7 @@
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/PatternMatch.h"
@@ -45,11 +45,10 @@ static cl::opt<bool> FactorCommonPreds("split-critical-paths-tweak",
                                        cl::init(false), cl::Hidden);
 
 namespace {
-  class CodeGenPrepare : public FunctionPass {
+  class VISIBILITY_HIDDEN CodeGenPrepare : public FunctionPass {
     /// TLI - Keep a pointer of a TargetLowering to consult for determining
     /// transformation profitability.
     const TargetLowering *TLI;
-    ProfileInfo *PI;
 
     /// BackEdges - Keep a set of all the loop back edges.
     ///
@@ -60,10 +59,6 @@ namespace {
       : FunctionPass(&ID), TLI(tli) {}
     bool runOnFunction(Function &F);
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-      AU.addPreserved<ProfileInfo>();
-    }
-
   private:
     bool EliminateMostlyEmptyBlocks(Function &F);
     bool CanMergeBlocks(const BasicBlock *BB, const BasicBlock *DestBB) const;
@@ -73,7 +68,6 @@ namespace {
                             DenseMap<Value*,Value*> &SunkAddrs);
     bool OptimizeInlineAsmInst(Instruction *I, CallSite CS,
                                DenseMap<Value*,Value*> &SunkAddrs);
-    bool MoveExtToFormExtLoad(Instruction *I);
     bool OptimizeExtUses(Instruction *I);
     void findLoopBackEdges(const Function &F);
   };
@@ -100,7 +94,6 @@ void CodeGenPrepare::findLoopBackEdges(const Function &F) {
 bool CodeGenPrepare::runOnFunction(Function &F) {
   bool EverMadeChange = false;
 
-  PI = getAnalysisIfAvailable<ProfileInfo>();
   // First pass, eliminate blocks that contain only PHI nodes and an
   // unconditional branch.
   EverMadeChange |= EliminateMostlyEmptyBlocks(F);
@@ -238,7 +231,7 @@ void CodeGenPrepare::EliminateMostlyEmptyBlock(BasicBlock *BB) {
   BranchInst *BI = cast<BranchInst>(BB->getTerminator());
   BasicBlock *DestBB = BI->getSuccessor(0);
 
-  DEBUG(errs() << "MERGING MOSTLY EMPTY BLOCKS - BEFORE:\n" << *BB << *DestBB);
+  DOUT << "MERGING MOSTLY EMPTY BLOCKS - BEFORE:\n" << *BB << *DestBB;
 
   // If the destination block has a single pred, then this is a trivial edge,
   // just collapse it.
@@ -247,12 +240,12 @@ void CodeGenPrepare::EliminateMostlyEmptyBlock(BasicBlock *BB) {
       // Remember if SinglePred was the entry block of the function.  If so, we
       // will need to move BB back to the entry position.
       bool isEntry = SinglePred == &SinglePred->getParent()->getEntryBlock();
-      MergeBasicBlockIntoOnlyPred(DestBB, this);
+      MergeBasicBlockIntoOnlyPred(DestBB);
 
       if (isEntry && BB != &BB->getParent()->getEntryBlock())
         BB->moveBefore(&BB->getParent()->getEntryBlock());
       
-      DEBUG(errs() << "AFTER:\n" << *DestBB << "\n\n\n");
+      DOUT << "AFTER:\n" << *DestBB << "\n\n\n";
       return;
     }
   }
@@ -289,13 +282,9 @@ void CodeGenPrepare::EliminateMostlyEmptyBlock(BasicBlock *BB) {
   // The PHIs are now updated, change everything that refers to BB to use
   // DestBB and remove BB.
   BB->replaceAllUsesWith(DestBB);
-  if (PI) {
-    PI->replaceAllUses(BB, DestBB);
-    PI->removeEdge(ProfileInfo::getEdge(BB, DestBB));
-  }
   BB->eraseFromParent();
 
-  DEBUG(errs() << "AFTER:\n" << *DestBB << "\n\n\n");
+  DOUT << "AFTER:\n" << *DestBB << "\n\n\n";
 }
 
 
@@ -368,9 +357,6 @@ static void SplitEdgeNicely(TerminatorInst *TI, unsigned SuccNum,
 
       // If we found a workable predecessor, change TI to branch to Succ.
       if (FoundMatch) {
-        ProfileInfo *PI = P->getAnalysisIfAvailable<ProfileInfo>();
-        if (PI)
-          PI->splitEdge(TIBB, Dest, Pred);
         Dest->removePredecessor(TIBB);
         TI->setSuccessor(SuccNum, Pred);
         return;
@@ -533,7 +519,7 @@ static bool OptimizeCmpExpression(CmpInst *CI) {
       BasicBlock::iterator InsertPt = UserBB->getFirstNonPHI();
 
       InsertedCmp =
-        CmpInst::Create(CI->getOpcode(),
+        CmpInst::Create(DefBB->getContext(), CI->getOpcode(), 
                         CI->getPredicate(),  CI->getOperand(0),
                         CI->getOperand(1), "", InsertPt);
       MadeChange = true;
@@ -732,43 +718,6 @@ bool CodeGenPrepare::OptimizeInlineAsmInst(Instruction *I, CallSite CS,
   return MadeChange;
 }
 
-/// MoveExtToFormExtLoad - Move a zext or sext fed by a load into the same
-/// basic block as the load, unless conditions are unfavorable. This allows
-/// SelectionDAG to fold the extend into the load.
-///
-bool CodeGenPrepare::MoveExtToFormExtLoad(Instruction *I) {
-  // Look for a load being extended.
-  LoadInst *LI = dyn_cast<LoadInst>(I->getOperand(0));
-  if (!LI) return false;
-
-  // If they're already in the same block, there's nothing to do.
-  if (LI->getParent() == I->getParent())
-    return false;
-
-  // If the load has other users and the truncate is not free, this probably
-  // isn't worthwhile.
-  if (!LI->hasOneUse() &&
-      TLI && !TLI->isTruncateFree(I->getType(), LI->getType()))
-    return false;
-
-  // Check whether the target supports casts folded into loads.
-  unsigned LType;
-  if (isa<ZExtInst>(I))
-    LType = ISD::ZEXTLOAD;
-  else {
-    assert(isa<SExtInst>(I) && "Unexpected ext type!");
-    LType = ISD::SEXTLOAD;
-  }
-  if (TLI && !TLI->isLoadExtLegal(LType, TLI->getValueType(LI->getType())))
-    return false;
-
-  // Move the extend into the same block as the load, so that SelectionDAG
-  // can fold it.
-  I->removeFromParent();
-  I->insertAfter(LI);
-  return true;
-}
-
 bool CodeGenPrepare::OptimizeExtUses(Instruction *I) {
   BasicBlock *DefBB = I->getParent();
 
@@ -884,10 +833,8 @@ bool CodeGenPrepare::OptimizeBlock(BasicBlock &BB) {
         MadeChange |= Change;
       }
 
-      if (!Change && (isa<ZExtInst>(I) || isa<SExtInst>(I))) {
-        MadeChange |= MoveExtToFormExtLoad(I);
+      if (!Change && (isa<ZExtInst>(I) || isa<SExtInst>(I)))
         MadeChange |= OptimizeExtUses(I);
-      }
     } else if (CmpInst *CI = dyn_cast<CmpInst>(I)) {
       MadeChange |= OptimizeCmpExpression(CI);
     } else if (LoadInst *LI = dyn_cast<LoadInst>(I)) {

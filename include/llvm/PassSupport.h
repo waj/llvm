@@ -21,7 +21,7 @@
 #ifndef LLVM_PASS_SUPPORT_H
 #define LLVM_PASS_SUPPORT_H
 
-#include "Pass.h"
+// No need to include Pass.h, we are being included by it!
 
 namespace llvm {
 
@@ -190,11 +190,14 @@ struct RegisterPass : public PassInfo {
 /// a nice name with the interface.
 ///
 class RegisterAGBase : public PassInfo {
+  PassInfo *InterfaceInfo;
+  const PassInfo *ImplementationInfo;
+  bool isDefaultImplementation;
 protected:
-  RegisterAGBase(const char *Name,
-                 intptr_t InterfaceID,
-                 intptr_t PassID = 0,
-                 bool isDefault = false);
+  explicit RegisterAGBase(const char *Name,
+                          intptr_t InterfaceID,
+                          intptr_t PassID = 0,
+                          bool isDefault = false);
 };
 
 template<typename Interface, bool Default = false>

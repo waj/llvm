@@ -2,7 +2,7 @@
 ; entries for it's postdominator.  But I think this can only happen when the 
 ; PHI node is dead, so we just avoid patching up dead PHI nodes.
 
-; RUN: opt < %s -adce
+; RUN: llvm-as < %s | opt -adce
 
 target datalayout = "e-p:32:32"
 

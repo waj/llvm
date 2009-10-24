@@ -16,6 +16,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/System/Mutex.h"
 #include "llvm/System/Threading.h"
 #include "llvm/Value.h"
@@ -63,8 +64,8 @@ void LeakDetector::checkForGarbageImpl(LLVMContext &Context,
   // use non-short-circuit version so that both checks are performed
   if (Objects->hasGarbage(Message) |
       pImpl->LLVMObjects.hasGarbage(Message))
-    errs() << "\nThis is probably because you removed an object, but didn't "
-           << "delete it.  Please check your code for memory leaks.\n";
+    cerr << "\nThis is probably because you removed an object, but didn't "
+         << "delete it.  Please check your code for memory leaks.\n";
 
   // Clear out results so we don't get duplicate warnings on
   // next call...

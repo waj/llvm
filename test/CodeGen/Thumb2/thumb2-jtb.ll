@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=thumb -mattr=+thumb2 | not grep tbb
+; RUN: llvm-as < %s | llc -march=thumb -mattr=+thumb2 | not grep tbb
 
 ; Do not use tbb / tbh if any destination is before the jumptable.
 ; rdar://7102917

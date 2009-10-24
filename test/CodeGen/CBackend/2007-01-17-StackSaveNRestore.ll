@@ -1,5 +1,5 @@
-; RUN: llc < %s -march=c | grep __builtin_stack_save
-; RUN: llc < %s -march=c | grep __builtin_stack_restore
+; RUN: llvm-as < %s | llc -march=c | grep __builtin_stack_save
+; RUN: llvm-as < %s | llc -march=c | grep __builtin_stack_restore
 ; PR1028
 
 declare i8* @llvm.stacksave()

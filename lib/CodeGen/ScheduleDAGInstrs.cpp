@@ -17,7 +17,6 @@
 #include "llvm/Operator.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
-#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/Target/TargetMachine.h"
@@ -32,9 +31,7 @@ using namespace llvm;
 ScheduleDAGInstrs::ScheduleDAGInstrs(MachineFunction &mf,
                                      const MachineLoopInfo &mli,
                                      const MachineDominatorTree &mdt)
-  : ScheduleDAG(mf), MLI(mli), MDT(mdt), LoopRegs(MLI, MDT) {
-  MFI = mf.getFrameInfo();
-}
+  : ScheduleDAG(mf), MLI(mli), MDT(mdt), LoopRegs(MLI, MDT) {}
 
 /// Run - perform scheduling.
 ///
@@ -97,31 +94,21 @@ static const Value *getUnderlyingObject(const Value *V) {
 /// getUnderlyingObjectForInstr - If this machine instr has memory reference
 /// information and it can be tracked to a normal reference to a known
 /// object, return the Value for that object. Otherwise return null.
-static const Value *getUnderlyingObjectForInstr(const MachineInstr *MI,
-                                                const MachineFrameInfo *MFI) {
+static const Value *getUnderlyingObjectForInstr(const MachineInstr *MI) {
   if (!MI->hasOneMemOperand() ||
-      !(*MI->memoperands_begin())->getValue() ||
-      (*MI->memoperands_begin())->isVolatile())
+      !MI->memoperands_begin()->getValue() ||
+      MI->memoperands_begin()->isVolatile())
     return 0;
 
-  const Value *V = (*MI->memoperands_begin())->getValue();
+  const Value *V = MI->memoperands_begin()->getValue();
   if (!V)
     return 0;
 
   V = getUnderlyingObject(V);
-  if (const PseudoSourceValue *PSV = dyn_cast<PseudoSourceValue>(V)) {
-    // For now, ignore PseudoSourceValues which may alias LLVM IR values
-    // because the code that uses this function has no way to cope with
-    // such aliases.
-    if (PSV->isAliased(MFI))
-      return 0;
-    return V;
-  }
+  if (!isa<PseudoSourceValue>(V) && !isIdentifiedObject(V))
+    return 0;
 
-  if (isIdentifiedObject(V))
-    return V;
-
-  return 0;
+  return V;
 }
 
 void ScheduleDAGInstrs::StartBlock(MachineBasicBlock *BB) {
@@ -135,7 +122,7 @@ void ScheduleDAGInstrs::StartBlock(MachineBasicBlock *BB) {
     }
 }
 
-void ScheduleDAGInstrs::BuildSchedGraph(AliasAnalysis *AA) {
+void ScheduleDAGInstrs::BuildSchedGraph() {
   // We'll be allocating one SUnit for each instruction, plus one for
   // the region exit node.
   SUnits.reserve(BB->size());
@@ -348,15 +335,15 @@ void ScheduleDAGInstrs::BuildSchedGraph(AliasAnalysis *AA) {
       if (!ChainTID.isCall() &&
           !ChainTID.hasUnmodeledSideEffects() &&
           ChainMI->hasOneMemOperand() &&
-          !(*ChainMI->memoperands_begin())->isVolatile() &&
-          (*ChainMI->memoperands_begin())->getValue())
+          !ChainMI->memoperands_begin()->isVolatile() &&
+          ChainMI->memoperands_begin()->getValue())
         // We know that the Chain accesses one specific memory location.
-        ChainMMO = *ChainMI->memoperands_begin();
+        ChainMMO = &*ChainMI->memoperands_begin();
       else
         // Unknown memory accesses. Assume the worst.
         ChainMMO = 0;
     } else if (TID.mayStore()) {
-      if (const Value *V = getUnderlyingObjectForInstr(MI, MFI)) {
+      if (const Value *V = getUnderlyingObjectForInstr(MI)) {
         // A store to a specific PseudoSourceValue. Add precise dependencies.
         // Handle the def in MemDefs, if there is one.
         std::map<const Value *, SUnit *>::iterator I = MemDefs.find(V);
@@ -387,9 +374,9 @@ void ScheduleDAGInstrs::BuildSchedGraph(AliasAnalysis *AA) {
         // Treat all other stores conservatively.
         goto new_chain;
     } else if (TID.mayLoad()) {
-      if (MI->isInvariantLoad(AA)) {
+      if (TII->isInvariantLoad(MI)) {
         // Invariant load, no chain dependencies needed!
-      } else if (const Value *V = getUnderlyingObjectForInstr(MI, MFI)) {
+      } else if (const Value *V = getUnderlyingObjectForInstr(MI)) {
         // A load from a specific PseudoSourceValue. Add precise dependencies.
         std::map<const Value *, SUnit *>::iterator I = MemDefs.find(V);
         if (I != MemDefs.end())
@@ -506,8 +493,7 @@ std::string ScheduleDAGInstrs::getGraphNodeLabel(const SUnit *SU) const {
 }
 
 // EmitSchedule - Emit the machine code in scheduled order.
-MachineBasicBlock *ScheduleDAGInstrs::
-EmitSchedule(DenseMap<MachineBasicBlock*, MachineBasicBlock*> *EM) {
+MachineBasicBlock *ScheduleDAGInstrs::EmitSchedule() {
   // For MachineInstr-based scheduling, we're rescheduling the instructions in
   // the block, so start by removing them from the block.
   while (Begin != InsertPos) {

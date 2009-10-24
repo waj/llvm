@@ -1,4 +1,4 @@
-; RUN: opt < %s -simplifycfg -S | not grep br
+; RUN: llvm-as < %s | opt -simplifycfg | llvm-dis | not grep br
 
 define i32 @test1(i1 %C) {
 entry:

@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse2 | grep movss
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse2 | grep movss
 ; PR2472
 
 define <4 x i32> @a(<4 x i32> %a) nounwind {

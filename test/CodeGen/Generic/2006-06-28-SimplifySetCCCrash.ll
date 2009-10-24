@@ -1,4 +1,4 @@
-; RUN: llc < %s	
+; RUN: llvm-as < %s | llc	
 %struct.rtunion = type { i64 }
 	%struct.rtx_def = type { i16, i8, i8, [1 x %struct.rtunion] }
 @ix86_cpu = external global i32		; <i32*> [#uses=1]

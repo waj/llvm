@@ -23,20 +23,22 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/DominatorInternals.h"
 #include "llvm/Instructions.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Streams.h"
 #include <algorithm>
 using namespace llvm;
 
-// Always verify dominfo if expensive checking is enabled.
-#ifdef XDEBUG
-bool VerifyDomInfo = true;
-#else
-bool VerifyDomInfo = false;
-#endif
-static cl::opt<bool,true>
-VerifyDomInfoX("verify-dom-info", cl::location(VerifyDomInfo),
-               cl::desc("Verify dominator info (time consuming)"));
+namespace llvm {
+static std::ostream &operator<<(std::ostream &o,
+                                const std::set<BasicBlock*> &BBs) {
+  for (std::set<BasicBlock*>::const_iterator I = BBs.begin(), E = BBs.end();
+       I != E; ++I)
+    if (*I)
+      WriteAsOperand(o, *I, false);
+    else
+      o << " <<exit node>>";
+  return o;
+}
+}
 
 //===----------------------------------------------------------------------===//
 //  DominatorTree Implementation
@@ -59,47 +61,6 @@ bool DominatorTree::runOnFunction(Function &F) {
   return false;
 }
 
-void DominatorTree::verifyAnalysis() const {
-  if (!VerifyDomInfo) return;
-
-  Function &F = *getRoot()->getParent();
-
-  DominatorTree OtherDT;
-  OtherDT.getBase().recalculate(F);
-  assert(!compare(OtherDT) && "Invalid DominatorTree info!");
-}
-
-void DominatorTree::print(raw_ostream &OS, const Module *) const {
-  DT->print(OS);
-}
-
-// dominates - Return true if A dominates a use in B. This performs the
-// special checks necessary if A and B are in the same basic block.
-bool DominatorTree::dominates(const Instruction *A, const Instruction *B) const{
-  const BasicBlock *BBA = A->getParent(), *BBB = B->getParent();
-  
-  // If A is an invoke instruction, its value is only available in this normal
-  // successor block.
-  if (const InvokeInst *II = dyn_cast<InvokeInst>(A))
-    BBA = II->getNormalDest();
-  
-  if (BBA != BBB) return dominates(BBA, BBB);
-  
-  // It is not possible to determine dominance between two PHI nodes 
-  // based on their ordering.
-  if (isa<PHINode>(A) && isa<PHINode>(B)) 
-    return false;
-  
-  // Loop through the basic block until we find A or B.
-  BasicBlock::const_iterator I = BBA->begin();
-  for (; &*I != A && &*I != B; ++I)
-    /*empty*/;
-  
-  return &*I == A;
-}
-
-
-
 //===----------------------------------------------------------------------===//
 //  DominanceFrontier Implementation
 //===----------------------------------------------------------------------===//
@@ -107,17 +68,6 @@ bool DominatorTree::dominates(const Instruction *A, const Instruction *B) const{
 char DominanceFrontier::ID = 0;
 static RegisterPass<DominanceFrontier>
 G("domfrontier", "Dominance Frontier Construction", true, true);
-
-void DominanceFrontier::verifyAnalysis() const {
-  if (!VerifyDomInfo) return;
-
-  DominatorTree &DT = getAnalysis<DominatorTree>();
-
-  DominanceFrontier OtherDF;
-  const std::vector<BasicBlock*> &DTRoots = DT.getRoots();
-  OtherDF.calculate(DT, DT.getNode(DTRoots[0]));
-  assert(!compare(OtherDF) && "Invalid DominanceFrontier info!");
-}
 
 // NewBB is split and now it has one successor. Update dominace frontier to
 // reflect this change.
@@ -320,24 +270,18 @@ DominanceFrontier::calculate(const DominatorTree &DT,
   return *Result;
 }
 
-void DominanceFrontierBase::print(raw_ostream &OS, const Module* ) const {
+void DominanceFrontierBase::print(std::ostream &o, const Module* ) const {
   for (const_iterator I = begin(), E = end(); I != E; ++I) {
-    OS << "  DomFrontier for BB";
+    o << "  DomFrontier for BB";
     if (I->first)
-      WriteAsOperand(OS, I->first, false);
+      WriteAsOperand(o, I->first, false);
     else
-      OS << " <<exit node>>";
-    OS << " is:\t";
-    
-    const std::set<BasicBlock*> &BBs = I->second;
-    
-    for (std::set<BasicBlock*>::const_iterator I = BBs.begin(), E = BBs.end();
-         I != E; ++I)
-      if (*I)
-        WriteAsOperand(OS, *I, false);
-      else
-        OS << " <<exit node>>";
-    OS << "\n";
+      o << " <<exit node>>";
+    o << " is:\t" << I->second << "\n";
   }
+}
+
+void DominanceFrontierBase::dump() {
+  print (llvm::cerr);
 }
 

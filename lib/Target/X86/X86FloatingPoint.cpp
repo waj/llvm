@@ -76,12 +76,12 @@ namespace {
     unsigned StackTop;          // The current top of the FP stack.
 
     void dumpStack() const {
-      errs() << "Stack contents:";
+      cerr << "Stack contents:";
       for (unsigned i = 0; i != StackTop; ++i) {
-        errs() << " FP" << Stack[i];
+        cerr << " FP" << Stack[i];
         assert(RegMap[Stack[i]] == i && "Stack[] doesn't match RegMap[]!");
       }
-      errs() << "\n";
+      cerr << "\n";
     }
   private:
     /// isStackEmpty - Return true if the FP stack is empty.
@@ -283,13 +283,13 @@ bool FPS::processBasicBlock(MachineFunction &MF, MachineBasicBlock &BB) {
     DEBUG(
       MachineBasicBlock::iterator PrevI(PrevMI);
       if (I == PrevI) {
-        errs() << "Just deleted pseudo instruction\n";
+        cerr << "Just deleted pseudo instruction\n";
       } else {
         MachineBasicBlock::iterator Start = I;
         // Rewind to first instruction newly inserted.
         while (Start != BB.begin() && prior(Start) != PrevI) --Start;
-        errs() << "Inserted instructions:\n\t";
-        Start->print(errs(), &MF.getTarget());
+        cerr << "Inserted instructions:\n\t";
+        Start->print(*cerr.stream(), &MF.getTarget());
         while (++Start != next(I)) {}
       }
       dumpStack();

@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86-64 | grep {testb	\[%\]al, \[%\]al}
+; RUN: llvm-as < %s | llc -march=x86-64 | grep {testb	\[%\]al, \[%\]al}
 
 %struct.__va_list_tag = type { i32, i32, i8*, i8* }
 

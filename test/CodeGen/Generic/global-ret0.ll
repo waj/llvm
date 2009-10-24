@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 @g = global i32 0               ; <i32*> [#uses=1]
 

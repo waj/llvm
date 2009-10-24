@@ -18,7 +18,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
-#include "llvm/CallingConv.h"
 
 namespace llvm {
   class TargetRegisterInfo;
@@ -143,7 +142,7 @@ typedef bool CCCustomFn(unsigned &ValNo, EVT &ValVT,
 /// return values.  It captures which registers are already assigned and which
 /// stack slots are used.  It provides accessors to allocate these values.
 class CCState {
-  CallingConv::ID CallingConv;
+  unsigned CallingConv;
   bool IsVarArg;
   const TargetMachine &TM;
   const TargetRegisterInfo &TRI;
@@ -153,7 +152,7 @@ class CCState {
   unsigned StackOffset;
   SmallVector<uint32_t, 16> UsedRegs;
 public:
-  CCState(CallingConv::ID CC, bool isVarArg, const TargetMachine &TM,
+  CCState(unsigned CC, bool isVarArg, const TargetMachine &TM,
           SmallVector<CCValAssign, 16> &locs, LLVMContext &C);
 
   void addLoc(const CCValAssign &V) {
@@ -162,7 +161,7 @@ public:
 
   LLVMContext &getContext() const { return Context; }
   const TargetMachine &getTarget() const { return TM; }
-  CallingConv::ID getCallingConv() const { return CallingConv; }
+  unsigned getCallingConv() const { return CallingConv; }
   bool isVarArg() const { return IsVarArg; }
 
   unsigned getNextStackOffset() const { return StackOffset; }

@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=cellspu > %t1.s
+; RUN: llvm-as -o - %s | llc -march=cellspu > %t1.s
 ; RUN: grep ceq                                %t1.s | count 20
 ; RUN: grep cgti                               %t1.s | count 12
 ; RUN: grep cgt                                %t1.s | count 16

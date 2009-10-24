@@ -16,6 +16,7 @@
 
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/ADT/GraphTraits.h"
+#include "llvm/CodeGen/Dump.h"
 
 namespace llvm {
 
@@ -26,7 +27,7 @@ class raw_ostream;
 template <>
 struct ilist_traits<MachineInstr> : public ilist_default_traits<MachineInstr> {
 private:
-  mutable ilist_half_node<MachineInstr> Sentinel;
+  mutable ilist_node<MachineInstr> Sentinel;
 
   // this is only set by the MachineBasicBlock owning the LiveList
   friend class MachineBasicBlock;
@@ -310,7 +311,18 @@ public:
 
   // Debugging methods.
   void dump() const;
-  void print(raw_ostream &OS) const;
+  void print(std::ostream &OS,
+             const PrefixPrinter &prefix = PrefixPrinter()) const;
+  void print(std::ostream *OS,
+             const PrefixPrinter &prefix = PrefixPrinter()) const {
+    if (OS) print(*OS, prefix); 
+  }
+  void print(raw_ostream &OS,
+             const PrefixPrinter &prefix = PrefixPrinter()) const;
+  void print(raw_ostream *OS,
+             const PrefixPrinter &prefix = PrefixPrinter()) const {
+    if (OS) print(*OS, prefix);
+  }
 
   /// getNumber - MachineBasicBlocks are uniquely numbered at the function
   /// level, unless they're not in a MachineFunction yet, in which case this
@@ -338,6 +350,7 @@ private:   // Methods used to maintain doubly linked list of blocks...
   void removePredecessor(MachineBasicBlock *pred);
 };
 
+std::ostream& operator<<(std::ostream &OS, const MachineBasicBlock &MBB);
 raw_ostream& operator<<(raw_ostream &OS, const MachineBasicBlock &MBB);
 
 //===--------------------------------------------------------------------===//

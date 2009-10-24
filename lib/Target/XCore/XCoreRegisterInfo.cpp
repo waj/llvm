@@ -145,8 +145,8 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
       if (!isU6 && !isImmU16(Amount)) {
         // FIX could emit multiple instructions in this case.
 #ifndef NDEBUG
-        errs() << "eliminateCallFramePseudoInstr size too big: "
-               << Amount << "\n";
+        cerr << "eliminateCallFramePseudoInstr size too big: "
+             << Amount << "\n";
 #endif
         llvm_unreachable(0);
       }
@@ -171,10 +171,8 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   MBB.erase(I);
 }
 
-unsigned
-XCoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                       int SPAdj, int *Value,
-                                       RegScavenger *RS) const {
+void XCoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                            int SPAdj, RegScavenger *RS) const {
   assert(SPAdj == 0 && "Unexpected");
   MachineInstr &MI = *II;
   DebugLoc dl = MI.getDebugLoc();
@@ -195,11 +193,11 @@ XCoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   #ifndef NDEBUG
   DEBUG(errs() << "\nFunction         : " 
         << MF.getFunction()->getName() << "\n");
-  DEBUG(errs() << "<--------->\n");
-  DEBUG(MI.print(errs()));
-  DEBUG(errs() << "FrameIndex         : " << FrameIndex << "\n");
-  DEBUG(errs() << "FrameOffset        : " << Offset << "\n");
-  DEBUG(errs() << "StackSize          : " << StackSize << "\n");
+  DOUT << "<--------->\n";
+  MI.print(DOUT);
+  DOUT << "FrameIndex         : " << FrameIndex << "\n";
+  DOUT << "FrameOffset        : " << Offset << "\n";
+  DOUT << "StackSize          : " << StackSize << "\n";
   #endif
 
   Offset += StackSize;
@@ -210,7 +208,10 @@ XCoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   
   assert(Offset%4 == 0 && "Misaligned stack offset");
 
-  DEBUG(errs() << "Offset             : " << Offset << "\n" << "<--------->\n");
+  #ifndef NDEBUG
+  DOUT << "Offset             : " << Offset << "\n";
+  DOUT << "<--------->\n";
+  #endif
   
   Offset/=4;
   
@@ -228,6 +229,7 @@ XCoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     bool isUs = isImmUs(Offset);
     unsigned FramePtr = XCore::R10;
     
+    MachineInstr *New = 0;
     if (!isUs) {
       if (!RS) {
         std::string msg;
@@ -240,18 +242,18 @@ XCoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       loadConstant(MBB, II, ScratchReg, Offset, dl);
       switch (MI.getOpcode()) {
       case XCore::LDWFI:
-        BuildMI(MBB, II, dl, TII.get(XCore::LDW_3r), Reg)
+        New = BuildMI(MBB, II, dl, TII.get(XCore::LDW_3r), Reg)
               .addReg(FramePtr)
               .addReg(ScratchReg, RegState::Kill);
         break;
       case XCore::STWFI:
-        BuildMI(MBB, II, dl, TII.get(XCore::STW_3r))
+        New = BuildMI(MBB, II, dl, TII.get(XCore::STW_3r))
               .addReg(Reg, getKillRegState(isKill))
               .addReg(FramePtr)
               .addReg(ScratchReg, RegState::Kill);
         break;
       case XCore::LDAWFI:
-        BuildMI(MBB, II, dl, TII.get(XCore::LDAWF_l3r), Reg)
+        New = BuildMI(MBB, II, dl, TII.get(XCore::LDAWF_l3r), Reg)
               .addReg(FramePtr)
               .addReg(ScratchReg, RegState::Kill);
         break;
@@ -261,18 +263,18 @@ XCoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     } else {
       switch (MI.getOpcode()) {
       case XCore::LDWFI:
-        BuildMI(MBB, II, dl, TII.get(XCore::LDW_2rus), Reg)
+        New = BuildMI(MBB, II, dl, TII.get(XCore::LDW_2rus), Reg)
               .addReg(FramePtr)
               .addImm(Offset);
         break;
       case XCore::STWFI:
-        BuildMI(MBB, II, dl, TII.get(XCore::STW_2rus))
+        New = BuildMI(MBB, II, dl, TII.get(XCore::STW_2rus))
               .addReg(Reg, getKillRegState(isKill))
               .addReg(FramePtr)
               .addImm(Offset);
         break;
       case XCore::LDAWFI:
-        BuildMI(MBB, II, dl, TII.get(XCore::LDAWF_l2rus), Reg)
+        New = BuildMI(MBB, II, dl, TII.get(XCore::LDAWF_l2rus), Reg)
               .addReg(FramePtr)
               .addImm(Offset);
         break;
@@ -313,7 +315,6 @@ XCoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   }
   // Erase old instruction.
   MBB.erase(II);
-  return 0;
 }
 
 void

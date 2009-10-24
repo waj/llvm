@@ -1,5 +1,5 @@
-; RUN: llc < %s | not grep rep
-; RUN: llc < %s | grep memset
+; RUN: llvm-as < %s | llc | not grep rep
+; RUN: llvm-as < %s | llc | grep memset
 
 target triple = "i386"
 

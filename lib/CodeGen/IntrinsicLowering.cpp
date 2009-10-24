@@ -16,9 +16,8 @@
 #include "llvm/Module.h"
 #include "llvm/Type.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/IRBuilder.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/ADT/SmallVector.h"
 using namespace llvm;
@@ -103,22 +102,22 @@ void IntrinsicLowering::AddPrototypes(Module &M) {
         break;
       case Intrinsic::memcpy:
         M.getOrInsertFunction("memcpy",
-          Type::getInt8PtrTy(Context),
-                              Type::getInt8PtrTy(Context), 
-                              Type::getInt8PtrTy(Context), 
+          PointerType::getUnqual(Type::getInt8Ty(Context)),
+                              PointerType::getUnqual(Type::getInt8Ty(Context)), 
+                              PointerType::getUnqual(Type::getInt8Ty(Context)), 
                               TD.getIntPtrType(Context), (Type *)0);
         break;
       case Intrinsic::memmove:
         M.getOrInsertFunction("memmove",
-          Type::getInt8PtrTy(Context),
-                              Type::getInt8PtrTy(Context), 
-                              Type::getInt8PtrTy(Context), 
+          PointerType::getUnqual(Type::getInt8Ty(Context)),
+                              PointerType::getUnqual(Type::getInt8Ty(Context)), 
+                              PointerType::getUnqual(Type::getInt8Ty(Context)), 
                               TD.getIntPtrType(Context), (Type *)0);
         break;
       case Intrinsic::memset:
         M.getOrInsertFunction("memset",
-          Type::getInt8PtrTy(Context),
-                              Type::getInt8PtrTy(Context), 
+          PointerType::getUnqual(Type::getInt8Ty(Context)),
+                              PointerType::getUnqual(Type::getInt8Ty(Context)), 
                               Type::getInt32Ty(M.getContext()), 
                               TD.getIntPtrType(Context), (Type *)0);
         break;
@@ -397,8 +396,8 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
   case Intrinsic::stacksave:
   case Intrinsic::stackrestore: {
     if (!Warned)
-      errs() << "WARNING: this target does not support the llvm.stack"
-             << (Callee->getIntrinsicID() == Intrinsic::stacksave ?
+      cerr << "WARNING: this target does not support the llvm.stack"
+           << (Callee->getIntrinsicID() == Intrinsic::stacksave ?
                "save" : "restore") << " intrinsic.\n";
     Warned = true;
     if (Callee->getIntrinsicID() == Intrinsic::stacksave)
@@ -408,8 +407,8 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
     
   case Intrinsic::returnaddress:
   case Intrinsic::frameaddress:
-    errs() << "WARNING: this target does not support the llvm."
-           << (Callee->getIntrinsicID() == Intrinsic::returnaddress ?
+    cerr << "WARNING: this target does not support the llvm."
+         << (Callee->getIntrinsicID() == Intrinsic::returnaddress ?
              "return" : "frame") << "address intrinsic.\n";
     CI->replaceAllUsesWith(ConstantPointerNull::get(
                                             cast<PointerType>(CI->getType())));
@@ -421,8 +420,8 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
   case Intrinsic::pcmarker:
     break;    // Simply strip out pcmarker on unsupported architectures
   case Intrinsic::readcyclecounter: {
-    errs() << "WARNING: this target does not support the llvm.readcyclecoun"
-           << "ter intrinsic.  It is being lowered to a constant 0\n";
+    cerr << "WARNING: this target does not support the llvm.readcyclecoun"
+         << "ter intrinsic.  It is being lowered to a constant 0\n";
     CI->replaceAllUsesWith(ConstantInt::get(Type::getInt64Ty(Context), 0));
     break;
   }
@@ -435,11 +434,13 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
     break;    // Simply strip out debugging intrinsics
 
   case Intrinsic::eh_exception:
-  case Intrinsic::eh_selector:
+  case Intrinsic::eh_selector_i32:
+  case Intrinsic::eh_selector_i64:
     CI->replaceAllUsesWith(Constant::getNullValue(CI->getType()));
     break;
 
-  case Intrinsic::eh_typeid_for:
+  case Intrinsic::eh_typeid_for_i32:
+  case Intrinsic::eh_typeid_for_i64:
     // Return something different to eh_selector.
     CI->replaceAllUsesWith(ConstantInt::get(CI->getType(), 1));
     break;

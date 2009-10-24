@@ -17,8 +17,8 @@
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/System/Atomic.h"
 #include "llvm/System/Mutex.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -55,8 +55,6 @@ std::string Attribute::getAsString(Attributes Attrs) {
     Result += "optsize ";
   if (Attrs & Attribute::NoInline)
     Result += "noinline ";
-  if (Attrs & Attribute::InlineHint)
-    Result += "inlinehint ";
   if (Attrs & Attribute::AlwaysInline)
     Result += "alwaysinline ";
   if (Attrs & Attribute::StackProtect)
@@ -318,11 +316,11 @@ AttrListPtr AttrListPtr::removeAttr(unsigned Idx, Attributes Attrs) const {
 }
 
 void AttrListPtr::dump() const {
-  errs() << "PAL[ ";
+  cerr << "PAL[ ";
   for (unsigned i = 0; i < getNumSlots(); ++i) {
     const AttributeWithIndex &PAWI = getSlot(i);
-    errs() << "{" << PAWI.Index << "," << PAWI.Attrs << "} ";
+    cerr << "{" << PAWI.Index << "," << PAWI.Attrs << "} ";
   }
   
-  errs() << "]\n";
+  cerr << "]\n";
 }

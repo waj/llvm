@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=thumb -mattr=+thumb2 | FileCheck %s
+; RUN: llvm-as < %s | llc -march=thumb -mattr=+thumb2 | FileCheck %s
 
 define void @test1() {
 ; CHECK: test1:

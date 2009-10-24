@@ -14,7 +14,6 @@
 
 #define DEBUG_TYPE "pre-RA-sched"
 #include "ScheduleDAGSDNodes.h"
-#include "InstrEmitter.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -182,7 +181,7 @@ void ScheduleDAGSDNodes::AddSchedEdges() {
       if (N->isMachineOpcode() &&
           TII->get(N->getMachineOpcode()).getImplicitDefs()) {
         SU->hasPhysRegClobbers = true;
-        unsigned NumUsed = InstrEmitter::CountResults(N);
+        unsigned NumUsed = CountResults(N);
         while (NumUsed != 0 && !N->hasAnyUseOfValue(NumUsed - 1))
           --NumUsed;    // Skip over unused values at the end.
         if (NumUsed > TII->get(N->getMachineOpcode()).getNumDefs())
@@ -231,7 +230,7 @@ void ScheduleDAGSDNodes::AddSchedEdges() {
 /// are input.  This SUnit graph is similar to the SelectionDAG, but
 /// excludes nodes that aren't interesting to scheduling, and represents
 /// flagged together nodes with a single SUnit.
-void ScheduleDAGSDNodes::BuildSchedGraph(AliasAnalysis *AA) {
+void ScheduleDAGSDNodes::BuildSchedGraph() {
   // Populate the SUnits array.
   BuildSchedUnits();
   // Compute all the scheduling dependencies between nodes.
@@ -244,12 +243,49 @@ void ScheduleDAGSDNodes::ComputeLatency(SUnit *SU) {
   // Compute the latency for the node.  We use the sum of the latencies for
   // all nodes flagged together into this SUnit.
   SU->Latency = 0;
+  bool SawMachineOpcode = false;
   for (SDNode *N = SU->getNode(); N; N = N->getFlaggedNode())
     if (N->isMachineOpcode()) {
+      SawMachineOpcode = true;
       SU->Latency += InstrItins.
         getStageLatency(TII->get(N->getMachineOpcode()).getSchedClass());
     }
 }
+
+/// CountResults - The results of target nodes have register or immediate
+/// operands first, then an optional chain, and optional flag operands (which do
+/// not go into the resulting MachineInstr).
+unsigned ScheduleDAGSDNodes::CountResults(SDNode *Node) {
+  unsigned N = Node->getNumValues();
+  while (N && Node->getValueType(N - 1) == MVT::Flag)
+    --N;
+  if (N && Node->getValueType(N - 1) == MVT::Other)
+    --N;    // Skip over chain result.
+  return N;
+}
+
+/// CountOperands - The inputs to target nodes have any actual inputs first,
+/// followed by special operands that describe memory references, then an
+/// optional chain operand, then an optional flag operand.  Compute the number
+/// of actual operands that will go into the resulting MachineInstr.
+unsigned ScheduleDAGSDNodes::CountOperands(SDNode *Node) {
+  unsigned N = ComputeMemOperandsEnd(Node);
+  while (N && isa<MemOperandSDNode>(Node->getOperand(N - 1).getNode()))
+    --N; // Ignore MEMOPERAND nodes
+  return N;
+}
+
+/// ComputeMemOperandsEnd - Find the index one past the last MemOperandSDNode
+/// operand
+unsigned ScheduleDAGSDNodes::ComputeMemOperandsEnd(SDNode *Node) {
+  unsigned N = Node->getNumOperands();
+  while (N && Node->getOperand(N - 1).getValueType() == MVT::Flag)
+    --N;
+  if (N && Node->getOperand(N - 1).getValueType() == MVT::Other)
+    --N; // Ignore chain if it exists.
+  return N;
+}
+
 
 void ScheduleDAGSDNodes::dumpNode(const SUnit *SU) const {
   if (!SU->getNode()) {
@@ -268,44 +304,4 @@ void ScheduleDAGSDNodes::dumpNode(const SUnit *SU) const {
     errs() << "\n";
     FlaggedNodes.pop_back();
   }
-}
-
-/// EmitSchedule - Emit the machine code in scheduled order.
-MachineBasicBlock *ScheduleDAGSDNodes::
-EmitSchedule(DenseMap<MachineBasicBlock*, MachineBasicBlock*> *EM) {
-  InstrEmitter Emitter(BB, InsertPos);
-  DenseMap<SDValue, unsigned> VRBaseMap;
-  DenseMap<SUnit*, unsigned> CopyVRBaseMap;
-  for (unsigned i = 0, e = Sequence.size(); i != e; i++) {
-    SUnit *SU = Sequence[i];
-    if (!SU) {
-      // Null SUnit* is a noop.
-      EmitNoop();
-      continue;
-    }
-
-    // For pre-regalloc scheduling, create instructions corresponding to the
-    // SDNode and any flagged SDNodes and append them to the block.
-    if (!SU->getNode()) {
-      // Emit a copy.
-      EmitPhysRegCopy(SU, CopyVRBaseMap);
-      continue;
-    }
-
-    SmallVector<SDNode *, 4> FlaggedNodes;
-    for (SDNode *N = SU->getNode()->getFlaggedNode(); N;
-         N = N->getFlaggedNode())
-      FlaggedNodes.push_back(N);
-    while (!FlaggedNodes.empty()) {
-      Emitter.EmitNode(FlaggedNodes.back(), SU->OrigNode != SU, SU->isCloned,
-                       VRBaseMap, EM);
-      FlaggedNodes.pop_back();
-    }
-    Emitter.EmitNode(SU->getNode(), SU->OrigNode != SU, SU->isCloned,
-                     VRBaseMap, EM);
-  }
-
-  BB = Emitter.getBlock();
-  InsertPos = Emitter.getInsertPos();
-  return BB;
 }

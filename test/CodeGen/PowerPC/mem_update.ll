@@ -1,6 +1,6 @@
-; RUN: llc < %s -march=ppc32 -enable-ppc-preinc | \
+; RUN: llvm-as < %s | llc -march=ppc32 -enable-ppc-preinc | \
 ; RUN:   not grep addi
-; RUN: llc < %s -march=ppc64 -enable-ppc-preinc | \
+; RUN: llvm-as < %s | llc -march=ppc64 -enable-ppc-preinc | \
 ; RUN:   not grep addi
 
 @Glob = global i64 4		; <i64*> [#uses=2]

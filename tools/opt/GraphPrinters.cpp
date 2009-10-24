@@ -28,10 +28,9 @@ static void WriteGraphToFile(std::ostream &O, const std::string &GraphName,
                              const GraphType &GT) {
   std::string Filename = GraphName + ".dot";
   O << "Writing '" << Filename << "'...";
-  std::string ErrInfo;
-  raw_fd_ostream F(Filename.c_str(), ErrInfo);
+  std::ofstream F(Filename.c_str());
 
-  if (ErrInfo.empty())
+  if (F.good())
     WriteGraph(F, GT);
   else
     O << "  error opening file for writing!";
@@ -71,7 +70,8 @@ namespace {
       return false;
     }
 
-    void print(raw_ostream &OS, const llvm::Module*) const {}
+    void print(std::ostream &OS) const {}
+    void print(std::ostream &OS, const llvm::Module*) const {}
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.addRequired<CallGraph>();

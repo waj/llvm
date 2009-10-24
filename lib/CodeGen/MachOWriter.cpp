@@ -29,7 +29,7 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/Module.h"
 #include "llvm/PassManager.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetMachOWriterInfo.h"
@@ -61,7 +61,7 @@ MachOWriter::MachOWriter(raw_ostream &o, TargetMachine &tm)
   is64Bit = TM.getTargetData()->getPointerSizeInBits() == 64;
   isLittleEndian = TM.getTargetData()->isLittleEndian();
 
-  MAI = TM.getMCAsmInfo();
+  TAI = TM.getTargetAsmInfo();
 
   // Create the machine code emitter object for this target.
   MachOCE = new MachOCodeEmitter(*this, *getTextSection(true));
@@ -221,7 +221,7 @@ void MachOWriter::AddSymbolToSection(MachOSection *Sec, GlobalVariable *GV) {
   }
   // Globals without external linkage apparently do not go in the symbol table.
   if (!GV->hasLocalLinkage()) {
-    MachOSym Sym(GV, Mang->getMangledName(GV), Sec->Index, MAI);
+    MachOSym Sym(GV, Mang->getMangledName(GV), Sec->Index, TAI);
     Sym.n_value = Sec->size();
     SymbolTable.push_back(Sym);
   }
@@ -256,7 +256,7 @@ void MachOWriter::EmitGlobal(GlobalVariable *GV) {
     if (NoInit || GV->hasLinkOnceLinkage() || GV->hasWeakLinkage() ||
         GV->hasCommonLinkage()) {
       MachOSym ExtOrCommonSym(GV, Mang->getMangledName(GV),
-                              MachOSym::NO_SECT, MAI);
+                              MachOSym::NO_SECT, TAI);
       // For undefined (N_UNDF) external (N_EXT) types, n_value is the size in
       // bytes of the symbol.
       ExtOrCommonSym.n_value = Size;
@@ -454,7 +454,7 @@ void MachOWriter::BufferSymbolAndStringTable() {
   for (std::vector<GlobalValue*>::iterator I = PendingGlobals.begin(),
          E = PendingGlobals.end(); I != E; ++I) {
     if (GVOffset[*I] == 0 && GVSection[*I] == 0) {
-      MachOSym UndfSym(*I, Mang->getMangledName(*I), MachOSym::NO_SECT, MAI);
+      MachOSym UndfSym(*I, Mang->getMangledName(*I), MachOSym::NO_SECT, TAI);
       SymbolTable.push_back(UndfSym);
       GVOffset[*I] = -1;
     }
@@ -634,7 +634,7 @@ void MachOWriter::InitMem(const Constant *C, uintptr_t Offset,
       }
       case Instruction::Add:
       default:
-        errs() << "ConstantExpr not handled as global var init: " << *CE <<"\n";
+        cerr << "ConstantExpr not handled as global var init: " << *CE << "\n";
         llvm_unreachable(0);
       }
     } else if (PC->getType()->isSingleValueType()) {
@@ -732,7 +732,7 @@ void MachOWriter::InitMem(const Constant *C, uintptr_t Offset,
         WorkList.push_back(CPair(CPS->getOperand(i),
                                  PA+SL->getElementOffset(i)));
     } else {
-      errs() << "Bad Type: " << *PC->getType() << "\n";
+      cerr << "Bad Type: " << *PC->getType() << "\n";
       llvm_unreachable("Unknown constant type to initialize memory with!");
     }
   }
@@ -743,7 +743,7 @@ void MachOWriter::InitMem(const Constant *C, uintptr_t Offset,
 //===----------------------------------------------------------------------===//
 
 MachOSym::MachOSym(const GlobalValue *gv, std::string name, uint8_t sect,
-                   const MCAsmInfo *MAI) :
+                   const TargetAsmInfo *TAI) :
   GV(gv), n_strx(0), n_type(sect == NO_SECT ? N_UNDF : N_SECT), n_sect(sect),
   n_desc(0), n_value(0) {
 
@@ -759,17 +759,17 @@ MachOSym::MachOSym(const GlobalValue *gv, std::string name, uint8_t sect,
   case GlobalValue::CommonLinkage:
     assert(!isa<Function>(gv) && "Unexpected linkage type for Function!");
   case GlobalValue::ExternalLinkage:
-    GVName = MAI->getGlobalPrefix() + name;
+    GVName = TAI->getGlobalPrefix() + name;
     n_type |= GV->hasHiddenVisibility() ? N_PEXT : N_EXT;
     break;
   case GlobalValue::PrivateLinkage:
-    GVName = MAI->getPrivateGlobalPrefix() + name;
+    GVName = TAI->getPrivateGlobalPrefix() + name;
     break;
   case GlobalValue::LinkerPrivateLinkage:
-    GVName = MAI->getLinkerPrivateGlobalPrefix() + name;
+    GVName = TAI->getLinkerPrivateGlobalPrefix() + name;
     break;
   case GlobalValue::InternalLinkage:
-    GVName = MAI->getGlobalPrefix() + name;
+    GVName = TAI->getGlobalPrefix() + name;
     break;
   }
 }

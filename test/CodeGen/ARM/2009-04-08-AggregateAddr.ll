@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=arm
+; RUN: llvm-as < %s | llc -march=arm
 ; PR3795
 
 define fastcc void @_D3foo3fooFAriZv({ i32, { double, double }* } %d_arg, i32 %x_arg) {

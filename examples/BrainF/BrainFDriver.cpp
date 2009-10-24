@@ -32,12 +32,11 @@
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/ExecutionEngine/GenericValue.h"
 #include "llvm/ExecutionEngine/JIT.h"
-#include "llvm/Target/TargetSelect.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/raw_ostream.h"
-#include <iostream>
+#include "llvm/Target/TargetSelect.h"
 #include <fstream>
+#include <iostream>
 using namespace llvm;
 
 //Command line options
@@ -92,48 +91,50 @@ int main(int argc, char **argv) {
   LLVMContext &Context = getGlobalContext();
 
   if (InputFilename == "") {
-    errs() << "Error: You must specify the filename of the program to "
+    std::cerr<<"Error: You must specify the filename of the program to "
     "be compiled.  Use --help to see the options.\n";
     abort();
   }
 
   //Get the output stream
-  raw_ostream *out = &outs();
+  std::ostream *out = &std::cout;
   if (!JIT) {
     if (OutputFilename == "") {
       std::string base = InputFilename;
-      if (InputFilename == "-") { base = "a"; }
+      if (InputFilename == "-") {base = "a";}
 
-      // Use default filename.
-      OutputFilename = base+".bc";
+      //Use default filename
+      const char *suffix = ".bc";
+      OutputFilename = base+suffix;
     }
     if (OutputFilename != "-") {
-      std::string ErrInfo;
-      out = new raw_fd_ostream(OutputFilename.c_str(), ErrInfo,
-                               raw_fd_ostream::F_Binary);
+      out = new std::
+        ofstream(OutputFilename.c_str(),
+                 std::ios::out | std::ios::trunc | std::ios::binary);
     }
   }
 
   //Get the input stream
   std::istream *in = &std::cin;
-  if (InputFilename != "-")
+  if (InputFilename != "-") {
     in = new std::ifstream(InputFilename.c_str());
+  }
 
   //Gather the compile flags
   BrainF::CompileFlags cf = BrainF::flag_off;
-  if (ArrayBoundsChecking)
+  if (ArrayBoundsChecking) {
     cf = BrainF::CompileFlags(cf | BrainF::flag_arraybounds);
+  }
 
   //Read the BrainF program
   BrainF bf;
   Module *mod = bf.parse(in, 65536, cf, Context); //64 KiB
-  if (in != &std::cin)
-    delete in;
+  if (in != &std::cin) {delete in;}
   addMainFunction(mod);
 
   //Verify generated code
   if (verifyModule(*mod)) {
-    errs() << "Error: module failed verification.  This shouldn't happen.\n";
+    std::cerr<<"Error: module failed verification.  This shouldn't happen.\n";
     abort();
   }
 
@@ -141,7 +142,7 @@ int main(int argc, char **argv) {
   if (JIT) {
     InitializeNativeTarget();
 
-    outs() << "------- Running JIT -------\n";
+    std::cout << "------- Running JIT -------\n";
     ExecutionEngine *ee = EngineBuilder(mod).create();
     std::vector<GenericValue> args;
     Function *brainf_func = mod->getFunction("brainf");
@@ -151,8 +152,7 @@ int main(int argc, char **argv) {
   }
 
   //Clean up
-  if (out != &outs())
-    delete out;
+  if (out != &std::cout) {delete out;}
   delete mod;
 
   llvm_shutdown();

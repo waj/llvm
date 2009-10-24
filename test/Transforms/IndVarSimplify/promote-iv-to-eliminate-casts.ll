@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars -S > %t
+; RUN: llvm-as < %s | opt -indvars | llvm-dis > %t
 ; RUN: not grep sext %t
 
 define i64 @test(i64* nocapture %first, i32 %count) nounwind readonly {

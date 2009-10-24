@@ -321,9 +321,6 @@
 /* Define to 1 if you have the `sbrk' function. */
 #undef HAVE_SBRK
 
-/* Define to 1 if you have the `setenv' function. */
-#undef HAVE_SETENV
-
 /* Define to 1 if you have the `setjmp' function. */
 #undef HAVE_SETJMP
 
@@ -463,6 +460,9 @@
 
 /* Installation directory for binary executables */
 #undef LLVM_BINDIR
+
+/* Define to 1 for ilist sentinel compaction */
+#undef LLVM_COMPACT_SENTINELS
 
 /* Time at which LLVM was configured */
 #undef LLVM_CONFIGTIME

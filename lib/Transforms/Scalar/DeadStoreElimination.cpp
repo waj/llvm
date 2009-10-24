@@ -26,17 +26,18 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/Dominators.h"
-#include "llvm/Analysis/MallocHelper.h"
 #include "llvm/Analysis/MemoryDependenceAnalysis.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Support/Compiler.h"
+#include "llvm/Support/ValueHandle.h"
 using namespace llvm;
 
 STATISTIC(NumFastStores, "Number of stores deleted");
 STATISTIC(NumFastOther , "Number of other instrs removed");
 
 namespace {
-  struct DSE : public FunctionPass {
+  struct VISIBILITY_HIDDEN DSE : public FunctionPass {
     TargetData *TD;
 
     static char ID; // Pass identification, replacement for typeid
@@ -50,7 +51,7 @@ namespace {
     }
     
     bool runOnBasicBlock(BasicBlock &BB);
-    bool handleFreeWithNonTrivialDependency(Instruction *F, MemDepResult Dep);
+    bool handleFreeWithNonTrivialDependency(FreeInst *F, MemDepResult Dep);
     bool handleEndBlock(BasicBlock &BB);
     bool RemoveUndeadPointers(Value* Ptr, uint64_t killPointerSize,
                               BasicBlock::iterator& BBI,
@@ -89,7 +90,7 @@ bool DSE::runOnBasicBlock(BasicBlock &BB) {
     Instruction *Inst = BBI++;
     
     // If we find a store or a free, get its memory dependence.
-    if (!isa<StoreInst>(Inst) && !isa<FreeInst>(Inst) && !isFreeCall(Inst))
+    if (!isa<StoreInst>(Inst) && !isa<FreeInst>(Inst))
       continue;
     
     // Don't molest volatile stores or do queries that will return "clobber".
@@ -104,8 +105,8 @@ bool DSE::runOnBasicBlock(BasicBlock &BB) {
     if (InstDep.isNonLocal()) continue;
   
     // Handle frees whose dependencies are non-trivial.
-    if (isa<FreeInst>(Inst) || isFreeCall(Inst)) {
-      MadeChange |= handleFreeWithNonTrivialDependency(Inst, InstDep);
+    if (FreeInst *FI = dyn_cast<FreeInst>(Inst)) {
+      MadeChange |= handleFreeWithNonTrivialDependency(FI, InstDep);
       continue;
     }
     
@@ -166,7 +167,7 @@ bool DSE::runOnBasicBlock(BasicBlock &BB) {
 
 /// handleFreeWithNonTrivialDependency - Handle frees of entire structures whose
 /// dependency is a store to a field of that structure.
-bool DSE::handleFreeWithNonTrivialDependency(Instruction *F, MemDepResult Dep) {
+bool DSE::handleFreeWithNonTrivialDependency(FreeInst *F, MemDepResult Dep) {
   AliasAnalysis &AA = getAnalysis<AliasAnalysis>();
   
   StoreInst *Dependency = dyn_cast_or_null<StoreInst>(Dep.getInst());
@@ -176,8 +177,7 @@ bool DSE::handleFreeWithNonTrivialDependency(Instruction *F, MemDepResult Dep) {
   Value *DepPointer = Dependency->getPointerOperand()->getUnderlyingObject();
 
   // Check for aliasing.
-  Value* FreeVal = isa<FreeInst>(F) ? F->getOperand(0) : F->getOperand(1);
-  if (AA.alias(FreeVal, 1, DepPointer, 1) !=
+  if (AA.alias(F->getPointerOperand(), 1, DepPointer, 1) !=
          AliasAnalysis::MustAlias)
     return false;
   

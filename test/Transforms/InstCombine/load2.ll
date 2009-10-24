@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | not grep load
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep load
 
 @GLOBAL = internal constant [4 x i32] zeroinitializer
 

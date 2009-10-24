@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=xcore > %t1.s
+; RUN: llvm-as < %s | llc -march=xcore > %t1.s
 ; RUN: grep "bl memmove" %t1.s | count 1
 ; RUN: grep "ldc r., 8" %t1.s | count 1
 

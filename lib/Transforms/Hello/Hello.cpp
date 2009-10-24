@@ -16,7 +16,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Function.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/ADT/Statistic.h"
 using namespace llvm;
 
@@ -30,8 +30,9 @@ namespace {
 
     virtual bool runOnFunction(Function &F) {
       HelloCounter++;
-      errs() << "Hello: ";
-      errs().write_escaped(F.getName()) << '\n';
+      std::string fname = F.getName();
+      EscapeString(fname);
+      cerr << "Hello: " << fname << "\n";
       return false;
     }
   };
@@ -48,8 +49,9 @@ namespace {
 
     virtual bool runOnFunction(Function &F) {
       HelloCounter++;
-      errs() << "Hello: ";
-      errs().write_escaped(F.getName()) << '\n';
+      std::string fname = F.getName();
+      EscapeString(fname);
+      cerr << "Hello: " << fname << "\n";
       return false;
     }
 

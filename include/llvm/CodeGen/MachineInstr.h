@@ -20,34 +20,29 @@
 #include "llvm/ADT/ilist_node.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/MachineOperand.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/Target/TargetInstrDesc.h"
 #include "llvm/Support/DebugLoc.h"
+#include <list>
 #include <vector>
 
 namespace llvm {
 
-class AliasAnalysis;
 class TargetInstrDesc;
 class TargetInstrInfo;
 class TargetRegisterInfo;
 class MachineFunction;
-class MachineMemOperand;
 
 //===----------------------------------------------------------------------===//
 /// MachineInstr - Representation of each machine instruction.
 ///
 class MachineInstr : public ilist_node<MachineInstr> {
-public:
-  typedef MachineMemOperand **mmo_iterator;
-
-private:
   const TargetInstrDesc *TID;           // Instruction descriptor.
   unsigned short NumImplicitOps;        // Number of implicit operands (which
                                         // are determined at construction time).
 
   std::vector<MachineOperand> Operands; // the operands
-  mmo_iterator MemRefs;                 // information on memory references
-  mmo_iterator MemRefsEnd;
+  std::list<MachineMemOperand> MemOperands; // information on memory references
   MachineBasicBlock *Parent;            // Pointer to the owning basic block.
   DebugLoc debugLoc;                    // Source line information.
 
@@ -137,14 +132,21 @@ public:
   unsigned getNumExplicitOperands() const;
   
   /// Access to memory operands of the instruction
-  mmo_iterator memoperands_begin() const { return MemRefs; }
-  mmo_iterator memoperands_end() const { return MemRefsEnd; }
-  bool memoperands_empty() const { return MemRefsEnd == MemRefs; }
+  std::list<MachineMemOperand>::iterator memoperands_begin()
+  { return MemOperands.begin(); }
+  std::list<MachineMemOperand>::iterator memoperands_end()
+  { return MemOperands.end(); }
+  std::list<MachineMemOperand>::const_iterator memoperands_begin() const
+  { return MemOperands.begin(); }
+  std::list<MachineMemOperand>::const_iterator memoperands_end() const
+  { return MemOperands.end(); }
+  bool memoperands_empty() const { return MemOperands.empty(); }
 
   /// hasOneMemOperand - Return true if this instruction has exactly one
   /// MachineMemOperand.
   bool hasOneMemOperand() const {
-    return MemRefsEnd - MemRefs == 1;
+    return !memoperands_empty() &&
+           next(memoperands_begin()) == memoperands_end();
   }
 
   /// isIdenticalTo - Return true if this instruction is identical to (same
@@ -206,7 +208,7 @@ public:
   }
 
   /// findRegisterUseOperandIdx() - Returns the operand index that is a use of
-  /// the specific register or -1 if it is not found. It further tightens
+  /// the specific register or -1 if it is not found. It further tightening
   /// the search criteria to a use that kills the register if isKill is true.
   int findRegisterUseOperandIdx(unsigned Reg, bool isKill = false,
                                 const TargetRegisterInfo *TRI = NULL) const;
@@ -275,13 +277,11 @@ public:
   /// isSafeToMove - Return true if it is safe to move this instruction. If
   /// SawStore is set to true, it means that there is a store (or call) between
   /// the instruction's location and its intended destination.
-  bool isSafeToMove(const TargetInstrInfo *TII, bool &SawStore,
-                    AliasAnalysis *AA) const;
+  bool isSafeToMove(const TargetInstrInfo *TII, bool &SawStore) const;
 
   /// isSafeToReMat - Return true if it's safe to rematerialize the specified
   /// instruction which defined the specified register instead of copying it.
-  bool isSafeToReMat(const TargetInstrInfo *TII, unsigned DstReg,
-                     AliasAnalysis *AA) const;
+  bool isSafeToReMat(const TargetInstrInfo *TII, unsigned DstReg) const;
 
   /// hasVolatileMemoryRef - Return true if this instruction may have a
   /// volatile memory reference, or if the information describing the
@@ -289,17 +289,19 @@ public:
   /// have no volatile memory references.
   bool hasVolatileMemoryRef() const;
 
-  /// isInvariantLoad - Return true if this instruction is loading from a
-  /// location whose value is invariant across the function.  For example,
-  /// loading a value from the constant pool or from from the argument area of
-  /// a function if it does not change.  This should only return true of *all*
-  /// loads the instruction does are invariant (if it does multiple loads).
-  bool isInvariantLoad(AliasAnalysis *AA) const;
-
   //
   // Debugging support
   //
+  void print(std::ostream *OS, const TargetMachine *TM) const {
+    if (OS) print(*OS, TM);
+  }
+  void print(std::ostream &OS, const TargetMachine *TM = 0) const;
+  void print(std::ostream *OS) const { if (OS) print(*OS); }
+  void print(raw_ostream *OS, const TargetMachine *TM) const {
+    if (OS) print(*OS, TM);
+  }
   void print(raw_ostream &OS, const TargetMachine *TM = 0) const;
+  void print(raw_ostream *OS) const { if (OS) print(*OS); }
   void dump() const;
 
   //===--------------------------------------------------------------------===//
@@ -326,17 +328,13 @@ public:
   ///
   void RemoveOperand(unsigned i);
 
-  /// addMemOperand - Add a MachineMemOperand to the machine instruction.
-  /// This function should be used only occasionally. The setMemRefs function
-  /// is the primary method for setting up a MachineInstr's MemRefs list.
-  void addMemOperand(MachineFunction &MF, MachineMemOperand *MO);
+  /// addMemOperand - Add a MachineMemOperand to the machine instruction,
+  /// referencing arbitrary storage.
+  void addMemOperand(MachineFunction &MF,
+                     const MachineMemOperand &MO);
 
-  /// setMemRefs - Assign this MachineInstr's memory reference descriptor
-  /// list. This does not transfer ownership.
-  void setMemRefs(mmo_iterator NewMemRefs, mmo_iterator NewMemRefsEnd) {
-    MemRefs = NewMemRefs;
-    MemRefsEnd = NewMemRefsEnd;
-  }
+  /// clearMemOperands - Erase all of this MachineInstr's MachineMemOperands.
+  void clearMemOperands(MachineFunction &MF);
 
 private:
   /// getRegInfo - If this instruction is embedded into a MachineFunction,
@@ -361,6 +359,11 @@ private:
 
 //===----------------------------------------------------------------------===//
 // Debugging Support
+
+inline std::ostream& operator<<(std::ostream &OS, const MachineInstr &MI) {
+  MI.print(OS);
+  return OS;
+}
 
 inline raw_ostream& operator<<(raw_ostream &OS, const MachineInstr &MI) {
   MI.print(OS);

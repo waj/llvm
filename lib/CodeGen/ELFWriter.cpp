@@ -44,16 +44,17 @@
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSectionELF.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetELFWriterInfo.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Support/Mangler.h"
+#include "llvm/Support/Streams.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/Mangler.h"
-#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
@@ -80,7 +81,7 @@ ELFWriter::ELFWriter(raw_ostream &o, TargetMachine &tm)
     isLittleEndian(TM.getTargetData()->isLittleEndian()),
     ElfHdr(isLittleEndian, is64Bit) {
 
-  MAI = TM.getMCAsmInfo();
+  TAI = TM.getTargetAsmInfo();
   TEW = TM.getELFWriterInfo();
 
   // Create the object code emitter object for this target.
@@ -93,24 +94,6 @@ ELFWriter::ELFWriter(raw_ostream &o, TargetMachine &tm)
 ELFWriter::~ELFWriter() {
   delete ElfCE;
   delete &OutContext;
-
-  while(!SymbolList.empty()) {
-    delete SymbolList.back(); 
-    SymbolList.pop_back();
-  }
-
-  while(!PrivateSyms.empty()) {
-    delete PrivateSyms.back(); 
-    PrivateSyms.pop_back();
-  }
-
-  while(!SectionList.empty()) {
-    delete SectionList.back(); 
-    SectionList.pop_back();
-  }
-
-  // Release the name mangler object.
-  delete Mang; Mang = 0;
 }
 
 // doInitialization - Emit the file header and all of the global variables for
@@ -457,15 +440,16 @@ void ELFWriter::EmitGlobalConstant(const Constant *CV, ELFSection &GblS) {
     return;
   } else if (const ConstantFP *CFP = dyn_cast<ConstantFP>(CV)) {
     APInt Val = CFP->getValueAPF().bitcastToAPInt();
-    if (CFP->getType()->isDoubleTy())
+    if (CFP->getType() == Type::getDoubleTy(CV->getContext()))
       GblS.emitWord64(Val.getZExtValue());
-    else if (CFP->getType()->isFloatTy())
+    else if (CFP->getType() == Type::getFloatTy(CV->getContext()))
       GblS.emitWord32(Val.getZExtValue());
-    else if (CFP->getType()->isX86_FP80Ty()) {
-      unsigned PadSize = TD->getTypeAllocSize(CFP->getType())-
-                         TD->getTypeStoreSize(CFP->getType());
+    else if (CFP->getType() == Type::getX86_FP80Ty(CV->getContext())) {
+      unsigned PadSize = 
+             TD->getTypeAllocSize(Type::getX86_FP80Ty(CV->getContext()))-
+             TD->getTypeStoreSize(Type::getX86_FP80Ty(CV->getContext()));
       GblS.emitWordFP80(Val.getRawData(), PadSize);
-    } else if (CFP->getType()->isPPC_FP128Ty())
+    } else if (CFP->getType() == Type::getPPC_FP128Ty(CV->getContext()))
       llvm_unreachable("PPC_FP128Ty global emission not implemented");
     return;
   } else if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
@@ -704,7 +688,7 @@ bool ELFWriter::doFinalization(Module &M) {
     SymbolList.push_back(ELFSym::getExtSym(*I));
 
   // Emit non-executable stack note
-  if (MAI->getNonexecutableStackDirective())
+  if (TAI->getNonexecutableStackDirective())
     getNonExecStackSection();
 
   // Emit a symbol for each section created until now, skip null section
@@ -731,6 +715,13 @@ bool ELFWriter::doFinalization(Module &M) {
   // Dump the sections and section table to the .o file.
   OutputSectionsAndSectionTable();
 
+  // We are done with the abstract symbols.
+  SymbolList.clear();
+  SectionList.clear();
+  NumSections = 0;
+
+  // Release the name mangler object.
+  delete Mang; Mang = 0;
   return false;
 }
 
@@ -1076,9 +1067,9 @@ void ELFWriter::OutputSectionsAndSectionTable() {
   // Emit all of sections to the file and build the section header table.
   for (ELFSectionIter I=SectionList.begin(), E=SectionList.end(); I != E; ++I) {
     ELFSection &S = *(*I);
-    DEBUG(errs() << "SectionIdx: " << S.SectionIdx << ", Name: " << S.getName()
-                 << ", Size: " << S.Size << ", Offset: " << S.Offset
-                 << ", SectionData Size: " << S.size() << "\n");
+    DOUT << "SectionIdx: " << S.SectionIdx << ", Name: " << S.getName()
+         << ", Size: " << S.Size << ", Offset: " << S.Offset
+         << ", SectionData Size: " << S.size() << "\n";
 
     // Align FileOff to whatever the alignment restrictions of the section are.
     if (S.size()) {

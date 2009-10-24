@@ -1,7 +1,7 @@
 ; PR1226
-; RUN: opt < %s -scalarrepl -S | \
+; RUN: llvm-as < %s | opt -scalarrepl | llvm-dis | \
 ; RUN:   not grep {call void @llvm.memcpy.i32}
-; RUN: opt < %s -scalarrepl -S | grep getelementptr
+; RUN: llvm-as < %s | opt -scalarrepl | llvm-dis | grep getelementptr
 ; END.
 
 target datalayout = "E-p:32:32"

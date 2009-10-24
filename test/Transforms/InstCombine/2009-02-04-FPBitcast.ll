@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine
+; RUN: llvm-as < %s | opt -instcombine
 ; PR3468
 
 define x86_fp80 @cast() {

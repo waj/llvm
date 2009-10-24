@@ -171,30 +171,26 @@ add a set of optimizations to run.  The code looks like this:</p>
 
 <div class="doc_code">
 <pre>
-  ExistingModuleProvider *OurModuleProvider =
-      new ExistingModuleProvider(TheModule);
+    ExistingModuleProvider OurModuleProvider(TheModule);
+    FunctionPassManager OurFPM(&amp;OurModuleProvider);
+      
+    // Set up the optimizer pipeline.  Start with registering info about how the
+    // target lays out data structures.
+    OurFPM.add(new TargetData(*TheExecutionEngine->getTargetData()));
+    // Do simple "peephole" optimizations and bit-twiddling optzns.
+    OurFPM.add(createInstructionCombiningPass());
+    // Reassociate expressions.
+    OurFPM.add(createReassociatePass());
+    // Eliminate Common SubExpressions.
+    OurFPM.add(createGVNPass());
+    // Simplify the control flow graph (deleting unreachable blocks, etc).
+    OurFPM.add(createCFGSimplificationPass());
 
-  FunctionPassManager OurFPM(OurModuleProvider);
+    // Set the global so the code gen can use this.
+    TheFPM = &amp;OurFPM;
 
-  // Set up the optimizer pipeline.  Start with registering info about how the
-  // target lays out data structures.
-  OurFPM.add(new TargetData(*TheExecutionEngine->getTargetData()));
-  // Do simple "peephole" optimizations and bit-twiddling optzns.
-  OurFPM.add(createInstructionCombiningPass());
-  // Reassociate expressions.
-  OurFPM.add(createReassociatePass());
-  // Eliminate Common SubExpressions.
-  OurFPM.add(createGVNPass());
-  // Simplify the control flow graph (deleting unreachable blocks, etc).
-  OurFPM.add(createCFGSimplificationPass());
-
-  OurFPM.doInitialization();
-
-  // Set the global so the code gen can use this.
-  TheFPM = &amp;OurFPM;
-
-  // Run the main "interpreter loop" now.
-  MainLoop();
+    // Run the main "interpreter loop" now.
+    MainLoop();
 </pre>
 </div>
 
@@ -209,7 +205,7 @@ requires a pointer to the <tt>Module</tt> (through the <tt>ModuleProvider</tt>)
 to construct itself.  Once it is set up, we use a series of "add" calls to add
 a bunch of LLVM passes.  The first pass is basically boilerplate, it adds a pass
 so that later optimizations know how the data structures in the program are
-laid out.  The "<tt>TheExecutionEngine</tt>" variable is related to the JIT,
+layed out.  The "<tt>TheExecutionEngine</tt>" variable is related to the JIT,
 which we will get to in the next section.</p>
 
 <p>In this case, we choose to add 4 optimization passes.  The passes we chose
@@ -302,8 +298,8 @@ by adding a global variable and a call in <tt>main</tt>:</p>
 ...
 int main() {
   ..
-  <b>// Create the JIT.  This takes ownership of the module and module provider.
-  TheExecutionEngine = EngineBuilder(OurModuleProvider).create();</b>
+  <b>// Create the JIT.
+    TheExecutionEngine = EngineBuilder(TheModule).create();</b>
   ..
 }
 </pre>
@@ -324,7 +320,7 @@ top-level expression to look like this:</p>
 <div class="doc_code">
 <pre>
 static void HandleTopLevelExpression() {
-  // Evaluate a top-level expression into an anonymous function.
+  // Evaluate a top level expression into an anonymous function.
   if (FunctionAST *F = ParseTopLevelExpr()) {
     if (Function *LF = F-&gt;Codegen()) {
       LF->dump();  // Dump the function for exposition purposes.
@@ -334,7 +330,7 @@ static void HandleTopLevelExpression() {
       
       // Cast it to the right type (takes no arguments, returns a double) so we
       // can call it as a native function.
-      double (*FP)() = (double (*)())(intptr_t)FPtr;
+      double (*FP)() = (double (*)())FPtr;
       fprintf(stderr, "Evaluated to %f\n", FP());</b>
     }
 </pre>
@@ -363,7 +359,7 @@ entry:
 
 <p>Well this looks like it is basically working.  The dump of the function
 shows the "no argument function that always returns double" that we synthesize
-for each top-level expression that is typed in.  This demonstrates very basic
+for each top level expression that is typed in.  This demonstrates very basic
 functionality, but can we do more?</p>
 
 <div class="doc_code">
@@ -499,7 +495,7 @@ LLVM JIT and optimizer.  To build this example, use:
 <div class="doc_code">
 <pre>
    # Compile
-   g++ -g toy.cpp `llvm-config --cppflags --ldflags --libs core jit interpreter native` -O3 -o toy
+   g++ -g toy.cpp `llvm-config --cppflags --ldflags --libs core jit native` -O3 -o toy
    # Run
    ./toy
 </pre>
@@ -516,15 +512,12 @@ at runtime.</p>
 <pre>
 #include "llvm/DerivedTypes.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
-#include "llvm/ExecutionEngine/Interpreter.h"
-#include "llvm/ExecutionEngine/JIT.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
 #include "llvm/ModuleProvider.h"
 #include "llvm/PassManager.h"
 #include "llvm/Analysis/Verifier.h"
 #include "llvm/Target/TargetData.h"
-#include "llvm/Target/TargetSelect.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Support/IRBuilder.h"
 #include &lt;cstdio&gt;
@@ -546,7 +539,7 @@ enum Token {
   tok_def = -2, tok_extern = -3,
 
   // primary
-  tok_identifier = -4, tok_number = -5
+  tok_identifier = -4, tok_number = -5,
 };
 
 static std::string IdentifierStr;  // Filled in if tok_identifier
@@ -648,8 +641,7 @@ public:
 };
 
 /// PrototypeAST - This class represents the "prototype" for a function,
-/// which captures its name, and its argument names (thus implicitly the number
-/// of arguments the function takes).
+/// which captures its argument names as well as if it is an operator.
 class PrototypeAST {
   std::string Name;
   std::vector&lt;std::string&gt; Args;
@@ -676,7 +668,7 @@ public:
 //===----------------------------------------------------------------------===//
 
 /// CurTok/getNextToken - Provide a simple token buffer.  CurTok is the current
-/// token the parser is looking at.  getNextToken reads another token from the
+/// token the parser it looking at.  getNextToken reads another token from the
 /// lexer and updates CurTok with its results.
 static int CurTok;
 static int getNextToken() {
@@ -724,9 +716,9 @@ static ExprAST *ParseIdentifierExpr() {
       ExprAST *Arg = ParseExpression();
       if (!Arg) return 0;
       Args.push_back(Arg);
-
+    
       if (CurTok == ')') break;
-
+    
       if (CurTok != ',')
         return Error("Expected ')' or ',' in argument list");
       getNextToken();
@@ -898,8 +890,7 @@ Value *BinaryExprAST::Codegen() {
   case '&lt;':
     L = Builder.CreateFCmpULT(L, R, "cmptmp");
     // Convert bool 0/1 to double 0.0 or 1.0
-    return Builder.CreateUIToFP(L, Type::getDoubleTy(getGlobalContext()),
-                                "booltmp");
+    return Builder.CreateUIToFP(L, Type::getDoubleTy(getGlobalContext()), "booltmp");
   default: return ErrorV("invalid binary operator");
   }
 }
@@ -925,10 +916,8 @@ Value *CallExprAST::Codegen() {
 
 Function *PrototypeAST::Codegen() {
   // Make the function type:  double(double,double) etc.
-  std::vector&lt;const Type*&gt; Doubles(Args.size(),
-                                   Type::getDoubleTy(getGlobalContext()));
-  FunctionType *FT = FunctionType::get(Type::getDoubleTy(getGlobalContext()),
-                                       Doubles, false);
+  std::vector&lt;const Type*&gt; Doubles(Args.size(), Type::getDoubleTy(getGlobalContext()));
+  FunctionType *FT = FunctionType::get(Type::getDoubleTy(getGlobalContext()), Doubles, false);
   
   Function *F = Function::Create(FT, Function::ExternalLinkage, Name, TheModule);
   
@@ -1025,7 +1014,7 @@ static void HandleExtern() {
 }
 
 static void HandleTopLevelExpression() {
-  // Evaluate a top-level expression into an anonymous function.
+  // Evaluate a top level expression into an anonymous function.
   if (FunctionAST *F = ParseTopLevelExpr()) {
     if (Function *LF = F-&gt;Codegen()) {
       // JIT the function, returning a function pointer.
@@ -1033,7 +1022,7 @@ static void HandleTopLevelExpression() {
       
       // Cast it to the right type (takes no arguments, returns a double) so we
       // can call it as a native function.
-      double (*FP)() = (double (*)())(intptr_t)FPtr;
+      double (*FP)() = (double (*)())FPtr;
       fprintf(stderr, "Evaluated to %f\n", FP());
     }
   } else {
@@ -1048,13 +1037,15 @@ static void MainLoop() {
     fprintf(stderr, "ready&gt; ");
     switch (CurTok) {
     case tok_eof:    return;
-    case ';':        getNextToken(); break;  // ignore top-level semicolons.
+    case ';':        getNextToken(); break;  // ignore top level semicolons.
     case tok_def:    HandleDefinition(); break;
     case tok_extern: HandleExtern(); break;
     default:         HandleTopLevelExpression(); break;
     }
   }
 }
+
+
 
 //===----------------------------------------------------------------------===//
 // "Library" functions that can be "extern'd" from user code.
@@ -1072,9 +1063,6 @@ double putchard(double X) {
 //===----------------------------------------------------------------------===//
 
 int main() {
-  InitializeNativeTarget();
-  LLVMContext &amp;Context = getGlobalContext();
-
   // Install standard binary operators.
   // 1 is lowest precedence.
   BinopPrecedence['&lt;'] = 10;
@@ -1087,41 +1075,39 @@ int main() {
   getNextToken();
 
   // Make the module, which holds all the code.
-  TheModule = new Module("my cool jit", Context);
+  TheModule = new Module("my cool jit", getGlobalContext());
+  
+  // Create the JIT.
+  TheExecutionEngine = EngineBuilder(TheModule).create();
 
-  ExistingModuleProvider *OurModuleProvider =
-      new ExistingModuleProvider(TheModule);
+  {
+    ExistingModuleProvider OurModuleProvider(TheModule);
+    FunctionPassManager OurFPM(&amp;OurModuleProvider);
+      
+    // Set up the optimizer pipeline.  Start with registering info about how the
+    // target lays out data structures.
+    OurFPM.add(new TargetData(*TheExecutionEngine-&gt;getTargetData()));
+    // Do simple "peephole" optimizations and bit-twiddling optzns.
+    OurFPM.add(createInstructionCombiningPass());
+    // Reassociate expressions.
+    OurFPM.add(createReassociatePass());
+    // Eliminate Common SubExpressions.
+    OurFPM.add(createGVNPass());
+    // Simplify the control flow graph (deleting unreachable blocks, etc).
+    OurFPM.add(createCFGSimplificationPass());
 
-  // Create the JIT.  This takes ownership of the module and module provider.
-  TheExecutionEngine = EngineBuilder(OurModuleProvider).create();
+    // Set the global so the code gen can use this.
+    TheFPM = &amp;OurFPM;
 
-  FunctionPassManager OurFPM(OurModuleProvider);
-
-  // Set up the optimizer pipeline.  Start with registering info about how the
-  // target lays out data structures.
-  OurFPM.add(new TargetData(*TheExecutionEngine-&gt;getTargetData()));
-  // Do simple "peephole" optimizations and bit-twiddling optzns.
-  OurFPM.add(createInstructionCombiningPass());
-  // Reassociate expressions.
-  OurFPM.add(createReassociatePass());
-  // Eliminate Common SubExpressions.
-  OurFPM.add(createGVNPass());
-  // Simplify the control flow graph (deleting unreachable blocks, etc).
-  OurFPM.add(createCFGSimplificationPass());
-
-  OurFPM.doInitialization();
-
-  // Set the global so the code gen can use this.
-  TheFPM = &amp;OurFPM;
-
-  // Run the main "interpreter loop" now.
-  MainLoop();
-
-  TheFPM = 0;
-
-  // Print out all of the generated code.
-  TheModule-&gt;dump();
-
+    // Run the main "interpreter loop" now.
+    MainLoop();
+    
+    TheFPM = 0;
+    
+    // Print out all of the generated code.
+    TheModule-&gt;dump();
+  }  // Free module provider (and thus the module) and pass manager.
+                                   
   return 0;
 }
 </pre>

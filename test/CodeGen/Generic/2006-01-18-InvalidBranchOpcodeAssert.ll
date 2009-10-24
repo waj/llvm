@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; This crashed the PPC backend.
 
 define void @test() {

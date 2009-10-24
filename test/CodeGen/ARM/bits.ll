@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=arm > %t
+; RUN: llvm-as < %s | llc -march=arm > %t
 ; RUN: grep and      %t | count 1
 ; RUN: grep orr      %t | count 1
 ; RUN: grep eor      %t | count 1

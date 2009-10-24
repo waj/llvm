@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | not grep flds
+; RUN: llvm-as < %s | llc -march=x86 | not grep flds
 
 define void @foo(x86_fp80 %a, x86_fp80 %b, float* %fp) {
 	%c = fadd x86_fp80 %a, %b

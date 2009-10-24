@@ -1,8 +1,4 @@
-; RUN: llc < %s -march=x86 | grep align | count 4
-
-; TODO: Is it a good idea to align inner loops? It's hard to know without
-; knowing what their trip counts are, or other dynamic information. For
-; now, CodeGen aligns all loops.
+; RUN: llvm-as < %s | llc -march=x86 | grep align | count 3
 
 @x = external global i32*		; <i32**> [#uses=1]
 

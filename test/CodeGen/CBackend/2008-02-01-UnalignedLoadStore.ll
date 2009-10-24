@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c | \
+; RUN: llvm-as < %s | llc -march=c | \
 ; RUN:          grep {struct __attribute__ ((packed, aligned(} | count 4
 
 define void @test(i32* %P) {

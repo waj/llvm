@@ -39,7 +39,7 @@ DwarfWriter::~DwarfWriter() {
 void DwarfWriter::BeginModule(Module *M,
                               MachineModuleInfo *MMI,
                               raw_ostream &OS, AsmPrinter *A,
-                              const MCAsmInfo *T) {
+                              const TargetAsmInfo *T) {
   DE = new DwarfException(OS, A, T);
   DD = new DwarfDebug(OS, A, T);
   DE->BeginModule(M, MMI);
@@ -51,8 +51,6 @@ void DwarfWriter::BeginModule(Module *M,
 void DwarfWriter::EndModule() {
   DE->EndModule();
   DD->EndModule();
-  delete DD; DD = 0;
-  delete DE; DE = 0;
 }
 
 /// BeginFunction - Gather pre-function debug information.  Assumes being
@@ -77,18 +75,18 @@ void DwarfWriter::EndFunction(MachineFunction *MF) {
 /// label. Returns a unique label ID used to generate a label and provide
 /// correspondence to the source line list.
 unsigned DwarfWriter::RecordSourceLine(unsigned Line, unsigned Col, 
-                                       MDNode *Scope) {
-  return DD->RecordSourceLine(Line, Col, Scope);
+                                       DICompileUnit CU) {
+  return DD->RecordSourceLine(Line, Col, CU);
 }
 
 /// RecordRegionStart - Indicate the start of a region.
-unsigned DwarfWriter::RecordRegionStart(MDNode *N) {
-  return DD->RecordRegionStart(N);
+unsigned DwarfWriter::RecordRegionStart(GlobalVariable *V) {
+  return DD->RecordRegionStart(V);
 }
 
 /// RecordRegionEnd - Indicate the end of a region.
-unsigned DwarfWriter::RecordRegionEnd(MDNode *N) {
-  return DD->RecordRegionEnd(N);
+unsigned DwarfWriter::RecordRegionEnd(GlobalVariable *V) {
+  return DD->RecordRegionEnd(V);
 }
 
 /// getRecordSourceLineCount - Count source lines.
@@ -98,8 +96,9 @@ unsigned DwarfWriter::getRecordSourceLineCount() {
 
 /// RecordVariable - Indicate the declaration of  a local variable.
 ///
-void DwarfWriter::RecordVariable(MDNode *N, unsigned FrameIndex) {
-  DD->RecordVariable(N, FrameIndex);
+void DwarfWriter::RecordVariable(GlobalVariable *GV, unsigned FrameIndex,
+                                 const MachineInstr *MI) {
+  DD->RecordVariable(GV, FrameIndex, MI);
 }
 
 /// ShouldEmitDwarfDebug - Returns true if Dwarf debugging declarations should
@@ -108,7 +107,8 @@ bool DwarfWriter::ShouldEmitDwarfDebug() const {
   return DD && DD->ShouldEmitDwarfDebug();
 }
 
-//// RecordInlinedFnStart
+//// RecordInlinedFnStart - Global variable GV is inlined at the location marked
+//// by LabelID label.
 unsigned DwarfWriter::RecordInlinedFnStart(DISubprogram SP, DICompileUnit CU,
                                            unsigned Line, unsigned Col) {
   return DD->RecordInlinedFnStart(SP, CU, Line, Col);
@@ -119,9 +119,9 @@ unsigned DwarfWriter::RecordInlinedFnEnd(DISubprogram SP) {
   return DD->RecordInlinedFnEnd(SP);
 }
 
-void DwarfWriter::SetDbgScopeBeginLabels(const MachineInstr *MI, unsigned L) {
-  DD->SetDbgScopeEndLabels(MI, L);
-}
-void DwarfWriter::SetDbgScopeEndLabels(const MachineInstr *MI, unsigned L) {
-  DD->SetDbgScopeBeginLabels(MI, L);
+/// RecordVariableScope - Record scope for the variable declared by
+/// DeclareMI. DeclareMI must describe TargetInstrInfo::DECLARE.
+void DwarfWriter::RecordVariableScope(DIVariable &DV,
+                                      const MachineInstr *DeclareMI) {
+  DD->RecordVariableScope(DV, DeclareMI);
 }

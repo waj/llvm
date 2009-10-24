@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | grep mov | count 3
+; RUN: llvm-as < %s | llc -march=x86 | grep mov | count 2
 
 define fastcc i32 @sqlite3ExprResolveNames() nounwind  {
 entry:

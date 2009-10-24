@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=alphaev6-unknown-linux-gnu
+; RUN: llvm-as < %s | llc -mtriple=alphaev6-unknown-linux-gnu
 
 define void @foo() {
 entry:

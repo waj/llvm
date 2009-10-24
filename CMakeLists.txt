@@ -4,7 +4,7 @@ project(LLVM)
 cmake_minimum_required(VERSION 2.6.1)
 
 set(PACKAGE_NAME llvm)
-set(PACKAGE_VERSION 2.7svn)
+set(PACKAGE_VERSION 2.6svn)
 set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
 set(PACKAGE_BUGREPORT "llvmbugs@cs.uiuc.edu")
 
@@ -70,9 +70,6 @@ else( MSVC )
     CACHE STRING "Semicolon-separated list of targets to build, or \"all\".")
 endif( MSVC )
 
-set(LLVM_TARGET_ARCH "host"
-  CACHE STRING "Set target to use for LLVM JIT or use \"host\" for automatic detection.")
-
 option(LLVM_ENABLE_THREADS "Use threads if available." ON)
 
 if( uppercase_CMAKE_BUILD_TYPE STREQUAL "RELEASE" )
@@ -96,6 +93,12 @@ else()
     add_definitions( -DNDEBUG )
   endif()
 endif()
+
+if( uppercase_CMAKE_BUILD_TYPE STREQUAL "RELEASE" AND NOT LLVM_ENABLE_ASSERTIONS )
+  set( LLVM_COMPACT_SENTINELS 1 )
+else( uppercase_CMAKE_BUILD_TYPE STREQUAL "RELEASE" AND NOT LLVM_ENABLE_ASSERTIONS )
+  set( LLVM_COMPACT_SENTINELS 0 )
+endif( uppercase_CMAKE_BUILD_TYPE STREQUAL "RELEASE" AND NOT LLVM_ENABLE_ASSERTIONS )
 
 if( LLVM_TARGETS_TO_BUILD STREQUAL "all" )
   set( LLVM_TARGETS_TO_BUILD ${LLVM_ALL_TARGETS} )
@@ -145,11 +148,7 @@ else(WIN32)
   if(UNIX)
     set(LLVM_ON_WIN32 0)
     set(LLVM_ON_UNIX 1)
-    if(APPLE)
-      set(LTDL_SHLIB_EXT ".dylib")
-    else(APPLE)
-      set(LTDL_SHLIB_EXT ".so")
-    endif(APPLE)
+    set(LTDL_SHLIB_EXT ".so")
     set(EXEEXT "")
     # FIXME: Maximum path length is currently set to 'safe' fixed value
     set(MAXPATHLEN 2024)
@@ -221,10 +220,6 @@ endif( MSVC )
 
 include_directories( ${LLVM_BINARY_DIR}/include ${LLVM_MAIN_INCLUDE_DIR})
 
-if( ${CMAKE_SYSTEM_NAME} MATCHES SunOS )
-   SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-include llvm/System/Solaris.h")
-endif( ${CMAKE_SYSTEM_NAME} MATCHES SunOS )
-
 include(AddLLVM)
 include(TableGen)
 
@@ -263,11 +258,8 @@ add_subdirectory(lib/Linker)
 add_subdirectory(lib/Analysis)
 add_subdirectory(lib/Analysis/IPA)
 add_subdirectory(lib/MC)
-add_subdirectory(test)
 
 add_subdirectory(utils/FileCheck)
-add_subdirectory(utils/count)
-add_subdirectory(utils/not)
 
 set(LLVM_ENUM_ASM_PRINTERS "")
 set(LLVM_ENUM_ASM_PARSERS "")
@@ -305,6 +297,7 @@ add_subdirectory(lib/ExecutionEngine/Interpreter)
 add_subdirectory(lib/ExecutionEngine/JIT)
 add_subdirectory(lib/Target)
 add_subdirectory(lib/AsmParser)
+add_subdirectory(lib/Debugger)
 add_subdirectory(lib/Archive)
 
 add_subdirectory(projects)

@@ -1,4 +1,4 @@
-; RUN: llc < %s -o - | grep sinl
+; RUN: llvm-as < %s | llc -o - | grep sinl
 
 target triple = "i686-pc-linux-gnu"
 

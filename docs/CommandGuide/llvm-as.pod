@@ -46,9 +46,9 @@ suffix is appended.
 
 =item B<-f>
 
-Enable binary output on terminals.  Normally, B<llvm-as> will refuse to
-write raw bitcode output if the output stream is a terminal. With this option,
-B<llvm-as> will write raw bitcode regardless of the output device.
+Force overwrite.  Normally, B<llvm-as> will refuse to overwrite an
+output file that already exists.  With this option, B<llvm-as>
+will overwrite the output file and replace it with new bitcode.
 
 =item B<--help>
 

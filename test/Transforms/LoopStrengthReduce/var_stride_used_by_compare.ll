@@ -1,9 +1,9 @@
 ; Base should not be i*3, it should be i*2.
-; RUN: opt < %s -loop-reduce -S | \
+; RUN: llvm-as < %s | opt -loop-reduce | llvm-dis | \
 ; RUN:   not grep {mul.*%i, 3}
 
 ; Indvar should not start at zero:
-; RUN: opt < %s -loop-reduce -S | \
+; RUN: llvm-as < %s | opt -loop-reduce | llvm-dis | \
 ; RUN:   not grep {phi i32 .* 0}
 ; END.
 

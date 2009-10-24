@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 @G = external global i32		; <i32*> [#uses=1]
 
 define void @encode_one_frame(i64 %tmp.2i) {

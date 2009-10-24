@@ -107,9 +107,7 @@ FunctionPass *llvm::createDwarfEHPass(const TargetLowering *tli, bool fast) {
 
 /// NormalizeLandingPads - Normalize and discover landing pads, noting them
 /// in the LandingPads set.  A landing pad is normal if the only CFG edges
-/// that end at it are unwind edges from invoke instructions. If we inlined
-/// through an invoke we could have a normal branch from the previous
-/// unwind block through to the landing pad for the original invoke.
+/// that end at it are unwind edges from invoke instructions.
 /// Abnormal landing pads are fixed up by redirecting all unwind edges to
 /// a new basic block which falls through to the original.
 bool DwarfEHPrepare::NormalizeLandingPads() {
@@ -134,7 +132,6 @@ bool DwarfEHPrepare::NormalizeLandingPads() {
         break;
       }
     }
-
     if (OnlyUnwoundTo) {
       // Only unwind edges lead to the landing pad.  Remember the landing pad.
       LandingPads.insert(LPad);
@@ -222,41 +219,28 @@ bool DwarfEHPrepare::NormalizeLandingPads() {
 /// at runtime if there is no such exception: using unwind to throw a new
 /// exception is currently not supported.
 bool DwarfEHPrepare::LowerUnwinds() {
-  SmallVector<TerminatorInst*, 16> UnwindInsts;
+  bool Changed = false;
 
   for (Function::iterator I = F->begin(), E = F->end(); I != E; ++I) {
     TerminatorInst *TI = I->getTerminator();
-    if (isa<UnwindInst>(TI))
-      UnwindInsts.push_back(TI);
-  }
-
-  if (UnwindInsts.empty()) return false;
-
-  // Find the rewind function if we didn't already.
-  if (!RewindFunction) {
-    LLVMContext &Ctx = UnwindInsts[0]->getContext();
-    std::vector<const Type*>
-      Params(1, Type::getInt8PtrTy(Ctx));
-    FunctionType *FTy = FunctionType::get(Type::getVoidTy(Ctx),
-                                          Params, false);
-    const char *RewindName = TLI->getLibcallName(RTLIB::UNWIND_RESUME);
-    RewindFunction = F->getParent()->getOrInsertFunction(RewindName, FTy);
-  }
-
-  bool Changed = false;
-
-  for (SmallVectorImpl<TerminatorInst*>::iterator
-         I = UnwindInsts.begin(), E = UnwindInsts.end(); I != E; ++I) {
-    TerminatorInst *TI = *I;
+    if (!isa<UnwindInst>(TI))
+      continue;
 
     // Replace the unwind instruction with a call to _Unwind_Resume (or the
     // appropriate target equivalent) followed by an UnreachableInst.
 
+    // Find the rewind function if we didn't already.
+    if (!RewindFunction) {
+      std::vector<const Type*> Params(1,
+                     PointerType::getUnqual(Type::getInt8Ty(TI->getContext())));
+      FunctionType *FTy = FunctionType::get(Type::getVoidTy(TI->getContext()),
+                                            Params, false);
+      const char *RewindName = TLI->getLibcallName(RTLIB::UNWIND_RESUME);
+      RewindFunction = F->getParent()->getOrInsertFunction(RewindName, FTy);
+    }
+
     // Create the call...
-    CallInst *CI = CallInst::Create(RewindFunction,
-                                    CreateReadOfExceptionValue(TI->getParent()),
-                                    "", TI);
-    CI->setCallingConv(TLI->getLibcallCallingConv(RTLIB::UNWIND_RESUME));
+    CallInst::Create(RewindFunction, CreateReadOfExceptionValue(I), "", TI);
     // ...followed by an UnreachableInst.
     new UnreachableInst(TI->getContext(), TI);
 

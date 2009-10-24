@@ -1,7 +1,7 @@
 ; Test that any rethrown exceptions in an inlined function are automatically
 ; turned into branches to the invoke destination.
 
-; RUN: opt < %s -inline -S | not grep unwind$
+; RUN: llvm-as < %s | opt -inline | llvm-dis | not grep unwind$
 
 declare void @might_throw()
 

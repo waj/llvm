@@ -270,7 +270,7 @@ std::string MSILWriter::getLabelName(const Value* V) {
 }
 
 
-std::string MSILWriter::getConvModopt(CallingConv::ID CallingConvID) {
+std::string MSILWriter::getConvModopt(unsigned CallingConvID) {
   switch (CallingConvID) {
   case CallingConv::C:
   case CallingConv::Cold:
@@ -281,7 +281,7 @@ std::string MSILWriter::getConvModopt(CallingConv::ID CallingConvID) {
   case CallingConv::X86_StdCall:
     return "modopt([mscorlib]System.Runtime.CompilerServices.CallConvStdcall) ";
   default:
-    errs() << "CallingConvID = " << CallingConvID << '\n';
+    cerr << "CallingConvID = " << CallingConvID << '\n';
     llvm_unreachable("Unsupported calling convention");
   }
   return ""; // Not reached
@@ -327,7 +327,7 @@ std::string MSILWriter::getPrimitiveTypeName(const Type* Ty, bool isSigned) {
   case Type::DoubleTyID:
     return "float64 "; 
   default:
-    errs() << "Type = " << *Ty << '\n';
+    cerr << "Type = " << *Ty << '\n';
     llvm_unreachable("Invalid primitive type");
   }
   return ""; // Not reached
@@ -355,7 +355,7 @@ std::string MSILWriter::getTypeName(const Type* Ty, bool isSigned,
       return getArrayTypeName(Ty->getTypeID(),Ty);
     return "valuetype '"+getArrayTypeName(Ty->getTypeID(),Ty)+"' ";
   default:
-    errs() << "Type = " << *Ty << '\n';
+    cerr << "Type = " << *Ty << '\n';
     llvm_unreachable("Invalid type in getTypeName()");
   }
   return ""; // Not reached
@@ -399,7 +399,7 @@ std::string MSILWriter::getTypePostfix(const Type* Ty, bool Expand,
   case Type::PointerTyID:
     return "i"+utostr(TD->getTypeAllocSize(Ty));
   default:
-    errs() << "TypeID = " << Ty->getTypeID() << '\n';
+    cerr << "TypeID = " << Ty->getTypeID() << '\n';
     llvm_unreachable("Invalid type in TypeToPostfix()");
   }
   return ""; // Not reached
@@ -426,7 +426,7 @@ void MSILWriter::printPtrLoad(uint64_t N) {
     printSimpleInstruction("ldc.i4",utostr(N).c_str());
     // FIXME: Need overflow test?
     if (!isUInt32(N)) {
-      errs() << "Value = " << utostr(N) << '\n';
+      cerr << "Value = " << utostr(N) << '\n';
       llvm_unreachable("32-bit pointer overflowed");
     }
     break;
@@ -469,7 +469,7 @@ void MSILWriter::printConstLoad(const Constant* C) {
     // Undefined constant value = NULL.
     printPtrLoad(0);
   } else {
-    errs() << "Constant = " << *C << '\n';
+    cerr << "Constant = " << *C << '\n';
     llvm_unreachable("Invalid constant value");
   }
   Out << '\n';
@@ -518,7 +518,7 @@ void MSILWriter::printValueLoad(const Value* V) {
     printConstantExpr(cast<ConstantExpr>(V));
     break;
   default:
-    errs() << "Value = " << *V << '\n';
+    cerr << "Value = " << *V << '\n';
     llvm_unreachable("Invalid value location");
   }
 }
@@ -533,7 +533,7 @@ void MSILWriter::printValueSave(const Value* V) {
     printSimpleInstruction("stloc",getValueName(V).c_str());
     break;
   default:
-    errs() << "Value  = " << *V << '\n';
+    cerr << "Value  = " << *V << '\n';
     llvm_unreachable("Invalid value location");
   }
 }
@@ -695,7 +695,7 @@ void MSILWriter::printCastInstruction(unsigned int Op, const Value* V,
     // FIXME: meaning that ld*/st* instruction do not change data format.
     break;
   default:
-    errs() << "Opcode = " << Op << '\n';
+    cerr << "Opcode = " << Op << '\n';
     llvm_unreachable("Invalid conversion instruction");
   }
 }
@@ -1191,6 +1191,9 @@ void MSILWriter::printInstruction(const Instruction* Inst) {
   case Instruction::Alloca:
     printAllocaInstruction(cast<AllocaInst>(Inst));
     break;
+  case Instruction::Malloc:
+    llvm_unreachable("LowerAllocationsPass used");
+    break;
   case Instruction::Free:
     llvm_unreachable("LowerAllocationsPass used");
     break;
@@ -1620,13 +1623,13 @@ const char* MSILWriter::getLibraryName(const Function* F) {
 
 
 const char* MSILWriter::getLibraryName(const GlobalVariable* GV) {
-  return getLibraryForSymbol(Mang->getMangledName(GV), false, CallingConv::C);
+  return getLibraryForSymbol(Mang->getMangledName(GV), false, 0);
 }
 
 
 const char* MSILWriter::getLibraryForSymbol(const StringRef &Name, 
                                             bool isFunction,
-                                            CallingConv::ID CallingConv) {
+                                            unsigned CallingConv) {
   // TODO: Read *.def file with function and libraries definitions.
   return "MSVCRT.DLL";  
 }
@@ -1675,6 +1678,7 @@ void MSILWriter::printExternals() {
        E = ModulePtr->global_end(); I!=E; ++I) {
     if (!I->isDeclaration() || !I->hasDLLImportLinkage()) continue;
     // Use "LoadLibrary"/"GetProcAddress" to recive variable address.
+    std::string Label = "not_null$_"+utostr(getUniqID());
     std::string Tmp = getTypeName(I->getType())+getValueName(&*I);
     printSimpleInstruction("ldsflda",Tmp.c_str());
     Out << "\tldstr\t\"" << getLibraryName(&*I) << "\"\n";
@@ -1699,7 +1703,7 @@ bool MSILTarget::addPassesToEmitWholeFile(PassManager &PM,
   if (FileType != TargetMachine::AssemblyFile) return true;
   MSILWriter* Writer = new MSILWriter(o);
   PM.add(createGCLoweringPass());
-  PM.add(createLowerAllocationsPass());
+  PM.add(createLowerAllocationsPass(true));
   // FIXME: Handle switch trougth native IL instruction "switch"
   PM.add(createLowerSwitchPass());
   PM.add(createCFGSimplificationPass());

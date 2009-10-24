@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c | grep {\\* ((unsigned int )}
+; RUN: llvm-as < %s | llc -march=c | grep {\\* ((unsigned int )}
 ; PR2408
 
 define i32 @a(i32 %a) {

@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86-64 | grep call
+; RUN: llvm-as < %s | llc -march=x86-64 | grep call
 ; PR4688
 
 ; Return types can be empty structs, which can be awkward.

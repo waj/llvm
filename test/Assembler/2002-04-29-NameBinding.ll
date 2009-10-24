@@ -4,7 +4,7 @@
 ; Check by running globaldce, which will remove the constant if there are
 ; no references to it!
 ; 
-; RUN: opt < %s -globaldce -S | \
+; RUN: llvm-as < %s | opt -globaldce | llvm-dis | \
 ; RUN:   not grep constant
 ;
 

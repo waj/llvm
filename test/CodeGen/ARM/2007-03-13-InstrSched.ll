@@ -1,6 +1,6 @@
-; RUN: llc < %s -mtriple=arm-apple-darwin -relocation-model=pic \
+; RUN: llvm-as < %s | llc -mtriple=arm-apple-darwin -relocation-model=pic \
 ; RUN:   -mattr=+v6 | grep r9
-; RUN: llc < %s -mtriple=arm-apple-darwin -relocation-model=pic \
+; RUN: llvm-as < %s | llc -mtriple=arm-apple-darwin -relocation-model=pic \
 ; RUN:   -mattr=+v6 -arm-reserve-r9 -ifcvt-limit=0 -stats |& grep asm-printer
 ; | grep 35
 

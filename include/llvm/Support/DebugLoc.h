@@ -19,25 +19,23 @@
 #include <vector>
 
 namespace llvm {
-  class MDNode;
+  class GlobalVariable;
 
   /// DebugLocTuple - Debug location tuple of filename id, line and column.
   ///
   struct DebugLocTuple {
-    MDNode *Scope;
-    MDNode *InlinedAtLoc;
+    GlobalVariable *CompileUnit;
     unsigned Line, Col;
 
     DebugLocTuple()
-      : Scope(0), InlinedAtLoc(0), Line(~0U), Col(~0U) {}
+      : CompileUnit(0), Line(~0U), Col(~0U) {};
 
-    DebugLocTuple(MDNode *n, MDNode *i, unsigned l, unsigned c)
-      : Scope(n), InlinedAtLoc(i), Line(l), Col(c) {}
+    DebugLocTuple(GlobalVariable *v, unsigned l, unsigned c)
+      : CompileUnit(v), Line(l), Col(c) {};
 
     bool operator==(const DebugLocTuple &DLT) const {
-      return Scope == DLT.Scope &&
-        InlinedAtLoc == DLT.InlinedAtLoc &&
-        Line == DLT.Line && Col == DLT.Col;
+      return CompileUnit == DLT.CompileUnit &&
+             Line == DLT.Line && Col == DLT.Col;
     }
     bool operator!=(const DebugLocTuple &DLT) const {
       return !(*this == DLT);
@@ -65,25 +63,23 @@ namespace llvm {
     bool operator!=(const DebugLoc &DL) const { return !(*this == DL); }
   };
 
-  // Specialize DenseMapInfo for DebugLocTuple.
+  // Partially specialize DenseMapInfo for DebugLocTyple.
   template<>  struct DenseMapInfo<DebugLocTuple> {
     static inline DebugLocTuple getEmptyKey() {
-      return DebugLocTuple(0, 0, ~0U, ~0U);
+      return DebugLocTuple(0, ~0U, ~0U);
     }
     static inline DebugLocTuple getTombstoneKey() {
-      return DebugLocTuple((MDNode*)~1U, (MDNode*)~1U, ~1U, ~1U);
+      return DebugLocTuple((GlobalVariable*)~1U, ~1U, ~1U);
     }
     static unsigned getHashValue(const DebugLocTuple &Val) {
-      return DenseMapInfo<MDNode*>::getHashValue(Val.Scope) ^
-             DenseMapInfo<MDNode*>::getHashValue(Val.InlinedAtLoc) ^
+      return DenseMapInfo<GlobalVariable*>::getHashValue(Val.CompileUnit) ^
              DenseMapInfo<unsigned>::getHashValue(Val.Line) ^
              DenseMapInfo<unsigned>::getHashValue(Val.Col);
     }
     static bool isEqual(const DebugLocTuple &LHS, const DebugLocTuple &RHS) {
-      return LHS.Scope        == RHS.Scope &&
-             LHS.InlinedAtLoc == RHS.InlinedAtLoc &&
-             LHS.Line         == RHS.Line &&
-             LHS.Col          == RHS.Col;
+      return LHS.CompileUnit == RHS.CompileUnit &&
+             LHS.Line        == RHS.Line &&
+             LHS.Col         == RHS.Col;
     }
 
     static bool isPod() { return true; }

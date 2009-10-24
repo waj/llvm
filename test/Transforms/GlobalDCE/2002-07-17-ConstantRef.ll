@@ -1,4 +1,4 @@
-; RUN: opt < %s -globaldce
+; RUN: llvm-as < %s | opt -globaldce
 ;
 
 @X = global void ()* @func              ; <void ()**> [#uses=0]

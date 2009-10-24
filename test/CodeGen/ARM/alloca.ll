@@ -1,6 +1,6 @@
-; RUN: llc < %s -march=arm -mtriple=arm-linux-gnu | \
+; RUN: llvm-as < %s | llc -march=arm -mtriple=arm-linux-gnu | \
 ; RUN:   grep {mov r11, sp}
-; RUN: llc < %s -march=arm -mtriple=arm-linux-gnu | \
+; RUN: llvm-as < %s | llc -march=arm -mtriple=arm-linux-gnu | \
 ; RUN:   grep {mov sp, r11}
 
 define void @f(i32 %a) {

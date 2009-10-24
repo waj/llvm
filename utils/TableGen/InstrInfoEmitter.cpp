@@ -15,7 +15,6 @@
 #include "InstrInfoEmitter.h"
 #include "CodeGenTarget.h"
 #include "Record.h"
-#include "llvm/ADT/StringExtras.h"
 #include <algorithm>
 using namespace llvm;
 
@@ -280,8 +279,6 @@ void InstrInfoEmitter::emitRecord(const CodeGenInstruction &Inst, unsigned Num,
   if (Inst.isVariadic)         OS << "|(1<<TID::Variadic)";
   if (Inst.hasSideEffects)     OS << "|(1<<TID::UnmodeledSideEffects)";
   if (Inst.isAsCheapAsAMove)   OS << "|(1<<TID::CheapAsAMove)";
-  if (Inst.hasExtraSrcRegAllocReq) OS << "|(1<<TID::ExtraSrcRegAllocReq)";
-  if (Inst.hasExtraDefRegAllocReq) OS << "|(1<<TID::ExtraDefRegAllocReq)";
   OS << ", 0";
 
   // Emit all of the target-specific flags...
@@ -341,7 +338,7 @@ void InstrInfoEmitter::emitShiftedValue(Record *R, StringInit *Val,
         R->getName() != "DBG_LABEL" &&
         R->getName() != "EH_LABEL" &&
         R->getName() != "GC_LABEL" &&
-        R->getName() != "KILL" &&
+        R->getName() != "DECLARE" &&
         R->getName() != "EXTRACT_SUBREG" &&
         R->getName() != "INSERT_SUBREG" &&
         R->getName() != "IMPLICIT_DEF" &&

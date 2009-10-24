@@ -9,7 +9,7 @@
 ;
 ; Which corresponds to test1.
 
-; RUN: opt < %s -instcombine -S | \
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | \
 ; RUN:   not grep {or }
 
 define i32 @test1(i32 %X, i32 %Y) {

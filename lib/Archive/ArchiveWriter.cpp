@@ -95,7 +95,7 @@ Archive::fillHeader(const ArchiveMember &mbr, ArchiveMemberHeader& hdr,
   memcpy(hdr.date,buffer,12);
 
   // Get rid of trailing blanks in the name
-  std::string mbrPath = mbr.getPath().str();
+  std::string mbrPath = mbr.getPath().toString();
   size_t mbrLen = mbrPath.length();
   while (mbrLen > 0 && mbrPath[mbrLen-1] == ' ') {
     mbrPath.erase(mbrLen-1,1);
@@ -173,10 +173,10 @@ Archive::addFileBefore(const sys::Path& filePath, iterator where,
   mbr->info = *FSInfo;
 
   unsigned flags = 0;
-  bool hasSlash = filePath.str().find('/') != std::string::npos;
+  bool hasSlash = filePath.toString().find('/') != std::string::npos;
   if (hasSlash)
     flags |= ArchiveMember::HasPathFlag;
-  if (hasSlash || filePath.str().length() > 15)
+  if (hasSlash || filePath.toString().length() > 15)
     flags |= ArchiveMember::HasLongFilenameFlag;
   std::string magic;
   mbr->path.getMagicNumber(magic,4);
@@ -223,7 +223,8 @@ Archive::writeMember(
   // symbol table if its a bitcode file.
   if (CreateSymbolTable && member.isBitcode()) {
     std::vector<std::string> symbols;
-    std::string FullMemberName = archPath.str() + "(" + member.getPath().str()
+    std::string FullMemberName = archPath.toString() + "(" +
+      member.getPath().toString()
       + ")";
     ModuleProvider* MP = 
       GetBitcodeSymbols((const unsigned char*)data,fSize,
@@ -248,7 +249,7 @@ Archive::writeMember(
     } else {
       delete mFile;
       if (ErrMsg)
-        *ErrMsg = "Can't parse bitcode member: " + member.getPath().str()
+        *ErrMsg = "Can't parse bitcode member: " + member.getPath().toString()
           + ": " + *ErrMsg;
       return true;
     }
@@ -265,8 +266,8 @@ Archive::writeMember(
 
   // Write the long filename if its long
   if (writeLongName) {
-    ARFile.write(member.getPath().str().data(),
-                 member.getPath().str().length());
+    ARFile.write(member.getPath().toString().data(),
+                 member.getPath().toString().length());
   }
 
   // Write the (possibly compressed) member's content to the file.
@@ -370,7 +371,7 @@ Archive::writeToDisk(bool CreateSymbolTable, bool TruncateNames, bool Compress,
     if (TmpArchive.exists())
       TmpArchive.eraseFromDisk();
     if (ErrMsg)
-      *ErrMsg = "Error opening archive file: " + archPath.str();
+      *ErrMsg = "Error opening archive file: " + archPath.toString();
     return true;
   }
 
@@ -424,7 +425,7 @@ Archive::writeToDisk(bool CreateSymbolTable, bool TruncateNames, bool Compress,
       if (TmpArchive.exists())
         TmpArchive.eraseFromDisk();
       if (ErrMsg)
-        *ErrMsg = "Error opening archive file: " + FinalFilePath.str();
+        *ErrMsg = "Error opening archive file: " + FinalFilePath.toString();
       return true;
     }
 

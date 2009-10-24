@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S > %t
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis > %t
 
 define i1 @test1(i32 *%x) nounwind {
 entry:

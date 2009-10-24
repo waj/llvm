@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=x86_64-apple-darwin | grep movl | not grep rax
+; RUN: llvm-as < %s | llc -mtriple=x86_64-apple-darwin | grep movl | not grep rax
 
 	%struct.color_sample = type { i64 }
 	%struct.gs_matrix = type { float, i64, float, i64, float, i64, float, i64, float, i64, float, i64 }

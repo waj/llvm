@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=bfin -verify-machineinstrs > %t
+; RUN: llvm-as < %s | llc -march=bfin -verify-machineinstrs > %t
 
 	%struct.CUMULATIVE_ARGS = type { i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32 }
 	%struct.VEC_edge = type { i32, i32, [1 x %struct.edge_def*] }

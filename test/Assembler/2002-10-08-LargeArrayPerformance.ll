@@ -1,4 +1,4 @@
-; RUN: llvm-as %s -o /dev/null
+; RUN: llvm-as %s -o /dev/null -f
 ; This testcase comes from the following really simple c file:
 ;; int foo[30000]
 ;;; We should not be soo slow for such a simple case!

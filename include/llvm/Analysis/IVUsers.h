@@ -206,6 +206,10 @@ public:
   const SCEV *getReplacementExpr(const IVStrideUse &U) const;
 
   void print(raw_ostream &OS, const Module* = 0) const;
+  virtual void print(std::ostream &OS, const Module* = 0) const;
+  void print(std::ostream *OS, const Module* M = 0) const {
+    if (OS) print(*OS, M);
+  }
 
   /// dump - This method is used for debugging.
   void dump() const;

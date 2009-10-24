@@ -1,4 +1,4 @@
-; RUN: llc < %s -fast-isel -march=x86 | grep and
+; RUN: llvm-as < %s | llc -fast-isel -march=x86 | grep and
 
 define i32 @t() nounwind {
 tak:

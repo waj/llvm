@@ -1,4 +1,4 @@
-; RUN: opt < %s -lowerswitch -S > %t
+; RUN: llvm-as %s -o - | opt -lowerswitch | llvm-dis > %t
 ; RUN: grep slt %t | count 10
 ; RUN: grep ule %t | count 3
 ; RUN: grep eq  %t | count 9

@@ -1,4 +1,4 @@
-; RUN: opt < %s -licm -S | grep promoted
+; RUN: llvm-as < %s | opt -licm | llvm-dis | grep promoted
 ; Promote value if at least one use is safe
 
 

@@ -29,7 +29,6 @@
 namespace llvm {
   class Function;
   class Pass;
-  class raw_ostream;
 
   /// ProfileInfo Class - This class holds and maintains profiling
   /// information for some unit of code.
@@ -37,21 +36,20 @@ namespace llvm {
   public:
     // Types for handling profiling information.
     typedef std::pair<const BasicBlock*, const BasicBlock*> Edge;
-    typedef std::pair<Edge, double> EdgeWeight;
-    typedef std::map<Edge, double> EdgeWeights;
+    typedef std::map<Edge, double> EdgeCounts;
     typedef std::map<const BasicBlock*, double> BlockCounts;
 
   protected:
-    // EdgeInformation - Count the number of times a transition between two
-    // blocks is executed. As a special case, we also hold an edge from the
-    // null BasicBlock to the entry block to indicate how many times the
-    // function was entered.
-    std::map<const Function*, EdgeWeights> EdgeInformation;
+    // EdgeCounts - Count the number of times a transition between two blocks is
+    // executed.  As a special case, we also hold an edge from the null
+    // BasicBlock to the entry block to indicate how many times the function was
+    // entered.
+    std::map<const Function*, EdgeCounts> EdgeInformation;
 
-    // BlockInformation - Count the number of times a block is executed.
+    // BlockCounts - Count the number of times a block is executed.
     std::map<const Function*, BlockCounts> BlockInformation;
 
-    // FunctionInformation - Count the number of times a function is executed.
+    // FunctionCounts - Count the number of times a function is executed.
     std::map<const Function*, double> FunctionInformation;
   public:
     static char ID; // Class identification, replacement for typeinfo
@@ -59,21 +57,16 @@ namespace llvm {
 
     // MissingValue - The value that is returned for execution counts in case
     // no value is available.
-    static const double MissingValue;
+    static const int MissingValue = -1;
 
     // getFunction() - Returns the Function for an Edge, checking for validity.
     static const Function* getFunction(Edge e) {
-      if (e.first) {
-        return e.first->getParent();
-      } else if (e.second) {
-        return e.second->getParent();
-      }
-      assert(0 && "Invalid ProfileInfo::Edge");
-      return (const Function*)0;
+      assert(e.second && "Invalid ProfileInfo::Edge");
+      return e.second->getParent();
     }
 
     // getEdge() - Creates an Edge from two BasicBlocks.
-    static Edge getEdge(const BasicBlock *Src, const BasicBlock *Dest) {
+    static Edge getEdge(const BasicBlock* Src, const BasicBlock* Dest) {
       return std::make_pair(Src, Dest);
     }
 
@@ -85,52 +78,26 @@ namespace llvm {
     double getExecutionCount(const BasicBlock *BB);
 
     double getEdgeWeight(Edge e) const {
-      std::map<const Function*, EdgeWeights>::const_iterator J =
+      std::map<const Function*, EdgeCounts>::const_iterator J =
         EdgeInformation.find(getFunction(e));
       if (J == EdgeInformation.end()) return MissingValue;
 
-      EdgeWeights::const_iterator I = J->second.find(e);
+      EdgeCounts::const_iterator I = J->second.find(e);
       if (I == J->second.end()) return MissingValue;
 
       return I->second;
     }
 
-    EdgeWeights &getEdgeWeights (const Function *F) {
-      return EdgeInformation[F];
-    }
-
     //===------------------------------------------------------------------===//
     /// Analysis Update Methods
     ///
-    void removeBlock(const BasicBlock *BB) {
-      std::map<const Function*, BlockCounts>::iterator J =
-        BlockInformation.find(BB->getParent());
-      if (J == BlockInformation.end()) return;
 
-      J->second.erase(BB);
-    }
-
-    void removeEdge(Edge e) {
-      std::map<const Function*, EdgeWeights>::iterator J =
-        EdgeInformation.find(getFunction(e));
-      if (J == EdgeInformation.end()) return;
-
-      J->second.erase(e);
-    }
-
-    void splitEdge(const BasicBlock *FirstBB, const BasicBlock *SecondBB,
-                   const BasicBlock *NewBB, bool MergeIdenticalEdges = false);
-
-    void replaceAllUses(const BasicBlock *RmBB, const BasicBlock *DestBB);
   };
 
   /// createProfileLoaderPass - This function returns a Pass that loads the
   /// profiling information for the module from the specified filename, making
   /// it available to the optimizers.
   Pass *createProfileLoaderPass(const std::string &Filename);
-
-  raw_ostream& operator<<(raw_ostream &O, ProfileInfo::Edge E);
-
 } // End llvm namespace
 
 #endif

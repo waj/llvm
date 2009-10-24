@@ -1,4 +1,4 @@
-; RUN: opt < %s -argpromotion -scalarrepl -S | not grep load
+; RUN: llvm-as < %s | opt -argpromotion -scalarrepl | llvm-dis | not grep load
 ; Argpromote + scalarrepl should change this to passing the two integers by value.
 
 	%struct.ss = type { i32, i64 }

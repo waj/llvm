@@ -17,7 +17,6 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 using namespace llvm;
@@ -53,7 +52,7 @@ FunctionPass *llvm::createDeadMachineInstructionElimPass() {
 bool DeadMachineInstructionElim::isDead(const MachineInstr *MI) const {
   // Don't delete instructions with side effects.
   bool SawStore = false;
-  if (!MI->isSafeToMove(TII, SawStore, 0))
+  if (!MI->isSafeToMove(TII, SawStore))
     return false;
 
   // Examine each operand.
@@ -111,7 +110,7 @@ bool DeadMachineInstructionElim::runOnMachineFunction(MachineFunction &MF) {
 
       // If the instruction is dead, delete it!
       if (isDead(MI)) {
-        DEBUG(errs() << "DeadMachineInstructionElim: DELETING: " << *MI);
+        DOUT << "DeadMachineInstructionElim: DELETING: " << *MI;
         AnyChanges = true;
         MI->eraseFromParent();
         MIE = MBB->rend();

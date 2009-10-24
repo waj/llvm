@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | not grep xor
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep xor
 
 define i1 @test1(i8 %x, i8 %y) {
   %X = xor i8 %x, 128

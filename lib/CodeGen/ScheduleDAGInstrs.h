@@ -15,13 +15,12 @@
 #ifndef SCHEDULEDAGINSTRS_H
 #define SCHEDULEDAGINSTRS_H
 
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallSet.h"
 #include <map>
 
 namespace llvm {
@@ -98,7 +97,6 @@ namespace llvm {
   class VISIBILITY_HIDDEN ScheduleDAGInstrs : public ScheduleDAG {
     const MachineLoopInfo &MLI;
     const MachineDominatorTree &MDT;
-    const MachineFrameInfo *MFI;
 
     /// Defs, Uses - Remember where defs and uses of each physical register
     /// are as we iterate upward through the instructions. This is allocated
@@ -122,6 +120,7 @@ namespace llvm {
     SmallSet<unsigned, 8> LoopLiveInRegs;
 
   public:
+    MachineBasicBlock *BB;                // Current basic block
     MachineBasicBlock::iterator Begin;    // The beginning of the range to
                                           // be scheduled. The range extends
                                           // to InsertPos.
@@ -155,7 +154,7 @@ namespace llvm {
 
     /// BuildSchedGraph - Build SUnits from the MachineBasicBlock that we are
     /// input.
-    virtual void BuildSchedGraph(AliasAnalysis *AA);
+    virtual void BuildSchedGraph();
 
     /// ComputeLatency - Compute node latency.
     ///
@@ -167,8 +166,7 @@ namespace llvm {
     virtual void ComputeOperandLatency(SUnit *Def, SUnit *Use,
                                        SDep& dep) const;
 
-    virtual MachineBasicBlock*
-    EmitSchedule(DenseMap<MachineBasicBlock*, MachineBasicBlock*>*);
+    virtual MachineBasicBlock *EmitSchedule();
 
     /// StartBlock - Prepare to perform scheduling in the given block.
     ///

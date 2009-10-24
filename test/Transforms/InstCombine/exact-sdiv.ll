@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | FileCheck %s
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | FileCheck %s
 
 ; CHECK: define i32 @foo
 ; CHECK: sdiv i32 %x, 8

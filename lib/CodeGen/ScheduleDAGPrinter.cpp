@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/Debug.h"
@@ -92,7 +93,7 @@ void ScheduleDAG::viewGraph() {
     ViewGraph(this, "dag." + MF.getFunction()->getNameStr(), false,
               "Scheduling-Units Graph for " + MF.getFunction()->getNameStr());
 #else
-  errs() << "ScheduleDAG::viewGraph is only available in debug builds on "
-         << "systems with Graphviz or gv!\n";
+  cerr << "ScheduleDAG::viewGraph is only available in debug builds on "
+       << "systems with Graphviz or gv!\n";
 #endif  // NDEBUG
 }

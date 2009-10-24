@@ -118,7 +118,7 @@ private:
   bool X86VisitIntrinsicCall(IntrinsicInst &I);
   bool X86SelectCall(Instruction *I);
 
-  CCAssignFn *CCAssignFnForCall(CallingConv::ID CC, bool isTailCall = false);
+  CCAssignFn *CCAssignFnForCall(unsigned CC, bool isTailCall = false);
 
   const X86InstrInfo *getInstrInfo() const {
     return getTargetMachine()->getInstrInfo();
@@ -169,8 +169,7 @@ bool X86FastISel::isTypeLegal(const Type *Ty, EVT &VT, bool AllowI1) {
 
 /// CCAssignFnForCall - Selects the correct CCAssignFn for a given calling
 /// convention.
-CCAssignFn *X86FastISel::CCAssignFnForCall(CallingConv::ID CC,
-                                           bool isTaillCall) {
+CCAssignFn *X86FastISel::CCAssignFnForCall(unsigned CC, bool isTaillCall) {
   if (Subtarget->is64Bit()) {
     if (Subtarget->isTargetWin64())
       return CC_X86_Win64_C;
@@ -196,7 +195,6 @@ bool X86FastISel::X86FastEmitLoad(EVT VT, const X86AddressMode &AM,
   const TargetRegisterClass *RC = NULL;
   switch (VT.getSimpleVT().SimpleTy) {
   default: return false;
-  case MVT::i1:
   case MVT::i8:
     Opc = X86::MOV8rm;
     RC  = X86::GR8RegisterClass;
@@ -254,14 +252,6 @@ X86FastISel::X86FastEmitStore(EVT VT, unsigned Val,
   switch (VT.getSimpleVT().SimpleTy) {
   case MVT::f80: // No f80 support yet.
   default: return false;
-  case MVT::i1: {
-    // Mask out all but lowest bit.
-    unsigned AndResult = createResultReg(X86::GR8RegisterClass);
-    BuildMI(MBB, DL,
-            TII.get(X86::AND8ri), AndResult).addReg(Val).addImm(1);
-    Val = AndResult;
-  }
-  // FALLTHROUGH, handling i1 as i8.
   case MVT::i8:  Opc = X86::MOV8mr;  break;
   case MVT::i16: Opc = X86::MOV16mr; break;
   case MVT::i32: Opc = X86::MOV32mr; break;
@@ -287,10 +277,8 @@ bool X86FastISel::X86FastEmitStore(EVT VT, Value *Val,
   // If this is a store of a simple constant, fold the constant into the store.
   if (ConstantInt *CI = dyn_cast<ConstantInt>(Val)) {
     unsigned Opc = 0;
-    bool Signed = true;
     switch (VT.getSimpleVT().SimpleTy) {
     default: break;
-    case MVT::i1:  Signed = false;     // FALLTHROUGH to handle as i8.
     case MVT::i8:  Opc = X86::MOV8mi;  break;
     case MVT::i16: Opc = X86::MOV16mi; break;
     case MVT::i32: Opc = X86::MOV32mi; break;
@@ -303,8 +291,7 @@ bool X86FastISel::X86FastEmitStore(EVT VT, Value *Val,
     
     if (Opc) {
       addFullAddress(BuildMI(MBB, DL, TII.get(Opc)), AM)
-                             .addImm(Signed ? CI->getSExtValue() :
-                                              CI->getZExtValue());
+                             .addImm(CI->getSExtValue());
       return true;
     }
   }
@@ -619,7 +606,7 @@ bool X86FastISel::X86SelectCallAddress(Value *V, X86AddressMode &AM) {
 /// X86SelectStore - Select and emit code to implement store instructions.
 bool X86FastISel::X86SelectStore(Instruction* I) {
   EVT VT;
-  if (!isTypeLegal(I->getOperand(0)->getType(), VT, /*AllowI1=*/true))
+  if (!isTypeLegal(I->getOperand(0)->getType(), VT))
     return false;
 
   X86AddressMode AM;
@@ -633,7 +620,7 @@ bool X86FastISel::X86SelectStore(Instruction* I) {
 ///
 bool X86FastISel::X86SelectLoad(Instruction *I)  {
   EVT VT;
-  if (!isTypeLegal(I->getType(), VT, /*AllowI1=*/true))
+  if (!isTypeLegal(I->getType(), VT))
     return false;
 
   X86AddressMode AM;
@@ -1058,9 +1045,9 @@ bool X86FastISel::X86SelectSelect(Instruction *I) {
 bool X86FastISel::X86SelectFPExt(Instruction *I) {
   // fpext from float to double.
   if (Subtarget->hasSSE2() &&
-      I->getType()->isDoubleTy()) {
+      I->getType() == Type::getDoubleTy(I->getContext())) {
     Value *V = I->getOperand(0);
-    if (V->getType()->isFloatTy()) {
+    if (V->getType() == Type::getFloatTy(I->getContext())) {
       unsigned OpReg = getRegForValue(V);
       if (OpReg == 0) return false;
       unsigned ResultReg = createResultReg(X86::FR64RegisterClass);
@@ -1075,9 +1062,9 @@ bool X86FastISel::X86SelectFPExt(Instruction *I) {
 
 bool X86FastISel::X86SelectFPTrunc(Instruction *I) {
   if (Subtarget->hasSSE2()) {
-    if (I->getType()->isFloatTy()) {
+    if (I->getType() == Type::getFloatTy(I->getContext())) {
       Value *V = I->getOperand(0);
-      if (V->getType()->isDoubleTy()) {
+      if (V->getType() == Type::getDoubleTy(I->getContext())) {
         unsigned OpReg = getRegForValue(V);
         if (OpReg == 0) return false;
         unsigned ResultReg = createResultReg(X86::FR32RegisterClass);
@@ -1224,7 +1211,7 @@ bool X86FastISel::X86SelectCall(Instruction *I) {
 
   // Handle only C and fastcc calling conventions for now.
   CallSite CS(CI);
-  CallingConv::ID CC = CS.getCallingConv();
+  unsigned CC = CS.getCallingConv();
   if (CC != CallingConv::C &&
       CC != CallingConv::Fast &&
       CC != CallingConv::X86_FastCall)
@@ -1244,7 +1231,7 @@ bool X86FastISel::X86SelectCall(Instruction *I) {
   // Handle *simple* calls for now.
   const Type *RetTy = CS.getType();
   EVT RetVT;
-  if (RetTy->isVoidTy())
+  if (RetTy == Type::getVoidTy(I->getContext()))
     RetVT = MVT::isVoid;
   else if (!isTypeLegal(RetTy, RetVT, true))
     return false;

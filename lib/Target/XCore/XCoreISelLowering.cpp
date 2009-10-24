@@ -51,8 +51,6 @@ getTargetNodeName(unsigned Opcode) const
     case XCoreISD::CPRelativeWrapper : return "XCoreISD::CPRelativeWrapper";
     case XCoreISD::STWSP             : return "XCoreISD::STWSP";
     case XCoreISD::RETSP             : return "XCoreISD::RETSP";
-    case XCoreISD::LADD              : return "XCoreISD::LADD";
-    case XCoreISD::LSUB              : return "XCoreISD::LSUB";
     default                           : return NULL;
   }
 }
@@ -91,8 +89,13 @@ XCoreTargetLowering::XCoreTargetLowering(XCoreTargetMachine &XTM)
   setOperationAction(ISD::SELECT_CC, MVT::Other, Expand);
   
   // 64bit
-  setOperationAction(ISD::ADD, MVT::i64, Custom);
-  setOperationAction(ISD::SUB, MVT::i64, Custom);
+  if (!Subtarget.isXS1A()) {
+    setOperationAction(ISD::ADD, MVT::i64, Custom);
+    setOperationAction(ISD::SUB, MVT::i64, Custom);
+  }
+  if (Subtarget.isXS1A()) {
+    setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
+  }
   setOperationAction(ISD::MULHS, MVT::i32, Expand);
   setOperationAction(ISD::MULHU, MVT::i32, Expand);
   setOperationAction(ISD::SHL_PARTS, MVT::i32, Expand);
@@ -218,16 +221,17 @@ getGlobalAddressWrapper(SDValue GA, GlobalValue *GV, SelectionDAG &DAG)
   DebugLoc dl = GA.getDebugLoc();
   if (isa<Function>(GV)) {
     return DAG.getNode(XCoreISD::PCRelativeWrapper, dl, MVT::i32, GA);
-  }
-  const GlobalVariable *GVar = dyn_cast<GlobalVariable>(GV);
-  if (!GVar) {
-    // If GV is an alias then use the aliasee to determine constness
-    if (const GlobalAlias *GA = dyn_cast<GlobalAlias>(GV))
-      GVar = dyn_cast_or_null<GlobalVariable>(GA->resolveAliasedGlobal());
-  }
-  bool isConst = GVar && GVar->isConstant();
-  if (isConst) {
-    return DAG.getNode(XCoreISD::CPRelativeWrapper, dl, MVT::i32, GA);
+  } else if (!Subtarget.isXS1A()) {
+    const GlobalVariable *GVar = dyn_cast<GlobalVariable>(GV);
+    if (!GVar) {
+      // If GV is an alias then use the aliasee to determine constness
+      if (const GlobalAlias *GA = dyn_cast<GlobalAlias>(GV))
+        GVar = dyn_cast_or_null<GlobalVariable>(GA->resolveAliasedGlobal());
+    }
+    bool isConst = GVar && GVar->isConstant();
+    if (isConst) {
+      return DAG.getNode(XCoreISD::CPRelativeWrapper, dl, MVT::i32, GA);
+    }
   }
   return DAG.getNode(XCoreISD::DPRelativeWrapper, dl, MVT::i32, GA);
 }
@@ -293,16 +297,21 @@ LowerConstantPool(SDValue Op, SelectionDAG &DAG)
   ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
   // FIXME there isn't really debug info here
   DebugLoc dl = CP->getDebugLoc();
-  EVT PtrVT = Op.getValueType();
-  SDValue Res;
-  if (CP->isMachineConstantPoolEntry()) {
-    Res = DAG.getTargetConstantPool(CP->getMachineCPVal(), PtrVT,
-                                    CP->getAlignment());
+  if (Subtarget.isXS1A()) {
+    llvm_unreachable("Lowering of constant pool unimplemented");
+    return SDValue();
   } else {
-    Res = DAG.getTargetConstantPool(CP->getConstVal(), PtrVT,
-                                    CP->getAlignment());
+    EVT PtrVT = Op.getValueType();
+    SDValue Res;
+    if (CP->isMachineConstantPoolEntry()) {
+      Res = DAG.getTargetConstantPool(CP->getMachineCPVal(), PtrVT,
+                                      CP->getAlignment());
+    } else {
+      Res = DAG.getTargetConstantPool(CP->getConstVal(), PtrVT,
+                                      CP->getAlignment());
+    }
+    return DAG.getNode(XCoreISD::CPRelativeWrapper, dl, MVT::i32, Res);
   }
-  return DAG.getNode(XCoreISD::CPRelativeWrapper, dl, MVT::i32, Res);
 }
 
 SDValue XCoreTargetLowering::
@@ -515,6 +524,7 @@ ExpandADDSUB(SDNode *N, SelectionDAG &DAG)
   assert(N->getValueType(0) == MVT::i64 &&
          (N->getOpcode() == ISD::ADD || N->getOpcode() == ISD::SUB) &&
         "Unknown operand to lower!");
+  assert(!Subtarget.isXS1A() && "Cannot custom lower ADD/SUB on xs1a");
   DebugLoc dl = N->getDebugLoc();
   
   // Extract components
@@ -601,7 +611,7 @@ SDValue XCoreTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) {
 /// XCore call implementation
 SDValue
 XCoreTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
-                               CallingConv::ID CallConv, bool isVarArg,
+                               unsigned CallConv, bool isVarArg,
                                bool isTailCall,
                                const SmallVectorImpl<ISD::OutputArg> &Outs,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -626,7 +636,7 @@ XCoreTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
 /// TODO: isTailCall, sret.
 SDValue
 XCoreTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
-                                    CallingConv::ID CallConv, bool isVarArg,
+                                    unsigned CallConv, bool isVarArg,
                                     bool isTailCall,
                                     const SmallVectorImpl<ISD::OutputArg> &Outs,
                                     const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -751,7 +761,7 @@ XCoreTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
 /// appropriate copies out of appropriate physical registers.
 SDValue
 XCoreTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
-                                     CallingConv::ID CallConv, bool isVarArg,
+                                     unsigned CallConv, bool isVarArg,
                                      const SmallVectorImpl<ISD::InputArg> &Ins,
                                      DebugLoc dl, SelectionDAG &DAG,
                                      SmallVectorImpl<SDValue> &InVals) {
@@ -781,7 +791,7 @@ XCoreTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
 /// XCore formal arguments implementation
 SDValue
 XCoreTargetLowering::LowerFormalArguments(SDValue Chain,
-                                          CallingConv::ID CallConv,
+                                          unsigned CallConv,
                                           bool isVarArg,
                                       const SmallVectorImpl<ISD::InputArg> &Ins,
                                           DebugLoc dl,
@@ -804,7 +814,7 @@ XCoreTargetLowering::LowerFormalArguments(SDValue Chain,
 /// TODO: sret
 SDValue
 XCoreTargetLowering::LowerCCCArguments(SDValue Chain,
-                                       CallingConv::ID CallConv,
+                                       unsigned CallConv,
                                        bool isVarArg,
                                        const SmallVectorImpl<ISD::InputArg>
                                          &Ins,
@@ -918,7 +928,7 @@ XCoreTargetLowering::LowerCCCArguments(SDValue Chain,
 
 SDValue
 XCoreTargetLowering::LowerReturn(SDValue Chain,
-                                 CallingConv::ID CallConv, bool isVarArg,
+                                 unsigned CallConv, bool isVarArg,
                                  const SmallVectorImpl<ISD::OutputArg> &Outs,
                                  DebugLoc dl, SelectionDAG &DAG) {
 
@@ -971,8 +981,7 @@ XCoreTargetLowering::LowerReturn(SDValue Chain,
 
 MachineBasicBlock *
 XCoreTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                 MachineBasicBlock *BB,
-                   DenseMap<MachineBasicBlock*, MachineBasicBlock*> *EM) const {
+                                                 MachineBasicBlock *BB) const {
   const TargetInstrInfo &TII = *getTargetMachine().getInstrInfo();
   DebugLoc dl = MI->getDebugLoc();
   assert((MI->getOpcode() == XCore::SELECT_CC) &&
@@ -1000,18 +1009,9 @@ XCoreTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
     .addReg(MI->getOperand(1).getReg()).addMBB(sinkMBB);
   F->insert(It, copy0MBB);
   F->insert(It, sinkMBB);
-  // Update machine-CFG edges by first adding all successors of the current
+  // Update machine-CFG edges by transferring all successors of the current
   // block to the new block which will contain the Phi node for the select.
-  // Also inform sdisel of the edge changes.
-  for (MachineBasicBlock::succ_iterator I = BB->succ_begin(), 
-         E = BB->succ_end(); I != E; ++I) {
-    EM->insert(std::make_pair(*I, sinkMBB));
-    sinkMBB->addSuccessor(*I);
-  }
-  // Next, remove all successors of the current block, and add the true
-  // and fallthrough blocks as its successors.
-  while (!BB->succ_empty())
-    BB->removeSuccessor(BB->succ_begin());
+  sinkMBB->transferSuccessors(BB);
   // Next, add the true and fallthrough blocks as its successors.
   BB->addSuccessor(copy0MBB);
   BB->addSuccessor(sinkMBB);

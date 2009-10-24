@@ -1,4 +1,5 @@
-; RUN: llc < %s -march=ppc32 -combiner-alias-analysis | grep f5
+; RUN: llvm-as < %s | \
+; RUN:   llc -march=ppc32 -combiner-alias-analysis | grep f5
 
 target datalayout = "E-p:32:32"
 target triple = "powerpc-apple-darwin8.2.0"

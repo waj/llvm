@@ -122,17 +122,14 @@ public:
 
   virtual bool requiresRegisterScavenging(const MachineFunction &MF) const;
 
-  virtual bool requiresFrameIndexScavenging(const MachineFunction &MF) const;
-
   virtual bool hasReservedCallFrame(MachineFunction &MF) const;
 
   virtual void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                              MachineBasicBlock &MBB,
                                              MachineBasicBlock::iterator I) const;
 
-  virtual unsigned eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                       int SPAdj, int *Value = NULL,
-                                       RegScavenger *RS = NULL) const;
+  virtual void eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                   int SPAdj, RegScavenger *RS = NULL) const;
 
   virtual void emitPrologue(MachineFunction &MF) const;
   virtual void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;

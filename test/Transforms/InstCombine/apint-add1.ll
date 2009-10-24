@@ -1,7 +1,7 @@
 ; This test makes sure that add instructions are properly eliminated.
 ; This test is for Integer BitWidth <= 64 && BitWidth % 8 != 0.
 
-; RUN: opt < %s -instcombine -S | \
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | \
 ; RUN:    grep -v OK | not grep add
 
 

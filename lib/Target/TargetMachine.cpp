@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/CommandLine.h"
@@ -35,8 +35,6 @@ namespace llvm {
   bool NoZerosInBSS;
   bool DwarfExceptionHandling;
   bool SjLjExceptionHandling;
-  bool JITEmitDebugInfo;
-  bool JITEmitDebugInfoToDisk;
   bool UnwindTablesMandatory;
   Reloc::Model RelocationModel;
   CodeModel::Model CMModel;
@@ -115,24 +113,6 @@ static cl::opt<bool, true>
 EnableSjLjExceptionHandling("enable-sjlj-eh",
   cl::desc("Emit SJLJ exception handling (default if target supports)"),
   cl::location(SjLjExceptionHandling),
-  cl::init(false));
-// In debug builds, make this default to true.
-#ifdef NDEBUG
-#define EMIT_DEBUG false
-#else
-#define EMIT_DEBUG true
-#endif
-static cl::opt<bool, true>
-EmitJitDebugInfo("jit-emit-debug",
-  cl::desc("Emit debug information to debugger"),
-  cl::location(JITEmitDebugInfo),
-  cl::init(EMIT_DEBUG));
-#undef EMIT_DEBUG
-static cl::opt<bool, true>
-EmitJitDebugInfoToDisk("jit-emit-debug-to-disk",
-  cl::Hidden,
-  cl::desc("Emit debug info objfiles to disk"),
-  cl::location(JITEmitDebugInfoToDisk),
   cl::init(false));
 static cl::opt<bool, true>
 EnableUnwindTables("unwind-tables",
@@ -263,3 +243,4 @@ namespace llvm {
     return !UnsafeFPMath && HonorSignDependentRoundingFPMathOption;
   }
 }
+

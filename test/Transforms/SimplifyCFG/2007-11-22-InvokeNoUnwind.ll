@@ -1,4 +1,4 @@
-; RUN: opt < %s -simplifycfg -S | not grep invoke
+; RUN: llvm-as < %s | opt -simplifycfg | llvm-dis | not grep invoke
 
 declare i32 @func(i8*) nounwind
 

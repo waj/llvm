@@ -122,4 +122,4 @@ namespace llvm {
 
 }
 
-#endif /* LLVM_CODEGEN_PHIELIMINATION_HPP */
+#endif /* PHIELIMINATION_H */

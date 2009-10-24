@@ -1,4 +1,4 @@
-; RUN: opt < %s -adce -disable-output
+; RUN: llvm-as < %s | opt -adce -disable-output
 
 define i32 @main() {
         br label %loop

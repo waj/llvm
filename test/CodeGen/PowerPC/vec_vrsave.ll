@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=ppc32 -mcpu=g5 -o %t
+; RUN: llvm-as < %s | llc -march=ppc32 -mcpu=g5 -o %t -f
 ; RUN: grep vrlw %t
 ; RUN: not grep spr %t
 ; RUN: not grep vrsave %t

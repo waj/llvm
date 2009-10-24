@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=mips
+; RUN: llvm-as < %s | llc -march=mips
 ; PR2794
 
 define i32 @main(i8*) nounwind {

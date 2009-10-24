@@ -46,17 +46,17 @@ namespace llvm {
 ///  /// Declare the class.  Note that we derive from InstVisitor instantiated
 ///  /// with _our new subclasses_ type.
 ///  ///
-///  struct CountAllocaVisitor : public InstVisitor<CountAllocaVisitor> {
+///  struct CountMallocVisitor : public InstVisitor<CountMallocVisitor> {
 ///    unsigned Count;
-///    CountAllocaVisitor() : Count(0) {}
+///    CountMallocVisitor() : Count(0) {}
 ///
-///    void visitAllocaInst(AllocaInst &AI) { ++Count; }
+///    void visitMallocInst(MallocInst &MI) { ++Count; }
 ///  };
 ///
 ///  And this class would be used like this:
-///    CountAllocaVisitor CAV;
-///    CAV.visit(function);
-///    NumAllocas = CAV.Count;
+///    CountMallocVistor CMV;
+///    CMV.visit(function);
+///    NumMallocs = CMV.Count;
 ///
 /// The defined has 'visit' methods for Instruction, and also for BasicBlock,
 /// Function, and Module, which recursively process all contained instructions.
@@ -165,7 +165,8 @@ public:
   RetTy visitUnreachableInst(UnreachableInst &I)    { DELEGATE(TerminatorInst);}
   RetTy visitICmpInst(ICmpInst &I)                  { DELEGATE(CmpInst);}
   RetTy visitFCmpInst(FCmpInst &I)                  { DELEGATE(CmpInst);}
-  RetTy visitAllocaInst(AllocaInst &I)              { DELEGATE(Instruction); }
+  RetTy visitMallocInst(MallocInst &I)              { DELEGATE(AllocationInst);}
+  RetTy visitAllocaInst(AllocaInst &I)              { DELEGATE(AllocationInst);}
   RetTy visitFreeInst(FreeInst     &I)              { DELEGATE(Instruction); }
   RetTy visitLoadInst(LoadInst     &I)              { DELEGATE(Instruction); }
   RetTy visitStoreInst(StoreInst   &I)              { DELEGATE(Instruction); }
@@ -198,6 +199,7 @@ public:
   //
   RetTy visitTerminatorInst(TerminatorInst &I) { DELEGATE(Instruction); }
   RetTy visitBinaryOperator(BinaryOperator &I) { DELEGATE(Instruction); }
+  RetTy visitAllocationInst(AllocationInst &I) { DELEGATE(Instruction); }
   RetTy visitCmpInst(CmpInst &I)               { DELEGATE(Instruction); }
   RetTy visitCastInst(CastInst &I)             { DELEGATE(Instruction); }
 

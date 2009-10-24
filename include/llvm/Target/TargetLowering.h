@@ -1116,7 +1116,7 @@ public:
   ///
   virtual SDValue
     LowerFormalArguments(SDValue Chain,
-                         CallingConv::ID CallConv, bool isVarArg,
+                         unsigned CallConv, bool isVarArg,
                          const SmallVectorImpl<ISD::InputArg> &Ins,
                          DebugLoc dl, SelectionDAG &DAG,
                          SmallVectorImpl<SDValue> &InVals) {
@@ -1147,9 +1147,8 @@ public:
   std::pair<SDValue, SDValue>
   LowerCallTo(SDValue Chain, const Type *RetTy, bool RetSExt, bool RetZExt,
               bool isVarArg, bool isInreg, unsigned NumFixedArgs,
-              CallingConv::ID CallConv, bool isTailCall,
-              bool isReturnValueUsed, SDValue Callee, ArgListTy &Args,
-              SelectionDAG &DAG, DebugLoc dl);
+              unsigned CallConv, bool isTailCall, bool isReturnValueUsed,
+              SDValue Callee, ArgListTy &Args, SelectionDAG &DAG, DebugLoc dl);
 
   /// LowerCall - This hook must be implemented to lower calls into the
   /// the specified DAG. The outgoing arguments to the call are described
@@ -1165,7 +1164,7 @@ public:
   ///
   virtual SDValue
     LowerCall(SDValue Chain, SDValue Callee,
-              CallingConv::ID CallConv, bool isVarArg, bool isTailCall,
+              unsigned CallConv, bool isVarArg, bool isTailCall,
               const SmallVectorImpl<ISD::OutputArg> &Outs,
               const SmallVectorImpl<ISD::InputArg> &Ins,
               DebugLoc dl, SelectionDAG &DAG,
@@ -1180,7 +1179,7 @@ public:
   /// value.
   ///
   virtual SDValue
-    LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
+    LowerReturn(SDValue Chain, unsigned CallConv, bool isVarArg,
                 const SmallVectorImpl<ISD::OutputArg> &Outs,
                 DebugLoc dl, SelectionDAG &DAG) {
     assert(0 && "Not Implemented");
@@ -1284,7 +1283,7 @@ public:
   /// should override this function.
   virtual bool
   IsEligibleForTailCallOptimization(SDValue Callee,
-                                    CallingConv::ID CalleeCC,
+                                    unsigned CalleeCC,
                                     bool isVarArg,
                                     const SmallVectorImpl<ISD::InputArg> &Ins,
                                     SelectionDAG& DAG) const {
@@ -1440,12 +1439,8 @@ public:
   // instructions are special in various ways, which require special support to
   // insert.  The specified MachineInstr is created but not inserted into any
   // basic blocks, and the scheduler passes ownership of it to this method.
-  // When new basic blocks are inserted and the edges from MBB to its successors
-  // are modified, the method should insert pairs of <OldSucc, NewSucc> into the
-  // DenseMap.
   virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                         MachineBasicBlock *MBB,
-                    DenseMap<MachineBasicBlock*, MachineBasicBlock*> *EM) const;
+                                                  MachineBasicBlock *MBB) const;
 
   //===--------------------------------------------------------------------===//
   // Addressing mode description hooks (used by LSR etc).

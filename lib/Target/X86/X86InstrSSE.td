@@ -197,12 +197,6 @@ def SHUFFLE_get_pshuflw_imm : SDNodeXForm<vector_shuffle, [{
   return getI8Imm(X86::getShufflePSHUFLWImmediate(N));
 }]>;
 
-// SHUFFLE_get_palign_imm xform function: convert vector_shuffle mask to
-// a PALIGNR imm.
-def SHUFFLE_get_palign_imm : SDNodeXForm<vector_shuffle, [{
-  return getI8Imm(X86::getShufflePALIGNRImmediate(N));
-}]>;
-
 def splat_lo : PatFrag<(ops node:$lhs, node:$rhs),
                        (vector_shuffle node:$lhs, node:$rhs), [{
   ShuffleVectorSDNode *SVOp = cast<ShuffleVectorSDNode>(N);
@@ -288,11 +282,6 @@ def pshuflw : PatFrag<(ops node:$lhs, node:$rhs),
                       (vector_shuffle node:$lhs, node:$rhs), [{
   return X86::isPSHUFLWMask(cast<ShuffleVectorSDNode>(N));
 }], SHUFFLE_get_pshuflw_imm>;
-
-def palign : PatFrag<(ops node:$lhs, node:$rhs),
-                     (vector_shuffle node:$lhs, node:$rhs), [{
-  return X86::isPALIGNRMask(cast<ShuffleVectorSDNode>(N));
-}], SHUFFLE_get_palign_imm>;
 
 //===----------------------------------------------------------------------===//
 // SSE scalar FP Instructions
@@ -483,8 +472,7 @@ def Int_COMISSrm: PSI<0x2F, MRMSrcMem, (outs), (ins VR128:$src1, f128mem:$src2),
 // that start with 'Fs'.
 
 // Alias instructions that map fld0 to pxor for sse.
-let isReMaterializable = 1, isAsCheapAsAMove = 1, isCodeGenOnly = 1,
-    canFoldAsLoad = 1 in
+let isReMaterializable = 1, isAsCheapAsAMove = 1, isCodeGenOnly = 1 in
 def FsFLD0SS : I<0xEF, MRMInitReg, (outs FR32:$dst), (ins),
                  "pxor\t$dst, $dst", [(set FR32:$dst, fp32imm0)]>,
                Requires<[HasSSE1]>, TB, OpSize;
@@ -1108,27 +1096,6 @@ def CVTSI2SDrm  : SDI<0x2A, MRMSrcMem, (outs FR64:$dst), (ins i32mem:$src),
                       "cvtsi2sd\t{$src, $dst|$dst, $src}",
                       [(set FR64:$dst, (sint_to_fp (loadi32 addr:$src)))]>;
 
-def CVTPD2DQrm  : S3DI<0xE6, MRMSrcMem, (outs VR128:$dst), (ins f128mem:$src),
-                       "cvtpd2dq\t{$src, $dst|$dst, $src}", []>;
-def CVTPD2DQrr  : S3DI<0xE6, MRMSrcReg, (outs VR128:$dst), (ins VR128:$src),
-                       "cvtpd2dq\t{$src, $dst|$dst, $src}", []>;
-def CVTDQ2PDrm  : S3SI<0xE6, MRMSrcMem, (outs VR128:$dst), (ins f128mem:$src),
-                       "cvtdq2pd\t{$src, $dst|$dst, $src}", []>;
-def CVTDQ2PDrr  : S3SI<0xE6, MRMSrcReg, (outs VR128:$dst), (ins VR128:$src),
-                       "cvtdq2pd\t{$src, $dst|$dst, $src}", []>;
-def CVTPS2DQrr : PDI<0x5B, MRMSrcReg, (outs VR128:$dst), (ins VR128:$src),
-                     "cvtps2dq\t{$src, $dst|$dst, $src}", []>;
-def CVTPS2DQrm : PDI<0x5B, MRMSrcMem, (outs VR128:$dst), (ins f128mem:$src),
-                     "cvtps2dq\t{$src, $dst|$dst, $src}", []>;
-def CVTDQ2PSrr : PSI<0x5B, MRMSrcReg, (outs VR128:$dst), (ins VR128:$src),
-                     "cvtdq2ps\t{$src, $dst|$dst, $src}", []>;
-def CVTDQ2PSrm : PSI<0x5B, MRMSrcMem, (outs VR128:$dst), (ins f128mem:$src),
-                     "cvtdq2ps\t{$src, $dst|$dst, $src}", []>;
-def COMISDrr: PDI<0x2F, MRMSrcReg, (outs), (ins VR128:$src1, VR128:$src2),
-                  "comisd\t{$src2, $src1|$src1, $src2}", []>;
-def COMISDrm: PDI<0x2F, MRMSrcMem, (outs), (ins VR128:$src1, f128mem:$src2),
-                      "comisd\t{$src2, $src1|$src1, $src2}", []>;
-
 // SSE2 instructions with XS prefix
 def CVTSS2SDrr : I<0x5A, MRMSrcReg, (outs FR64:$dst), (ins FR32:$src),
                    "cvtss2sd\t{$src, $dst|$dst, $src}",
@@ -1242,8 +1209,7 @@ def Int_COMISDrm: PDI<0x2F, MRMSrcMem, (outs), (ins VR128:$src1, f128mem:$src2),
 // that start with 'Fs'.
 
 // Alias instructions that map fld0 to pxor for sse.
-let isReMaterializable = 1, isAsCheapAsAMove = 1, isCodeGenOnly = 1,
-    canFoldAsLoad = 1 in
+let isReMaterializable = 1, isAsCheapAsAMove = 1, isCodeGenOnly = 1 in
 def FsFLD0SD : I<0xEF, MRMInitReg, (outs FR64:$dst), (ins),
                  "pxor\t$dst, $dst", [(set FR64:$dst, fpimm0)]>,
                Requires<[HasSSE2]>, TB, OpSize;
@@ -2073,7 +2039,6 @@ defm PACKSSDW : PDI_binop_rm_int<0x6B, "packssdw", int_x86_sse2_packssdw_128>;
 defm PACKUSWB : PDI_binop_rm_int<0x67, "packuswb", int_x86_sse2_packuswb_128>;
 
 // Shuffle and unpack instructions
-let AddedComplexity = 5 in {
 def PSHUFDri : PDIi8<0x70, MRMSrcReg,
                      (outs VR128:$dst), (ins VR128:$src1, i8imm:$src2),
                      "pshufd\t{$src2, $src1, $dst|$dst, $src1, $src2}",
@@ -2085,7 +2050,6 @@ def PSHUFDmi : PDIi8<0x70, MRMSrcMem,
                      [(set VR128:$dst, (v4i32 (pshufd:$src2
                                              (bc_v4i32(memopv2i64 addr:$src1)),
                                              (undef))))]>;
-}                                             
 
 // SSE2 with ImmT == Imm8 and XS prefix.
 def PSHUFHWri : Ii8<0x70, MRMSrcReg,
@@ -2851,26 +2815,6 @@ let Constraints = "$src1 = $dst" in {
                               (bitconvert (memopv4i32 addr:$src2)),
                               imm:$src3))]>, OpSize;
 }
-
-// palignr patterns.
-let AddedComplexity = 5 in {
-def : Pat<(v4i32 (palign:$src3 VR128:$src1, VR128:$src2)),
-          (PALIGNR128rr VR128:$src2, VR128:$src1,
-                        (SHUFFLE_get_palign_imm VR128:$src3))>,
-      Requires<[HasSSSE3]>;
-def : Pat<(v4f32 (palign:$src3 VR128:$src1, VR128:$src2)),
-          (PALIGNR128rr VR128:$src2, VR128:$src1,
-                        (SHUFFLE_get_palign_imm VR128:$src3))>,
-      Requires<[HasSSSE3]>;
-def : Pat<(v8i16 (palign:$src3 VR128:$src1, VR128:$src2)),
-          (PALIGNR128rr VR128:$src2, VR128:$src1,
-                        (SHUFFLE_get_palign_imm VR128:$src3))>,
-      Requires<[HasSSSE3]>;
-def : Pat<(v16i8 (palign:$src3 VR128:$src1, VR128:$src2)),
-          (PALIGNR128rr VR128:$src2, VR128:$src1,
-                        (SHUFFLE_get_palign_imm VR128:$src3))>,
-      Requires<[HasSSSE3]>;
-}      
 
 def : Pat<(X86pshufb VR128:$src, VR128:$mask),
           (PSHUFBrr128 VR128:$src, VR128:$mask)>, Requires<[HasSSSE3]>;

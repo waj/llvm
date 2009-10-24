@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars -S > %t
+; RUN: llvm-as < %s | opt -indvars | llvm-dis > %t
 ; RUN: not grep and %t
 ; RUN: not grep zext %t
 

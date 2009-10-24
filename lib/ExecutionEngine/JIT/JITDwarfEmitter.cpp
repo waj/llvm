@@ -22,26 +22,25 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/ExecutionEngine/JITMemoryManager.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetFrameInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+
 using namespace llvm;
 
-JITDwarfEmitter::JITDwarfEmitter(JIT& theJit) : MMI(0), Jit(theJit) {}
+JITDwarfEmitter::JITDwarfEmitter(JIT& theJit) : Jit(theJit) {}
 
 
 unsigned char* JITDwarfEmitter::EmitDwarfTable(MachineFunction& F, 
                                                JITCodeEmitter& jce,
                                                unsigned char* StartFunction,
-                                               unsigned char* EndFunction,
-                                               unsigned char* &EHFramePtr) {
-  assert(MMI && "MachineModuleInfo not registered!");
-
+                                               unsigned char* EndFunction) {
   const TargetMachine& TM = F.getTarget();
   TD = TM.getTargetData();
+  needsIndirectEncoding = TM.getTargetAsmInfo()->getNeedsIndirectEncoding();
   stackGrowthDirection = TM.getFrameInfo()->getStackGrowthDirection();
   RI = TM.getRegisterInfo();
   JCE = &jce;
@@ -50,13 +49,14 @@ unsigned char* JITDwarfEmitter::EmitDwarfTable(MachineFunction& F,
                                                      EndFunction);
       
   unsigned char* Result = 0;
+  unsigned char* EHFramePtr = 0;
 
   const std::vector<Function *> Personalities = MMI->getPersonalities();
   EHFramePtr = EmitCommonEHFrame(Personalities[MMI->getPersonalityIndex()]);
 
   Result = EmitEHFrame(Personalities[MMI->getPersonalityIndex()], EHFramePtr,
                        StartFunction, EndFunction, ExceptionTable);
-
+  
   return Result;
 }
 
@@ -107,9 +107,11 @@ JITDwarfEmitter::EmitFrameMoves(intptr_t BaseLabelPtr,
           JCE->emitULEB128Bytes(RI->getDwarfRegNum(Src.getReg(), true));
         }
         
-        JCE->emitULEB128Bytes(-Src.getOffset());
+        int Offset = -Src.getOffset();
+        
+        JCE->emitULEB128Bytes(Offset);
       } else {
-        llvm_unreachable("Machine move not supported yet.");
+        llvm_unreachable("Machine move no supported yet.");
       }
     } else if (Src.isReg() &&
       Src.getReg() == MachineLocation::VirtualFP) {
@@ -117,7 +119,7 @@ JITDwarfEmitter::EmitFrameMoves(intptr_t BaseLabelPtr,
         JCE->emitByte(dwarf::DW_CFA_def_cfa_register);
         JCE->emitULEB128Bytes(RI->getDwarfRegNum(Dst.getReg(), true));
       } else {
-        llvm_unreachable("Machine move not supported yet.");
+        llvm_unreachable("Machine move no supported yet.");
       }
     } else {
       unsigned Reg = RI->getDwarfRegNum(Src.getReg(), true);
@@ -208,8 +210,6 @@ struct CallSiteEntry {
 unsigned char* JITDwarfEmitter::EmitExceptionTable(MachineFunction* MF,
                                          unsigned char* StartFunction,
                                          unsigned char* EndFunction) const {
-  assert(MMI && "MachineModuleInfo not registered!");
-
   // Map all labels and get rid of any dead landing pads.
   MMI->TidyLandingPads();
 
@@ -242,7 +242,7 @@ unsigned char* JITDwarfEmitter::EmitExceptionTable(MachineFunction* MF,
   for(std::vector<unsigned>::const_iterator I = FilterIds.begin(),
     E = FilterIds.end(); I != E; ++I) {
     FilterOffsets.push_back(Offset);
-    Offset -= MCAsmInfo::getULEB128Size(*I);
+    Offset -= TargetAsmInfo::getULEB128Size(*I);
   }
 
   // Compute the actions table and gather the first action index for each
@@ -267,10 +267,10 @@ unsigned char* JITDwarfEmitter::EmitExceptionTable(MachineFunction* MF,
         const unsigned SizePrevIds = LandingPads[i-1]->TypeIds.size();
         assert(Actions.size());
         PrevAction = &Actions.back();
-        SizeAction = MCAsmInfo::getSLEB128Size(PrevAction->NextAction) +
-          MCAsmInfo::getSLEB128Size(PrevAction->ValueForTypeID);
+        SizeAction = TargetAsmInfo::getSLEB128Size(PrevAction->NextAction) +
+          TargetAsmInfo::getSLEB128Size(PrevAction->ValueForTypeID);
         for (unsigned j = NumShared; j != SizePrevIds; ++j) {
-          SizeAction -= MCAsmInfo::getSLEB128Size(PrevAction->ValueForTypeID);
+          SizeAction -= TargetAsmInfo::getSLEB128Size(PrevAction->ValueForTypeID);
           SizeAction += -PrevAction->NextAction;
           PrevAction = PrevAction->Previous;
         }
@@ -281,10 +281,10 @@ unsigned char* JITDwarfEmitter::EmitExceptionTable(MachineFunction* MF,
         int TypeID = TypeIds[I];
         assert(-1-TypeID < (int)FilterOffsets.size() && "Unknown filter id!");
         int ValueForTypeID = TypeID < 0 ? FilterOffsets[-1 - TypeID] : TypeID;
-        unsigned SizeTypeID = MCAsmInfo::getSLEB128Size(ValueForTypeID);
+        unsigned SizeTypeID = TargetAsmInfo::getSLEB128Size(ValueForTypeID);
 
         int NextAction = SizeAction ? -(SizeAction + SizeTypeID) : 0;
-        SizeAction = SizeTypeID + MCAsmInfo::getSLEB128Size(NextAction);
+        SizeAction = SizeTypeID + TargetAsmInfo::getSLEB128Size(NextAction);
         SizeSiteActions += SizeAction;
 
         ActionEntry Action = {ValueForTypeID, NextAction, PrevAction};
@@ -387,13 +387,13 @@ unsigned char* JITDwarfEmitter::EmitExceptionTable(MachineFunction* MF,
                                             sizeof(int32_t) + // Site length.
                                             sizeof(int32_t)); // Landing pad.
   for (unsigned i = 0, e = CallSites.size(); i < e; ++i)
-    SizeSites += MCAsmInfo::getULEB128Size(CallSites[i].Action);
+    SizeSites += TargetAsmInfo::getULEB128Size(CallSites[i].Action);
 
   unsigned SizeTypes = TypeInfos.size() * TD->getPointerSize();
 
   unsigned TypeOffset = sizeof(int8_t) + // Call site format
                         // Call-site table length
-                        MCAsmInfo::getULEB128Size(SizeSites) + 
+                        TargetAsmInfo::getULEB128Size(SizeSites) + 
                         SizeSites + SizeActions + SizeTypes;
 
   // Begin the exception table.
@@ -466,10 +466,11 @@ unsigned char* JITDwarfEmitter::EmitExceptionTable(MachineFunction* MF,
     GlobalVariable *GV = TypeInfos[M - 1];
     
     if (GV) {
-      if (TD->getPointerSize() == sizeof(int32_t))
+      if (TD->getPointerSize() == sizeof(int32_t)) {
         JCE->emitInt32((intptr_t)Jit.getOrEmitGlobalVariable(GV));
-      else
+      } else {
         JCE->emitInt64((intptr_t)Jit.getOrEmitGlobalVariable(GV));
+      }
     } else {
       if (TD->getPointerSize() == sizeof(int32_t))
         JCE->emitInt32(0);
@@ -507,7 +508,7 @@ JITDwarfEmitter::EmitCommonEHFrame(const Function* Personality) const {
   JCE->emitULEB128Bytes(1);
   JCE->emitSLEB128Bytes(stackGrowth);
   JCE->emitByte(RI->getDwarfRegNum(RI->getRARegister(), true));
-
+  
   if (Personality) {
     // Augmentation Size: 3 small ULEBs of one byte each, and the personality
     // function which size is PointerSize.
@@ -523,9 +524,10 @@ JITDwarfEmitter::EmitCommonEHFrame(const Function* Personality) const {
       JCE->emitByte(dwarf::DW_EH_PE_sdata8);
       JCE->emitInt64(((intptr_t)Jit.getPointerToGlobal(Personality)));
     }
-
+    
     JCE->emitULEB128Bytes(dwarf::DW_EH_PE_pcrel | dwarf::DW_EH_PE_sdata4);
     JCE->emitULEB128Bytes(dwarf::DW_EH_PE_pcrel | dwarf::DW_EH_PE_sdata4);
+      
   } else {
     JCE->emitULEB128Bytes(1);
     JCE->emitULEB128Bytes(dwarf::DW_EH_PE_pcrel | dwarf::DW_EH_PE_sdata4);
@@ -564,19 +566,13 @@ JITDwarfEmitter::EmitEHFrame(const Function* Personality,
 
   // If there is a personality and landing pads then point to the language
   // specific data area in the exception table.
-  if (Personality) {
-    JCE->emitULEB128Bytes(PointerSize == 4 ? 4 : 8);
+  if (MMI->getPersonalityIndex()) {
+    JCE->emitULEB128Bytes(4);
         
-    if (PointerSize == 4) {
-      if (!MMI->getLandingPads().empty())
-        JCE->emitInt32(ExceptionTable-(unsigned char*)JCE->getCurrentPCValue());
-      else
-        JCE->emitInt32((int)0);
+    if (!MMI->getLandingPads().empty()) {
+      JCE->emitInt32(ExceptionTable - (unsigned char*)JCE->getCurrentPCValue());
     } else {
-      if (!MMI->getLandingPads().empty())
-        JCE->emitInt64(ExceptionTable-(unsigned char*)JCE->getCurrentPCValue());
-      else
-        JCE->emitInt64((int)0);
+      JCE->emitInt32((int)0);
     }
   } else {
     JCE->emitULEB128Bytes(0);
@@ -611,6 +607,7 @@ unsigned JITDwarfEmitter::GetDwarfTableSizeInBytes(MachineFunction& F,
                                          unsigned char* EndFunction) {
   const TargetMachine& TM = F.getTarget();
   TD = TM.getTargetData();
+  needsIndirectEncoding = TM.getTargetAsmInfo()->getNeedsIndirectEncoding();
   stackGrowthDirection = TM.getFrameInfo()->getStackGrowthDirection();
   RI = TM.getRegisterInfo();
   JCE = &jce;
@@ -624,7 +621,7 @@ unsigned JITDwarfEmitter::GetDwarfTableSizeInBytes(MachineFunction& F,
 
   FinalSize += GetEHFrameSizeInBytes(Personalities[MMI->getPersonalityIndex()],
                                      StartFunction);
-
+  
   return FinalSize;
 }
 
@@ -647,11 +644,11 @@ JITDwarfEmitter::GetEHFrameSizeInBytes(const Function* Personality,
   FinalSize += 3 * PointerSize;
   // If there is a personality and landing pads then point to the language
   // specific data area in the exception table.
-  if (Personality) {
-    FinalSize += MCAsmInfo::getULEB128Size(4); 
+  if (MMI->getPersonalityIndex()) {
+    FinalSize += TargetAsmInfo::getULEB128Size(4); 
     FinalSize += PointerSize;
   } else {
-    FinalSize += MCAsmInfo::getULEB128Size(0);
+    FinalSize += TargetAsmInfo::getULEB128Size(0);
   }
       
   // Indicate locations of function specific  callee saved registers in
@@ -679,24 +676,24 @@ unsigned JITDwarfEmitter::GetCommonEHFrameSizeInBytes(const Function* Personalit
   FinalSize += 4;
   FinalSize += 1;
   FinalSize += Personality ? 5 : 3; // "zPLR" or "zR"
-  FinalSize += MCAsmInfo::getULEB128Size(1);
-  FinalSize += MCAsmInfo::getSLEB128Size(stackGrowth);
+  FinalSize += TargetAsmInfo::getULEB128Size(1);
+  FinalSize += TargetAsmInfo::getSLEB128Size(stackGrowth);
   FinalSize += 1;
   
   if (Personality) {
-    FinalSize += MCAsmInfo::getULEB128Size(7);
+    FinalSize += TargetAsmInfo::getULEB128Size(7);
     
     // Encoding
     FinalSize+= 1;
     //Personality
     FinalSize += PointerSize;
     
-    FinalSize += MCAsmInfo::getULEB128Size(dwarf::DW_EH_PE_pcrel);
-    FinalSize += MCAsmInfo::getULEB128Size(dwarf::DW_EH_PE_pcrel);
+    FinalSize += TargetAsmInfo::getULEB128Size(dwarf::DW_EH_PE_pcrel);
+    FinalSize += TargetAsmInfo::getULEB128Size(dwarf::DW_EH_PE_pcrel);
       
   } else {
-    FinalSize += MCAsmInfo::getULEB128Size(1);
-    FinalSize += MCAsmInfo::getULEB128Size(dwarf::DW_EH_PE_pcrel);
+    FinalSize += TargetAsmInfo::getULEB128Size(1);
+    FinalSize += TargetAsmInfo::getULEB128Size(dwarf::DW_EH_PE_pcrel);
   }
 
   std::vector<MachineMove> Moves;
@@ -748,12 +745,12 @@ JITDwarfEmitter::GetFrameMovesSizeInBytes(intptr_t BaseLabelPtr,
         } else {
           ++FinalSize;
           unsigned RegNum = RI->getDwarfRegNum(Src.getReg(), true);
-          FinalSize += MCAsmInfo::getULEB128Size(RegNum);
+          FinalSize += TargetAsmInfo::getULEB128Size(RegNum);
         }
         
         int Offset = -Src.getOffset();
         
-        FinalSize += MCAsmInfo::getULEB128Size(Offset);
+        FinalSize += TargetAsmInfo::getULEB128Size(Offset);
       } else {
         llvm_unreachable("Machine move no supported yet.");
       }
@@ -762,7 +759,7 @@ JITDwarfEmitter::GetFrameMovesSizeInBytes(intptr_t BaseLabelPtr,
       if (Dst.isReg()) {
         ++FinalSize;
         unsigned RegNum = RI->getDwarfRegNum(Dst.getReg(), true);
-        FinalSize += MCAsmInfo::getULEB128Size(RegNum);
+        FinalSize += TargetAsmInfo::getULEB128Size(RegNum);
       } else {
         llvm_unreachable("Machine move no supported yet.");
       }
@@ -772,15 +769,15 @@ JITDwarfEmitter::GetFrameMovesSizeInBytes(intptr_t BaseLabelPtr,
       
       if (Offset < 0) {
         ++FinalSize;
-        FinalSize += MCAsmInfo::getULEB128Size(Reg);
-        FinalSize += MCAsmInfo::getSLEB128Size(Offset);
+        FinalSize += TargetAsmInfo::getULEB128Size(Reg);
+        FinalSize += TargetAsmInfo::getSLEB128Size(Offset);
       } else if (Reg < 64) {
         ++FinalSize;
-        FinalSize += MCAsmInfo::getULEB128Size(Offset);
+        FinalSize += TargetAsmInfo::getULEB128Size(Offset);
       } else {
         ++FinalSize;
-        FinalSize += MCAsmInfo::getULEB128Size(Reg);
-        FinalSize += MCAsmInfo::getULEB128Size(Offset);
+        FinalSize += TargetAsmInfo::getULEB128Size(Reg);
+        FinalSize += TargetAsmInfo::getULEB128Size(Offset);
       }
     }
   }
@@ -823,7 +820,7 @@ JITDwarfEmitter::GetExceptionTableSizeInBytes(MachineFunction* MF) const {
   for(std::vector<unsigned>::const_iterator I = FilterIds.begin(),
     E = FilterIds.end(); I != E; ++I) {
     FilterOffsets.push_back(Offset);
-    Offset -= MCAsmInfo::getULEB128Size(*I);
+    Offset -= TargetAsmInfo::getULEB128Size(*I);
   }
 
   // Compute the actions table and gather the first action index for each
@@ -848,10 +845,10 @@ JITDwarfEmitter::GetExceptionTableSizeInBytes(MachineFunction* MF) const {
         const unsigned SizePrevIds = LandingPads[i-1]->TypeIds.size();
         assert(Actions.size());
         PrevAction = &Actions.back();
-        SizeAction = MCAsmInfo::getSLEB128Size(PrevAction->NextAction) +
-          MCAsmInfo::getSLEB128Size(PrevAction->ValueForTypeID);
+        SizeAction = TargetAsmInfo::getSLEB128Size(PrevAction->NextAction) +
+          TargetAsmInfo::getSLEB128Size(PrevAction->ValueForTypeID);
         for (unsigned j = NumShared; j != SizePrevIds; ++j) {
-          SizeAction -= MCAsmInfo::getSLEB128Size(PrevAction->ValueForTypeID);
+          SizeAction -= TargetAsmInfo::getSLEB128Size(PrevAction->ValueForTypeID);
           SizeAction += -PrevAction->NextAction;
           PrevAction = PrevAction->Previous;
         }
@@ -862,10 +859,10 @@ JITDwarfEmitter::GetExceptionTableSizeInBytes(MachineFunction* MF) const {
         int TypeID = TypeIds[I];
         assert(-1-TypeID < (int)FilterOffsets.size() && "Unknown filter id!");
         int ValueForTypeID = TypeID < 0 ? FilterOffsets[-1 - TypeID] : TypeID;
-        unsigned SizeTypeID = MCAsmInfo::getSLEB128Size(ValueForTypeID);
+        unsigned SizeTypeID = TargetAsmInfo::getSLEB128Size(ValueForTypeID);
 
         int NextAction = SizeAction ? -(SizeAction + SizeTypeID) : 0;
-        SizeAction = SizeTypeID + MCAsmInfo::getSLEB128Size(NextAction);
+        SizeAction = SizeTypeID + TargetAsmInfo::getSLEB128Size(NextAction);
         SizeSiteActions += SizeAction;
 
         ActionEntry Action = {ValueForTypeID, NextAction, PrevAction};
@@ -968,18 +965,18 @@ JITDwarfEmitter::GetExceptionTableSizeInBytes(MachineFunction* MF) const {
                                             sizeof(int32_t) + // Site length.
                                             sizeof(int32_t)); // Landing pad.
   for (unsigned i = 0, e = CallSites.size(); i < e; ++i)
-    SizeSites += MCAsmInfo::getULEB128Size(CallSites[i].Action);
+    SizeSites += TargetAsmInfo::getULEB128Size(CallSites[i].Action);
 
   unsigned SizeTypes = TypeInfos.size() * TD->getPointerSize();
 
   unsigned TypeOffset = sizeof(int8_t) + // Call site format
                         // Call-site table length
-                        MCAsmInfo::getULEB128Size(SizeSites) + 
+                        TargetAsmInfo::getULEB128Size(SizeSites) + 
                         SizeSites + SizeActions + SizeTypes;
 
   unsigned TotalSize = sizeof(int8_t) + // LPStart format
                        sizeof(int8_t) + // TType format
-                       MCAsmInfo::getULEB128Size(TypeOffset) + // TType base offset
+                       TargetAsmInfo::getULEB128Size(TypeOffset) + // TType base offset
                        TypeOffset;
 
   unsigned SizeAlign = (4 - TotalSize) & 3;
@@ -1017,7 +1014,7 @@ JITDwarfEmitter::GetExceptionTableSizeInBytes(MachineFunction* MF) const {
     // Asm->EOL("Landing pad");
     FinalSize += PointerSize;
 
-    FinalSize += MCAsmInfo::getULEB128Size(S.Action);
+    FinalSize += TargetAsmInfo::getULEB128Size(S.Action);
     // Asm->EOL("Action");
   }
 
@@ -1026,9 +1023,9 @@ JITDwarfEmitter::GetExceptionTableSizeInBytes(MachineFunction* MF) const {
     ActionEntry &Action = Actions[I];
 
     //Asm->EOL("TypeInfo index");
-    FinalSize += MCAsmInfo::getSLEB128Size(Action.ValueForTypeID);
+    FinalSize += TargetAsmInfo::getSLEB128Size(Action.ValueForTypeID);
     //Asm->EOL("Next action");
-    FinalSize += MCAsmInfo::getSLEB128Size(Action.NextAction);
+    FinalSize += TargetAsmInfo::getSLEB128Size(Action.NextAction);
   }
 
   // Emit the type ids.
@@ -1040,7 +1037,7 @@ JITDwarfEmitter::GetExceptionTableSizeInBytes(MachineFunction* MF) const {
   // Emit the filter typeids.
   for (unsigned j = 0, M = FilterIds.size(); j < M; ++j) {
     unsigned TypeID = FilterIds[j];
-    FinalSize += MCAsmInfo::getULEB128Size(TypeID);
+    FinalSize += TargetAsmInfo::getULEB128Size(TypeID);
     //Asm->EOL("Filter TypeInfo index");
   }
   

@@ -24,6 +24,7 @@
 #include "llvm/Module.h"
 #include "llvm/Config/config.h"     // Detect libffi
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/System/DynamicLibrary.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -203,10 +204,9 @@ static bool ffiInvoke(RawFunc Fn, Function *F,
     ArgBytes += TD->getTypeStoreSize(ArgTy);
   }
 
-  SmallVector<uint8_t, 128> ArgData;
-  ArgData.resize(ArgBytes);
-  uint8_t *ArgDataPtr = ArgData.data();
-  SmallVector<void*, 16> values(NumArgs);
+  uint8_t *ArgData = (uint8_t*) alloca(ArgBytes);
+  uint8_t *ArgDataPtr = ArgData;
+  std::vector<void*> values(NumArgs);
   for (Function::const_arg_iterator A = F->arg_begin(), E = F->arg_end();
        A != E; ++A) {
     const unsigned ArgNo = A->getArgNo();
@@ -219,22 +219,22 @@ static bool ffiInvoke(RawFunc Fn, Function *F,
   ffi_type *rtype = ffiTypeFor(RetTy);
 
   if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, NumArgs, rtype, &args[0]) == FFI_OK) {
-    SmallVector<uint8_t, 128> ret;
+    void *ret = NULL;
     if (RetTy->getTypeID() != Type::VoidTyID)
-      ret.resize(TD->getTypeStoreSize(RetTy));
-    ffi_call(&cif, Fn, ret.data(), values.data());
+      ret = alloca(TD->getTypeStoreSize(RetTy));
+    ffi_call(&cif, Fn, ret, &values[0]);
     switch (RetTy->getTypeID()) {
       case Type::IntegerTyID:
         switch (cast<IntegerType>(RetTy)->getBitWidth()) {
-          case 8:  Result.IntVal = APInt(8 , *(int8_t *) ret.data()); break;
-          case 16: Result.IntVal = APInt(16, *(int16_t*) ret.data()); break;
-          case 32: Result.IntVal = APInt(32, *(int32_t*) ret.data()); break;
-          case 64: Result.IntVal = APInt(64, *(int64_t*) ret.data()); break;
+          case 8:  Result.IntVal = APInt(8 , *(int8_t *) ret); break;
+          case 16: Result.IntVal = APInt(16, *(int16_t*) ret); break;
+          case 32: Result.IntVal = APInt(32, *(int32_t*) ret); break;
+          case 64: Result.IntVal = APInt(64, *(int64_t*) ret); break;
         }
         break;
-      case Type::FloatTyID:   Result.FloatVal   = *(float *) ret.data(); break;
-      case Type::DoubleTyID:  Result.DoubleVal  = *(double*) ret.data(); break;
-      case Type::PointerTyID: Result.PointerVal = *(void **) ret.data(); break;
+      case Type::FloatTyID:   Result.FloatVal   = *(float *) ret; break;
+      case Type::DoubleTyID:  Result.DoubleVal  = *(double*) ret; break;
+      case Type::PointerTyID: Result.PointerVal = *(void **) ret; break;
       default: break;
     }
     return true;
@@ -270,7 +270,7 @@ GenericValue Interpreter::callExternalFunction(Function *F,
   } else {
     RawFn = RF->second;
   }
-
+  
   FunctionsLock->release();
 
   GenericValue Result;
@@ -279,7 +279,7 @@ GenericValue Interpreter::callExternalFunction(Function *F,
 #endif // USE_LIBFFI
 
   if (F->getName() == "__main")
-    errs() << "Tried to execute an unknown external function: "
+    cerr << "Tried to execute an unknown external function: "
       << F->getType()->getDescription() << " __main\n";
   else
     llvm_report_error("Tried to execute an unknown external function: " +
@@ -335,7 +335,7 @@ GenericValue lle_X_sprintf(const FunctionType *FT,
 
   // printf should return # chars printed.  This is completely incorrect, but
   // close enough for now.
-  GenericValue GV;
+  GenericValue GV; 
   GV.IntVal = APInt(32, strlen(FmtStr));
   while (1) {
     switch (*FmtStr) {
@@ -393,8 +393,7 @@ GenericValue lle_X_sprintf(const FunctionType *FT,
         sprintf(Buffer, FmtBuf, (void*)GVTOP(Args[ArgNo++])); break;
       case 's':
         sprintf(Buffer, FmtBuf, (char*)GVTOP(Args[ArgNo++])); break;
-      default:
-        errs() << "<unknown printf code '" << *FmtStr << "'!>";
+      default:  cerr << "<unknown printf code '" << *FmtStr << "'!>";
         ArgNo++; break;
       }
       strcpy(OutputBuffer, Buffer);
@@ -415,7 +414,7 @@ GenericValue lle_X_printf(const FunctionType *FT,
   NewArgs.push_back(PTOGV((void*)&Buffer[0]));
   NewArgs.insert(NewArgs.end(), Args.begin(), Args.end());
   GenericValue GV = lle_X_sprintf(FT, NewArgs);
-  outs() << Buffer;
+  cout << Buffer;
   return GV;
 }
 
@@ -567,3 +566,4 @@ void Interpreter::initializeExternalFunctions() {
   FuncNames["lle_X_scanf"]        = lle_X_scanf;
   FuncNames["lle_X_fprintf"]      = lle_X_fprintf;
 }
+

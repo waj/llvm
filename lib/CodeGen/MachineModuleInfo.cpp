@@ -24,6 +24,7 @@
 #include "llvm/Module.h"
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Streams.h"
 using namespace llvm;
 using namespace llvm::dwarf;
 
@@ -32,23 +33,23 @@ static RegisterPass<MachineModuleInfo>
 X("machinemoduleinfo", "Module Information");
 char MachineModuleInfo::ID = 0;
 
-// Out of line virtual method.
-MachineModuleInfoImpl::~MachineModuleInfoImpl() {}
-
 //===----------------------------------------------------------------------===//
-
+  
 MachineModuleInfo::MachineModuleInfo()
 : ImmutablePass(&ID)
-, ObjFileMMI(0)
+, LabelIDList()
+, FrameMoves()
+, LandingPads()
+, Personalities()
 , CallsEHReturn(0)
 , CallsUnwindInit(0)
-, DbgInfoAvailable(false) {
+, DbgInfoAvailable(false)
+{
   // Always emit some info, by default "no personality" info.
   Personalities.push_back(NULL);
 }
-
 MachineModuleInfo::~MachineModuleInfo() {
-  delete ObjFileMMI;
+
 }
 
 /// doInitialization - Initialize the state for a new module.
@@ -63,12 +64,18 @@ bool MachineModuleInfo::doFinalization() {
   return false;
 }
 
+/// BeginFunction - Begin gathering function meta information.
+///
+void MachineModuleInfo::BeginFunction(MachineFunction *MF) {
+  // Coming soon.
+}
+
 /// EndFunction - Discard function meta information.
 ///
 void MachineModuleInfo::EndFunction() {
   // Clean up frame info.
   FrameMoves.clear();
-
+  
   // Clean up exception info.
   LandingPads.clear();
   TypeInfos.clear();
@@ -76,9 +83,6 @@ void MachineModuleInfo::EndFunction() {
   FilterEnds.clear();
   CallsEHReturn = 0;
   CallsUnwindInit = 0;
-#ifdef ATTACH_DEBUG_INFO_TO_AN_INSN
-  VariableDbgInfo.clear();
-#endif
 }
 
 /// AnalyzeModule - Scan the module for global debug information.
@@ -111,7 +115,7 @@ LandingPadInfo &MachineModuleInfo::getOrCreateLandingPadInfo
     if (LP.LandingPadBlock == LandingPad)
       return LP;
   }
-
+  
   LandingPads.push_back(LandingPadInfo(LandingPad));
   return LandingPads[N];
 }
@@ -130,7 +134,7 @@ void MachineModuleInfo::addInvoke(MachineBasicBlock *LandingPad,
 unsigned MachineModuleInfo::addLandingPad(MachineBasicBlock *LandingPad) {
   unsigned LandingPadLabel = NextLabelID();
   LandingPadInfo &LP = getOrCreateLandingPadInfo(LandingPad);
-  LP.LandingPadLabel = LandingPadLabel;
+  LP.LandingPadLabel = LandingPadLabel;  
   return LandingPadLabel;
 }
 
@@ -144,7 +148,7 @@ void MachineModuleInfo::addPersonality(MachineBasicBlock *LandingPad,
   for (unsigned i = 0; i < Personalities.size(); ++i)
     if (Personalities[i] == Personality)
       return;
-
+  
   // If this is the first personality we're adding go
   // ahead and add it at the beginning.
   if (Personalities[0] == NULL)
@@ -225,7 +229,7 @@ void MachineModuleInfo::TidyLandingPads() {
   }
 }
 
-/// getTypeIDFor - Return the type id for the specified typeinfo.  This is
+/// getTypeIDFor - Return the type id for the specified typeinfo.  This is 
 /// function wide.
 unsigned MachineModuleInfo::getTypeIDFor(GlobalVariable *TI) {
   for (unsigned i = 0, N = TypeInfos.size(); i != N; ++i)
@@ -277,14 +281,14 @@ Function *MachineModuleInfo::getPersonality() const {
 /// function. NULL/first personality function should always get zero index.
 unsigned MachineModuleInfo::getPersonalityIndex() const {
   const Function* Personality = NULL;
-
+  
   // Scan landing pads. If there is at least one non-NULL personality - use it.
   for (unsigned i = 0; i != LandingPads.size(); ++i)
     if (LandingPads[i].Personality) {
       Personality = LandingPads[i].Personality;
       break;
     }
-
+  
   for (unsigned i = 0; i < Personalities.size(); ++i) {
     if (Personalities[i] == Personality)
       return i;
@@ -323,12 +327,12 @@ bool DebugLabelFolder::runOnMachineFunction(MachineFunction &MF) {
   // Get machine module info.
   MachineModuleInfo *MMI = getAnalysisIfAvailable<MachineModuleInfo>();
   if (!MMI) return false;
-
+  
   // Track if change is made.
   bool MadeChange = false;
   // No prior label to begin.
   unsigned PriorLabel = 0;
-
+  
   // Iterate through basic blocks.
   for (MachineFunction::iterator BB = MF.begin(), E = MF.end();
        BB != E; ++BB) {
@@ -338,7 +342,7 @@ bool DebugLabelFolder::runOnMachineFunction(MachineFunction &MF) {
       if (I->isDebugLabel() && !MMI->isDbgLabelUsed(I->getOperand(0).getImm())){
         // The label ID # is always operand #0, an immediate.
         unsigned NextLabel = I->getOperand(0).getImm();
-
+        
         // If there was an immediate prior label.
         if (PriorLabel) {
           // Remap the current label to prior label.
@@ -356,14 +360,15 @@ bool DebugLabelFolder::runOnMachineFunction(MachineFunction &MF) {
         // No consecutive labels.
         PriorLabel = 0;
       }
-
+      
       ++I;
     }
   }
-
+  
   return MadeChange;
 }
 
 FunctionPass *createDebugLabelFoldingPass() { return new DebugLabelFolder(); }
 
 }
+

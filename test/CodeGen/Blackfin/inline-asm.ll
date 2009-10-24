@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=bfin | FileCheck %s
+; RUN: llvm-as < %s | llc -march=bfin | FileCheck %s
 
 ; Standard "r"
 ; CHECK: r0 = r0 + r1;

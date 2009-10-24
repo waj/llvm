@@ -30,6 +30,7 @@
 #include "llvm/Support/ConstantRange.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/DenseMap.h"
+#include <iosfwd>
 #include <map>
 
 namespace llvm {
@@ -104,14 +105,12 @@ namespace llvm {
     /// the specified basic block.
     virtual bool dominates(BasicBlock *BB, DominatorTree *DT) const = 0;
 
-    /// properlyDominates - Return true if elements that makes up this SCEV
-    /// properly dominate the specified basic block.
-    virtual bool properlyDominates(BasicBlock *BB, DominatorTree *DT) const = 0;
-
     /// print - Print out the internal representation of this scalar to the
     /// specified stream.  This should really only be used for debugging
     /// purposes.
     virtual void print(raw_ostream &OS) const = 0;
+    void print(std::ostream &OS) const;
+    void print(std::ostream *OS) const { if (OS) print(*OS); }
 
     /// dump - This method is used for debugging.
     ///
@@ -119,6 +118,11 @@ namespace llvm {
   };
 
   inline raw_ostream &operator<<(raw_ostream &OS, const SCEV &S) {
+    S.print(OS);
+    return OS;
+  }
+
+  inline std::ostream &operator<<(std::ostream &OS, const SCEV &S) {
     S.print(OS);
     return OS;
   }
@@ -139,10 +143,6 @@ namespace llvm {
     virtual bool hasOperand(const SCEV *Op) const;
 
     virtual bool dominates(BasicBlock *BB, DominatorTree *DT) const {
-      return true;
-    }
-
-    virtual bool properlyDominates(BasicBlock *BB, DominatorTree *DT) const {
       return true;
     }
 
@@ -227,11 +227,10 @@ namespace llvm {
     /// exit value.
     std::map<PHINode*, Constant*> ConstantEvolutionLoopExitValue;
 
-    /// ValuesAtScopes - This map contains entries for all the expressions
-    /// that we attempt to compute getSCEVAtScope information for, which can
-    /// be expensive in extreme cases.
-    std::map<const SCEV *,
-             std::map<const Loop *, const SCEV *> > ValuesAtScopes;
+    /// ValuesAtScopes - This map contains entries for all the instructions
+    /// that we attempt to compute getSCEVAtScope information for without
+    /// using SCEV techniques, which can be expensive.
+    std::map<Instruction *, std::map<const Loop *, Constant *> > ValuesAtScopes;
 
     /// createSCEV - We know that there is no SCEV for the specified value.
     /// Analyze the expression.
@@ -245,11 +244,6 @@ namespace llvm {
     /// SCEVs.
     const SCEV *createNodeForGEP(Operator *GEP);
 
-    /// computeSCEVAtScope - Implementation code for getSCEVAtScope; called
-    /// at most once for each SCEV+Loop pair.
-    ///
-    const SCEV *computeSCEVAtScope(const SCEV *S, const Loop *L);
-
     /// ForgetSymbolicValue - This looks up computed SCEV values for all
     /// instructions that depend on the given instruction and removes them from
     /// the Scalars map if they reference SymName. This is used during PHI
@@ -261,8 +255,7 @@ namespace llvm {
     /// CouldNotCompute if an intermediate computation overflows.
     const SCEV *getBECount(const SCEV *Start,
                            const SCEV *End,
-                           const SCEV *Step,
-                           bool NoWrap);
+                           const SCEV *Step);
 
     /// getBackedgeTakenInfo - Return the BackedgeTakenInfo for the given
     /// loop, lazily computing new values if the loop hasn't been analyzed
@@ -391,7 +384,7 @@ namespace llvm {
     /// this is the pointer-sized integer type.
     const Type *getEffectiveSCEVType(const Type *Ty) const;
 
-    /// getSCEV - Return a SCEV expression for the full generality of the
+    /// getSCEV - Return a SCEV expression handle for the full generality of the
     /// specified expression.
     const SCEV *getSCEV(Value *V);
 
@@ -402,45 +395,37 @@ namespace llvm {
     const SCEV *getZeroExtendExpr(const SCEV *Op, const Type *Ty);
     const SCEV *getSignExtendExpr(const SCEV *Op, const Type *Ty);
     const SCEV *getAnyExtendExpr(const SCEV *Op, const Type *Ty);
-    const SCEV *getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
-                           bool HasNUW = false, bool HasNSW = false);
-    const SCEV *getAddExpr(const SCEV *LHS, const SCEV *RHS,
-                           bool HasNUW = false, bool HasNSW = false) {
+    const SCEV *getAddExpr(SmallVectorImpl<const SCEV *> &Ops);
+    const SCEV *getAddExpr(const SCEV *LHS, const SCEV *RHS) {
       SmallVector<const SCEV *, 2> Ops;
       Ops.push_back(LHS);
       Ops.push_back(RHS);
-      return getAddExpr(Ops, HasNUW, HasNSW);
+      return getAddExpr(Ops);
     }
     const SCEV *getAddExpr(const SCEV *Op0, const SCEV *Op1,
-                           const SCEV *Op2,
-                           bool HasNUW = false, bool HasNSW = false) {
+                           const SCEV *Op2) {
       SmallVector<const SCEV *, 3> Ops;
       Ops.push_back(Op0);
       Ops.push_back(Op1);
       Ops.push_back(Op2);
-      return getAddExpr(Ops, HasNUW, HasNSW);
+      return getAddExpr(Ops);
     }
-    const SCEV *getMulExpr(SmallVectorImpl<const SCEV *> &Ops,
-                           bool HasNUW = false, bool HasNSW = false);
-    const SCEV *getMulExpr(const SCEV *LHS, const SCEV *RHS,
-                           bool HasNUW = false, bool HasNSW = false) {
+    const SCEV *getMulExpr(SmallVectorImpl<const SCEV *> &Ops);
+    const SCEV *getMulExpr(const SCEV *LHS, const SCEV *RHS) {
       SmallVector<const SCEV *, 2> Ops;
       Ops.push_back(LHS);
       Ops.push_back(RHS);
-      return getMulExpr(Ops, HasNUW, HasNSW);
+      return getMulExpr(Ops);
     }
     const SCEV *getUDivExpr(const SCEV *LHS, const SCEV *RHS);
     const SCEV *getAddRecExpr(const SCEV *Start, const SCEV *Step,
-                              const Loop *L,
-                              bool HasNUW = false, bool HasNSW = false);
+                              const Loop *L);
     const SCEV *getAddRecExpr(SmallVectorImpl<const SCEV *> &Operands,
-                              const Loop *L,
-                              bool HasNUW = false, bool HasNSW = false);
+                              const Loop *L);
     const SCEV *getAddRecExpr(const SmallVectorImpl<const SCEV *> &Operands,
-                              const Loop *L,
-                              bool HasNUW = false, bool HasNSW = false) {
+                              const Loop *L) {
       SmallVector<const SCEV *, 4> NewOp(Operands.begin(), Operands.end());
-      return getAddRecExpr(NewOp, L, HasNUW, HasNSW);
+      return getAddRecExpr(NewOp, L);
     }
     const SCEV *getSMaxExpr(const SCEV *LHS, const SCEV *RHS);
     const SCEV *getSMaxExpr(SmallVectorImpl<const SCEV *> &Operands);
@@ -513,7 +498,7 @@ namespace llvm {
     const SCEV *getUMinFromMismatchedTypes(const SCEV *LHS,
                                            const SCEV *RHS);
 
-    /// getSCEVAtScope - Return a SCEV expression for the specified value
+    /// getSCEVAtScope - Return a SCEV expression handle for the specified value
     /// at the specified scope in the program.  The L value specifies a loop
     /// nest to evaluate the expression at, where null is the top-level or a
     /// specified loop is immediately inside of the loop.
@@ -616,7 +601,11 @@ namespace llvm {
     virtual bool runOnFunction(Function &F);
     virtual void releaseMemory();
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-    virtual void print(raw_ostream &OS, const Module* = 0) const;
+    void print(raw_ostream &OS, const Module* = 0) const;
+    virtual void print(std::ostream &OS, const Module* = 0) const;
+    void print(std::ostream *OS, const Module* M = 0) const {
+      if (OS) print(*OS, M);
+    }
 
   private:
     FoldingSet<SCEV> UniqueSCEVs;

@@ -22,11 +22,11 @@
 
 #include "llvm/ADT/GraphTraits.h"
 #include <vector>
+#include <iosfwd>
 
 namespace llvm {
 
 class BasicBlock;
-class raw_ostream;
 
 //===----------------------------------------------------------------------===//
 //
@@ -98,7 +98,8 @@ public:
   bool isLoop() const;
 
   /// print - Show contents in human readable format...
-  void print(raw_ostream &O) const;
+  void print(std::ostream &O) const;
+  void print(std::ostream *O) const { if (O) print(*O); }
 };
 
 /// succ_begin/succ_end - define methods so that Intervals may be used

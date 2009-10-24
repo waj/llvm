@@ -1,4 +1,4 @@
-; RUN: opt < %s -deadargelim
+; RUN: llvm-as < %s | opt -deadargelim
 
 declare void @llvm.gcroot(i8**, i8*)
 

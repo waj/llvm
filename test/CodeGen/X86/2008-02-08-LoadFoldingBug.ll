@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mattr=+sse2 | grep andpd | not grep esp
+; RUN: llvm-as < %s | llc -march=x86 -mattr=+sse2 | grep andpd | not grep esp
 
 declare double @llvm.sqrt.f64(double) nounwind readnone 
 

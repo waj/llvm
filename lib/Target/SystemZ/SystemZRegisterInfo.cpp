@@ -107,10 +107,8 @@ int SystemZRegisterInfo::getFrameIndexOffset(MachineFunction &MF, int FI) const 
   return Offset;
 }
 
-unsigned
-SystemZRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                         int SPAdj, int *Value,
-                                         RegScavenger *RS) const {
+void SystemZRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                            int SPAdj, RegScavenger *RS) const {
   assert(SPAdj == 0 && "Unxpected");
 
   unsigned i = 0;
@@ -138,7 +136,6 @@ SystemZRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MI.setDesc(TII.getMemoryInstr(MI.getOpcode(), Offset));
 
   MI.getOperand(i+1).ChangeToImmediate(Offset);
-  return 0;
 }
 
 void
@@ -262,6 +259,7 @@ void SystemZRegisterInfo::emitEpilogue(MachineFunction &MF,
   SystemZMachineFunctionInfo *SystemZMFI =
     MF.getInfo<SystemZMachineFunctionInfo>();
   unsigned RetOpcode = MBBI->getOpcode();
+  DebugLoc DL = MBBI->getDebugLoc();
 
   switch (RetOpcode) {
   case SystemZ::RET: break;  // These are ok

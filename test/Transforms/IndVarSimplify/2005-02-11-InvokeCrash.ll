@@ -1,4 +1,4 @@
-; RUN: opt < %s -indvars -disable-output
+; RUN: llvm-as < %s | opt -indvars -disable-output
 
 define void @_ZN5ArrayISt7complexIdEEC2ERK10dim_vector() {
 entry:

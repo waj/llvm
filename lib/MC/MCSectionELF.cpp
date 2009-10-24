@@ -10,7 +10,7 @@
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/Target/TargetAsmInfo.h"
 
 using namespace llvm;
 
@@ -23,13 +23,13 @@ Create(const StringRef &Section, unsigned Type, unsigned Flags,
 // ShouldOmitSectionDirective - Decides whether a '.section' directive
 // should be printed before the section name
 bool MCSectionELF::ShouldOmitSectionDirective(const char *Name,
-                                        const MCAsmInfo &MAI) const {
+                                        const TargetAsmInfo &TAI) const {
   
   // FIXME: Does .section .bss/.data/.text work everywhere??
   if (strcmp(Name, ".text") == 0 ||
       strcmp(Name, ".data") == 0 ||
       (strcmp(Name, ".bss") == 0 &&
-       !MAI.usesELFSectionDirectiveForBSS())) 
+       !TAI.usesELFSectionDirectiveForBSS())) 
     return true;
 
   return false;
@@ -44,10 +44,10 @@ bool MCSectionELF::ShouldPrintSectionType(unsigned Ty) const {
   return true;
 }
 
-void MCSectionELF::PrintSwitchToSection(const MCAsmInfo &MAI,
+void MCSectionELF::PrintSwitchToSection(const TargetAsmInfo &TAI,
                                         raw_ostream &OS) const {
    
-  if (ShouldOmitSectionDirective(SectionName.c_str(), MAI)) {
+  if (ShouldOmitSectionDirective(SectionName.c_str(), TAI)) {
     OS << '\t' << getSectionName() << '\n';
     return;
   }
@@ -55,7 +55,7 @@ void MCSectionELF::PrintSwitchToSection(const MCAsmInfo &MAI,
   OS << "\t.section\t" << getSectionName();
   
   // Handle the weird solaris syntax if desired.
-  if (MAI.usesSunStyleELFSectionSwitchSyntax() && 
+  if (TAI.usesSunStyleELFSectionSwitchSyntax() && 
       !(Flags & MCSectionELF::SHF_MERGE)) {
     if (Flags & MCSectionELF::SHF_ALLOC)
       OS << ",#alloc";
@@ -82,7 +82,7 @@ void MCSectionELF::PrintSwitchToSection(const MCAsmInfo &MAI,
     
     // If there are target-specific flags, print them.
     if (Flags & ~MCSectionELF::TARGET_INDEP_SHF)
-      PrintTargetSpecificSectionFlags(MAI, OS);
+      PrintTargetSpecificSectionFlags(TAI, OS);
     
     OS << '"';
 
@@ -90,7 +90,7 @@ void MCSectionELF::PrintSwitchToSection(const MCAsmInfo &MAI,
       OS << ',';
    
       // If comment string is '@', e.g. as on ARM - use '%' instead
-      if (MAI.getCommentString()[0] == '@')
+      if (TAI.getCommentString()[0] == '@')
         OS << '%';
       else
         OS << '@';

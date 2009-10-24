@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86-64 > %t
+; RUN: llvm-as < %s | llc -march=x86-64 > %t
 ; RUN: grep inc %t | count 1
 ; RUN: not grep incw %t
 

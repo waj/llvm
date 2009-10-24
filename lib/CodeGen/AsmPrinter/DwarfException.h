@@ -24,7 +24,7 @@ namespace llvm {
 
 struct LandingPadInfo;
 class MachineModuleInfo;
-class MCAsmInfo;
+class TargetAsmInfo;
 class Timer;
 class raw_ostream;
 
@@ -51,11 +51,6 @@ class VISIBILITY_HIDDEN DwarfException : public Dwarf {
 
   std::vector<FunctionEHFrameInfo> EHFrames;
 
-  /// UsesLSDA - Indicates whether an FDE that uses the CIE at the given index
-  /// uses an LSDA. If so, then we need to encode that information in the CIE's
-  /// augmentation.
-  DenseMap<unsigned, bool> UsesLSDA;
-
   /// shouldEmitTable - Per-function flag to indicate if EH tables should
   /// be emitted.
   bool shouldEmitTable;
@@ -75,16 +70,13 @@ class VISIBILITY_HIDDEN DwarfException : public Dwarf {
   /// ExceptionTimer - Timer for the Dwarf exception writer.
   Timer *ExceptionTimer;
 
-  /// SizeOfEncodedValue - Return the size of the encoding in bytes.
-  unsigned SizeOfEncodedValue(unsigned Encoding);
+  /// EmitCommonEHFrame - Emit the common eh unwind frame.
+  ///
+  void EmitCommonEHFrame(const Function *Personality, unsigned Index);
 
-  /// EmitCIE - Emit a Common Information Entry (CIE). This holds information
-  /// that is shared among many Frame Description Entries.  There is at least
-  /// one CIE in every non-empty .debug_frame section.
-  void EmitCIE(const Function *Personality, unsigned Index);
-
-  /// EmitFDE - Emit the Frame Description Entry (FDE) for the function.
-  void EmitFDE(const FunctionEHFrameInfo &EHFrameInfo);
+  /// EmitEHFrame - Emit function exception frame information.
+  ///
+  void EmitEHFrame(const FunctionEHFrameInfo &EHFrameInfo);
 
   /// EmitExceptionTable - Emit landing pads and actions.
   ///
@@ -172,7 +164,7 @@ public:
   //===--------------------------------------------------------------------===//
   // Main entry points.
   //
-  DwarfException(raw_ostream &OS, AsmPrinter *A, const MCAsmInfo *T);
+  DwarfException(raw_ostream &OS, AsmPrinter *A, const TargetAsmInfo *T);
   virtual ~DwarfException();
 
   /// BeginModule - Emit all exception information that should come prior to the

@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; PR4534
 
 ; ModuleID = 'tango.net.ftp.FtpClient.bc'

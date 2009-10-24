@@ -13,8 +13,9 @@
 #include "llvm/Metadata.h"
 #include "llvm/Module.h"
 #include "llvm/Type.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ValueHandle.h"
+#include <sstream>
+
 using namespace llvm;
 
 namespace {
@@ -50,8 +51,7 @@ TEST(MDStringTest, PrintingSimple) {
   strncpy(str, "aaaaaaaaaaaaa", 13);
   delete[] str;
 
-  std::string Str;
-  raw_string_ostream oss(Str);
+  std::ostringstream oss;
   s->print(oss);
   EXPECT_STREQ("metadata !\"testing 1 2 3\"", oss.str().c_str());
 }
@@ -60,8 +60,7 @@ TEST(MDStringTest, PrintingSimple) {
 TEST(MDStringTest, PrintingComplex) {
   char str[5] = {0, '\n', '"', '\\', -1};
   MDString *s = MDString::get(Context, StringRef(str+0, 5));
-  std::string Str;
-  raw_string_ostream oss(Str);
+  std::ostringstream oss;
   s->print(oss);
   EXPECT_STREQ("metadata !\"\\00\\0A\\22\\5C\\FF\"", oss.str().c_str());
 }
@@ -85,11 +84,7 @@ TEST(MDNodeTest, Simple) {
   MDNode *n2 = MDNode::get(Context, &c1, 1);
   MDNode *n3 = MDNode::get(Context, &V[0], 3);
   EXPECT_NE(n1, n2);
-#ifdef ENABLE_MDNODE_UNIQUING
   EXPECT_EQ(n1, n3);
-#else
-  (void) n3;
-#endif
 
   EXPECT_EQ(3u, n1->getNumElements());
   EXPECT_EQ(s1, n1->getElement(0));
@@ -99,16 +94,14 @@ TEST(MDNodeTest, Simple) {
   EXPECT_EQ(1u, n2->getNumElements());
   EXPECT_EQ(n1, n2->getElement(0));
 
-  std::string Str;
-  raw_string_ostream oss(Str);
-  n1->print(oss);
+  std::ostringstream oss1, oss2;
+  n1->print(oss1);
+  n2->print(oss2);
   EXPECT_STREQ("!0 = metadata !{metadata !\"abc\", i8 0, metadata !\"123\"}\n",
-               oss.str().c_str());
-  Str.clear();
-  n2->print(oss);
+               oss1.str().c_str());
   EXPECT_STREQ("!0 = metadata !{metadata !1}\n"
                "!1 = metadata !{metadata !\"abc\", i8 0, metadata !\"123\"}\n",
-               oss.str().c_str());
+               oss2.str().c_str());
 }
 
 TEST(MDNodeTest, Delete) {
@@ -123,8 +116,7 @@ TEST(MDNodeTest, Delete) {
 
   delete I;
 
-  std::string Str;
-  raw_string_ostream oss(Str);
+  std::ostringstream oss;
   wvh->print(oss);
   EXPECT_STREQ("!0 = metadata !{null}\n", oss.str().c_str());
 }
@@ -143,8 +135,7 @@ TEST(NamedMDNodeTest, Search) {
   Module *M = new Module("MyModule", getGlobalContext());
   const char *Name = "llvm.NMD1";
   NamedMDNode *NMD = NamedMDNode::Create(getGlobalContext(), Name, &Nodes[0], 2, M);
-  std::string Str;
-  raw_string_ostream oss(Str);
+  std::ostringstream oss;
   NMD->print(oss);
   EXPECT_STREQ("!llvm.NMD1 = !{!0, !1}\n!0 = metadata !{i32 1}\n"
                "!1 = metadata !{i32 2}\n",

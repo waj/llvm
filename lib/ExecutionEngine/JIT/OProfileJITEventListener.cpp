@@ -50,9 +50,9 @@ OProfileJITEventListener::OProfileJITEventListener()
     : Agent(op_open_agent()) {
   if (Agent == NULL) {
     const std::string err_str = sys::StrError();
-    DEBUG(errs() << "Failed to connect to OProfile agent: " << err_str << "\n");
+    DOUT << "Failed to connect to OProfile agent: " << err_str << "\n";
   } else {
-    DEBUG(errs() << "Connected to OProfile agent.\n");
+    DOUT << "Connected to OProfile agent.\n";
   }
 }
 
@@ -60,31 +60,32 @@ OProfileJITEventListener::~OProfileJITEventListener() {
   if (Agent != NULL) {
     if (op_close_agent(Agent) == -1) {
       const std::string err_str = sys::StrError();
-      DEBUG(errs() << "Failed to disconnect from OProfile agent: "
-                   << err_str << "\n");
+      DOUT << "Failed to disconnect from OProfile agent: " << err_str << "\n";
     } else {
-      DEBUG(errs() << "Disconnected from OProfile agent.\n");
+      DOUT << "Disconnected from OProfile agent.\n";
     }
   }
 }
 
 class FilenameCache {
-  // Holds the filename of each Scope, so that we can pass the
+  // Holds the filename of each CompileUnit, so that we can pass the
   // pointer into oprofile.  These char*s are freed in the destructor.
-  DenseMap<MDNode*, char*> Filenames;
+  DenseMap<GlobalVariable*, char*> Filenames;
+  // Used as the scratch space in DICompileUnit::getFilename().
+  std::string TempFilename;
 
  public:
-  const char *getFilename(MDNode *Scope) {
-    char *&Filename = Filenames[Scope];
+  const char* getFilename(GlobalVariable *CompileUnit) {
+    char *&Filename = Filenames[CompileUnit];
     if (Filename == NULL) {
-      DIScope S(Scope);
-      Filename = strdup(S.getFilename());
+      DICompileUnit CU(CompileUnit);
+      Filename = strdup(CU.getFilename(TempFilename).c_str());
     }
     return Filename;
   }
   ~FilenameCache() {
-    for (DenseMap<MDNode*, char*>::iterator
-             I = Filenames.begin(), E = Filenames.end(); I != E; ++I) {
+    for (DenseMap<GlobalVariable*, char*>::iterator
+             I = Filenames.begin(), E = Filenames.end(); I != E;++I) {
       free(I->second);
     }
   }
@@ -95,11 +96,11 @@ static debug_line_info LineStartToOProfileFormat(
     uintptr_t Address, DebugLoc Loc) {
   debug_line_info Result;
   Result.vma = Address;
-  const DebugLocTuple &tuple = MF.getDebugLocTuple(Loc);
+  const DebugLocTuple& tuple = MF.getDebugLocTuple(Loc);
   Result.lineno = tuple.Line;
-  Result.filename = Filenames.getFilename(tuple.Scope);
-  DEBUG(errs() << "Mapping " << reinterpret_cast<void*>(Result.vma) << " to "
-               << Result.filename << ":" << Result.lineno << "\n");
+  Result.filename = Filenames.getFilename(tuple.CompileUnit);
+  DOUT << "Mapping " << reinterpret_cast<void*>(Result.vma) << " to "
+       << Result.filename << ":" << Result.lineno << "\n";
   return Result;
 }
 

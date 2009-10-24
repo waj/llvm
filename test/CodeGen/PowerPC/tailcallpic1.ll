@@ -1,4 +1,4 @@
-; RUN: llc < %s  -tailcallopt -mtriple=powerpc-apple-darwin -relocation-model=pic | grep TC_RETURN
+; RUN: llvm-as < %s | llc  -tailcallopt -mtriple=powerpc-apple-darwin -relocation-model=pic | grep TC_RETURN
 
 
 

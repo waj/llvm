@@ -21,6 +21,7 @@
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Instruction.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/InstIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include <set>
@@ -33,7 +34,7 @@ namespace {
   //===--------------------------------------------------------------------===//
   // DeadInstElimination pass implementation
   //
-  struct DeadInstElimination : public BasicBlockPass {
+  struct VISIBILITY_HIDDEN DeadInstElimination : public BasicBlockPass {
     static char ID; // Pass identification, replacement for typeid
     DeadInstElimination() : BasicBlockPass(&ID) {}
     virtual bool runOnBasicBlock(BasicBlock &BB) {

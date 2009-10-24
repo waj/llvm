@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=alpha
+; RUN: llvm-as < %s | llc -march=alpha
 
 define i1 @a(float %x) {
   %r = fcmp ult float %x, 1.0

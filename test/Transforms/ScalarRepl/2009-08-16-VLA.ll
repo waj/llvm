@@ -1,4 +1,4 @@
-; RUN: opt < %s -scalarrepl -disable-opt
+; RUN: llvm-as < %s | opt -scalarrepl -disable-opt
 
 	%struct.Item = type { [4 x i16], %struct.rule* }
 	%struct.rule = type { [4 x i16], i32, i32, i32, %struct.nonterminal*, %struct.pattern*, i8 }

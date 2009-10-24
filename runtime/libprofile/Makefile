@@ -8,8 +8,6 @@
 ##===----------------------------------------------------------------------===##
 
 LEVEL = ../..
-include $(LEVEL)/Makefile.config
-
 ifneq ($(wildcard $(LLVMGCC)),)
 BYTECODE_LIBRARY = 1
 endif

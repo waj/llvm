@@ -3,7 +3,7 @@
 ; it makes a ton of annoying overlapping live ranges.  This code should not
 ; cause spills!
 ;
-; RUN: llc < %s -march=x86 -stats |& not grep spilled
+; RUN: llvm-as < %s | llc -march=x86 -stats |& not grep spilled
 
 target datalayout = "e-p:32:32"
 

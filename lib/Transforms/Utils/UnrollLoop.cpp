@@ -63,7 +63,7 @@ static BasicBlock *FoldBlockIntoPredecessor(BasicBlock *BB, LoopInfo* LI) {
   if (OnlyPred->getTerminator()->getNumSuccessors() != 1)
     return 0;
 
-  DEBUG(errs() << "Merging: " << *BB << "into: " << *OnlyPred);
+  DOUT << "Merging: " << *BB << "into: " << *OnlyPred;
 
   // Resolve any PHI nodes at the start of the block.  They are all
   // guaranteed to have exactly one entry if they exist, unless there are
@@ -114,8 +114,7 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, LoopInfo* LI, LPPassManager* LPM)
   
   if (!BI || BI->isUnconditional()) {
     // The loop-rotate pass can be helpful to avoid this in many cases.
-    DEBUG(errs() <<
-             "  Can't unroll; loop not terminated by a conditional branch.\n");
+    DOUT << "  Can't unroll; loop not terminated by a conditional branch.\n";
     return false;
   }
 
@@ -127,9 +126,9 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, LoopInfo* LI, LPPassManager* LPM)
     TripMultiple = L->getSmallConstantTripMultiple();
 
   if (TripCount != 0)
-    DEBUG(errs() << "  Trip Count = " << TripCount << "\n");
+    DOUT << "  Trip Count = " << TripCount << "\n";
   if (TripMultiple != 1)
-    DEBUG(errs() << "  Trip Multiple = " << TripMultiple << "\n");
+    DOUT << "  Trip Multiple = " << TripMultiple << "\n";
 
   // Effectively "DCE" unrolled iterations that are beyond the tripcount
   // and will never be executed.
@@ -161,11 +160,11 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, LoopInfo* LI, LPPassManager* LPM)
     DEBUG(errs() << "UNROLLING loop %" << Header->getName()
           << " by " << Count);
     if (TripMultiple == 0 || BreakoutTrip != TripMultiple) {
-      DEBUG(errs() << " with a breakout at trip " << BreakoutTrip);
+      DOUT << " with a breakout at trip " << BreakoutTrip;
     } else if (TripMultiple != 1) {
-      DEBUG(errs() << " with " << TripMultiple << " trips per branch");
+      DOUT << " with " << TripMultiple << " trips per branch";
     }
-    DEBUG(errs() << "!\n");
+    DOUT << "!\n";
   }
 
   std::vector<BasicBlock*> LoopBlocks = L->getBlocks();

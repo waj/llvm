@@ -41,6 +41,7 @@ class RegScavenger;
 /// of AX.
 ///
 struct TargetRegisterDesc {
+  const char     *AsmName;      // Assembly language name for the register
   const char     *Name;         // Printable name for the reg (for debugging)
   const unsigned *AliasSet;     // Register Alias Set, described above
   const unsigned *SubRegs;      // Sub-register set, described above
@@ -83,7 +84,7 @@ public:
         RegSet.insert(*I);
     }
   virtual ~TargetRegisterClass() {}     // Allow subclasses
-
+  
   /// getID() - Return the register class ID number.
   ///
   unsigned getID() const { return ID; }
@@ -122,7 +123,7 @@ public:
         return true;
     return false;
   }
-
+  
   /// vt_begin / vt_end - Loop over all of the value types that can be
   /// represented by values in this register class.
   vt_iterator vt_begin() const {
@@ -172,7 +173,7 @@ public:
   /// hasSubClass - return true if the the specified TargetRegisterClass
   /// is a proper subset of this TargetRegisterClass.
   bool hasSubClass(const TargetRegisterClass *cs) const {
-    for (int i = 0; SubClasses[i] != NULL; ++i)
+    for (int i = 0; SubClasses[i] != NULL; ++i) 
       if (SubClasses[i] == cs)
         return true;
     return false;
@@ -183,17 +184,17 @@ public:
   sc_iterator subclasses_begin() const {
     return SubClasses;
   }
-
+  
   sc_iterator subclasses_end() const {
     sc_iterator I = SubClasses;
     while (*I != NULL) ++I;
     return I;
   }
-
+  
   /// hasSuperClass - return true if the specified TargetRegisterClass is a
   /// proper superset of this TargetRegisterClass.
   bool hasSuperClass(const TargetRegisterClass *cs) const {
-    for (int i = 0; SuperClasses[i] != NULL; ++i)
+    for (int i = 0; SuperClasses[i] != NULL; ++i) 
       if (SuperClasses[i] == cs)
         return true;
     return false;
@@ -204,7 +205,7 @@ public:
   sc_iterator superclasses_begin() const {
     return SuperClasses;
   }
-
+  
   sc_iterator superclasses_end() const {
     sc_iterator I = SuperClasses;
     while (*I != NULL) ++I;
@@ -216,7 +217,7 @@ public:
   bool isASubClass() const {
     return SuperClasses[0] != 0;
   }
-
+  
   /// allocation_order_begin/end - These methods define a range of registers
   /// which specify the registers in this class that are valid to register
   /// allocate, and the preferred order to allocate them in.  For example,
@@ -325,7 +326,7 @@ public:
   /// getAllocatableSet - Returns a bitset indexed by register number
   /// indicating if a register is allocatable or not. If a register class is
   /// specified, returns the subset for the class.
-  BitVector getAllocatableSet(const MachineFunction &MF,
+  BitVector getAllocatableSet(MachineFunction &MF,
                               const TargetRegisterClass *RC = NULL) const;
 
   const TargetRegisterDesc &operator[](unsigned RegNo) const {
@@ -365,6 +366,12 @@ public:
   ///
   const unsigned *getSuperRegisters(unsigned RegNo) const {
     return get(RegNo).SuperRegs;
+  }
+
+  /// getAsmName - Return the symbolic target-specific name for the
+  /// specified physical register.
+  const char *getAsmName(unsigned RegNo) const {
+    return get(RegNo).AsmName;
   }
 
   /// getName - Return the human-readable symbolic target-specific name for the
@@ -413,11 +420,11 @@ public:
            SubregHash[index*2+1] != 0) {
       if (SubregHash[index*2] == regA && SubregHash[index*2+1] == regB)
         return true;
-
+      
       index = (index + ProbeAmt) & (SubregHashSize-1);
       ProbeAmt += 2;
     }
-
+    
     return false;
   }
 
@@ -431,11 +438,11 @@ public:
            SuperregHash[index*2+1] != 0) {
       if (SuperregHash[index*2] == regA && SuperregHash[index*2+1] == regB)
         return true;
-
+      
       index = (index + ProbeAmt) & (SuperregHashSize-1);
       ProbeAmt += 2;
     }
-
+    
     return false;
   }
 
@@ -465,7 +472,7 @@ public:
 
   /// getMatchingSuperReg - Return a super-register of the specified register
   /// Reg so its sub-register of index SubIdx is Reg.
-  unsigned getMatchingSuperReg(unsigned Reg, unsigned SubIdx,
+  unsigned getMatchingSuperReg(unsigned Reg, unsigned SubIdx, 
                                const TargetRegisterClass *RC) const {
     for (const unsigned *SRs = getSuperRegisters(Reg); unsigned SR = *SRs;++SRs)
       if (Reg == getSubReg(SR, SubIdx) && RC->contains(SR))
@@ -494,7 +501,7 @@ public:
   unsigned getNumRegClasses() const {
     return (unsigned)(regclass_end()-regclass_begin());
   }
-
+  
   /// getRegClass - Returns the register class associated with the enumeration
   /// value.  See class TargetOperandInfo.
   const TargetRegisterClass *getRegClass(unsigned i) const {
@@ -560,13 +567,7 @@ public:
   virtual bool requiresRegisterScavenging(const MachineFunction &MF) const {
     return false;
   }
-
-  /// requiresFrameIndexScavenging - returns true if the target requires post
-  /// PEI scavenging of registers for materializing frame index constants.
-  virtual bool requiresFrameIndexScavenging(const MachineFunction &MF) const {
-    return false;
-  }
-
+  
   /// hasFP - Return true if the specified function should have a dedicated
   /// frame pointer register. For most targets this is true only if the function
   /// has variable sized allocas or if frame pointer elimination is disabled.
@@ -641,17 +642,6 @@ public:
   virtual void processFunctionBeforeFrameFinalized(MachineFunction &MF) const {
   }
 
-  /// saveScavengerRegister - Spill the register so it can be used by the
-  /// register scavenger. Return true if the register was spilled, false
-  /// otherwise. If this function does not spill the register, the scavenger
-  /// will instead spill it to the emergency spill slot.
-  ///
-  virtual bool saveScavengerRegister(MachineBasicBlock &MBB,
-                                     MachineBasicBlock::iterator I,
-                                     MachineBasicBlock::iterator &UseMI,
-                                     const TargetRegisterClass *RC,
-                                     unsigned Reg) const {return false;}
-
   /// eliminateFrameIndex - This method must be overriden to eliminate abstract
   /// frame indices from instructions which may use them.  The instruction
   /// referenced by the iterator contains an MO_FrameIndex operand which must be
@@ -659,23 +649,18 @@ public:
   /// specified instruction, as long as it keeps the iterator pointing the the
   /// finished product. SPAdj is the SP adjustment due to call frame setup
   /// instruction.
-  ///
-  /// When -enable-frame-index-scavenging is enabled, the virtual register
-  /// allocated for this frame index is returned and its value is stored in
-  /// *Value.
-  virtual unsigned eliminateFrameIndex(MachineBasicBlock::iterator MI,
-                                       int SPAdj, int *Value = NULL,
-                                       RegScavenger *RS=NULL) const = 0;
+  virtual void eliminateFrameIndex(MachineBasicBlock::iterator MI,
+                                   int SPAdj, RegScavenger *RS=NULL) const = 0;
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.
   virtual void emitPrologue(MachineFunction &MF) const = 0;
   virtual void emitEpilogue(MachineFunction &MF,
                             MachineBasicBlock &MBB) const = 0;
-
+                            
   //===--------------------------------------------------------------------===//
   /// Debug information queries.
-
+  
   /// getDwarfRegNum - Map a target register to an equivalent dwarf register
   /// number.  Returns -1 if there is no equivalent value.  The second
   /// parameter allows targets to use different numberings for EH info and
@@ -689,11 +674,11 @@ public:
   /// getFrameIndexOffset - Returns the displacement from the frame register to
   /// the stack frame of the specified index.
   virtual int getFrameIndexOffset(MachineFunction &MF, int FI) const;
-
+                           
   /// getRARegister - This method should return the register where the return
   /// address can be found.
   virtual unsigned getRARegister() const = 0;
-
+  
   /// getInitialFrameState - Returns a list of machine moves that are assumed
   /// on entry to all functions.  Note that LabelID is ignored (assumed to be
   /// the beginning of the function.)
@@ -702,7 +687,7 @@ public:
 
 
 // This is useful when building IndexedMaps keyed on virtual registers
-struct VirtReg2IndexFunctor : public std::unary_function<unsigned, unsigned> {
+struct VirtReg2IndexFunctor : std::unary_function<unsigned, unsigned> {
   unsigned operator()(unsigned Reg) const {
     return Reg - TargetRegisterInfo::FirstVirtualRegister;
   }

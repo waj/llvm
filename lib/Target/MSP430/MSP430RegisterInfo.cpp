@@ -147,10 +147,9 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   MBB.erase(I);
 }
 
-unsigned
+void
 MSP430RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                        int SPAdj, int *Value,
-                                        RegScavenger *RS) const {
+                                        int SPAdj, RegScavenger *RS) const {
   assert(SPAdj == 0 && "Unexpected");
 
   unsigned i = 0;
@@ -188,7 +187,7 @@ MSP430RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     MI.getOperand(i).ChangeToRegister(BasePtr, false);
 
     if (Offset == 0)
-      return 0;
+      return;
 
     // We need to materialize the offset via add instruction.
     unsigned DstReg = MI.getOperand(0).getReg();
@@ -199,12 +198,11 @@ MSP430RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       BuildMI(MBB, next(II), dl, TII.get(MSP430::ADD16ri), DstReg)
         .addReg(DstReg).addImm(Offset);
 
-    return 0;
+    return;
   }
 
   MI.getOperand(i).ChangeToRegister(BasePtr, false);
   MI.getOperand(i+1).ChangeToImmediate(Offset);
-  return 0;
 }
 
 void
@@ -313,6 +311,7 @@ void MSP430RegisterInfo::emitEpilogue(MachineFunction &MF,
     NumBytes = StackSize - CSSize;
 
   // Skip the callee-saved pop instructions.
+  MachineBasicBlock::iterator LastCSPop = MBBI;
   while (MBBI != MBB.begin()) {
     MachineBasicBlock::iterator PI = prior(MBBI);
     unsigned Opc = PI->getOpcode();
@@ -329,16 +328,7 @@ void MSP430RegisterInfo::emitEpilogue(MachineFunction &MF,
   //  mergeSPUpdatesUp(MBB, MBBI, StackPtr, &NumBytes);
 
   if (MFI->hasVarSizedObjects()) {
-    BuildMI(MBB, MBBI, DL,
-            TII.get(MSP430::MOV16rr), MSP430::SPW).addReg(MSP430::FPW);
-    if (CSSize) {
-      MachineInstr *MI =
-        BuildMI(MBB, MBBI, DL,
-                TII.get(MSP430::SUB16ri), MSP430::SPW)
-        .addReg(MSP430::SPW).addImm(CSSize);
-      // The SRW implicit def is dead.
-      MI->getOperand(3).setIsDead();
-    }
+    llvm_unreachable("Not implemented yet!");
   } else {
     // adjust stack pointer back: SPW += numbytes
     if (NumBytes) {

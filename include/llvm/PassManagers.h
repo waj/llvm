@@ -95,7 +95,6 @@ namespace llvm {
   class Pass;
   class StringRef;
   class Value;
-  class Timer;
 
 /// FunctionPassManager and PassManager, two top level managers, serve 
 /// as the public interface of pass manager infrastructure.
@@ -280,16 +279,15 @@ public:
   /// verifyPreservedAnalysis -- Verify analysis presreved by pass P.
   void verifyPreservedAnalysis(Pass *P);
 
+  /// verifyDomInfo -- Verify dominator information if it is available.
+  void verifyDomInfo(Pass &P, Function &F);
+
   /// Remove Analysis that is not preserved by the pass
   void removeNotPreservedAnalysis(Pass *P);
   
-  /// Remove dead passes used by P.
+  /// Remove dead passes
   void removeDeadPasses(Pass *P, const StringRef &Msg, 
                         enum PassDebuggingString);
-
-  /// Remove P.
-  void freePass(Pass *P, const StringRef &Msg, 
-                enum PassDebuggingString);
 
   /// Add pass P into the PassVector. Update 
   /// AvailableAnalysis appropriately if ProcessAnalysis is true.
@@ -382,11 +380,6 @@ protected:
   // then PMT_Last active pass mangers.
   std::map<AnalysisID, Pass *> *InheritedAnalysis[PMT_Last];
 
-  
-  /// isPassDebuggingExecutionsOrMore - Return true if -debug-pass=Executions
-  /// or higher is specified.
-  bool isPassDebuggingExecutionsOrMore() const;
-  
 private:
   void dumpAnalysisUsage(const StringRef &Msg, const Pass *P,
                            const AnalysisUsage::VectorType &Set) const;
@@ -458,8 +451,8 @@ public:
   }
 };
 
-extern Timer *StartPassTimer(Pass *);
-extern void StopPassTimer(Pass *, Timer *);
+extern void StartPassTimer(llvm::Pass *);
+extern void StopPassTimer(llvm::Pass *);
 
 }
 

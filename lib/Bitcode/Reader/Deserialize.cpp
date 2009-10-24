@@ -12,7 +12,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Bitcode/Deserialize.h"
-#include "llvm/Support/raw_ostream.h"
+
+#ifdef DEBUG_BACKPATCH
+#include "llvm/Support/Streams.h"
+#endif
+
 using namespace llvm;
 
 Deserializer::Deserializer(BitstreamReader& stream)
@@ -353,7 +357,7 @@ void Deserializer::RegisterPtr(const SerializedPtrID& PtrId,
   assert (!HasFinalPtr(E) && "Pointer already registered.");
 
 #ifdef DEBUG_BACKPATCH
-  errs() << "RegisterPtr: " << PtrId << " => " << Ptr << "\n";
+  llvm::cerr << "RegisterPtr: " << PtrId << " => " << Ptr << "\n";
 #endif 
   
   SetPtr(E,Ptr);
@@ -373,8 +377,8 @@ void Deserializer::ReadUIntPtr(uintptr_t& PtrRef,
     PtrRef = GetFinalPtr(E);
 
 #ifdef DEBUG_BACKPATCH
-    errs() << "ReadUintPtr: " << PtrId
-           << " <-- " <<  (void*) GetFinalPtr(E) << '\n';
+    llvm::cerr << "ReadUintPtr: " << PtrId
+               << " <-- " <<  (void*) GetFinalPtr(E) << '\n';
 #endif    
   }
   else {
@@ -382,7 +386,7 @@ void Deserializer::ReadUIntPtr(uintptr_t& PtrRef,
             "Client forbids backpatching for this pointer.");
     
 #ifdef DEBUG_BACKPATCH
-    errs() << "ReadUintPtr: " << PtrId << " (NO PTR YET)\n";
+    llvm::cerr << "ReadUintPtr: " << PtrId << " (NO PTR YET)\n";
 #endif
     
     // Register backpatch.  Check the freelist for a BPNode.

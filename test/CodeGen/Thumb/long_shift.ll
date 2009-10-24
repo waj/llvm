@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=thumb
+; RUN: llvm-as < %s | llc -march=thumb
 
 define i64 @f0(i64 %A, i64 %B) {
         %tmp = bitcast i64 %A to i64

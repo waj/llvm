@@ -1,5 +1,5 @@
-; RUN: llc < %s -mtriple=i386-unknown-linux-gnu | FileCheck %s -check-prefix=LINUX
-; RUN: llc < %s -mtriple=i386-apple-darwin9.7 | FileCheck %s -check-prefix=DARWIN
+; RUN: llvm-as < %s | llc -mtriple=i386-unknown-linux-gnu | FileCheck %s -check-prefix=LINUX
+; RUN: llvm-as < %s | llc -mtriple=i386-apple-darwin9.7 | FileCheck %s -check-prefix=DARWIN
 
 
 ; int G1;

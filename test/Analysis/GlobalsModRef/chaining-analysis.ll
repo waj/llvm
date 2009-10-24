@@ -1,4 +1,4 @@
-; RUN: opt < %s -globalsmodref-aa -gvn -S | not grep load
+; RUN: llvm-as < %s | opt -globalsmodref-aa -gvn | llvm-dis | not grep load
 
 ; This test requires the use of previous analyses to determine that
 ; doesnotmodX does not modify X (because 'sin' doesn't).

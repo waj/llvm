@@ -1,4 +1,4 @@
-; RUN: opt < %s -loop-deletion -S | grep switch
+; RUN: llvm-as < %s | opt -loop-deletion | llvm-dis | grep switch
 ; PR 1564
   
 define fastcc void @out() {

@@ -1,4 +1,5 @@
-; RUN: opt < %s -instcombine -S | FileCheck %s
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | \
+; RUN:   %prcontext div 1 | grep then:
 
 ;; This tests that the div is hoisted into the then block.
 define i32 @foo(i1 %C, i32 %A, i32 %B) {
@@ -6,8 +7,6 @@ entry:
         br i1 %C, label %then, label %endif
 
 then:           ; preds = %entry
-; CHECK: then:
-; CHECK-NEXT: sdiv i32
         br label %endif
 
 endif:          ; preds = %then, %entry

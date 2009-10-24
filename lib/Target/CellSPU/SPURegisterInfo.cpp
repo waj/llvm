@@ -326,9 +326,9 @@ SPURegisterInfo::eliminateCallFramePseudoInstr(MachineFunction &MF,
   MBB.erase(I);
 }
 
-unsigned
+void
 SPURegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
-                                     int *Value, RegScavenger *RS) const
+                                     RegScavenger *RS) const
 {
   unsigned i = 0;
   MachineInstr &MI = *II;
@@ -365,13 +365,12 @@ SPURegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
   SPOp.ChangeToRegister(SPU::R1, false);
   if (Offset > SPUFrameInfo::maxFrameOffset()
       || Offset < SPUFrameInfo::minFrameOffset()) {
-    errs() << "Large stack adjustment ("
+    cerr << "Large stack adjustment ("
          << Offset
          << ") in SPURegisterInfo::eliminateFrameIndex.";
   } else {
     MO.ChangeToImmediate(Offset);
   }
-  return 0;
 }
 
 /// determineFrameLayout - Determine the size of the frame and maximum call

@@ -139,9 +139,8 @@ public:
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator MI) const;
 
-  unsigned eliminateFrameIndex(MachineBasicBlock::iterator MI,
-                               int SPAdj, int *Value = NULL,
-                               RegScavenger *RS = NULL) const;
+  void eliminateFrameIndex(MachineBasicBlock::iterator MI,
+                           int SPAdj, RegScavenger *RS = NULL) const;
 
   void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                             RegScavenger *RS = NULL) const;

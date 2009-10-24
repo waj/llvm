@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "basicinliner"
+
 #include "llvm/Module.h"
 #include "llvm/Function.h"
 #include "llvm/Transforms/Utils/BasicInliner.h"
@@ -20,7 +21,6 @@
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include <vector>
 
@@ -89,7 +89,7 @@ void BasicInlinerImpl::inlineFunctions() {
       }
   }
   
-  DEBUG(errs() << ": " << CallSites.size() << " call sites.\n");
+  DOUT << ": " << CallSites.size() << " call sites.\n";
   
   // Inline call sites.
   bool Changed = false;
@@ -109,22 +109,22 @@ void BasicInlinerImpl::inlineFunctions() {
         }
         InlineCost IC = CA.getInlineCost(CS, NeverInline);
         if (IC.isAlways()) {        
-          DEBUG(errs() << "  Inlining: cost=always"
-                       <<", call: " << *CS.getInstruction());
+          DOUT << "  Inlining: cost=always"
+               <<", call: " << *CS.getInstruction();
         } else if (IC.isNever()) {
-          DEBUG(errs() << "  NOT Inlining: cost=never"
-                       <<", call: " << *CS.getInstruction());
+          DOUT << "  NOT Inlining: cost=never"
+               <<", call: " << *CS.getInstruction();
           continue;
         } else {
           int Cost = IC.getValue();
           
           if (Cost >= (int) BasicInlineThreshold) {
-            DEBUG(errs() << "  NOT Inlining: cost = " << Cost
-                         << ", call: " <<  *CS.getInstruction());
+            DOUT << "  NOT Inlining: cost = " << Cost
+                 << ", call: " <<  *CS.getInstruction();
             continue;
           } else {
-            DEBUG(errs() << "  Inlining: cost = " << Cost
-                         << ", call: " <<  *CS.getInstruction());
+            DOUT << "  Inlining: cost = " << Cost
+                 << ", call: " <<  *CS.getInstruction();
           }
         }
         

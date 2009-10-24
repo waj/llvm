@@ -1,6 +1,6 @@
-; RUN: llc < %s -fast-isel -mtriple=i386-apple-darwin | \
+; RUN: llvm-as < %s | llc -fast-isel -mtriple=i386-apple-darwin | \
 ; RUN:   grep lazy_ptr, | count 2
-; RUN: llc < %s -fast-isel -march=x86 -relocation-model=static | \
+; RUN: llvm-as < %s | llc -fast-isel -march=x86 -relocation-model=static | \
 ; RUN:   grep lea
 
 @src = external global i32

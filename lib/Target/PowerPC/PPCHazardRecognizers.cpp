@@ -18,7 +18,6 @@
 #include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -53,7 +52,7 @@ PPCHazardRecognizer970::PPCHazardRecognizer970(const TargetInstrInfo &tii)
 }
 
 void PPCHazardRecognizer970::EndDispatchGroup() {
-  DEBUG(errs() << "=== Start of dispatch group\n");
+  DOUT << "=== Start of dispatch group\n";
   NumIssued = 0;
   
   // Structural hazard info.

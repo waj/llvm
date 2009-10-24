@@ -29,9 +29,6 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Function.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/MC/MCCodeEmitter.h"
-#include "llvm/MC/MCExpr.h"
-#include "llvm/MC/MCInst.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -324,27 +321,32 @@ void Emitter<CodeEmitter>::emitDisplacementField(const MachineOperand *RelocOp,
 
   // Otherwise, this is something that requires a relocation.  Emit it as such
   // now.
-  unsigned RelocType = Is64BitMode ?
-    (IsPCRel ? X86::reloc_pcrel_word : X86::reloc_absolute_word_sext)
-    : (IsPIC ? X86::reloc_picrel_word : X86::reloc_absolute_word);
   if (RelocOp->isGlobal()) {
     // In 64-bit static small code model, we could potentially emit absolute.
     // But it's probably not beneficial. If the MCE supports using RIP directly
     // do it, otherwise fallback to absolute (this is determined by IsPCRel). 
     //  89 05 00 00 00 00     mov    %eax,0(%rip)  # PC-relative
     //  89 04 25 00 00 00 00  mov    %eax,0x0      # Absolute
+    unsigned rt = Is64BitMode ?
+      (IsPCRel ? X86::reloc_pcrel_word : X86::reloc_absolute_word_sext)
+      : (IsPIC ? X86::reloc_picrel_word : X86::reloc_absolute_word);
     bool NeedStub = isa<Function>(RelocOp->getGlobal());
     bool Indirect = gvNeedsNonLazyPtr(*RelocOp, TM);
-    emitGlobalAddress(RelocOp->getGlobal(), RelocType, RelocOp->getOffset(),
+    emitGlobalAddress(RelocOp->getGlobal(), rt, RelocOp->getOffset(),
                       Adj, NeedStub, Indirect);
-  } else if (RelocOp->isSymbol()) {
-    emitExternalSymbolAddress(RelocOp->getSymbolName(), RelocType);
   } else if (RelocOp->isCPI()) {
-    emitConstPoolAddress(RelocOp->getIndex(), RelocType,
+    unsigned rt = Is64BitMode ?
+      (IsPCRel ? X86::reloc_pcrel_word : X86::reloc_absolute_word_sext)
+      : (IsPCRel ? X86::reloc_picrel_word : X86::reloc_absolute_word);
+    emitConstPoolAddress(RelocOp->getIndex(), rt,
                          RelocOp->getOffset(), Adj);
+  } else if (RelocOp->isJTI()) {
+    unsigned rt = Is64BitMode ?
+      (IsPCRel ? X86::reloc_pcrel_word : X86::reloc_absolute_word_sext)
+      : (IsPCRel ? X86::reloc_picrel_word : X86::reloc_absolute_word);
+    emitJumpTableAddress(RelocOp->getIndex(), rt, Adj);
   } else {
-    assert(RelocOp->isJTI() && "Unexpected machine operand!");
-    emitJumpTableAddress(RelocOp->getIndex(), RelocType, Adj);
+    llvm_unreachable("Unknown value to relocate!");
   }
 }
 
@@ -358,8 +360,6 @@ void Emitter<CodeEmitter>::emitMemModRMByte(const MachineInstr &MI,
   
   // Figure out what sort of displacement we have to handle here.
   if (Op3.isGlobal()) {
-    DispForReloc = &Op3;
-  } else if (Op3.isSymbol()) {
     DispForReloc = &Op3;
   } else if (Op3.isCPI()) {
     if (!MCE.earlyResolveAddresses() || Is64BitMode || IsPIC) {
@@ -481,7 +481,7 @@ void Emitter<CodeEmitter>::emitInstruction(const MachineInstr &MI,
                                            const TargetInstrDesc *Desc) {
   DEBUG(errs() << MI);
 
-  MCE.processDebugLoc(MI.getDebugLoc(), true);
+  MCE.processDebugLoc(MI.getDebugLoc());
 
   unsigned Opcode = Desc->Opcode;
 
@@ -587,16 +587,15 @@ void Emitter<CodeEmitter>::emitInstruction(const MachineInstr &MI,
     case TargetInstrInfo::INLINEASM:
       // We allow inline assembler nodes with empty bodies - they can
       // implicitly define registers, which is ok for JIT.
-      if (MI.getOperand(0).getSymbolName()[0])
-        llvm_report_error("JIT does not support inline asm!");
+      assert(MI.getOperand(0).getSymbolName()[0] == 0 && 
+             "JIT does not support inline asm!");
       break;
     case TargetInstrInfo::DBG_LABEL:
     case TargetInstrInfo::EH_LABEL:
-    case TargetInstrInfo::GC_LABEL:
       MCE.emitLabel(MI.getOperand(0).getImm());
       break;
     case TargetInstrInfo::IMPLICIT_DEF:
-    case TargetInstrInfo::KILL:
+    case TargetInstrInfo::DECLARE:
     case X86::DWARF_LOC:
     case X86::FP_REG_KILL:
       break;
@@ -859,259 +858,4 @@ void Emitter<CodeEmitter>::emitInstruction(const MachineInstr &MI,
 #endif
     llvm_unreachable(0);
   }
-
-  MCE.processDebugLoc(MI.getDebugLoc(), false);
-}
-
-// Adapt the Emitter / CodeEmitter interfaces to MCCodeEmitter.
-//
-// FIXME: This is a total hack designed to allow work on llvm-mc to proceed
-// without being blocked on various cleanups needed to support a clean interface
-// to instruction encoding.
-//
-// Look away!
-
-#include "llvm/DerivedTypes.h"
-
-namespace {
-class MCSingleInstructionCodeEmitter : public MachineCodeEmitter {
-  uint8_t Data[256];
-
-public:
-  MCSingleInstructionCodeEmitter() { reset(); }
-
-  void reset() { 
-    BufferBegin = Data;
-    BufferEnd = array_endof(Data);
-    CurBufferPtr = Data;
-  }
-
-  StringRef str() {
-    return StringRef(reinterpret_cast<char*>(BufferBegin),
-                     CurBufferPtr - BufferBegin);
-  }
-
-  virtual void startFunction(MachineFunction &F) {}
-  virtual bool finishFunction(MachineFunction &F) { return false; }
-  virtual void emitLabel(uint64_t LabelID) {}
-  virtual void StartMachineBasicBlock(MachineBasicBlock *MBB) {}
-  virtual bool earlyResolveAddresses() const { return false; }
-  virtual void addRelocation(const MachineRelocation &MR) { }
-  virtual uintptr_t getConstantPoolEntryAddress(unsigned Index) const {
-    return 0;
-  }
-  virtual uintptr_t getJumpTableEntryAddress(unsigned Index) const {
-    return 0;
-  }
-  virtual uintptr_t getMachineBasicBlockAddress(MachineBasicBlock *MBB) const {
-    return 0;
-  }
-  virtual uintptr_t getLabelAddress(uint64_t LabelID) const {
-    return 0;
-  }
-  virtual void setModuleInfo(MachineModuleInfo* Info) {}
-};
-
-class X86MCCodeEmitter : public MCCodeEmitter {
-  X86MCCodeEmitter(const X86MCCodeEmitter &); // DO NOT IMPLEMENT
-  void operator=(const X86MCCodeEmitter &); // DO NOT IMPLEMENT
-
-private:
-  X86TargetMachine &TM;
-  llvm::Function *DummyF;
-  TargetData *DummyTD;
-  mutable llvm::MachineFunction *DummyMF;
-  llvm::MachineBasicBlock *DummyMBB;
-  
-  MCSingleInstructionCodeEmitter *InstrEmitter;
-  Emitter<MachineCodeEmitter> *Emit;
-
-public:
-  X86MCCodeEmitter(X86TargetMachine &_TM) : TM(_TM) {
-    // Verily, thou shouldst avert thine eyes.
-    const llvm::FunctionType *FTy =
-      FunctionType::get(llvm::Type::getVoidTy(getGlobalContext()), false);
-    DummyF = Function::Create(FTy, GlobalValue::InternalLinkage);
-    DummyTD = new TargetData("");
-    DummyMF = new MachineFunction(DummyF, TM);
-    DummyMBB = DummyMF->CreateMachineBasicBlock();
-
-    InstrEmitter = new MCSingleInstructionCodeEmitter();
-    Emit = new Emitter<MachineCodeEmitter>(TM, *InstrEmitter, 
-                                           *TM.getInstrInfo(),
-                                           *DummyTD, false);
-  }
-  ~X86MCCodeEmitter() {
-    delete Emit;
-    delete InstrEmitter;
-    delete DummyMF;
-    delete DummyF;
-  }
-
-  bool AddRegToInstr(const MCInst &MI, MachineInstr *Instr,
-                     unsigned Start) const {
-    if (Start + 1 > MI.getNumOperands())
-      return false;
-
-    const MCOperand &Op = MI.getOperand(Start);
-    if (!Op.isReg()) return false;
-
-    Instr->addOperand(MachineOperand::CreateReg(Op.getReg(), false));
-    return true;
-  }
-
-  bool AddImmToInstr(const MCInst &MI, MachineInstr *Instr,
-                     unsigned Start) const {
-    if (Start + 1 > MI.getNumOperands())
-      return false;
-
-    const MCOperand &Op = MI.getOperand(Start);
-    if (Op.isImm()) {
-      Instr->addOperand(MachineOperand::CreateImm(Op.getImm()));
-      return true;
-    }
-    if (!Op.isExpr())
-      return false;
-
-    const MCExpr *Expr = Op.getExpr();
-    if (const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(Expr)) {
-      Instr->addOperand(MachineOperand::CreateImm(CE->getValue()));
-      return true;
-    }
-
-    // FIXME: Relocation / fixup.
-    Instr->addOperand(MachineOperand::CreateImm(0));
-    return true;
-  }
-
-  bool AddLMemToInstr(const MCInst &MI, MachineInstr *Instr,
-                     unsigned Start) const {
-    return (AddRegToInstr(MI, Instr, Start + 0) &&
-            AddImmToInstr(MI, Instr, Start + 1) &&
-            AddRegToInstr(MI, Instr, Start + 2) &&
-            AddImmToInstr(MI, Instr, Start + 3));
-  }
-
-  bool AddMemToInstr(const MCInst &MI, MachineInstr *Instr,
-                     unsigned Start) const {
-    return (AddRegToInstr(MI, Instr, Start + 0) &&
-            AddImmToInstr(MI, Instr, Start + 1) &&
-            AddRegToInstr(MI, Instr, Start + 2) &&
-            AddImmToInstr(MI, Instr, Start + 3) &&
-            AddRegToInstr(MI, Instr, Start + 4));
-  }
-
-  void EncodeInstruction(const MCInst &MI, raw_ostream &OS) const {
-    // Don't look yet!
-
-    // Convert the MCInst to a MachineInstr so we can (ab)use the regular
-    // emitter.
-    const X86InstrInfo &II = *TM.getInstrInfo();
-    const TargetInstrDesc &Desc = II.get(MI.getOpcode());    
-    MachineInstr *Instr = DummyMF->CreateMachineInstr(Desc, DebugLoc());
-    DummyMBB->push_back(Instr);
-
-    unsigned Opcode = MI.getOpcode();
-    unsigned NumOps = MI.getNumOperands();
-    unsigned CurOp = 0;
-    if (NumOps > 1 && Desc.getOperandConstraint(1, TOI::TIED_TO) != -1) {
-      Instr->addOperand(MachineOperand::CreateReg(0, false));
-      ++CurOp;
-    } else if (NumOps > 2 && 
-             Desc.getOperandConstraint(NumOps-1, TOI::TIED_TO)== 0)
-      // Skip the last source operand that is tied_to the dest reg. e.g. LXADD32
-      --NumOps;
-
-    bool OK = true;
-    switch (Desc.TSFlags & X86II::FormMask) {
-    case X86II::MRMDestReg:
-    case X86II::MRMSrcReg:
-      // Matching doesn't fill this in completely, we have to choose operand 0
-      // for a tied register.
-      OK &= AddRegToInstr(MI, Instr, 0); CurOp++;
-      OK &= AddRegToInstr(MI, Instr, CurOp++);
-      if (CurOp < NumOps)
-        OK &= AddImmToInstr(MI, Instr, CurOp);
-      break;
-
-    case X86II::RawFrm:
-      if (CurOp < NumOps) {
-        // Hack to make branches work.
-        if (!(Desc.TSFlags & X86II::ImmMask) &&
-            MI.getOperand(0).isExpr() &&
-            isa<MCSymbolRefExpr>(MI.getOperand(0).getExpr()))
-          Instr->addOperand(MachineOperand::CreateMBB(DummyMBB));
-        else
-          OK &= AddImmToInstr(MI, Instr, CurOp);
-      }
-      break;
-
-    case X86II::AddRegFrm:
-      OK &= AddRegToInstr(MI, Instr, CurOp++);
-      if (CurOp < NumOps)
-        OK &= AddImmToInstr(MI, Instr, CurOp);
-      break;
-
-    case X86II::MRM0r: case X86II::MRM1r:
-    case X86II::MRM2r: case X86II::MRM3r:
-    case X86II::MRM4r: case X86II::MRM5r:
-    case X86II::MRM6r: case X86II::MRM7r:
-      // Matching doesn't fill this in completely, we have to choose operand 0
-      // for a tied register.
-      OK &= AddRegToInstr(MI, Instr, 0); CurOp++;
-      if (CurOp < NumOps)
-        OK &= AddImmToInstr(MI, Instr, CurOp);
-      break;
-      
-    case X86II::MRM0m: case X86II::MRM1m:
-    case X86II::MRM2m: case X86II::MRM3m:
-    case X86II::MRM4m: case X86II::MRM5m:
-    case X86II::MRM6m: case X86II::MRM7m:
-      OK &= AddMemToInstr(MI, Instr, CurOp); CurOp += 5;
-      if (CurOp < NumOps)
-        OK &= AddImmToInstr(MI, Instr, CurOp);
-      break;
-
-    case X86II::MRMSrcMem:
-      OK &= AddRegToInstr(MI, Instr, CurOp++);
-      if (Opcode == X86::LEA64r || Opcode == X86::LEA64_32r ||
-          Opcode == X86::LEA16r || Opcode == X86::LEA32r)
-        OK &= AddLMemToInstr(MI, Instr, CurOp);
-      else
-        OK &= AddMemToInstr(MI, Instr, CurOp);
-      break;
-
-    case X86II::MRMDestMem:
-      OK &= AddMemToInstr(MI, Instr, CurOp); CurOp += 5;
-      OK &= AddRegToInstr(MI, Instr, CurOp);
-      break;
-
-    default:
-    case X86II::MRMInitReg:
-    case X86II::Pseudo:
-      OK = false;
-      break;
-    }
-
-    if (!OK) {
-      errs() << "couldn't convert inst '";
-      MI.dump();
-      errs() << "' to machine instr:\n";
-      Instr->dump();
-    }
-
-    InstrEmitter->reset();
-    if (OK)
-      Emit->emitInstruction(*Instr, &Desc);
-    OS << InstrEmitter->str();
-
-    Instr->eraseFromParent();
-  }
-};
-}
-
-// Ok, now you can look.
-MCCodeEmitter *llvm::createX86MCCodeEmitter(const Target &,
-                                            TargetMachine &TM) {
-  return new X86MCCodeEmitter(static_cast<X86TargetMachine&>(TM));
 }

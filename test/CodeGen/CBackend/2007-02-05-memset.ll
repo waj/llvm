@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c
+; RUN: llvm-as < %s | llc -march=c
 ; PR1181
 target datalayout = "e-p:64:64"
 target triple = "x86_64-apple-darwin8"

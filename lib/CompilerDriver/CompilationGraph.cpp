@@ -514,13 +514,13 @@ namespace llvm {
 }
 
 void CompilationGraph::writeGraph(const std::string& OutputFilename) {
-  std::string ErrorInfo;
-  raw_fd_ostream O(OutputFilename.c_str(), ErrorInfo);
+  std::ofstream O(OutputFilename.c_str());
 
-  if (ErrorInfo.empty()) {
+  if (O.good()) {
     errs() << "Writing '"<< OutputFilename << "' file...";
     llvm::WriteGraph(O, this);
     errs() << "done.\n";
+    O.close();
   }
   else {
     throw std::runtime_error("Error opening file '" + OutputFilename

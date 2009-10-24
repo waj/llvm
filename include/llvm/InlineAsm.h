@@ -31,22 +31,18 @@ class InlineAsm : public Value {
 
   std::string AsmString, Constraints;
   bool HasSideEffects;
-  bool IsAlignStack;
   
   InlineAsm(const FunctionType *Ty, const StringRef &AsmString,
-            const StringRef &Constraints, bool hasSideEffects,
-            bool isAlignStack = false);
+            const StringRef &Constraints, bool hasSideEffects);
   virtual ~InlineAsm();
 public:
 
   /// InlineAsm::get - Return the the specified uniqued inline asm string.
   ///
   static InlineAsm *get(const FunctionType *Ty, const StringRef &AsmString,
-                        const StringRef &Constraints, bool hasSideEffects,
-                        bool isAlignStack = false);
+                        const StringRef &Constraints, bool hasSideEffects);
   
   bool hasSideEffects() const { return HasSideEffects; }
-  bool isAlignStack() const { return IsAlignStack; }
   
   /// getType - InlineAsm's are always pointers.
   ///

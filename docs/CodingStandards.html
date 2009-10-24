@@ -303,7 +303,7 @@ for debate.</p>
 <div class="doc_text">
 
 <p>In all cases, prefer spaces to tabs in source files.  People have different
-preferred indentation levels, and different styles of indentation that they
+prefered indentation levels, and different styles of indentation that they
 like... this is fine.  What isn't is that different editors/viewers expand tabs
 out to different tab stops.  This can cause your code to look completely
 unreadable, and it is not worth dealing with.</p>
@@ -491,7 +491,7 @@ most cases, you simply don't need the definition of a class... and not
 <b>must</b> include all of the header files that you are using -- you can 
 include them either directly
 or indirectly (through another header file).  To make sure that you don't
-accidentally forget to include a header file in your module header, make sure to
+accidently forget to include a header file in your module header, make sure to
 include your module header <b>first</b> in the implementation file (as mentioned
 above).  This way there won't be any hidden dependencies that you'll find out
 about later...</p>
@@ -790,7 +790,7 @@ locality.</p>
 <div class="doc_text">
 
 <p>Use the "<tt>assert</tt>" function to its fullest.  Check all of your
-preconditions and assumptions, you never know when a bug (not necessarily even
+preconditions and assumptions, you never know when a bug (not neccesarily even
 yours) might be caught early by an assertion, which reduces debugging time
 dramatically.  The "<tt>&lt;cassert&gt;</tt>" header file is probably already
 included by the header files you are using, so it doesn't cost anything to use
@@ -990,14 +990,12 @@ library. There are two problems with this:</p>
 </ol>
 
 <p>Note that using the other stream headers (<tt>&lt;sstream&gt;</tt> for
-example) is not problematic in this regard (just <tt>&lt;iostream&gt;</tt>).
-However, raw_ostream provides various APIs that are better performing for almost
-every use than std::ostream style APIs, so you should just use it for new
-code.</p>
+example) is allowed normally, it is just <tt>&lt;iostream&gt;</tt> that is
+causing problems.</p>
 
-<p><b>New code should always
-use <a href="#ll_raw_ostream"><tt>raw_ostream</tt></a> for writing, or
-the <tt>llvm::MemoryBuffer</tt> API for reading files.</b></p>
+<p>In addition, new code should always
+use <a href="#ll_raw_ostream"><tt>raw_ostream</tt></a> or
+the <tt>llvm::MemoryBuffer</tt> API (for reading in files).</p>
 
 </div>
 

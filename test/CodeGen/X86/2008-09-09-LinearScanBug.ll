@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=i386-apple-darwin
+; RUN: llvm-as < %s | llc -mtriple=i386-apple-darwin
 ; PR2757
 
 @g_3 = external global i32		; <i32*> [#uses=1]

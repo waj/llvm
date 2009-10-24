@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c
+; RUN: llvm-as < %s | llc -march=c
 
 ; Make sure that global variables do not collide if they have the same name,
 ; but different types.

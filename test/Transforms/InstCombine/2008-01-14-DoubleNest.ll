@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -disable-output
+; RUN: llvm-as < %s | opt -instcombine -disable-output
 
 	%struct.FRAME.nest = type { i32, i32 (i32*)* }
 	%struct.__builtin_trampoline = type { [10 x i8] }

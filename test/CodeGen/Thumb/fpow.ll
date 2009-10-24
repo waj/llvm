@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=thumb
+; RUN: llvm-as < %s | llc -march=thumb
 
 define double @t(double %x, double %y) nounwind optsize {
 entry:

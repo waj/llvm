@@ -25,6 +25,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Support/Allocator.h"
+#include <iosfwd>
 
 namespace llvm {
 
@@ -106,6 +107,7 @@ public:
   virtual void releaseMemory();
   virtual void getAnalysisUsage(AnalysisUsage&) const;
   void print(raw_ostream&, const Module* = 0) const;
+  virtual void print(std::ostream&, const Module* = 0) const;
 
 private:
   FoldingSet<DependencePair> Pairs;

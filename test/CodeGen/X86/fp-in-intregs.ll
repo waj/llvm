@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 -mcpu=yonah | not egrep {\(\(xor\|and\)ps\|movd\)}
+; RUN: llvm-as < %s | llc -march=x86 -mcpu=yonah | not egrep {\(\(xor\|and\)ps\|movd\)}
 
 ; These operations should be done in integer registers, eliminating constant
 ; pool loads, movd's etc.

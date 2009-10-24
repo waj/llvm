@@ -15,16 +15,16 @@
 #ifndef LLVM_CODEGEN_PASSES_H
 #define LLVM_CODEGEN_PASSES_H
 
-#include "llvm/Target/TargetMachine.h"
+#include <iosfwd>
 #include <string>
 
 namespace llvm {
 
   class FunctionPass;
   class PassInfo;
+  class TargetMachine;
   class TargetLowering;
   class RegisterCoalescer;
-  class raw_ostream;
 
   /// createUnreachableBlockEliminationPass - The LLVM code generator does not
   /// work well with unreachable basic blocks (what live ranges make sense for a
@@ -36,7 +36,7 @@ namespace llvm {
 
   /// MachineFunctionPrinter pass - This pass prints out the machine function to
   /// the given stream, as a debugging tool.
-  FunctionPass *createMachineFunctionPrinterPass(raw_ostream &OS,
+  FunctionPass *createMachineFunctionPrinterPass(std::ostream *OS,
                                                  const std::string &Banner ="");
 
   /// MachineLoopInfo pass - This pass is a loop analysis pass.
@@ -87,6 +87,12 @@ namespace llvm {
   ///
   FunctionPass *createRegisterAllocator();
 
+  /// SimpleRegisterAllocation Pass - This pass converts the input machine code
+  /// from SSA form to use explicit registers by spilling every register.  Wow,
+  /// great policy huh?
+  ///
+  FunctionPass *createSimpleRegisterAllocator();
+
   /// LocalRegisterAllocation Pass - This pass register allocates the input code
   /// a basic block at a time, yielding code better than the simple register
   /// allocator, but not as good as a global allocator.
@@ -119,9 +125,8 @@ namespace llvm {
   ///
   FunctionPass *createLowerSubregsPass();
 
-  /// createPostRAScheduler - This pass performs post register allocation
-  /// scheduling.
-  FunctionPass *createPostRAScheduler(CodeGenOpt::Level OptLevel);
+  /// createPostRAScheduler - under development.
+  FunctionPass *createPostRAScheduler();
 
   /// BranchFolding Pass - This pass performs machine code CFG based
   /// optimizations to delete branches to branches, eliminate branches to
@@ -161,7 +166,7 @@ namespace llvm {
   
   /// Creates a pass to print GC metadata.
   /// 
-  FunctionPass *createGCInfoPrinter(raw_ostream &OS);
+  FunctionPass *createGCInfoPrinter(std::ostream &OS);
   
   /// createMachineLICMPass - This pass performs LICM on machine instructions.
   /// 

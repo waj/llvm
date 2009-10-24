@@ -22,8 +22,7 @@ enum ProfilingType {
   BlockInfo     = 3,   /* Block profiling information     */
   EdgeInfo      = 4,   /* Edge profiling information      */
   PathInfo      = 5,   /* Path profiling information      */
-  BBTraceInfo   = 6,   /* Basic block trace information   */
-  OptEdgeInfo   = 7    /* Edge profiling information, optimal version */
+  BBTraceInfo   = 6    /* Basic block trace information   */
 };
 
 #endif /* LLVM_ANALYSIS_PROFILEINFOTYPES_H */

@@ -1,8 +1,10 @@
-; RUN: llc < %s -march=ppc32 -mtriple=powerpc-apple-darwin8 -mattr=stfiwx -o %t1
+; RUN: llvm-as < %s | \
+; RUN:   llc -march=ppc32 -mtriple=powerpc-apple-darwin8 -mattr=stfiwx -o %t1 -f
 ; RUN: grep stfiwx %t1
 ; RUN: not grep r1 %t1
-; RUN: llc < %s -march=ppc32 -mtriple=powerpc-apple-darwin8 -mattr=-stfiwx \
-; RUN:   -o %t2
+; RUN: llvm-as < %s | \
+; RUN:   llc -march=ppc32 -mtriple=powerpc-apple-darwin8 -mattr=-stfiwx \
+; RUN:   -o %t2 -f
 ; RUN: not grep stfiwx %t2
 ; RUN: grep r1 %t2
 

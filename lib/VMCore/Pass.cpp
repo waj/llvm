@@ -18,9 +18,7 @@
 #include "llvm/Module.h"
 #include "llvm/ModuleProvider.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/System/Atomic.h"
 #include "llvm/System/Mutex.h"
 #include "llvm/System/Threading.h"
@@ -47,7 +45,7 @@ bool Pass::mustPreserveAnalysisID(const PassInfo *AnalysisID) const {
 
 // dumpPassStructure - Implement the -debug-passes=Structure option
 void Pass::dumpPassStructure(unsigned Offset) {
-  errs().indent(Offset*2) << getPassName() << "\n";
+  cerr << std::string(Offset*2, ' ') << getPassName() << "\n";
 }
 
 /// getPassName - Return a nice clean name for a pass.  This usually
@@ -64,13 +62,13 @@ const char *Pass::getPassName() const {
 // to print out the contents of an analysis.  Otherwise it is not necessary to
 // implement this method.
 //
-void Pass::print(raw_ostream &O,const Module*) const {
+void Pass::print(std::ostream &O,const Module*) const {
   O << "Pass::print not implemented for pass: '" << getPassName() << "'!\n";
 }
 
 // dump - call print(cerr);
 void Pass::dump() const {
-  print(errs(), 0);
+  print(*cerr.stream(), 0);
 }
 
 //===----------------------------------------------------------------------===//
@@ -130,13 +128,12 @@ class PassRegistrar {
   /// pass.
   typedef std::map<intptr_t, const PassInfo*> MapType;
   MapType PassInfoMap;
-
-  typedef StringMap<const PassInfo*> StringMapType;
-  StringMapType PassInfoStringMap;
   
   /// AnalysisGroupInfo - Keep track of information for each analysis group.
   struct AnalysisGroupInfo {
+    const PassInfo *DefaultImpl;
     std::set<const PassInfo *> Implementations;
+    AnalysisGroupInfo() : DefaultImpl(0) {}
   };
   
   /// AnalysisGroupInfoMap - Information for each analysis group.
@@ -149,16 +146,10 @@ public:
     return I != PassInfoMap.end() ? I->second : 0;
   }
   
-  const PassInfo *GetPassInfo(const StringRef &Arg) const {
-    StringMapType::const_iterator I = PassInfoStringMap.find(Arg);
-    return I != PassInfoStringMap.end() ? I->second : 0;
-  }
-  
   void RegisterPass(const PassInfo &PI) {
     bool Inserted =
       PassInfoMap.insert(std::make_pair(PI.getTypeInfo(),&PI)).second;
     assert(Inserted && "Pass registered multiple times!"); Inserted=Inserted;
-    PassInfoStringMap[PI.getPassArgument()] = &PI;
   }
   
   void UnregisterPass(const PassInfo &PI) {
@@ -167,7 +158,6 @@ public:
     
     // Remove pass from the map.
     PassInfoMap.erase(I);
-    PassInfoStringMap.erase(PI.getPassArgument());
   }
   
   void EnumerateWith(PassRegistrationListener *L) {
@@ -186,10 +176,11 @@ public:
            "Cannot add a pass to the same analysis group more than once!");
     AGI.Implementations.insert(ImplementationInfo);
     if (isDefault) {
-      assert(InterfaceInfo->getNormalCtor() == 0 &&
+      assert(AGI.DefaultImpl == 0 && InterfaceInfo->getNormalCtor() == 0 &&
              "Default implementation for analysis group already specified!");
       assert(ImplementationInfo->getNormalCtor() &&
            "Cannot specify pass as default if it does not have a default ctor");
+      AGI.DefaultImpl = ImplementationInfo;
       InterfaceInfo->setNormalCtor(ImplementationInfo->getNormalCtor());
     }
   }
@@ -238,10 +229,6 @@ const PassInfo *Pass::lookupPassInfo(intptr_t TI) {
   return getPassRegistrar()->GetPassInfo(TI);
 }
 
-const PassInfo *Pass::lookupPassInfo(const StringRef &Arg) {
-  return getPassRegistrar()->GetPassInfo(Arg);
-}
-
 void PassInfo::registerPass() {
   getPassRegistrar()->RegisterPass(*this);
 
@@ -265,10 +252,10 @@ void PassInfo::unregisterPass() {
 //
 RegisterAGBase::RegisterAGBase(const char *Name, intptr_t InterfaceID,
                                intptr_t PassID, bool isDefault)
-  : PassInfo(Name, InterfaceID) {
+  : PassInfo(Name, InterfaceID),
+    ImplementationInfo(0), isDefaultImplementation(isDefault) {
 
-  PassInfo *InterfaceInfo =
-    const_cast<PassInfo*>(Pass::lookupPassInfo(InterfaceID));
+  InterfaceInfo = const_cast<PassInfo*>(Pass::lookupPassInfo(InterfaceID));
   if (InterfaceInfo == 0) {
     // First reference to Interface, register it now.
     registerPass();
@@ -278,7 +265,7 @@ RegisterAGBase::RegisterAGBase(const char *Name, intptr_t InterfaceID,
          "Trying to join an analysis group that is a normal pass!");
 
   if (PassID) {
-    const PassInfo *ImplementationInfo = Pass::lookupPassInfo(PassID);
+    ImplementationInfo = Pass::lookupPassInfo(PassID);
     assert(ImplementationInfo &&
            "Must register pass before adding to AnalysisGroup!");
 

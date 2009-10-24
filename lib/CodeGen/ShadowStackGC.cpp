@@ -189,7 +189,7 @@ ShadowStackGC::ShadowStackGC() : Head(0), StackEntryTy(0) {
 
 Constant *ShadowStackGC::GetFrameMap(Function &F) {
   // doInitialization creates the abstract type of this value.
-  const Type *VoidPtr = Type::getInt8PtrTy(F.getContext());
+  Type *VoidPtr = PointerType::getUnqual(Type::getInt8Ty(F.getContext()));
 
   // Truncate the ShadowStackDescriptor if some metadata is null.
   unsigned NumMeta = 0;
@@ -207,13 +207,12 @@ Constant *ShadowStackGC::GetFrameMap(Function &F) {
   };
 
   Constant *DescriptorElts[] = {
-    ConstantStruct::get(F.getContext(), BaseElts, 2, false),
+    ConstantStruct::get(F.getContext(), BaseElts, 2),
     ConstantArray::get(ArrayType::get(VoidPtr, NumMeta),
                        Metadata.begin(), NumMeta)
   };
 
-  Constant *FrameMap = ConstantStruct::get(F.getContext(), DescriptorElts, 2,
-                                           false);
+  Constant *FrameMap = ConstantStruct::get(F.getContext(), DescriptorElts, 2);
 
   std::string TypeName("gc_map.");
   TypeName += utostr(NumMeta);

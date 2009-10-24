@@ -31,7 +31,7 @@
 using namespace llvm;
 
 namespace {
-
+  	
   class AlphaCodeEmitter {
     MachineCodeEmitter &MCE;
   public:
@@ -60,7 +60,7 @@ namespace {
   public:
     static char ID;
     explicit Emitter(TargetMachine &tm, CodeEmitter &mce)
-      : MachineFunctionPass(&ID), AlphaCodeEmitter(mce),
+      : MachineFunctionPass(&ID), AlphaCodeEmitter(mce), 
         II(0), TM(tm), MCE(mce) {}
     Emitter(TargetMachine &tm, CodeEmitter &mce, const AlphaInstrInfo& ii)
       : MachineFunctionPass(&ID), AlphaCodeEmitter(mce),
@@ -116,7 +116,7 @@ void Emitter<CodeEmitter>::emitBasicBlock(MachineBasicBlock &MBB) {
   for (MachineBasicBlock::iterator I = MBB.begin(), E = MBB.end();
        I != E; ++I) {
     const MachineInstr &MI = *I;
-    MCE.processDebugLoc(MI.getDebugLoc(), true);
+    MCE.processDebugLoc(MI.getDebugLoc());
     switch(MI.getOpcode()) {
     default:
       MCE.emitWordLE(getBinaryCodeForInstr(*I));
@@ -125,10 +125,8 @@ void Emitter<CodeEmitter>::emitBasicBlock(MachineBasicBlock &MBB) {
     case Alpha::PCLABEL:
     case Alpha::MEMLABEL:
     case TargetInstrInfo::IMPLICIT_DEF:
-    case TargetInstrInfo::KILL:
       break; //skip these
     }
-    MCE.processDebugLoc(MI.getDebugLoc(), false);
   }
 }
 
@@ -172,7 +170,7 @@ static unsigned getAlphaRegNumber(unsigned Reg) {
 }
 
 unsigned AlphaCodeEmitter::getMachineOpValue(const MachineInstr &MI,
-                                             const MachineOperand &MO) {
+                           		             const MachineOperand &MO) {
 
   unsigned rv = 0; // Return value; defaults to 0 for unhandled cases
                    // or things that get fixed up later by the JIT.
@@ -182,7 +180,7 @@ unsigned AlphaCodeEmitter::getMachineOpValue(const MachineInstr &MI,
   } else if (MO.isImm()) {
     rv = MO.getImm();
   } else if (MO.isGlobal() || MO.isSymbol() || MO.isCPI()) {
-    DEBUG(errs() << MO << " is a relocated op for " << MI << "\n");
+    DOUT << MO << " is a relocated op for " << MI << "\n";
     unsigned Reloc = 0;
     int Offset = 0;
     bool useGOT = false;
@@ -237,7 +235,7 @@ unsigned AlphaCodeEmitter::getMachineOpValue(const MachineInstr &MI,
                                                Alpha::reloc_bsr, MO.getMBB()));
   } else {
 #ifndef NDEBUG
-    errs() << "ERROR: Unknown type of MachineOperand: " << MO << "\n";
+    cerr << "ERROR: Unknown type of MachineOperand: " << MO << "\n";
 #endif
     llvm_unreachable(0);
   }

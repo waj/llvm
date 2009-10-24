@@ -1,6 +1,6 @@
-; RUN: opt < %s -instcombine -S | \
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | \
 ; RUN:    grep {lshr i32} | count 2
-; RUN: opt < %s -instcombine -S | not grep ashr
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep ashr
 
 
 define i32 @test1(i32 %X, i8 %A) {

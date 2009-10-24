@@ -18,7 +18,7 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InstVisitor.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/ADT/Statistic.h"
 using namespace llvm;
 
@@ -47,7 +47,7 @@ namespace {
 #include "llvm/Instruction.def"
 
     void visitInstruction(Instruction &I) {
-      errs() << "Instruction Count does not know about " << I;
+      cerr << "Instruction Count does not know about " << I;
       llvm_unreachable(0);
     }
   public:
@@ -59,7 +59,7 @@ namespace {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
     }
-    virtual void print(raw_ostream &O, const Module *M) const {}
+    virtual void print(std::ostream &O, const Module *M) const {}
 
   };
 }
@@ -76,11 +76,11 @@ FunctionPass *llvm::createInstCountPass() { return new InstCount(); }
 bool InstCount::runOnFunction(Function &F) {
   unsigned StartMemInsts =
     NumGetElementPtrInst + NumLoadInst + NumStoreInst + NumCallInst +
-    NumInvokeInst + NumAllocaInst + NumFreeInst;
+    NumInvokeInst + NumAllocaInst + NumMallocInst + NumFreeInst;
   visit(F);
   unsigned EndMemInsts =
     NumGetElementPtrInst + NumLoadInst + NumStoreInst + NumCallInst +
-    NumInvokeInst + NumAllocaInst + NumFreeInst;
+    NumInvokeInst + NumAllocaInst + NumMallocInst + NumFreeInst;
   TotalMemInst += EndMemInsts-StartMemInsts;
   return false;
 }

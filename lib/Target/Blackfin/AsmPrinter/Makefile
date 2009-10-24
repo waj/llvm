@@ -1,4 +1,4 @@
-##===- lib/Target/Blackfin/AsmPrinter/Makefile -------------*- Makefile -*-===##
+##===- lib/Target/Blackfin/Makefile ------------------------*- Makefile -*-===##
 #
 #                     The LLVM Compiler Infrastructure
 #

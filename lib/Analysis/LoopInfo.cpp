@@ -20,21 +20,11 @@
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Streams.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include <algorithm>
 using namespace llvm;
-
-// Always verify loopinfo if expensive checking is enabled.
-#ifdef XDEBUG
-bool VerifyLoopInfo = true;
-#else
-bool VerifyLoopInfo = false;
-#endif
-static cl::opt<bool,true>
-VerifyLoopInfoX("verify-loop-info", cl::location(VerifyLoopInfo),
-                cl::desc("Verify loop info (time consuming)"));
 
 char LoopInfo::ID = 0;
 static RegisterPass<LoopInfo>
@@ -292,9 +282,6 @@ bool Loop::isLoopSimplifyForm() const {
   // Normal-form loops have a single backedge.
   if (!getLoopLatch())
     return false;
-  // Sort the blocks vector so that we can use binary search to do quick
-  // lookups.
-  SmallPtrSet<BasicBlock *, 16> LoopBBs(block_begin(), block_end());
   // Each predecessor of each exit block of a normal loop is contained
   // within the loop.
   SmallVector<BasicBlock *, 4> ExitBlocks;
@@ -302,81 +289,10 @@ bool Loop::isLoopSimplifyForm() const {
   for (unsigned i = 0, e = ExitBlocks.size(); i != e; ++i)
     for (pred_iterator PI = pred_begin(ExitBlocks[i]),
          PE = pred_end(ExitBlocks[i]); PI != PE; ++PI)
-      if (!LoopBBs.count(*PI))
+      if (!contains(*PI))
         return false;
   // All the requirements are met.
   return true;
-}
-
-/// getUniqueExitBlocks - Return all unique successor blocks of this loop.
-/// These are the blocks _outside of the current loop_ which are branched to.
-/// This assumes that loop is in canonical form.
-///
-void
-Loop::getUniqueExitBlocks(SmallVectorImpl<BasicBlock *> &ExitBlocks) const {
-  assert(isLoopSimplifyForm() &&
-         "getUniqueExitBlocks assumes the loop is in canonical form!");
-
-  // Sort the blocks vector so that we can use binary search to do quick
-  // lookups.
-  SmallVector<BasicBlock *, 128> LoopBBs(block_begin(), block_end());
-  std::sort(LoopBBs.begin(), LoopBBs.end());
-
-  SmallVector<BasicBlock *, 32> switchExitBlocks;
-
-  for (block_iterator BI = block_begin(), BE = block_end(); BI != BE; ++BI) {
-
-    BasicBlock *current = *BI;
-    switchExitBlocks.clear();
-
-    typedef GraphTraits<BasicBlock *> BlockTraits;
-    typedef GraphTraits<Inverse<BasicBlock *> > InvBlockTraits;
-    for (BlockTraits::ChildIteratorType I =
-         BlockTraits::child_begin(*BI), E = BlockTraits::child_end(*BI);
-         I != E; ++I) {
-      // If block is inside the loop then it is not a exit block.
-      if (std::binary_search(LoopBBs.begin(), LoopBBs.end(), *I))
-        continue;
-
-      InvBlockTraits::ChildIteratorType PI = InvBlockTraits::child_begin(*I);
-      BasicBlock *firstPred = *PI;
-
-      // If current basic block is this exit block's first predecessor
-      // then only insert exit block in to the output ExitBlocks vector.
-      // This ensures that same exit block is not inserted twice into
-      // ExitBlocks vector.
-      if (current != firstPred)
-        continue;
-
-      // If a terminator has more then two successors, for example SwitchInst,
-      // then it is possible that there are multiple edges from current block
-      // to one exit block.
-      if (std::distance(BlockTraits::child_begin(current),
-                        BlockTraits::child_end(current)) <= 2) {
-        ExitBlocks.push_back(*I);
-        continue;
-      }
-
-      // In case of multiple edges from current block to exit block, collect
-      // only one edge in ExitBlocks. Use switchExitBlocks to keep track of
-      // duplicate edges.
-      if (std::find(switchExitBlocks.begin(), switchExitBlocks.end(), *I)
-          == switchExitBlocks.end()) {
-        switchExitBlocks.push_back(*I);
-        ExitBlocks.push_back(*I);
-      }
-    }
-  }
-}
-
-/// getUniqueExitBlock - If getUniqueExitBlocks would return exactly one
-/// block, return that block. Otherwise return null.
-BasicBlock *Loop::getUniqueExitBlock() const {
-  SmallVector<BasicBlock *, 8> UniqueExitBlocks;
-  getUniqueExitBlocks(UniqueExitBlocks);
-  if (UniqueExitBlocks.size() == 1)
-    return UniqueExitBlocks[0];
-  return 0;
 }
 
 //===----------------------------------------------------------------------===//
@@ -388,29 +304,7 @@ bool LoopInfo::runOnFunction(Function &) {
   return false;
 }
 
-void LoopInfo::verifyAnalysis() const {
-  // LoopInfo is a FunctionPass, but verifying every loop in the function
-  // each time verifyAnalysis is called is very expensive. The
-  // -verify-loop-info option can enable this. In order to perform some
-  // checking by default, LoopPass has been taught to call verifyLoop
-  // manually during loop pass sequences.
-
-  if (!VerifyLoopInfo) return;
-
-  for (iterator I = begin(), E = end(); I != E; ++I) {
-    assert(!(*I)->getParentLoop() && "Top-level loop has a parent!");
-    (*I)->verifyLoopNest();
-  }
-
-  // TODO: check BBMap consistency.
-}
-
 void LoopInfo::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
   AU.addRequired<DominatorTree>();
 }
-
-void LoopInfo::print(raw_ostream &OS, const Module*) const {
-  LI.print(OS);
-}
-

@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=bfin
+; RUN: llvm-as < %s | llc -march=bfin
 
 @i8_l = external global i8		; <i8*> [#uses=1]
 @i8_s = external global i8		; <i8*> [#uses=1]

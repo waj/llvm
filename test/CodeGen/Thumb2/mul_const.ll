@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=thumb -mattr=+thumb2 | FileCheck %s
+; RUN: llvm-as < %s | llc -march=thumb -mattr=+thumb2 | FileCheck %s
 ; rdar://7069502
 
 define i32 @t1(i32 %v) nounwind readnone {

@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=c
+; RUN: llvm-as < %s | llc -march=c
 
 ; reduced from DOOM.
         %union._XEvent = type { i32 }

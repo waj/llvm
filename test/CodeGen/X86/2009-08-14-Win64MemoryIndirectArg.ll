@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 target triple = "x86_64-mingw"
 
 ; ModuleID = 'mm.bc'

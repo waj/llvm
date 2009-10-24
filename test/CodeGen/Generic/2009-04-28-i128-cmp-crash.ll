@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; rdar://6836460
 
 define i32 @test(i128* %P) nounwind {

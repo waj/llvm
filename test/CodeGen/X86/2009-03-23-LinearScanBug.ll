@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple=i386-apple-darwin -O0
+; RUN: llvm-as < %s | llc -mtriple=i386-apple-darwin -O0
 
 define fastcc void @optimize_bit_field() nounwind {
 bb4:

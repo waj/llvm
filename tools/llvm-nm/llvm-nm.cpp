@@ -145,11 +145,12 @@ static void DumpSymbolNamesFromFile(std::string &Filename) {
     if (Buffer.get())
       Result = ParseBitcodeFile(Buffer.get(), Context, &ErrorMessage);
     
-    if (Result) {
+    if (Result)
       DumpSymbolNamesFromModule(Result);
-      delete Result;
-    } else
+    else {
       errs() << ToolName << ": " << Filename << ": " << ErrorMessage << "\n";
+      return;
+    }
     
   } else if (aPath.isArchive()) {
     std::string ErrMsg;

@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | not grep or
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | not grep or
 ; PR2629
 
 define void @f(i8* %x) nounwind  {

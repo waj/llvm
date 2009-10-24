@@ -440,11 +440,6 @@ def GR64 : RegisterClass<"X86", [i64], 64,
   }];
 }
 
-// Segment registers for use by MOV instructions (and others) that have a
-//   segment register as one operand.  Always contain a 16-bit segment
-//   descriptor.
-def SEGMENT_REG : RegisterClass<"X86", [i16], 16, [CS, DS, SS, ES, FS, GS]> {
-}
 
 // GR8_ABCD_L, GR8_ABCD_H, GR16_ABCD, GR32_ABCD, GR64_ABCD - Subclasses of
 // GR8, GR16, GR32, and GR64 which contain just the "a" "b", "c", and "d"
@@ -555,7 +550,7 @@ def GR32_NOREX : RegisterClass<"X86", [i32], 32,
 }
 // GR64_NOREX - GR64 registers which do not require a REX prefix.
 def GR64_NOREX : RegisterClass<"X86", [i64], 64,
-                               [RAX, RCX, RDX, RSI, RDI, RBX, RBP, RSP, RIP]> {
+                               [RAX, RCX, RDX, RSI, RDI, RBX, RBP, RSP]> {
   let SubRegClassList = [GR8_NOREX, GR8_NOREX, GR16_NOREX, GR32_NOREX];
   let MethodProtos = [{
     iterator allocation_order_end(const MachineFunction &MF) const;
@@ -567,11 +562,11 @@ def GR64_NOREX : RegisterClass<"X86", [i64], 64,
       const TargetRegisterInfo *RI = TM.getRegisterInfo();
       // Does the function dedicate RBP to being a frame ptr?
       if (RI->hasFP(MF))
-        // If so, don't allocate RIP, RSP or RBP.
-        return end() - 3;
-      else
-        // If not, just don't allocate RIP or RSP.
+        // If so, don't allocate RSP or RBP.
         return end() - 2;
+      else
+        // If not, just don't allocate RSP.
+        return end() - 1;
     }
   }];
 }

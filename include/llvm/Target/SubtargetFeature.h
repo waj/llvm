@@ -20,12 +20,12 @@
 
 #include <string>
 #include <vector>
+#include <iosfwd>
 #include <cstring>
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
-  class raw_ostream;
-  
+
 //===----------------------------------------------------------------------===//
 ///
 /// SubtargetFeatureKV - Used to provide key value pairs for feature and
@@ -102,7 +102,8 @@ public:
   void *getInfo(const SubtargetInfoKV *Table, size_t TableSize);
   
   /// Print feature string.
-  void print(raw_ostream &OS) const;
+  void print(std::ostream &OS) const;
+  void print(std::ostream *OS) const { if (OS) print(*OS); }
   
   // Dump feature info.
   void dump() const;

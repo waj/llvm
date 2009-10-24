@@ -1,5 +1,5 @@
 ; Test that vectors are scalarized/lowered correctly.
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 
 
 %d8 = type <8 x double>

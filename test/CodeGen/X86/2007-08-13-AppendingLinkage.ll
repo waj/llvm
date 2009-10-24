@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=x86 | not grep drectve
+; RUN: llvm-as < %s | llc -march=x86 | not grep drectve
 ; PR1607
 
 %hlvm_programs_element = type { i8*, i32 (i32, i8**)* }

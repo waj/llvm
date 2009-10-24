@@ -1,4 +1,4 @@
-; RUN: llc < %s
+; RUN: llvm-as < %s | llc
 ; rdar://5707064
 
 define i32 @f(i16* %pc) {

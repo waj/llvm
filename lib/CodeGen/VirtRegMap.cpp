@@ -118,7 +118,7 @@ int VirtRegMap::assignVirt2StackSlot(unsigned virtReg) {
          "attempt to assign stack slot to already spilled register");
   const TargetRegisterClass* RC = MF->getRegInfo().getRegClass(virtReg);
   int SS = MF->getFrameInfo()->CreateStackObject(RC->getSize(),
-                                              RC->getAlignment(), /*isSS*/true);
+                                                RC->getAlignment());
   if (LowSpillSlot == NO_STACK_SLOT)
     LowSpillSlot = SS;
   if (HighSpillSlot == NO_STACK_SLOT || SS > HighSpillSlot)
@@ -162,7 +162,7 @@ int VirtRegMap::getEmergencySpillSlot(const TargetRegisterClass *RC) {
   if (I != EmergencySpillSlots.end())
     return I->second;
   int SS = MF->getFrameInfo()->CreateStackObject(RC->getSize(),
-                                              RC->getAlignment(), /*isSS*/true);
+                                                RC->getAlignment());
   if (LowSpillSlot == NO_STACK_SLOT)
     LowSpillSlot = SS;
   if (HighSpillSlot == NO_STACK_SLOT || SS > HighSpillSlot)
@@ -259,6 +259,11 @@ bool VirtRegMap::FindUnusedRegisters(LiveIntervals* LIs) {
   return AnyUnused;
 }
 
+void VirtRegMap::print(std::ostream &OS, const Module* M) const {
+  raw_os_ostream RawOS(OS);
+  print(RawOS, M);
+}
+
 void VirtRegMap::print(raw_ostream &OS, const Module* M) const {
   const TargetRegisterInfo* TRI = MF->getTarget().getRegisterInfo();
 
@@ -278,5 +283,5 @@ void VirtRegMap::print(raw_ostream &OS, const Module* M) const {
 }
 
 void VirtRegMap::dump() const {
-  print(errs());
+  print(cerr);
 }

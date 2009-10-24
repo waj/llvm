@@ -1,10 +1,10 @@
-; RUN: llc < %s -march=ppc32 -mtriple=powerpc-unknown-linux-gnu | \
+; RUN: llvm-as < %s | llc -march=ppc32 -mtriple=powerpc-unknown-linux-gnu | \
 ; RUN:   grep {li 6, 3}
-; RUN: llc < %s -march=ppc32 -mtriple=powerpc-unknown-linux-gnu | \
+; RUN: llvm-as < %s | llc -march=ppc32 -mtriple=powerpc-unknown-linux-gnu | \
 ; RUN:   grep {li 4, 2}
-; RUN: llc < %s -march=ppc32 -mtriple=powerpc-unknown-linux-gnu | \
+; RUN: llvm-as < %s | llc -march=ppc32 -mtriple=powerpc-unknown-linux-gnu | \
 ; RUN:   grep {li 3, 0}
-; RUN: llc < %s -march=ppc32 -mtriple=powerpc-unknown-linux-gnu | \
+; RUN: llvm-as < %s | llc -march=ppc32 -mtriple=powerpc-unknown-linux-gnu | \
 ; RUN:   grep {mr 5, 3}
 
 declare void @bar(i64 %x, i64 %y)

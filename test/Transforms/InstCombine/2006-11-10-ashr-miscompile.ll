@@ -1,4 +1,4 @@
-; RUN: opt < %s -instcombine -S | grep lshr
+; RUN: llvm-as < %s | opt -instcombine | llvm-dis | grep lshr
 ; Verify this is not turned into -1.
 
 define i32 @test(i8 %amt) {
