@@ -1,5 +1,5 @@
-At the moment there are branched for two projects
-here. Both are experimental. Use with caution,
+At the moment there are branched for three projects
+here. Some are experimental. Use with caution,
 expect bugs ;-)
 
 Questions? <mailto:ggreif@gmail.com>
@@ -24,14 +24,7 @@ USAGE:
   svn switch http(s)://llvm.org/svn/llvm-project/llvm/branches/ggreif/parallelized-test/Transforms/DecomposeMultiDimRefs Transforms/DecomposeMultiDimRefs
   rm -r Transforms/DecomposeMultiDimRefs
 
-STATUS: Pretty stable. There are some intermittent failures with -j4 because BugPoint seems
-  to hard-code the filename for its reductions. This causes races. Merging to main would
-  be easy, the harder part is to verify that the generated report has the same format as
-  the non-parallel dejagnu output (whatever that is) and that there is a smooth fallback
-  to the non-parallel execution that do not impose the overhead of the parallel tests.
-
-IDEAS: The creation of the many small files could be made faster by using a ram-disk (or
-  equivalent).
+STATUS: defunct, removed. ddunbar's 'lit' does all this but better.
 
 --------------------------------------------------------------------------------
 2) <class Use> size reduction.
@@ -88,10 +81,15 @@ USAGE:
 STATUS: waves 1..3 already merged to trunk and released in 2.4. Measured 13% memory
   savings on big testcases (dealII). An estimated another 10% seems realistic
   with waves 4..6. Ideas formulated, implementation started. Feasibility uncertain.
+  Branch removed. Several more ideas to be pursued for gaining back speed.
 
 --------------------------------------------------------------------------------
-3) Son of Use-Diet.
+3) Son of Use-Diet
 
 Reduction of struct Use size to 2 pointers. Uses a variant of the original
 waymarking algorithm. Implementation exists and applicable against release 2.4.
 
+BRANCH NAME: son-of-use-diet_24
+
+STATUS: Done. Realized the space savings, but we got 100% speed penalty.
+        Good as a proof-o- concept :-)
