@@ -1,11 +1,5 @@
-; RUN: llc < %s -march=cellspu | FileCheck %s
+; RUN: llc < %s -march=cellspu > %t1.s
+; RUN: grep "\.section" %t1.s | grep "\.bss" | count 1
 
 @bssVar = global i32 zeroinitializer
-; CHECK: .section .bss
-; CHECK-NEXT: .globl
-
-@localVar= internal global i32 zeroinitializer
-; CHECK-NOT: .lcomm
-; CHECK: .local
-; CHECK-NEXT: .comm
 

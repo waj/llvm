@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Blackfin.h"
+#include "BlackfinISelLowering.h"
 #include "BlackfinTargetMachine.h"
 #include "BlackfinRegisterInfo.h"
 #include "llvm/Intrinsics.h"

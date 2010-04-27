@@ -59,7 +59,7 @@ public:
                              const TargetRegisterClass *RC,
                              unsigned Reg) const;
   unsigned eliminateFrameIndex(MachineBasicBlock::iterator II,
-                               int SPAdj, FrameIndexValue *Value = NULL,
+                               int SPAdj, int *Value = NULL,
                                RegScavenger *RS = NULL) const;
 
   void emitPrologue(MachineFunction &MF) const;

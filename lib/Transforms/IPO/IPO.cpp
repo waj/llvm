@@ -62,15 +62,6 @@ void LLVMAddPruneEHPass(LLVMPassManagerRef PM) {
   unwrap(PM)->add(createPruneEHPass());
 }
 
-void LLVMAddIPSCCPPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createIPSCCPPass());
-}
-
-void LLVMAddInternalizePass(LLVMPassManagerRef PM, unsigned AllButMain) {
-  unwrap(PM)->add(createInternalizePass(AllButMain != 0));
-}
-
-
 void LLVMAddRaiseAllocationsPass(LLVMPassManagerRef PM) {
   // FIXME: Remove in LLVM 3.0.
 }

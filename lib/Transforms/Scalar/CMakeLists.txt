@@ -21,6 +21,7 @@ add_llvm_library(LLVMScalarOpts
   Reassociate.cpp
   Reg2Mem.cpp
   SCCP.cpp
+  SCCVN.cpp
   Scalar.cpp
   ScalarReplAggregates.cpp
   SimplifyCFGPass.cpp

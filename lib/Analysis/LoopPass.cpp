@@ -14,43 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/LoopPass.h"
-#include "llvm/Assembly/PrintModulePass.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/Timer.h"
 using namespace llvm;
-
-namespace {
-
-/// PrintLoopPass - Print a Function corresponding to a Loop.
-///
-class PrintLoopPass : public LoopPass {
-private:
-  std::string Banner;
-  raw_ostream &Out;       // raw_ostream to print on.
-
-public:
-  static char ID;
-  PrintLoopPass() : LoopPass(&ID), Out(dbgs()) {}
-  PrintLoopPass(const std::string &B, raw_ostream &o)
-      : LoopPass(&ID), Banner(B), Out(o) {}
-
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-    AU.setPreservesAll();
-  }
-
-  bool runOnLoop(Loop *L, LPPassManager &) {
-    Out << Banner;
-    for (Loop::block_iterator b = L->block_begin(), be = L->block_end();
-         b != be;
-         ++b) {
-      (*b)->print(Out);
-    }
-    return false;
-  }
-};
-
-char PrintLoopPass::ID = 0;
-}
 
 //===----------------------------------------------------------------------===//
 // LPPassManager
@@ -257,22 +221,22 @@ bool LPPassManager::runOnFunction(Function &F) {
       LoopPass *P = (LoopPass*)getContainedPass(Index);
 
       dumpPassInfo(P, EXECUTION_MSG, ON_LOOP_MSG,
-                   CurrentLoop->getHeader()->getName());
+                   CurrentLoop->getHeader()->getNameStr());
       dumpRequiredSet(P);
 
       initializeAnalysisImpl(P);
 
       {
         PassManagerPrettyStackEntry X(P, *CurrentLoop->getHeader());
-        TimeRegion PassTimer(getPassTimer(P));
-
+        Timer *T = StartPassTimer(P);
         Changed |= P->runOnLoop(CurrentLoop, *this);
+        StopPassTimer(P, T);
       }
 
       if (Changed)
         dumpPassInfo(P, MODIFICATION_MSG, ON_LOOP_MSG,
                      skipThisLoop ? "<deleted>" :
-                                    CurrentLoop->getHeader()->getName());
+                                    CurrentLoop->getHeader()->getNameStr());
       dumpPreservedSet(P);
 
       if (!skipThisLoop) {
@@ -281,10 +245,9 @@ bool LPPassManager::runOnFunction(Function &F) {
         // is a function pass and it's really expensive to verify every
         // loop in the function every time. That level of checking can be
         // enabled with the -verify-loop-info option.
-        {
-          TimeRegion PassTimer(getPassTimer(LI));
-          CurrentLoop->verifyLoop();
-        }
+        Timer *T = StartPassTimer(LI);
+        CurrentLoop->verifyLoop();
+        StopPassTimer(LI, T);
 
         // Then call the regular verifyAnalysis functions.
         verifyPreservedAnalysis(P);
@@ -294,7 +257,7 @@ bool LPPassManager::runOnFunction(Function &F) {
       recordAvailableAnalysis(P);
       removeDeadPasses(P,
                        skipThisLoop ? "<deleted>" :
-                                      CurrentLoop->getHeader()->getName(),
+                                      CurrentLoop->getHeader()->getNameStr(),
                        ON_LOOP_MSG);
 
       if (skipThisLoop)
@@ -340,11 +303,6 @@ void LPPassManager::dumpPassStructure(unsigned Offset) {
 
 //===----------------------------------------------------------------------===//
 // LoopPass
-
-Pass *LoopPass::createPrinterPass(raw_ostream &O,
-                                  const std::string &Banner) const {
-  return new PrintLoopPass(Banner, O);
-}
 
 // Check if this pass is suitable for the current LPPassManager, if
 // available. This pass P is not suitable for a LPPassManager if P

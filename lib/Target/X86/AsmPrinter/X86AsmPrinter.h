@@ -19,6 +19,7 @@
 #include "../X86TargetMachine.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/DwarfWriter.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/Support/Compiler.h"
@@ -34,8 +35,10 @@ class MCSymbol;
 class VISIBILITY_HIDDEN X86AsmPrinter : public AsmPrinter {
   const X86Subtarget *Subtarget;
  public:
-  explicit X86AsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-    : AsmPrinter(TM, Streamer) {
+  explicit X86AsmPrinter(formatted_raw_ostream &O, TargetMachine &TM,
+                         MCContext &Ctx, MCStreamer &Streamer,
+                         const MCAsmInfo *T)
+    : AsmPrinter(O, TM, Ctx, Streamer, T) {
     Subtarget = &TM.getSubtarget<X86Subtarget>();
   }
 
@@ -45,41 +48,85 @@ class VISIBILITY_HIDDEN X86AsmPrinter : public AsmPrinter {
   
   const X86Subtarget &getSubtarget() const { return *Subtarget; }
 
-  virtual void EmitStartOfAsmFile(Module &M);
+  void getAnalysisUsage(AnalysisUsage &AU) const {
+    AU.setPreservesAll();
+    AU.addRequired<MachineModuleInfo>();
+    AU.addRequired<DwarfWriter>();
+    AsmPrinter::getAnalysisUsage(AU);
+  }
 
+  
   virtual void EmitEndOfAsmFile(Module &M);
   
   virtual void EmitInstruction(const MachineInstr *MI);
   
-  void printSymbolOperand(const MachineOperand &MO, raw_ostream &O);
+  void printSymbolOperand(const MachineOperand &MO);
+  virtual MCSymbol *GetGlobalValueSymbol(const GlobalValue *GV) const;
 
   // These methods are used by the tablegen'erated instruction printer.
-  void printOperand(const MachineInstr *MI, unsigned OpNo, raw_ostream &O,
+  void printOperand(const MachineInstr *MI, unsigned OpNo,
                     const char *Modifier = 0);
-  void print_pcrel_imm(const MachineInstr *MI, unsigned OpNo, raw_ostream &O);
+  void print_pcrel_imm(const MachineInstr *MI, unsigned OpNo);
 
-  bool printAsmMRegister(const MachineOperand &MO, char Mode, raw_ostream &O);
+  void printopaquemem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+
+  void printi8mem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+  void printi16mem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+  void printi32mem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+  void printi64mem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+  void printi128mem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+  void printf32mem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+  void printf64mem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+  void printf80mem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+  void printf128mem(const MachineInstr *MI, unsigned OpNo) {
+    printMemReference(MI, OpNo);
+  }
+  void printlea32mem(const MachineInstr *MI, unsigned OpNo) {
+    printLeaMemReference(MI, OpNo);
+  }
+  void printlea64mem(const MachineInstr *MI, unsigned OpNo) {
+    printLeaMemReference(MI, OpNo);
+  }
+  void printlea64_32mem(const MachineInstr *MI, unsigned OpNo) {
+    printLeaMemReference(MI, OpNo, "subreg64");
+  }
+
+  bool printAsmMRegister(const MachineOperand &MO, char Mode);
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
-                       unsigned AsmVariant, const char *ExtraCode,
-                       raw_ostream &OS);
+                       unsigned AsmVariant, const char *ExtraCode);
   bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
-                             unsigned AsmVariant, const char *ExtraCode,
-                             raw_ostream &OS);
+                             unsigned AsmVariant, const char *ExtraCode);
 
   void printMachineInstruction(const MachineInstr *MI);
-  void printSSECC(const MachineInstr *MI, unsigned Op, raw_ostream &O);
-  void printMemReference(const MachineInstr *MI, unsigned Op, raw_ostream &O,
+  void printSSECC(const MachineInstr *MI, unsigned Op);
+  void printMemReference(const MachineInstr *MI, unsigned Op,
                          const char *Modifier=NULL);
-  void printLeaMemReference(const MachineInstr *MI, unsigned Op, raw_ostream &O,
+  void printLeaMemReference(const MachineInstr *MI, unsigned Op,
                             const char *Modifier=NULL);
 
-  void printPICLabel(const MachineInstr *MI, unsigned Op, raw_ostream &O);
+  void printPICLabel(const MachineInstr *MI, unsigned Op);
 
-  void PrintPICBaseSymbol(raw_ostream &O) const;
+  void PrintPICBaseSymbol() const;
   
   bool runOnMachineFunction(MachineFunction &F);
-  
-  void PrintDebugValueComment(const MachineInstr *MI, raw_ostream &OS);
 };
 
 } // end namespace llvm

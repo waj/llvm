@@ -1,5 +1,4 @@
 add_executable(tblgen
-  ARMDecoderEmitter.cpp
   AsmMatcherEmitter.cpp
   AsmWriterEmitter.cpp
   AsmWriterInst.cpp

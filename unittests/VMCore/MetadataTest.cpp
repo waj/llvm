@@ -132,9 +132,9 @@ TEST(NamedMDNodeTest, Search) {
 
   MDNode *Nodes[2] = { n, n2 };
 
-  Module M("MyModule", Context);
+  Module *M = new Module("MyModule", Context);
   const char *Name = "llvm.NMD1";
-  NamedMDNode *NMD = NamedMDNode::Create(Context, Name, &Nodes[0], 2, &M);
+  NamedMDNode *NMD = NamedMDNode::Create(Context, Name, &Nodes[0], 2, M);
   std::string Str;
   raw_string_ostream oss(Str);
   NMD->print(oss);

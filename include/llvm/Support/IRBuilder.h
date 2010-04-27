@@ -40,7 +40,8 @@ protected:
 
 /// IRBuilderBase - Common base class shared among various IRBuilders.
 class IRBuilderBase {
-  DebugLoc CurDbgLocation;
+  unsigned DbgMDKind;
+  MDNode *CurDbgLocation;
 protected:
   BasicBlock *BB;
   BasicBlock::iterator InsertPt;
@@ -48,7 +49,7 @@ protected:
 public:
   
   IRBuilderBase(LLVMContext &context)
-    : Context(context) {
+    : DbgMDKind(0), CurDbgLocation(0), Context(context) {
     ClearInsertionPoint();
   }
   
@@ -64,7 +65,6 @@ public:
   
   BasicBlock *GetInsertBlock() const { return BB; }
   BasicBlock::iterator GetInsertPoint() const { return InsertPt; }
-  LLVMContext &getContext() const { return Context; }
   
   /// SetInsertPoint - This specifies that created instructions should be
   /// appended to the end of the specified block.
@@ -82,20 +82,12 @@ public:
   
   /// SetCurrentDebugLocation - Set location information used by debugging
   /// information.
-  void SetCurrentDebugLocation(const DebugLoc &L) {
-    CurDbgLocation = L;
-  }
-  
-  /// getCurrentDebugLocation - Get location information used by debugging
-  /// information.
-  const DebugLoc &getCurrentDebugLocation() const { return CurDbgLocation; }
+  void SetCurrentDebugLocation(MDNode *L);
+  MDNode *getCurrentDebugLocation() const { return CurDbgLocation; }
   
   /// SetInstDebugLocation - If this builder has a current debug location, set
   /// it on the specified instruction.
-  void SetInstDebugLocation(Instruction *I) const {
-    if (!CurDbgLocation.isUnknown())
-      I->setDebugLoc(CurDbgLocation);
-  }
+  void SetInstDebugLocation(Instruction *I) const;
 
   //===--------------------------------------------------------------------===//
   // Miscellaneous creation methods.
@@ -216,7 +208,7 @@ public:
   template<typename InstTy>
   InstTy *Insert(InstTy *I, const Twine &Name = "") const {
     this->InsertHelper(I, Name, BB, InsertPt);
-    if (!getCurrentDebugLocation().isUnknown())
+    if (getCurrentDebugLocation() != 0)
       this->SetInstDebugLocation(I);
     return I;
   }
@@ -432,18 +424,11 @@ public:
         return Folder.CreateFRem(LC, RC);
     return Insert(BinaryOperator::CreateFRem(LHS, RHS), Name);
   }
-
   Value *CreateShl(Value *LHS, Value *RHS, const Twine &Name = "") {
     if (Constant *LC = dyn_cast<Constant>(LHS))
       if (Constant *RC = dyn_cast<Constant>(RHS))
         return Folder.CreateShl(LC, RC);
     return Insert(BinaryOperator::CreateShl(LHS, RHS), Name);
-  }
-  Value *CreateShl(Value *LHS, const APInt &RHS, const Twine &Name = "") {
-    Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateShl(LC, RHSC);
-    return Insert(BinaryOperator::CreateShl(LHS, RHSC), Name);
   }
   Value *CreateShl(Value *LHS, uint64_t RHS, const Twine &Name = "") {
     Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
@@ -458,35 +443,23 @@ public:
         return Folder.CreateLShr(LC, RC);
     return Insert(BinaryOperator::CreateLShr(LHS, RHS), Name);
   }
-  Value *CreateLShr(Value *LHS, const APInt &RHS, const Twine &Name = "") {
-    Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateLShr(LC, RHSC);
-    return Insert(BinaryOperator::CreateLShr(LHS, RHSC), Name);
-  }
   Value *CreateLShr(Value *LHS, uint64_t RHS, const Twine &Name = "") {
     Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
     if (Constant *LC = dyn_cast<Constant>(LHS))
       return Folder.CreateLShr(LC, RHSC);
     return Insert(BinaryOperator::CreateLShr(LHS, RHSC), Name);
   }
-
+  
   Value *CreateAShr(Value *LHS, Value *RHS, const Twine &Name = "") {
     if (Constant *LC = dyn_cast<Constant>(LHS))
       if (Constant *RC = dyn_cast<Constant>(RHS))
         return Folder.CreateAShr(LC, RC);
     return Insert(BinaryOperator::CreateAShr(LHS, RHS), Name);
   }
-  Value *CreateAShr(Value *LHS, const APInt &RHS, const Twine &Name = "") {
-    Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateAShr(LC, RHSC);
-    return Insert(BinaryOperator::CreateAShr(LHS, RHSC), Name);
-  }
   Value *CreateAShr(Value *LHS, uint64_t RHS, const Twine &Name = "") {
     Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
     if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateAShr(LC, RHSC);
+      return Folder.CreateSShr(LC, RHSC);
     return Insert(BinaryOperator::CreateAShr(LHS, RHSC), Name);
   }
 
@@ -499,19 +472,6 @@ public:
     }
     return Insert(BinaryOperator::CreateAnd(LHS, RHS), Name);
   }
-  Value *CreateAnd(Value *LHS, const APInt &RHS, const Twine &Name = "") {
-    Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateAnd(LC, RHSC);
-    return Insert(BinaryOperator::CreateAnd(LHS, RHSC), Name);
-  }
-  Value *CreateAnd(Value *LHS, uint64_t RHS, const Twine &Name = "") {
-    Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateAnd(LC, RHSC);
-    return Insert(BinaryOperator::CreateAnd(LHS, RHSC), Name);
-  }
-
   Value *CreateOr(Value *LHS, Value *RHS, const Twine &Name = "") {
     if (Constant *RC = dyn_cast<Constant>(RHS)) {
       if (RC->isNullValue())
@@ -521,36 +481,11 @@ public:
     }
     return Insert(BinaryOperator::CreateOr(LHS, RHS), Name);
   }
-  Value *CreateOr(Value *LHS, const APInt &RHS, const Twine &Name = "") {
-    Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateOr(LC, RHSC);
-    return Insert(BinaryOperator::CreateOr(LHS, RHSC), Name);
-  }
-  Value *CreateOr(Value *LHS, uint64_t RHS, const Twine &Name = "") {
-    Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateOr(LC, RHSC);
-    return Insert(BinaryOperator::CreateOr(LHS, RHSC), Name);
-  }
-
   Value *CreateXor(Value *LHS, Value *RHS, const Twine &Name = "") {
     if (Constant *LC = dyn_cast<Constant>(LHS))
       if (Constant *RC = dyn_cast<Constant>(RHS))
         return Folder.CreateXor(LC, RC);
     return Insert(BinaryOperator::CreateXor(LHS, RHS), Name);
-  }
-  Value *CreateXor(Value *LHS, const APInt &RHS, const Twine &Name = "") {
-    Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateXor(LC, RHSC);
-    return Insert(BinaryOperator::CreateXor(LHS, RHSC), Name);
-  }
-  Value *CreateXor(Value *LHS, uint64_t RHS, const Twine &Name = "") {
-    Constant *RHSC = ConstantInt::get(LHS->getType(), RHS);
-    if (Constant *LC = dyn_cast<Constant>(LHS))
-      return Folder.CreateXor(LC, RHSC);
-    return Insert(BinaryOperator::CreateXor(LHS, RHSC), Name);
   }
 
   Value *CreateBinOp(Instruction::BinaryOps Opc,
@@ -973,11 +908,6 @@ public:
                         Value *Arg4, const Twine &Name = "") {
     Value *Args[] = { Arg1, Arg2, Arg3, Arg4 };
     return Insert(CallInst::Create(Callee, Args, Args+4), Name);
-  }
-  CallInst *CreateCall5(Value *Callee, Value *Arg1, Value *Arg2, Value *Arg3,
-                        Value *Arg4, Value *Arg5, const Twine &Name = "") {
-    Value *Args[] = { Arg1, Arg2, Arg3, Arg4, Arg5 };
-    return Insert(CallInst::Create(Callee, Args, Args+5), Name);
   }
 
   template<typename InputIterator>

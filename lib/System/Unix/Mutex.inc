@@ -29,6 +29,12 @@ MutexImpl::~MutexImpl()
 }
 
 bool 
+MutexImpl::MutexImpl()
+{
+  return true;
+}
+
+bool 
 MutexImpl::release()
 {
   return true;

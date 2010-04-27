@@ -47,8 +47,8 @@ namespace llvm {
       return &InstrInfo.getRegisterInfo();
     }
 
-    virtual const MipsTargetLowering *getTargetLowering() const { 
-      return &TLInfo;
+    virtual MipsTargetLowering   *getTargetLowering() const { 
+      return const_cast<MipsTargetLowering*>(&TLInfo); 
     }
 
     // Pass Pipeline Configuration

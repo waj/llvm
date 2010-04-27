@@ -22,6 +22,7 @@ SparcELFMCAsmInfo::SparcELFMCAsmInfo(const Target &T, const StringRef &TT) {
   ZeroDirective = "\t.skip\t";
   CommentString = "!";
   HasLEB128 = true;
+  AbsoluteDebugSectionOffsets = true;
   SupportsDebugInformation = true;
   
   SunStyleELFSectionSwitchSyntax = true;

@@ -72,9 +72,6 @@ class GoogleTest(object):
             testName = os.path.join(namePrefix, testName)
 
         cmd = [testPath, '--gtest_filter=' + testName]
-        if litConfig.useValgrind:
-            cmd = litConfig.valgrindArgs + cmd
-
         out, err, exitCode = TestRunner.executeCommand(
             cmd, env=test.config.environment)
             
@@ -90,9 +87,8 @@ class FileBasedTest(object):
                             litConfig, localConfig):
         source_path = testSuite.getSourcePath(path_in_suite)
         for filename in os.listdir(source_path):
-            # Ignore dot files and excluded tests.
-            if (filename.startswith('.') or
-                filename in localConfig.excludes):
+            # Ignore dot files.
+            if filename.startswith('.'):
                 continue
 
             filepath = os.path.join(source_path, filename)
@@ -129,20 +125,14 @@ class OneCommandPerFileTest:
             self.command = [command]
         else:
             self.command = list(command)
-        if dir is not None:
-            dir = str(dir)
-        self.dir = dir
+        self.dir = str(dir)
         self.recursive = bool(recursive)
         self.pattern = re.compile(pattern)
         self.useTempInput = useTempInput
 
     def getTestsInDirectory(self, testSuite, path_in_suite,
                             litConfig, localConfig):
-        dir = self.dir
-        if dir is None:
-            dir = testSuite.getSourcePath(path_in_suite)
-
-        for dirname,subdirs,filenames in os.walk(dir):
+        for dirname,subdirs,filenames in os.walk(self.dir):
             if not self.recursive:
                 subdirs[:] = []
 
@@ -157,7 +147,7 @@ class OneCommandPerFileTest:
                     continue
 
                 path = os.path.join(dirname,filename)
-                suffix = path[len(dir):]
+                suffix = path[len(self.dir):]
                 if suffix.startswith(os.sep):
                     suffix = suffix[1:]
                 test = Test.Test(testSuite,

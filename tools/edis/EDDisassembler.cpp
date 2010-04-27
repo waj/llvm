@@ -13,12 +13,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "EDDisassembler.h"
-#include "EDInst.h"
-
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/MC/EDInstInfo.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDisassembler.h"
@@ -40,34 +36,38 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSelect.h"
 
+#include "EDDisassembler.h"
+#include "EDInst.h"
+
+#include "../../lib/Target/X86/X86GenEDInfo.inc"
+
 using namespace llvm;
 
 bool EDDisassembler::sInitialized = false;
 EDDisassembler::DisassemblerMap_t EDDisassembler::sDisassemblers;
 
-struct TripleMap {
+struct InfoMap {
   Triple::ArchType Arch;
   const char *String;
+  const InstInfo *Info;
 };
 
-static struct TripleMap triplemap[] = {
-  { Triple::x86,          "i386-unknown-unknown"    },
-  { Triple::x86_64,       "x86_64-unknown-unknown"  },
-  { Triple::arm,          "arm-unknown-unknown"     },
-  { Triple::thumb,        "thumb-unknown-unknown"   },
-  { Triple::InvalidArch,  NULL,                     }
+static struct InfoMap infomap[] = {
+  { Triple::x86,          "i386-unknown-unknown",   instInfoX86 },
+  { Triple::x86_64,       "x86_64-unknown-unknown", instInfoX86 },
+  { Triple::InvalidArch,  NULL,                     NULL        }
 };
 
-/// infoFromArch - Returns the TripleMap corresponding to a given architecture,
+/// infoFromArch - Returns the InfoMap corresponding to a given architecture,
 ///   or NULL if there is an error
 ///
 /// @arg arch - The Triple::ArchType for the desired architecture
-static const char *tripleFromArch(Triple::ArchType arch) {
+static const InfoMap *infoFromArch(Triple::ArchType arch) {
   unsigned int infoIndex;
   
-  for (infoIndex = 0; triplemap[infoIndex].String != NULL; ++infoIndex) {
-    if (arch == triplemap[infoIndex].Arch)
-      return triplemap[infoIndex].String;
+  for (infoIndex = 0; infomap[infoIndex].String != NULL; ++infoIndex) {
+    if(arch == infomap[infoIndex].Arch)
+      return &infomap[infoIndex];
   }
   
   return NULL;
@@ -95,13 +95,15 @@ static int getLLVMSyntaxVariant(Triple::ArchType arch,
       return 1;
     else
       return -1;
-  case kEDAssemblySyntaxARMUAL:
-    if (arch == Triple::arm || arch == Triple::thumb)
-      return 0;
-    else
-      return -1;
   }
 }
+
+#define BRINGUP_TARGET(tgt)           \
+  LLVMInitialize##tgt##TargetInfo();  \
+  LLVMInitialize##tgt##Target();      \
+  LLVMInitialize##tgt##AsmPrinter();  \
+  LLVMInitialize##tgt##AsmParser();   \
+  LLVMInitialize##tgt##Disassembler();
 
 void EDDisassembler::initialize() {
   if (sInitialized)
@@ -109,11 +111,7 @@ void EDDisassembler::initialize() {
   
   sInitialized = true;
   
-  InitializeAllTargetInfos();
-  InitializeAllTargets();
-  InitializeAllAsmPrinters();
-  InitializeAllAsmParsers();
-  InitializeAllDisassemblers();
+  BRINGUP_TARGET(X86)
 }
 
 #undef BRINGUP_TARGET
@@ -128,9 +126,10 @@ EDDisassembler *EDDisassembler::getDisassembler(Triple::ArchType arch,
   
   if (i != sDisassemblers.end()) {
     return i->second;
-  } else {
+  }
+  else {
     EDDisassembler* sdd = new EDDisassembler(key);
-    if (!sdd->valid()) {
+    if(!sdd->valid()) {
       delete sdd;
       return NULL;
     }
@@ -151,18 +150,17 @@ EDDisassembler *EDDisassembler::getDisassembler(StringRef str,
 }
 
 EDDisassembler::EDDisassembler(CPUKey &key) : 
-  Valid(false), 
-  HasSemantics(false), 
-  ErrorStream(nulls()), 
-  Key(key) {
-  const char *triple = tripleFromArch(key.Arch);
-    
-  if (!triple)
+  Valid(false), ErrorString(), ErrorStream(ErrorString), Key(key) {
+  const InfoMap *infoMap = infoFromArch(key.Arch);
+  
+  if (!infoMap)
     return;
   
-  LLVMSyntaxVariant = getLLVMSyntaxVariant(key.Arch, key.Syntax);
+  const char *triple = infoMap->String;
   
-  if (LLVMSyntaxVariant < 0)
+  int syntaxVariant = getLLVMSyntaxVariant(key.Arch, key.Syntax);
+  
+  if (syntaxVariant < 0)
     return;
   
   std::string tripleString(triple);
@@ -184,8 +182,6 @@ EDDisassembler::EDDisassembler(CPUKey &key) :
   
   if (!registerInfo)
     return;
-    
-  initMaps(*registerInfo);
   
   AsmInfo.reset(Tgt->createAsmInfo(tripleString));
   
@@ -196,12 +192,13 @@ EDDisassembler::EDDisassembler(CPUKey &key) :
   
   if (!Disassembler)
     return;
-    
-  InstInfos = Disassembler->getEDInfo();
   
   InstString.reset(new std::string);
   InstStream.reset(new raw_string_ostream(*InstString));
-  InstPrinter.reset(Tgt->createMCInstPrinter(LLVMSyntaxVariant, *AsmInfo));
+  
+  InstPrinter.reset(Tgt->createMCInstPrinter(syntaxVariant,
+                                                *AsmInfo,
+                                                *InstStream));
   
   if (!InstPrinter)
     return;
@@ -209,6 +206,8 @@ EDDisassembler::EDDisassembler(CPUKey &key) :
   GenericAsmLexer.reset(new AsmLexer(*AsmInfo));
   SpecificAsmLexer.reset(Tgt->createAsmLexer(*AsmInfo));
   SpecificAsmLexer->InstallLexer(*GenericAsmLexer);
+                          
+  InstInfos = infoMap->Info;
   
   initMaps(*targetMachine->getRegisterInfo());
     
@@ -216,7 +215,7 @@ EDDisassembler::EDDisassembler(CPUKey &key) :
 }
 
 EDDisassembler::~EDDisassembler() {
-  if (!valid())
+  if(!valid())
     return;
 }
 
@@ -234,10 +233,10 @@ namespace {
     uint64_t getBase() const { return 0x0; }
     uint64_t getExtent() const { return (uint64_t)-1; }
     int readByte(uint64_t address, uint8_t *ptr) const {
-      if (!Callback)
+      if(!Callback)
         return -1;
       
-      if (Callback(ptr, address, Arg))
+      if(Callback(ptr, address, Arg))
         return -1;
       
       return 0;
@@ -260,10 +259,9 @@ EDInst *EDDisassembler::createInst(EDByteReaderCallback byteReader,
                                     ErrorStream)) {
     delete inst;
     return NULL;
-  } else {
-    const llvm::EDInstInfo *thisInstInfo;
-
-    thisInstInfo = &InstInfos[inst->getOpcode()];
+  }
+  else {
+    const InstInfo *thisInstInfo = &InstInfos[inst->getOpcode()];
     
     EDInst* sdInst = new EDInst(inst, byteSize, *this, thisInstInfo);
     return sdInst;
@@ -281,11 +279,8 @@ void EDDisassembler::initMaps(const TargetRegisterInfo &registerInfo) {
     RegRMap[registerName] = registerIndex;
   }
   
-  switch (Key.Arch) {
-  default:
-    break;
-  case Triple::x86:
-  case Triple::x86_64:
+  if (Key.Arch == Triple::x86 ||
+      Key.Arch == Triple::x86_64) {
     stackPointers.insert(registerIDWithName("SP"));
     stackPointers.insert(registerIDWithName("ESP"));
     stackPointers.insert(registerIDWithName("RSP"));
@@ -293,13 +288,6 @@ void EDDisassembler::initMaps(const TargetRegisterInfo &registerInfo) {
     programCounters.insert(registerIDWithName("IP"));
     programCounters.insert(registerIDWithName("EIP"));
     programCounters.insert(registerIDWithName("RIP"));
-    break;
-  case Triple::arm:
-  case Triple::thumb:
-    stackPointers.insert(registerIDWithName("SP"));
-    
-    programCounters.insert(registerIDWithName("PC"));
-    break;  
   }
 }
 
@@ -326,10 +314,11 @@ bool EDDisassembler::registerIsProgramCounter(unsigned registerID) {
   return (programCounters.find(registerID) != programCounters.end());
 }
 
-int EDDisassembler::printInst(std::string &str, MCInst &inst) {
+int EDDisassembler::printInst(std::string& str,
+                              MCInst& inst) {
   PrinterMutex.acquire();
   
-  InstPrinter->printInst(&inst, *InstStream);
+  InstPrinter->printInst(&inst);
   InstStream->flush();
   str = *InstString;
   InstString->clear();
@@ -344,16 +333,6 @@ int EDDisassembler::parseInst(SmallVectorImpl<MCParsedAsmOperand*> &operands,
                               const std::string &str) {
   int ret = 0;
   
-  switch (Key.Arch) {
-  default:
-    return -1;
-  case Triple::x86:
-  case Triple::x86_64:
-  case Triple::arm:
-  case Triple::thumb:
-    break;
-  }
-  
   const char *cStr = str.c_str();
   MemoryBuffer *buf = MemoryBuffer::getMemBuffer(cStr, cStr + strlen(cStr));
   
@@ -362,22 +341,22 @@ int EDDisassembler::parseInst(SmallVectorImpl<MCParsedAsmOperand*> &operands,
   
   SourceMgr sourceMgr;
   sourceMgr.AddNewSourceBuffer(buf, SMLoc()); // ownership of buf handed over
-  MCContext context(*AsmInfo);
-  OwningPtr<MCStreamer> streamer(createNullStreamer(context));
+  MCContext context;
+  OwningPtr<MCStreamer> streamer
+    (createNullStreamer(context));
   AsmParser genericParser(sourceMgr, context, *streamer, *AsmInfo);
-  OwningPtr<TargetAsmParser> TargetParser(Tgt->createAsmParser(genericParser));
+  OwningPtr<TargetAsmParser> specificParser
+    (Tgt->createAsmParser(genericParser));
   
   AsmToken OpcodeToken = genericParser.Lex();
-  AsmToken NextToken = genericParser.Lex();  // consume next token, because specificParser expects us to
-    
-  if (OpcodeToken.is(AsmToken::Identifier)) {
+  
+  if(OpcodeToken.is(AsmToken::Identifier)) {
     instName = OpcodeToken.getString();
     instLoc = OpcodeToken.getLoc();
-    
-    if (NextToken.isNot(AsmToken::Eof) &&
-        TargetParser->ParseInstruction(instName, instLoc, operands))
+    if (specificParser->ParseInstruction(instName, instLoc, operands))
       ret = -1;
-  } else {
+  }
+  else {
     ret = -1;
   }
   

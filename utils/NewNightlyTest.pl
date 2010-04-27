@@ -24,7 +24,6 @@ use Socket;
 #                   IMPLEMENTED.
 #  -nickname NAME   The NAME argument specifieds the nickname this script
 #                   will submit to the nightlytest results repository.
-#  -nouname         Don't include uname data (machine will be identified by nickname only).
 #  -submit-server   Specifies a server to submit the test results too. If this
 #                   option is not specified it defaults to
 #                   llvm.org. This is basically just the address of the
@@ -221,7 +220,6 @@ while (scalar(@ARGV) and ($_ = $ARGV[0], /^[-+]/)) {
                              $LLVMGCCPATH = $ARGV[0] . '/bin';
                              shift; next;}
   if (/^-noexternals$/)    { $NOEXTERNALS = 1; next; }
-  if (/^-nouname$/)        { $NOUNAME = 1; next; }
   if (/^-use-gmake/)       { $MAKECMD = "gmake"; shift; next; }
   if (/^-extraflags/)      { $CONFIGUREARGS .=
                              " --with-extra-options=\'$ARGV[0]\'"; shift; next;}
@@ -695,21 +693,12 @@ $endtime = `date "+20%y-%m-%d %H:%M:%S"`;
 
 if ( $VERBOSE ) { print "PREPARING LOGS TO BE SENT TO SERVER\n"; }
 
-if ( ! $NOUNAME ) {
-    $machine_data = "uname: ".`uname -a`.
-        "hardware: ".`uname -m`.
-        "os: ".`uname -sr`.
-        "name: ".`uname -n`.
-        "date: ".`date \"+20%y-%m-%d\"`.
-        "time: ".`date +\"%H:%M:%S\"`;
-} else {
-    $machine_data = "uname: (excluded)\n".
-        "hardware: ".`uname -m`.
-        "os: ".`uname -sr`.
-        "name: $nickname\n".
-        "date: ".`date \"+20%y-%m-%d\"`.
-        "time: ".`date +\"%H:%M:%S\"`;
-}
+$machine_data = "uname: ".`uname -a`.
+                "hardware: ".`uname -m`.
+                "os: ".`uname -sr`.
+                "name: ".`uname -n`.
+                "date: ".`date \"+20%y-%m-%d\"`.
+                "time: ".`date +\"%H:%M:%S\"`;
 
 # Get gcc version.
 my $gcc_version_long = "";

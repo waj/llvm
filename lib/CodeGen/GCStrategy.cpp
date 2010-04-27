@@ -71,9 +71,9 @@ namespace {
     
     void FindSafePoints(MachineFunction &MF);
     void VisitCallPoint(MachineBasicBlock::iterator MI);
-    MCSymbol *InsertLabel(MachineBasicBlock &MBB, 
-                          MachineBasicBlock::iterator MI,
-                          DebugLoc DL) const;
+    unsigned InsertLabel(MachineBasicBlock &MBB, 
+                         MachineBasicBlock::iterator MI,
+                         DebugLoc DL) const;
     
     void FindStackOffsets(MachineFunction &MF);
     
@@ -181,10 +181,9 @@ bool LowerIntrinsics::InsertRootInitializers(Function &F, AllocaInst **Roots,
   
   for (AllocaInst **I = Roots, **E = Roots + Count; I != E; ++I)
     if (!InitedRoots.count(*I)) {
-      StoreInst* SI = new StoreInst(ConstantPointerNull::get(cast<PointerType>(
-                        cast<PointerType>((*I)->getType())->getElementType())),
-                        *I);
-      SI->insertAfter(*I);
+      new StoreInst(ConstantPointerNull::get(cast<PointerType>(
+                      cast<PointerType>((*I)->getType())->getElementType())),
+                    *I, IP);
       MadeChange = true;
     }
   
@@ -330,11 +329,14 @@ void MachineCodeAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<GCModuleInfo>();
 }
 
-MCSymbol *MachineCodeAnalysis::InsertLabel(MachineBasicBlock &MBB, 
-                                           MachineBasicBlock::iterator MI,
-                                           DebugLoc DL) const {
-  MCSymbol *Label = MBB.getParent()->getContext().CreateTempSymbol();
-  BuildMI(MBB, MI, DL, TII->get(TargetOpcode::GC_LABEL)).addSym(Label);
+unsigned MachineCodeAnalysis::InsertLabel(MachineBasicBlock &MBB, 
+                                     MachineBasicBlock::iterator MI,
+                                     DebugLoc DL) const {
+  unsigned Label = MMI->NextLabelID();
+  
+  BuildMI(MBB, MI, DL,
+          TII->get(TargetOpcode::GC_LABEL)).addImm(Label);
+  
   return Label;
 }
 

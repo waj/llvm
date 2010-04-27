@@ -41,25 +41,21 @@ Thumb2InstrInfo::copyRegToReg(MachineBasicBlock &MBB,
                               unsigned DestReg, unsigned SrcReg,
                               const TargetRegisterClass *DestRC,
                               const TargetRegisterClass *SrcRC) const {
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (I != MBB.end()) DL = I->getDebugLoc();
 
-  if (DestRC == ARM::GPRRegisterClass) {
-    if (SrcRC == ARM::GPRRegisterClass) {
-      BuildMI(MBB, I, DL, get(ARM::tMOVgpr2gpr), DestReg).addReg(SrcReg);
-      return true;
-    } else if (SrcRC == ARM::tGPRRegisterClass) {
-      BuildMI(MBB, I, DL, get(ARM::tMOVtgpr2gpr), DestReg).addReg(SrcReg);
-      return true;
-    }
-  } else if (DestRC == ARM::tGPRRegisterClass) {
-    if (SrcRC == ARM::GPRRegisterClass) {
-      BuildMI(MBB, I, DL, get(ARM::tMOVgpr2tgpr), DestReg).addReg(SrcReg);
-      return true;
-    } else if (SrcRC == ARM::tGPRRegisterClass) {
-      BuildMI(MBB, I, DL, get(ARM::tMOVr), DestReg).addReg(SrcReg);
-      return true;
-    }
+  if (DestRC == ARM::GPRRegisterClass &&
+      SrcRC == ARM::GPRRegisterClass) {
+    BuildMI(MBB, I, DL, get(ARM::tMOVgpr2gpr), DestReg).addReg(SrcReg);
+    return true;
+  } else if (DestRC == ARM::GPRRegisterClass &&
+             SrcRC == ARM::tGPRRegisterClass) {
+    BuildMI(MBB, I, DL, get(ARM::tMOVtgpr2gpr), DestReg).addReg(SrcReg);
+    return true;
+  } else if (DestRC == ARM::tGPRRegisterClass &&
+             SrcRC == ARM::GPRRegisterClass) {
+    BuildMI(MBB, I, DL, get(ARM::tMOVgpr2tgpr), DestReg).addReg(SrcReg);
+    return true;
   }
 
   // Handle SPR, DPR, and QPR copies.
@@ -70,10 +66,10 @@ void Thumb2InstrInfo::
 storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                     unsigned SrcReg, bool isKill, int FI,
                     const TargetRegisterClass *RC) const {
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (I != MBB.end()) DL = I->getDebugLoc();
 
-  if (RC == ARM::GPRRegisterClass || RC == ARM::tGPRRegisterClass) {
+  if (RC == ARM::GPRRegisterClass) {
     MachineFunction &MF = *MBB.getParent();
     MachineFrameInfo &MFI = *MF.getFrameInfo();
     MachineMemOperand *MMO =
@@ -94,10 +90,10 @@ void Thumb2InstrInfo::
 loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                      unsigned DestReg, int FI,
                      const TargetRegisterClass *RC) const {
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (I != MBB.end()) DL = I->getDebugLoc();
 
-  if (RC == ARM::GPRRegisterClass || RC == ARM::tGPRRegisterClass) {
+  if (RC == ARM::GPRRegisterClass) {
     MachineFunction &MF = *MBB.getParent();
     MachineFrameInfo &MFI = *MF.getFrameInfo();
     MachineMemOperand *MMO =
@@ -168,7 +164,6 @@ void llvm::emitT2RegPlusImmediate(MachineBasicBlock &MBB,
       continue;
     }
 
-    bool HasCCOut = true;
     if (BaseReg == ARM::SP) {
       // sub sp, sp, #imm7
       if (DestReg == ARM::SP && (ThisVal < ((1 << 7)-1) * 4)) {
@@ -200,7 +195,6 @@ void llvm::emitT2RegPlusImmediate(MachineBasicBlock &MBB,
         NumBytes = 0;
       } else if (ThisVal < 4096) {
         Opc = isSub ? ARM::t2SUBri12 : ARM::t2ADDri12;
-        HasCCOut = false;
         NumBytes = 0;
       } else {
         // FIXME: Move this to ARMAddressingModes.h?
@@ -213,12 +207,9 @@ void llvm::emitT2RegPlusImmediate(MachineBasicBlock &MBB,
     }
 
     // Build the new ADD / SUB.
-    MachineInstrBuilder MIB =
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Opc), DestReg)
-                     .addReg(BaseReg, RegState::Kill)
-                     .addImm(ThisVal));
-    if (HasCCOut)
-      AddDefaultCC(MIB);
+    AddDefaultCC(AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Opc), DestReg)
+                                .addReg(BaseReg, RegState::Kill)
+                                .addImm(ThisVal)));
 
     BaseReg = DestReg;
   }
@@ -337,6 +328,7 @@ bool llvm::rewriteT2FrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
   if (Opcode == ARM::t2ADDri || Opcode == ARM::t2ADDri12) {
     Offset += MI.getOperand(FrameRegIdx+1).getImm();
 
+    bool isSP = FrameReg == ARM::SP;
     unsigned PredReg;
     if (Offset == 0 && getInstrPredicate(&MI, PredReg) == ARMCC::AL) {
       // Turn it into a move.
@@ -350,9 +342,6 @@ bool llvm::rewriteT2FrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
       return true;
     }
 
-    bool isSP = FrameReg == ARM::SP;
-    bool HasCCOut = Opcode != ARM::t2ADDri12;
-
     if (Offset < 0) {
       Offset = -Offset;
       isSub = true;
@@ -365,24 +354,17 @@ bool llvm::rewriteT2FrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
     if (ARM_AM::getT2SOImmVal(Offset) != -1) {
       MI.getOperand(FrameRegIdx).ChangeToRegister(FrameReg, false);
       MI.getOperand(FrameRegIdx+1).ChangeToImmediate(Offset);
-      // Add cc_out operand if the original instruction did not have one.
-      if (!HasCCOut)
-        MI.addOperand(MachineOperand::CreateReg(0, false));
       Offset = 0;
       return true;
     }
     // Another common case: imm12.
-    if (Offset < 4096 &&
-        (!HasCCOut || MI.getOperand(MI.getNumOperands()-1).getReg() == 0)) {
+    if (Offset < 4096) {
       unsigned NewOpc = isSP
         ? (isSub ? ARM::t2SUBrSPi12 : ARM::t2ADDrSPi12)
         : (isSub ? ARM::t2SUBri12   : ARM::t2ADDri12);
       MI.setDesc(TII.get(NewOpc));
       MI.getOperand(FrameRegIdx).ChangeToRegister(FrameReg, false);
       MI.getOperand(FrameRegIdx+1).ChangeToImmediate(Offset);
-      // Remove the cc_out operand.
-      if (HasCCOut)
-        MI.RemoveOperand(MI.getNumOperands()-1);
       Offset = 0;
       return true;
     }
@@ -398,10 +380,6 @@ bool llvm::rewriteT2FrameIndex(MachineInstr &MI, unsigned FrameRegIdx,
     assert(ARM_AM::getT2SOImmVal(ThisImmVal) != -1 &&
            "Bit extraction didn't work?");
     MI.getOperand(FrameRegIdx+1).ChangeToImmediate(ThisImmVal);
-    // Add cc_out operand if the original instruction did not have one.
-    if (!HasCCOut)
-      MI.addOperand(MachineOperand::CreateReg(0, false));
-
   } else {
 
     // AddrMode4 and AddrMode6 cannot handle any offset.

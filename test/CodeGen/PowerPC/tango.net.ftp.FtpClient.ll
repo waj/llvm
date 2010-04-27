@@ -1,6 +1,4 @@
-; RN: llc < %s
-; RUN: false
-; XFAIL: *
+; RUN: llc < %s
 ; PR4534
 
 ; ModuleID = 'tango.net.ftp.FtpClient.bc'

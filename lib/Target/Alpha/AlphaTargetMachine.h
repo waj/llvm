@@ -44,8 +44,8 @@ public:
   virtual const AlphaRegisterInfo *getRegisterInfo() const {
     return &InstrInfo.getRegisterInfo();
   }
-  virtual const AlphaTargetLowering* getTargetLowering() const {
-    return &TLInfo;
+  virtual AlphaTargetLowering* getTargetLowering() const {
+    return const_cast<AlphaTargetLowering*>(&TLInfo);
   }
   virtual const TargetData       *getTargetData() const { return &DataLayout; }
   virtual AlphaJITInfo* getJITInfo() {

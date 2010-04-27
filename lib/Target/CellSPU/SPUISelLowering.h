@@ -109,11 +109,11 @@ namespace llvm {
     virtual MVT::SimpleValueType getSetCCResultType(EVT VT) const;
 
     //! Custom lowering hooks
-    virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const;
+    virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG);
 
     //! Custom lowering hook for nodes with illegal result types.
     virtual void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue>&Results,
-                                    SelectionDAG &DAG) const;
+                                    SelectionDAG &DAG);
 
     virtual SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 
@@ -153,7 +153,7 @@ namespace llvm {
                            CallingConv::ID CallConv, bool isVarArg,
                            const SmallVectorImpl<ISD::InputArg> &Ins,
                            DebugLoc dl, SelectionDAG &DAG,
-                           SmallVectorImpl<SDValue> &InVals) const;
+                           SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerCall(SDValue Chain, SDValue Callee,
@@ -162,13 +162,13 @@ namespace llvm {
                 const SmallVectorImpl<ISD::OutputArg> &Outs,
                 const SmallVectorImpl<ISD::InputArg> &Ins,
                 DebugLoc dl, SelectionDAG &DAG,
-                SmallVectorImpl<SDValue> &InVals) const;
+                SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerReturn(SDValue Chain,
                   CallingConv::ID CallConv, bool isVarArg,
                   const SmallVectorImpl<ISD::OutputArg> &Outs,
-                  DebugLoc dl, SelectionDAG &DAG) const;
+                  DebugLoc dl, SelectionDAG &DAG);
   };
 }
 

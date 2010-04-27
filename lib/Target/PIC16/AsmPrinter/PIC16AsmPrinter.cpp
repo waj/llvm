@@ -16,37 +16,36 @@
 #include "PIC16AsmPrinter.h"
 #include "PIC16Section.h"
 #include "PIC16MCAsmInfo.h"
-#include "PIC16MachineFunctionInfo.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
 #include "llvm/Module.h"
+#include "llvm/CodeGen/DwarfWriter.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/DwarfWriter.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/Target/Mangler.h"
 #include "llvm/Target/TargetRegistry.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/SmallString.h"
+#include "llvm/Support/FormattedStream.h"
 #include <cstring>
 using namespace llvm;
 
 #include "PIC16GenAsmWriter.inc"
 
-PIC16AsmPrinter::PIC16AsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-: AsmPrinter(TM, Streamer), DbgInfo(Streamer, TM.getMCAsmInfo()) {
-  PMAI = static_cast<const PIC16MCAsmInfo*>(TM.getMCAsmInfo());
-  PTOF = &getObjFileLowering();
+PIC16AsmPrinter::PIC16AsmPrinter(formatted_raw_ostream &O, TargetMachine &TM,
+                                 MCContext &Ctx, MCStreamer &Streamer,
+                                 const MCAsmInfo *T)
+: AsmPrinter(O, TM, Ctx, Streamer, T), DbgInfo(O, T) {
+  PTLI = static_cast<PIC16TargetLowering*>(TM.getTargetLowering());
+  PMAI = static_cast<const PIC16MCAsmInfo*>(T);
+  PTOF = (PIC16TargetObjectFile *)&PTLI->getObjFileLowering();
 }
 
 void PIC16AsmPrinter::EmitInstruction(const MachineInstr *MI) {
-  SmallString<128> Str;
-  raw_svector_ostream OS(Str);
-  printInstruction(MI, OS);
-  
-  OutStreamer.EmitRawText(OS.str());
+  printInstruction(MI);
+  OutStreamer.AddBlankLine();
 }
 
 static int getFunctionColor(const Function *F) {
@@ -112,33 +111,33 @@ bool PIC16AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
                                         PAN::isISR(F->getSection()));
 
   // Start the Code Section.
+  O <<  "\n";
   OutStreamer.SwitchSection(fCodeSection);
 
   // Emit the frame address of the function at the beginning of code.
-  OutStreamer.EmitRawText("\tretlw  low(" + 
-                          Twine(PAN::getFrameLabel(CurrentFnSym->getName())) +
-                          ")");
-  OutStreamer.EmitRawText("\tretlw  high(" +
-                          Twine(PAN::getFrameLabel(CurrentFnSym->getName())) +
-                          ")");
+  O << "\tretlw  low(" << PAN::getFrameLabel(CurrentFnSym->getName()) << ")\n";
+  O << "\tretlw  high(" << PAN::getFrameLabel(CurrentFnSym->getName()) << ")\n";
 
   // Emit function start label.
-  OutStreamer.EmitLabel(CurrentFnSym);
+  O << *CurrentFnSym << ":\n";
 
   DebugLoc CurDL;
+  O << "\n"; 
   // Print out code for the function.
   for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
        I != E; ++I) {
 
     // Print a label for the basic block.
-    if (I != MF.begin())
+    if (I != MF.begin()) {
       EmitBasicBlockStart(I);
+    }
     
     // Print a basic block.
     for (MachineBasicBlock::const_iterator II = I->begin(), E = I->end();
          II != E; ++II) {
+
       // Emit the line directive if source line changed.
-      DebugLoc DL = II->getDebugLoc();
+      const DebugLoc DL = II->getDebugLoc();
       if (!DL.isUnknown() && DL != CurDL) {
         DbgInfo.ChangeDebugLoc(MF, DL);
         CurDL = DL;
@@ -157,8 +156,7 @@ bool PIC16AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 
 
 // printOperand - print operand of insn.
-void PIC16AsmPrinter::printOperand(const MachineInstr *MI, int opNum,
-                                   raw_ostream &O) {
+void PIC16AsmPrinter::printOperand(const MachineInstr *MI, int opNum) {
   const MachineOperand &MO = MI->getOperand(opNum);
   const Function *F = MI->getParent()->getParent()->getFunction();
 
@@ -169,7 +167,9 @@ void PIC16AsmPrinter::printOperand(const MachineInstr *MI, int opNum,
         std::string RegName = getRegisterName(MO.getReg());
         if ((MI->getOpcode() == PIC16::load_indirect) ||
             (MI->getOpcode() == PIC16::store_indirect))
+        {
           RegName.replace (0, 3, "INDF");
+        }
         O << RegName;
       }
       return;
@@ -179,12 +179,12 @@ void PIC16AsmPrinter::printOperand(const MachineInstr *MI, int opNum,
       return;
 
     case MachineOperand::MO_GlobalAddress: {
-      MCSymbol *Sym = Mang->getSymbol(MO.getGlobal());
+      MCSymbol *Sym = GetGlobalValueSymbol(MO.getGlobal());
       // FIXME: currently we do not have a memcpy def coming in the module
       // by any chance, as we do not link in those as .bc lib. So these calls
       // are always external and it is safe to emit an extern.
       if (PAN::isMemIntrinsic(Sym->getName()))
-        LibcallDecls.insert(Sym->getName());
+        LibcallDecls.push_back(createESName(Sym->getName()));
 
       O << *Sym;
       break;
@@ -199,14 +199,14 @@ void PIC16AsmPrinter::printOperand(const MachineInstr *MI, int opNum,
           Printname = PAN::Rename(Sname);
         }
         // Record these decls, we need to print them in asm as extern.
-        LibcallDecls.insert(Printname);
+        LibcallDecls.push_back(createESName(Printname));
       }
 
       O << Printname;
       break;
     }
     case MachineOperand::MO_MachineBasicBlock:
-      O << *MO.getMBB()->getSymbol();
+      O << *MO.getMBB()->getSymbol(OutContext);
       return;
 
     default:
@@ -216,10 +216,21 @@ void PIC16AsmPrinter::printOperand(const MachineInstr *MI, int opNum,
 
 /// printCCOperand - Print the cond code operand.
 ///
-void PIC16AsmPrinter::printCCOperand(const MachineInstr *MI, int opNum,
-                                     raw_ostream &O) {
+void PIC16AsmPrinter::printCCOperand(const MachineInstr *MI, int opNum) {
   int CC = (int)MI->getOperand(opNum).getImm();
   O << PIC16CondCodeToString((PIC16CC::CondCodes)CC);
+}
+
+// This function is used to sort the decls list.
+// should return true if s1 should come before s2.
+static bool is_before(const char *s1, const char *s2) {
+  return strcmp(s1, s2) <= 0;
+}
+
+// This is used by list::unique below. 
+// unique will filter out duplicates if it knows them.
+static bool is_duplicate(const char *s1, const char *s2) {
+  return !strcmp(s1, s2);
 }
 
 /// printLibcallDecls - print the extern declarations for compiler 
@@ -229,15 +240,16 @@ void PIC16AsmPrinter::printLibcallDecls() {
   // If no libcalls used, return.
   if (LibcallDecls.empty()) return;
 
-  OutStreamer.AddComment("External decls for libcalls - BEGIN");
-  OutStreamer.AddBlankLine();
+  O << MAI->getCommentString() << "External decls for libcalls - BEGIN." <<"\n";
+  // Remove duplicate entries.
+  LibcallDecls.sort(is_before);
+  LibcallDecls.unique(is_duplicate);
 
-  for (std::set<std::string>::const_iterator I = LibcallDecls.begin(),
-       E = LibcallDecls.end(); I != E; I++)
-    OutStreamer.EmitRawText(MAI->getExternDirective() + Twine(*I));
-
-  OutStreamer.AddComment("External decls for libcalls - END");
-  OutStreamer.AddBlankLine();
+  for (std::list<const char*>::const_iterator I = LibcallDecls.begin(); 
+       I != LibcallDecls.end(); I++) {
+    O << MAI->getExternDirective() << *I << "\n";
+  }
+  O << MAI->getCommentString() << "External decls for libcalls - END." <<"\n";
 }
 
 /// doInitialization - Perform Module level initializations here.
@@ -248,8 +260,8 @@ bool PIC16AsmPrinter::doInitialization(Module &M) {
   bool Result = AsmPrinter::doInitialization(M);
 
   // Every asmbly contains these std headers. 
-  OutStreamer.EmitRawText(StringRef("\n#include p16f1xxx.inc"));
-  OutStreamer.EmitRawText(StringRef("#include stdmacros.inc"));
+  O << "\n#include p16f1xxx.inc";
+  O << "\n#include stdmacros.inc";
 
   // Set the section names for all globals.
   for (Module::global_iterator I = M.global_begin(), E = M.global_end();
@@ -292,8 +304,7 @@ bool PIC16AsmPrinter::doInitialization(Module &M) {
 ///
 void PIC16AsmPrinter::EmitFunctionDecls(Module &M) {
  // Emit declarations for external functions.
-  OutStreamer.AddComment("Function Declarations - BEGIN");
-  OutStreamer.AddBlankLine();
+  O <<"\n"<<MAI->getCommentString() << "Function Declarations - BEGIN." <<"\n";
   for (Module::iterator I = M.begin(), E = M.end(); I != E; I++) {
     if (I->isIntrinsic() || I->getName() == "@abort")
       continue;
@@ -301,7 +312,7 @@ void PIC16AsmPrinter::EmitFunctionDecls(Module &M) {
     if (!I->isDeclaration() && !I->hasExternalLinkage())
       continue;
 
-    MCSymbol *Sym = Mang->getSymbol(I);
+    MCSymbol *Sym = GetGlobalValueSymbol(I);
     
     // Do not emit memcpy, memset, and memmove here.
     // Calls to these routines can be generated in two ways,
@@ -316,16 +327,12 @@ void PIC16AsmPrinter::EmitFunctionDecls(Module &M) {
     const char *directive = I->isDeclaration() ? MAI->getExternDirective() :
                                                  MAI->getGlobalDirective();
       
-    OutStreamer.EmitRawText(directive + Twine(Sym->getName()));
-    OutStreamer.EmitRawText(directive +
-                            Twine(PAN::getRetvalLabel(Sym->getName())));
-    OutStreamer.EmitRawText(directive +
-                            Twine(PAN::getArgsLabel(Sym->getName())));
+    O << directive << Sym->getName() << "\n";
+    O << directive << PAN::getRetvalLabel(Sym->getName()) << "\n";
+    O << directive << PAN::getArgsLabel(Sym->getName()) << "\n";
   }
 
-  OutStreamer.AddComment("Function Declarations - END");
-  OutStreamer.AddBlankLine();
-
+  O << MAI->getCommentString() << "Function Declarations - END." <<"\n";
 }
 
 // Emit variables imported from other Modules.
@@ -333,14 +340,10 @@ void PIC16AsmPrinter::EmitUndefinedVars(Module &M) {
   std::vector<const GlobalVariable*> Items = ExternalVarDecls;
   if (!Items.size()) return;
 
-  OutStreamer.AddComment("Imported Variables - BEGIN");
-  OutStreamer.AddBlankLine();
+  O << "\n" << MAI->getCommentString() << "Imported Variables - BEGIN" << "\n";
   for (unsigned j = 0; j < Items.size(); j++)
-    OutStreamer.EmitRawText(MAI->getExternDirective() +
-                            Twine(Mang->getSymbol(Items[j])->getName()));
-  
-  OutStreamer.AddComment("Imported Variables - END");
-  OutStreamer.AddBlankLine();
+    O << MAI->getExternDirective() << *GetGlobalValueSymbol(Items[j]) << "\n";
+  O << MAI->getCommentString() << "Imported Variables - END" << "\n";
 }
 
 // Emit variables defined in this module and are available to other modules.
@@ -348,14 +351,10 @@ void PIC16AsmPrinter::EmitDefinedVars(Module &M) {
   std::vector<const GlobalVariable*> Items = ExternalVarDefs;
   if (!Items.size()) return;
 
-  OutStreamer.AddComment("Exported Variables - BEGIN");
-  OutStreamer.AddBlankLine();
-
+  O << "\n" << MAI->getCommentString() << "Exported Variables - BEGIN" << "\n";
   for (unsigned j = 0; j < Items.size(); j++)
-    OutStreamer.EmitRawText(MAI->getGlobalDirective() +
-                            Twine(Mang->getSymbol(Items[j])->getName()));
-  OutStreamer.AddComment("Exported Variables - END");
-  OutStreamer.AddBlankLine();
+    O << MAI->getGlobalDirective() << *GetGlobalValueSymbol(Items[j]) << "\n";
+  O <<  MAI->getCommentString() << "Exported Variables - END" << "\n";
 }
 
 // Emit initialized data placed in ROM.
@@ -372,16 +371,15 @@ bool PIC16AsmPrinter::doFinalization(Module &M) {
   EmitAllAutos(M);
   printLibcallDecls();
   DbgInfo.EndModule(M);
-  OutStreamer.EmitRawText(StringRef("\tEND"));
+  O << "\n\t" << "END\n";
   return AsmPrinter::doFinalization(M);
 }
 
 void PIC16AsmPrinter::EmitFunctionFrame(MachineFunction &MF) {
   const Function *F = MF.getFunction();
   const TargetData *TD = TM.getTargetData();
-  PIC16MachineFunctionInfo *FuncInfo = MF.getInfo<PIC16MachineFunctionInfo>();
-
   // Emit the data section name.
+  O << "\n"; 
   
   PIC16Section *fPDataSection =
     const_cast<PIC16Section *>(getObjFileLowering().
@@ -391,8 +389,7 @@ void PIC16AsmPrinter::EmitFunctionFrame(MachineFunction &MF) {
   OutStreamer.SwitchSection(fPDataSection);
   
   // Emit function frame label
-  OutStreamer.EmitRawText(PAN::getFrameLabel(CurrentFnSym->getName()) +
-                          Twine(":"));
+  O << PAN::getFrameLabel(CurrentFnSym->getName()) << ":\n";
 
   const Type *RetType = F->getReturnType();
   unsigned RetSize = 0; 
@@ -404,11 +401,10 @@ void PIC16AsmPrinter::EmitFunctionFrame(MachineFunction &MF) {
   // we will need to avoid printing a global directive for Retval label
   // in emitExternandGloblas.
   if(RetSize > 0)
-     OutStreamer.EmitRawText(PAN::getRetvalLabel(CurrentFnSym->getName()) +
-                             Twine(" RES ") + Twine(RetSize));
+     O << PAN::getRetvalLabel(CurrentFnSym->getName())
+       << " RES " << RetSize << "\n";
   else
-     OutStreamer.EmitRawText(PAN::getRetvalLabel(CurrentFnSym->getName()) +
-                             Twine(":"));
+     O << PAN::getRetvalLabel(CurrentFnSym->getName()) << ": \n";
    
   // Emit variable to hold the space for function arguments 
   unsigned ArgSize = 0;
@@ -418,14 +414,13 @@ void PIC16AsmPrinter::EmitFunctionFrame(MachineFunction &MF) {
     ArgSize += TD->getTypeAllocSize(Ty);
    }
 
-  OutStreamer.EmitRawText(PAN::getArgsLabel(CurrentFnSym->getName()) +
-                          Twine(" RES ") + Twine(ArgSize));
+  O << PAN::getArgsLabel(CurrentFnSym->getName()) << " RES " << ArgSize << "\n";
 
   // Emit temporary space
-  int TempSize = FuncInfo->getTmpSize();
+  int TempSize = PTLI->GetTmpSize();
   if (TempSize > 0)
-    OutStreamer.EmitRawText(PAN::getTempdataLabel(CurrentFnSym->getName()) +
-                            Twine(" RES  ") + Twine(TempSize));
+    O << PAN::getTempdataLabel(CurrentFnSym->getName()) << " RES  "
+      << TempSize << '\n';
 }
 
 
@@ -437,7 +432,7 @@ void PIC16AsmPrinter::EmitInitializedDataSection(const PIC16Section *S) {
     for (unsigned j = 0; j < Items.size(); j++) {
       Constant *C = Items[j]->getInitializer();
       int AddrSpace = Items[j]->getType()->getAddressSpace();
-      OutStreamer.EmitRawText(Mang->getSymbol(Items[j])->getName());
+      O << *GetGlobalValueSymbol(Items[j]);
       EmitGlobalConstant(C, AddrSpace);
    }
 }
@@ -456,8 +451,7 @@ EmitUninitializedDataSection(const PIC16Section *S) {
       Constant *C = Items[j]->getInitializer();
       const Type *Ty = C->getType();
       unsigned Size = TD->getTypeAllocSize(Ty);
-      OutStreamer.EmitRawText(Mang->getSymbol(Items[j])->getName() +
-                              Twine(" RES ") + Twine(Size));
+      O << *GetGlobalValueSymbol(Items[j]) << " RES " << Size << "\n";
     }
 }
 
@@ -505,7 +499,7 @@ EmitSectionList(Module &M, const std::vector<PIC16Section *> &SList) {
     // Exclude llvm specific metadata sections.
     if (SList[i]->getName().find("llvm.") != std::string::npos)
       continue;
-    OutStreamer.AddBlankLine();
+    O << "\n";
     EmitSingleSection(SList[i]);
   }
 }

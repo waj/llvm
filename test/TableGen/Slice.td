@@ -1,6 +1,5 @@
 // RUN: tblgen %s | grep {\\\[(set} | count 2
 // RUN: tblgen %s | grep {\\\[\\\]} | count 2
-// XFAIL: vg_leak
 
 class ValueType<int size, int value> {
   int Size = size;

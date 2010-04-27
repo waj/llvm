@@ -40,7 +40,7 @@ struct Inliner : public CallGraphSCCPass {
 
   // Main run interface method, this implements the interface required by the
   // Pass class.
-  virtual bool runOnSCC(CallGraphSCC &SCC);
+  virtual bool runOnSCC(std::vector<CallGraphNode *> &SCC);
 
   // doFinalization - Remove now-dead linkonce functions at the end of
   // processing to avoid breaking the SCC traversal.
@@ -74,10 +74,6 @@ struct Inliner : public CallGraphSCCPass {
   /// If the derived class has no such data this can be empty.
   /// 
   virtual void resetCachedCostInfo(Function* Caller) = 0;
-
-  /// growCachedCostInfo - update the cached cost info for Caller after Callee
-  /// has been inlined.
-  virtual void growCachedCostInfo(Function *Caller, Function *Callee) = 0;
 
   /// removeDeadFunctions - Remove dead functions that are not included in
   /// DNR (Do Not Remove) list.

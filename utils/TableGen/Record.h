@@ -503,8 +503,7 @@ struct Init {
   /// initializer for the specified field.  If getFieldType returns non-null
   /// this method should return non-null, otherwise it returns null.
   ///
-  virtual Init *getFieldInit(Record &R, const RecordVal *RV,
-                             const std::string &FieldName) const {
+  virtual Init *getFieldInit(Record &R, const std::string &FieldName) const {
     return 0;
   }
 
@@ -607,11 +606,6 @@ public:
   virtual bool isComplete() const {
     for (unsigned i = 0; i != getNumBits(); ++i)
       if (!getBit(i)->isComplete()) return false;
-    return true;
-  }
-  bool allInComplete() const {
-    for (unsigned i = 0; i != getNumBits(); ++i)
-      if (getBit(i)->isComplete()) return false;
     return true;
   }
   virtual std::string getAsString() const;
@@ -956,8 +950,7 @@ public:
                                             unsigned Elt);
 
   virtual RecTy *getFieldType(const std::string &FieldName) const;
-  virtual Init *getFieldInit(Record &R, const RecordVal *RV,
-                             const std::string &FieldName) const;
+  virtual Init *getFieldInit(Record &R, const std::string &FieldName) const;
 
   /// resolveReferences - This method is used by classes that refer to other
   /// variables which may not be defined at the time they expression is formed.
@@ -1042,8 +1035,7 @@ public:
   //virtual Init *convertInitializerBitRange(const std::vector<unsigned> &Bits);
 
   virtual RecTy *getFieldType(const std::string &FieldName) const;
-  virtual Init *getFieldInit(Record &R, const RecordVal *RV,
-                             const std::string &FieldName) const;
+  virtual Init *getFieldInit(Record &R, const std::string &FieldName) const;
 
   virtual std::string getAsString() const;
 

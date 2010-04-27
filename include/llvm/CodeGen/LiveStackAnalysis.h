@@ -27,7 +27,7 @@ namespace llvm {
   class LiveStacks : public MachineFunctionPass {
     /// Special pool allocator for VNInfo's (LiveInterval val#).
     ///
-    VNInfo::Allocator VNInfoAllocator;
+    BumpPtrAllocator VNInfoAllocator;
 
     /// S2IMap - Stack slot indices to live interval mapping.
     ///
@@ -91,7 +91,7 @@ namespace llvm {
       return I->second;
     }
 
-    VNInfo::Allocator& getVNInfoAllocator() { return VNInfoAllocator; }
+    BumpPtrAllocator& getVNInfoAllocator() { return VNInfoAllocator; }
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
     virtual void releaseMemory();

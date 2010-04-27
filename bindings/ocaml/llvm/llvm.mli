@@ -139,13 +139,13 @@ module Attribute : sig
   | Optsize
   | Ssp
   | Sspreq
-  | Alignment of int
+  | Alignment
   | Nocapture
   | Noredzone
   | Noimplicitfloat
   | Naked
   | Inlinehint
-  | Stackalignment of int
+  | Stackalignment
 end
 
 (** The predicate for an integer comparison ([icmp]) instruction.
@@ -283,11 +283,6 @@ external type_by_name : llmodule -> string -> lltype option
 (** [dump_module m] prints the .ll representation of the module [m] to standard
     error. See the method [llvm::Module::dump]. *)
 external dump_module : llmodule -> unit = "llvm_dump_module"
-
-(** [set_module_inline_asm m asm] sets the inline assembler for the module. See
-    the method [llvm::Module::setModuleInlineAsm]. *)
-external set_module_inline_asm : llmodule -> string -> unit
-                               = "llvm_set_module_inline_asm"
 
 
 (** {6 Types} *)
@@ -1287,11 +1282,13 @@ external set_gc : string option -> llvalue -> unit = "llvm_set_gc"
 
 (** [add_function_attr f a] adds attribute [a] to the return type of function
     [f]. *)
-val add_function_attr : llvalue -> Attribute.t -> unit
+external add_function_attr : llvalue -> Attribute.t -> unit
+                           = "llvm_add_function_attr"
 
 (** [remove_function_attr f a] removes attribute [a] from the return type of
     function [f]. *)
-val remove_function_attr : llvalue -> Attribute.t -> unit
+external remove_function_attr : llvalue -> Attribute.t -> unit
+                              = "llvm_remove_function_attr"
 
 (** {7 Operations on params} *)
 
@@ -1346,10 +1343,11 @@ val rev_iter_params : (llvalue -> unit) -> llvalue -> unit
 val fold_right_params : (llvalue -> 'a -> 'a) -> llvalue -> 'a -> 'a
 
 (** [add_param p a] adds attribute [a] to parameter [p]. *)
-val add_param_attr : llvalue -> Attribute.t -> unit
+external add_param_attr : llvalue -> Attribute.t -> unit = "llvm_add_param_attr"
 
 (** [remove_param_attr p a] removes attribute [a] from parameter [p]. *)
-val remove_param_attr : llvalue -> Attribute.t -> unit
+external remove_param_attr : llvalue -> Attribute.t -> unit
+                           = "llvm_remove_param_attr"
 
 (** [set_param_alignment p a] set the alignment of parameter [p] to [a]. *)
 external set_param_alignment : llvalue -> int -> unit
@@ -1501,12 +1499,14 @@ external set_instruction_call_conv: int -> llvalue -> unit
 (** [add_instruction_param_attr ci i a] adds attribute [a] to the [i]th
     parameter of the call or invoke instruction [ci]. [i]=0 denotes the return
     value. *)
-val add_instruction_param_attr : llvalue -> int -> Attribute.t -> unit
+external add_instruction_param_attr : llvalue -> int -> Attribute.t -> unit
+  = "llvm_add_instruction_param_attr"
 
 (** [remove_instruction_param_attr ci i a] removes attribute [a] from the
     [i]th parameter of the call or invoke instruction [ci]. [i]=0 denotes the
     return value. *)
-val remove_instruction_param_attr : llvalue -> int -> Attribute.t -> unit
+external remove_instruction_param_attr : llvalue -> int -> Attribute.t -> unit
+  = "llvm_remove_instruction_param_attr"
 
 (** {Operations on call instructions (only)} *)
 

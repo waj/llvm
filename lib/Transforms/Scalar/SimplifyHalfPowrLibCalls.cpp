@@ -93,8 +93,7 @@ InlineHalfPowrs(const std::vector<Instruction *> &HalfPowrs,
     // Inline the call, taking care of what code ends up where.
     NewBlock = SplitBlock(NextInst->getParent(), NextInst, this);
 
-    InlineFunctionInfo IFI(0, TD);
-    bool B = InlineFunction(Call, IFI);
+    bool B = InlineFunction(Call, 0, TD);
     assert(B && "half_powr didn't inline?"); B=B;
 
     BasicBlock *NewBody = NewBlock->getSinglePredecessor();

@@ -338,7 +338,7 @@ void MipsRegisterInfo::adjustMipsStackFrame(MachineFunction &MF) const
 bool MipsRegisterInfo::
 hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  return DisableFramePointerElim(MF) || MFI->hasVarSizedObjects();
+  return NoFramePointerElim || MFI->hasVarSizedObjects();
 }
 
 // This function eliminate ADJCALLSTACKDOWN, 
@@ -355,7 +355,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 // direct reference.
 unsigned MipsRegisterInfo::
 eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
-                    FrameIndexValue *Value, RegScavenger *RS) const
+                    int *Value, RegScavenger *RS) const
 {
   MachineInstr &MI = *II;
   MachineFunction &MF = *MI.getParent()->getParent();
@@ -397,7 +397,8 @@ emitPrologue(MachineFunction &MF) const
   MachineFrameInfo *MFI    = MF.getFrameInfo();
   MipsFunctionInfo *MipsFI = MF.getInfo<MipsFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.begin();
-  DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+  DebugLoc dl = (MBBI != MBB.end() ?
+                 MBBI->getDebugLoc() : DebugLoc::getUnknownLoc());
   bool isPIC = (MF.getTarget().getRelocationModel() == Reloc::PIC_);
 
   // Get the right frame order for Mips.

@@ -41,9 +41,12 @@ namespace llvm {
   }
 
   class SparcTargetLowering : public TargetLowering {
+    int VarArgsFrameOffset;   // Frame offset to start of varargs area.
   public:
     SparcTargetLowering(TargetMachine &TM);
-    virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const;
+    virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG);
+
+    int getVarArgsFrameOffset() const { return VarArgsFrameOffset; }
 
     /// computeMaskedBitsForTargetNode - Determine which of the bits specified
     /// in Mask are known to be either zero or one and return them in the
@@ -79,7 +82,7 @@ namespace llvm {
                            bool isVarArg,
                            const SmallVectorImpl<ISD::InputArg> &Ins,
                            DebugLoc dl, SelectionDAG &DAG,
-                           SmallVectorImpl<SDValue> &InVals) const;
+                           SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerCall(SDValue Chain, SDValue Callee,
@@ -88,16 +91,16 @@ namespace llvm {
                 const SmallVectorImpl<ISD::OutputArg> &Outs,
                 const SmallVectorImpl<ISD::InputArg> &Ins,
                 DebugLoc dl, SelectionDAG &DAG,
-                SmallVectorImpl<SDValue> &InVals) const;
+                SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerReturn(SDValue Chain,
                   CallingConv::ID CallConv, bool isVarArg,
                   const SmallVectorImpl<ISD::OutputArg> &Outs,
-                  DebugLoc dl, SelectionDAG &DAG) const;
+                  DebugLoc dl, SelectionDAG &DAG);
 
-    SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG);
+    SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG);
   };
 } // end namespace llvm
 

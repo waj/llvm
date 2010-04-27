@@ -14,6 +14,7 @@
 
 #include "Alpha.h"
 #include "AlphaTargetMachine.h"
+#include "AlphaISelLowering.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -308,7 +309,7 @@ SDNode *AlphaDAGToDAGISel::Select(SDNode *N) {
                                   T, CurDAG->getRegister(Alpha::F31, T),
                                   CurDAG->getRegister(Alpha::F31, T));
     } else {
-      report_fatal_error("Unhandled FP constant type");
+      llvm_report_error("Unhandled FP constant type");
     }
     break;
   }

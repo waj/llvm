@@ -1,7 +1,7 @@
 ; RUN: llc < %s -march=x86 -mattr=+sse2 | FileCheck %s
 
 define <4 x i32> @test(i8** %ptr) {
-; CHECK: pxor
+; CHECK: xorps
 ; CHECK: punpcklbw
 ; CHECK: punpcklwd
 

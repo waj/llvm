@@ -319,8 +319,6 @@ LLVMTypeRef LLVMGetTypeByName(LLVMModuleRef M, const char *Name);
 /** See Module::dump. */
 void LLVMDumpModule(LLVMModuleRef M);
 
-/** See Module::setModuleInlineAsm. */
-void LLVMSetModuleInlineAsm(LLVMModuleRef M, const char *Asm);
 
 /*===-- Types -------------------------------------------------------------===*/
 

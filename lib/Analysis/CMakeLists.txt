@@ -21,7 +21,6 @@ add_llvm_library(LLVMAnalysis
   LazyValueInfo.cpp
   LibCallAliasAnalysis.cpp
   LibCallSemantics.cpp
-  Lint.cpp
   LiveValues.cpp
   LoopDependenceAnalysis.cpp
   LoopInfo.cpp
@@ -39,7 +38,6 @@ add_llvm_library(LLVMAnalysis
   ScalarEvolution.cpp
   ScalarEvolutionAliasAnalysis.cpp
   ScalarEvolutionExpander.cpp
-  ScalarEvolutionNormalization.cpp
   SparsePropagation.cpp
   Trace.cpp
   ValueTracking.cpp

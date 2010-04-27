@@ -29,11 +29,7 @@ namespace {
       CurSection = Section;
     }
 
-    virtual void EmitLabel(MCSymbol *Symbol) {
-      assert(Symbol->isUndefined() && "Cannot define a symbol twice!");
-      assert(CurSection && "Cannot emit before setting section!");
-      Symbol->setSection(*CurSection);
-    }
+    virtual void EmitLabel(MCSymbol *Symbol) {}
 
     virtual void EmitAssemblerFlag(MCAssemblerFlag Flag) {}
 

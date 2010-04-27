@@ -12,7 +12,7 @@ entry:
 define i32 @f2(i32 %a) {
 entry:
 ; CHECK: f2:
-; CHECK: bfc	r0, #20, #12
+; CHECK: ubfx r0, r0, #0, #20
     %tmp = shl i32 %a, 12
     %tmp2 = lshr i32 %tmp, 12
     ret i32 %tmp2

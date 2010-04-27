@@ -227,10 +227,9 @@
 // TODO(wan@google.com): uses autoconf to detect whether ::std::wstring
 //   is available.
 
-#if defined(GTEST_OS_CYGWIN) || defined(GTEST_OS_SOLARIS) || defined(GTEST_OS_HAIKU) || defined(_MINIX)
+#if defined(GTEST_OS_CYGWIN) || defined(GTEST_OS_SOLARIS) || defined(GTEST_OS_HAIKU)
 // At least some versions of cygwin don't support ::std::wstring.
 // Solaris' libc++ doesn't support it either.
-// Minix currently doesn't support it either.
 #define GTEST_HAS_STD_WSTRING 0
 #else
 #define GTEST_HAS_STD_WSTRING GTEST_HAS_STD_STRING

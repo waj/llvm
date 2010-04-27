@@ -47,7 +47,11 @@ include "AlphaSchedule.td"
 
 include "AlphaInstrInfo.td"
 
-def AlphaInstrInfo : InstrInfo;
+def AlphaInstrInfo : InstrInfo {
+  // Define how we want to layout our target-specific information field.
+ // let TSFlagsFields = [];
+ // let TSFlagsShifts = [];
+}
 
 //===----------------------------------------------------------------------===//
 // Alpha Processor Definitions

@@ -243,7 +243,7 @@ void MBlazeRegisterInfo::adjustMBlazeStackFrame(MachineFunction &MF) const {
 // if frame pointer elimination is disabled.
 bool MBlazeRegisterInfo::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  return DisableFramePointerElim(MF) || MFI->hasVarSizedObjects();
+  return NoFramePointerElim || MFI->hasVarSizedObjects();
 }
 
 // This function eliminate ADJCALLSTACKDOWN,
@@ -260,7 +260,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 // direct reference.
 unsigned MBlazeRegisterInfo::
 eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
-                    FrameIndexValue *Value, RegScavenger *RS) const {
+                    int *Value, RegScavenger *RS) const {
   MachineInstr &MI = *II;
   MachineFunction &MF = *MI.getParent()->getParent();
 
@@ -302,7 +302,8 @@ emitPrologue(MachineFunction &MF) const {
   MachineFrameInfo *MFI    = MF.getFrameInfo();
   MBlazeFunctionInfo *MBlazeFI = MF.getInfo<MBlazeFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.begin();
-  DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+  DebugLoc dl = (MBBI != MBB.end() ?
+                 MBBI->getDebugLoc() : DebugLoc::getUnknownLoc());
 
   // Get the right frame order for MBlaze.
   adjustMBlazeStackFrame(MF);
@@ -318,13 +319,13 @@ emitPrologue(MachineFunction &MF) const {
   int RAOffset = MBlazeFI->getRAStackOffset();
 
   // Adjust stack : addi R1, R1, -imm
-  BuildMI(MBB, MBBI, DL, TII.get(MBlaze::ADDI), MBlaze::R1)
+  BuildMI(MBB, MBBI, dl, TII.get(MBlaze::ADDI), MBlaze::R1)
       .addReg(MBlaze::R1).addImm(-StackSize);
 
   // Save the return address only if the function isnt a leaf one.
   // swi  R15, R1, stack_loc
   if (MFI->hasCalls()) {
-    BuildMI(MBB, MBBI, DL, TII.get(MBlaze::SWI))
+    BuildMI(MBB, MBBI, dl, TII.get(MBlaze::SWI))
         .addReg(MBlaze::R15).addImm(RAOffset).addReg(MBlaze::R1);
   }
 
@@ -332,11 +333,11 @@ emitPrologue(MachineFunction &MF) const {
   // to point to the stack pointer
   if (hasFP(MF)) {
     // swi  R19, R1, stack_loc
-    BuildMI(MBB, MBBI, DL, TII.get(MBlaze::SWI))
+    BuildMI(MBB, MBBI, dl, TII.get(MBlaze::SWI))
       .addReg(MBlaze::R19).addImm(FPOffset).addReg(MBlaze::R1);
 
     // add R19, R1, R0
-    BuildMI(MBB, MBBI, DL, TII.get(MBlaze::ADD), MBlaze::R19)
+    BuildMI(MBB, MBBI, dl, TII.get(MBlaze::ADD), MBlaze::R19)
       .addReg(MBlaze::R1).addReg(MBlaze::R0);
   }
 }

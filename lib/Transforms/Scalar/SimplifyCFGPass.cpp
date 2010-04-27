@@ -26,7 +26,6 @@
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
-#include "llvm/IntrinsicInst.h"
 #include "llvm/Module.h"
 #include "llvm/Attributes.h"
 #include "llvm/Support/CFG.h"
@@ -79,7 +78,7 @@ static void ChangeToUnreachable(Instruction *I) {
 /// ChangeToCall - Convert the specified invoke into a normal call.
 static void ChangeToCall(InvokeInst *II) {
   BasicBlock *BB = II->getParent();
-  SmallVector<Value*, 8> Args(II->op_begin(), II->op_end() - 3);
+  SmallVector<Value*, 8> Args(II->op_begin()+3, II->op_end());
   CallInst *NewCall = CallInst::Create(II->getCalledValue(), Args.begin(),
                                        Args.end(), "", II);
   NewCall->takeName(II);
@@ -211,16 +210,12 @@ static bool MergeEmptyReturnBlocks(Function &F) {
       // Check for something else in the block.
       BasicBlock::iterator I = Ret;
       --I;
-      // Skip over debug info.
-      while (isa<DbgInfoIntrinsic>(I) && I != BB.begin())
-        --I;
-      if (!isa<DbgInfoIntrinsic>(I) &&
-          (!isa<PHINode>(I) || I != BB.begin() ||
-           Ret->getNumOperands() == 0 ||
-           Ret->getOperand(0) != I))
+      if (!isa<PHINode>(I) || I != BB.begin() ||
+          Ret->getNumOperands() == 0 ||
+          Ret->getOperand(0) != I)
         continue;
     }
-
+    
     // If this is the first returning block, remember it and keep going.
     if (RetBlock == 0) {
       RetBlock = &BB;
@@ -244,7 +239,7 @@ static bool MergeEmptyReturnBlocks(Function &F) {
     // If the canonical return block has no PHI node, create one now.
     PHINode *RetBlockPHI = dyn_cast<PHINode>(RetBlock->begin());
     if (RetBlockPHI == 0) {
-      Value *InVal = cast<ReturnInst>(RetBlock->getTerminator())->getOperand(0);
+      Value *InVal = cast<ReturnInst>(RetBlock->begin())->getOperand(0);
       RetBlockPHI = PHINode::Create(Ret->getOperand(0)->getType(), "merge",
                                     &RetBlock->front());
       

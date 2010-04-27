@@ -13,6 +13,7 @@
 
 #define DEBUG_TYPE "mblaze-isel"
 #include "MBlaze.h"
+#include "MBlazeISelLowering.h"
 #include "MBlazeMachineFunction.h"
 #include "MBlazeRegisterInfo.h"
 #include "MBlazeSubtarget.h"

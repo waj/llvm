@@ -73,14 +73,16 @@ InlinedArrayAllocasTy;
 /// available from other  functions inlined into the caller.  If we are able to
 /// inline this call site we attempt to reuse already available allocas or add
 /// any new allocas to the set if not possible.
-static bool InlineCallIfPossible(CallSite CS, InlineFunctionInfo &IFI,
+static bool InlineCallIfPossible(CallSite CS, CallGraph &CG,
+                                 const TargetData *TD,
                                  InlinedArrayAllocasTy &InlinedArrayAllocas) {
   Function *Callee = CS.getCalledFunction();
   Function *Caller = CS.getCaller();
 
   // Try to inline the function.  Get the list of static allocas that were
   // inlined.
-  if (!InlineFunction(CS, IFI))
+  SmallVector<AllocaInst*, 16> StaticAllocas;
+  if (!InlineFunction(CS, &CG, TD, &StaticAllocas))
     return false;
 
   // If the inlined function had a higher stack protection level than the
@@ -117,9 +119,9 @@ static bool InlineCallIfPossible(CallSite CS, InlineFunctionInfo &IFI,
   
   // Loop over all the allocas we have so far and see if they can be merged with
   // a previously inlined alloca.  If not, remember that we had it.
-  for (unsigned AllocaNo = 0, e = IFI.StaticAllocas.size();
+  for (unsigned AllocaNo = 0, e = StaticAllocas.size();
        AllocaNo != e; ++AllocaNo) {
-    AllocaInst *AI = IFI.StaticAllocas[AllocaNo];
+    AllocaInst *AI = StaticAllocas[AllocaNo];
     
     // Don't bother trying to merge array allocations (they will usually be
     // canonicalized to be an allocation *of* an array), or allocations whose
@@ -217,10 +219,8 @@ bool Inliner::shouldInline(CallSite CS) {
   Function *Caller = CS.getCaller();
   int CurrentThreshold = getInlineThreshold(CS);
   float FudgeFactor = getInlineFudgeFactor(CS);
-  int AdjThreshold = (int)(CurrentThreshold * FudgeFactor);
-  if (Cost >= AdjThreshold) {
+  if (Cost >= (int)(CurrentThreshold * FudgeFactor)) {
     DEBUG(dbgs() << "    NOT Inlining: cost=" << Cost
-          << ", thres=" << AdjThreshold
           << ", Call: " << *CS.getInstruction() << "\n");
     return false;
   }
@@ -285,19 +285,18 @@ bool Inliner::shouldInline(CallSite CS) {
   }
 
   DEBUG(dbgs() << "    Inlining: cost=" << Cost
-        << ", thres=" << AdjThreshold
         << ", Call: " << *CS.getInstruction() << '\n');
   return true;
 }
 
-bool Inliner::runOnSCC(CallGraphSCC &SCC) {
+bool Inliner::runOnSCC(std::vector<CallGraphNode*> &SCC) {
   CallGraph &CG = getAnalysis<CallGraph>();
   const TargetData *TD = getAnalysisIfAvailable<TargetData>();
 
   SmallPtrSet<Function*, 8> SCCFunctions;
   DEBUG(dbgs() << "Inliner visiting SCC:");
-  for (CallGraphSCC::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
-    Function *F = (*I)->getFunction();
+  for (unsigned i = 0, e = SCC.size(); i != e; ++i) {
+    Function *F = SCC[i]->getFunction();
     if (F) SCCFunctions.insert(F);
     DEBUG(dbgs() << " " << (F ? F->getName() : "INDIRECTNODE"));
   }
@@ -307,8 +306,8 @@ bool Inliner::runOnSCC(CallGraphSCC &SCC) {
   // from inlining other functions.
   SmallVector<CallSite, 16> CallSites;
 
-  for (CallGraphSCC::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
-    Function *F = (*I)->getFunction();
+  for (unsigned i = 0, e = SCC.size(); i != e; ++i) {
+    Function *F = SCC[i]->getFunction();
     if (!F) continue;
     
     for (Function::iterator BB = F->begin(), E = F->end(); BB != E; ++BB)
@@ -331,10 +330,6 @@ bool Inliner::runOnSCC(CallGraphSCC &SCC) {
 
   DEBUG(dbgs() << ": " << CallSites.size() << " call sites.\n");
 
-  // If there are no calls in this function, exit early.
-  if (CallSites.empty())
-    return false;
-  
   // Now that we have all of the call sites, move the ones to functions in the
   // current SCC to the end of the list.
   unsigned FirstCallInSCC = CallSites.size();
@@ -345,7 +340,6 @@ bool Inliner::runOnSCC(CallGraphSCC &SCC) {
 
   
   InlinedArrayAllocasTy InlinedArrayAllocas;
-  InlineFunctionInfo InlineInfo(&CG, TD);
   
   // Now that we have all of the call sites, loop over them and inline them if
   // it looks profitable to do so.
@@ -372,8 +366,6 @@ bool Inliner::runOnSCC(CallGraphSCC &SCC) {
         CG[Caller]->removeCallEdgeFor(CS);
         CS.getInstruction()->eraseFromParent();
         ++NumCallsDeleted;
-        // Update the cached cost info with the missing call
-        growCachedCostInfo(Caller, NULL);
       } else {
         // We can only inline direct calls to non-declarations.
         if (Callee == 0 || Callee->isDeclaration()) continue;
@@ -383,21 +375,10 @@ bool Inliner::runOnSCC(CallGraphSCC &SCC) {
         if (!shouldInline(CS))
           continue;
 
-        // Attempt to inline the function.
-        if (!InlineCallIfPossible(CS, InlineInfo, InlinedArrayAllocas))
+        // Attempt to inline the function...
+        if (!InlineCallIfPossible(CS, CG, TD, InlinedArrayAllocas))
           continue;
         ++NumInlined;
-
-        // If inlining this function devirtualized any call sites, throw them
-        // onto our worklist to process.  They are useful inline candidates.
-        for (unsigned i = 0, e = InlineInfo.DevirtualizedCalls.size();
-             i != e; ++i) {
-          Value *Ptr = InlineInfo.DevirtualizedCalls[i];
-          CallSites.push_back(CallSite(Ptr));
-        }
-        
-        // Update the cached cost info with the inlined call.
-        growCachedCostInfo(Caller, Callee);
       }
       
       // If we inlined or deleted the last possible call site to the function,
@@ -423,12 +404,17 @@ bool Inliner::runOnSCC(CallGraphSCC &SCC) {
         delete CG.removeFunctionFromModule(CalleeNode);
         ++NumDeleted;
       }
+      
+      // Remove any cached cost info for this caller, as inlining the
+      // callee has increased the size of the caller (which may be the
+      // same as the callee).
+      resetCachedCostInfo(Caller);
 
       // Remove this call site from the list.  If possible, use 
       // swap/pop_back for efficiency, but do not use it if doing so would
       // move a call site to a function in this SCC before the
       // 'FirstCallInSCC' barrier.
-      if (SCC.isSingular()) {
+      if (SCC.size() == 1) {
         std::swap(CallSites[CSi], CallSites.back());
         CallSites.pop_back();
       } else {

@@ -86,6 +86,7 @@ static unsigned ApproximateLoopSize(const Loop *L, unsigned &NumCalls) {
 }
 
 bool LoopUnroll::runOnLoop(Loop *L, LPPassManager &LPM) {
+  assert(L->isLCSSAForm());
   LoopInfo *LI = &getAnalysis<LoopInfo>();
 
   BasicBlock *Header = L->getHeader();

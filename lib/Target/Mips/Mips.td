@@ -24,7 +24,10 @@ include "MipsSchedule.td"
 include "MipsInstrInfo.td"
 include "MipsCallingConv.td"
 
-def MipsInstrInfo : InstrInfo;
+def MipsInstrInfo : InstrInfo {
+  let TSFlagsFields = [];
+  let TSFlagsShifts = [];
+}
 
 //===----------------------------------------------------------------------===//
 // Mips Subtarget features                                                    //

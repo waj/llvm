@@ -40,8 +40,7 @@ def IIPseudo           : InstrItinClass;
 //===----------------------------------------------------------------------===//
 // MBlaze Generic instruction itineraries.
 //===----------------------------------------------------------------------===//
-def MBlazeGenericItineraries : ProcessorItineraries<
-  [ALU, IMULDIV], [
+def MBlazeGenericItineraries : ProcessorItineraries<[
   InstrItinData<IIAlu              , [InstrStage<1,  [ALU]>]>,
   InstrItinData<IILoad             , [InstrStage<3,  [ALU]>]>,
   InstrItinData<IIStore            , [InstrStage<1,  [ALU]>]>,

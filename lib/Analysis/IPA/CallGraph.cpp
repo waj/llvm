@@ -158,11 +158,8 @@ private:
   // destroy - Release memory for the call graph
   virtual void destroy() {
     /// CallsExternalNode is not in the function map, delete it explicitly.
-    if (CallsExternalNode) {
-      CallsExternalNode->allReferencesDropped();
-      delete CallsExternalNode;
-      CallsExternalNode = 0;
-    }
+    delete CallsExternalNode;
+    CallsExternalNode = 0;
     CallGraph::destroy();
   }
 };
@@ -183,14 +180,6 @@ void CallGraph::initialize(Module &M) {
 
 void CallGraph::destroy() {
   if (FunctionMap.empty()) return;
-  
-  // Reset all node's use counts to zero before deleting them to prevent an
-  // assertion from firing.
-#ifndef NDEBUG
-  for (FunctionMapTy::iterator I = FunctionMap.begin(), E = FunctionMap.end();
-       I != E; ++I)
-    I->second->allReferencesDropped();
-#endif
   
   for (FunctionMapTy::iterator I = FunctionMap.begin(), E = FunctionMap.end();
       I != E; ++I)
@@ -244,16 +233,14 @@ void CallGraphNode::print(raw_ostream &OS) const {
   else
     OS << "Call graph node <<null function>>";
   
-  OS << "<<" << this << ">>  #uses=" << getNumReferences() << '\n';
+  OS << "<<0x" << this << ">>  #uses=" << getNumReferences() << '\n';
 
-  for (const_iterator I = begin(), E = end(); I != E; ++I) {
-    OS << "  CS<" << I->first << "> calls ";
+  for (const_iterator I = begin(), E = end(); I != E; ++I)
     if (Function *FI = I->second->getFunction())
-      OS << "function '" << FI->getName() <<"'\n";
-    else
-      OS << "external node\n";
-  }
-  OS << '\n';
+      OS << "  Calls function '" << FI->getName() <<"'\n";
+  else
+    OS << "  Calls external node\n";
+  OS << "\n";
 }
 
 void CallGraphNode::dump() const { print(dbgs()); }

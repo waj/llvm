@@ -119,7 +119,8 @@ bool LoopDependenceAnalysis::findOrInsertDependencePair(Value *A,
   P = Pairs.FindNodeOrInsertPos(id, insertPos);
   if (P) return true;
 
-  P = new (PairAllocator) DependencePair(id, A, B);
+  P = PairAllocator.Allocate<DependencePair>();
+  new (P) DependencePair(id, A, B);
   Pairs.InsertNode(P, insertPos);
   return false;
 }

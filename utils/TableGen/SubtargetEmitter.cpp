@@ -203,8 +203,7 @@ unsigned SubtargetEmitter::CollectAllItinClasses(raw_ostream &OS,
 // data initialization for the specified itinerary.  N is the number
 // of stages.
 //
-void SubtargetEmitter::FormItineraryStageString(const std::string &Name,
-                                                Record *ItinData,
+void SubtargetEmitter::FormItineraryStageString(Record *ItinData,
                                                 std::string &ItinString,
                                                 unsigned &NStages) {
   // Get states list
@@ -217,7 +216,7 @@ void SubtargetEmitter::FormItineraryStageString(const std::string &Name,
     // Next stage
     const Record *Stage = StageList[i];
   
-    // Form string as ,{ cycles, u1 | u2 | ... | un, timeinc, kind }
+    // Form string as ,{ cycles, u1 | u2 | ... | un, timeinc }
     int Cycles = Stage->getValueAsInt("Cycles");
     ItinString += "  { " + itostr(Cycles) + ", ";
     
@@ -227,15 +226,12 @@ void SubtargetEmitter::FormItineraryStageString(const std::string &Name,
     // For each unit
     for (unsigned j = 0, M = UnitList.size(); j < M;) {
       // Add name and bitwise or
-      ItinString += Name + "FU::" + UnitList[j]->getName();
+      ItinString += UnitList[j]->getName();
       if (++j < M) ItinString += " | ";
     }
     
     int TimeInc = Stage->getValueAsInt("TimeInc");
     ItinString += ", " + itostr(TimeInc);
-
-    int Kind = Stage->getValueAsInt("Kind");
-    ItinString += ", (llvm::InstrStage::ReservationKinds)" + itostr(Kind);
 
     // Close off stage
     ItinString += " }";
@@ -280,29 +276,9 @@ void SubtargetEmitter::EmitStageAndOperandCycleData(raw_ostream &OS,
   // If just no itinerary then don't bother
   if (ProcItinList.size() < 2) return;
 
-  // Emit functional units for all the itineraries.
-  for (unsigned i = 0, N = ProcItinList.size(); i < N; ++i) {
-    // Next record
-    Record *Proc = ProcItinList[i];
-
-    std::vector<Record*> FUs = Proc->getValueAsListOfDefs("FU");
-    if (FUs.empty())
-      continue;
-
-    const std::string &Name = Proc->getName();
-    OS << "\n// Functional units for itineraries \"" << Name << "\"\n"
-       << "namespace " << Name << "FU {\n";
-
-    for (unsigned j = 0, FUN = FUs.size(); j < FUN; ++j)
-      OS << "  const unsigned " << FUs[j]->getName()
-         << " = 1 << " << j << ";\n";
-
-    OS << "}\n";
-  }
-
   // Begin stages table
-  std::string StageTable = "\nstatic const llvm::InstrStage Stages[] = {\n";
-  StageTable += "  { 0, 0, 0, llvm::InstrStage::Required }, // No itinerary\n";
+  std::string StageTable = "static const llvm::InstrStage Stages[] = {\n";
+  StageTable += "  { 0, 0, 0 }, // No itinerary\n";
         
   // Begin operand cycle table
   std::string OperandCycleTable = "static const unsigned OperandCycles[] = {\n";
@@ -336,7 +312,7 @@ void SubtargetEmitter::EmitStageAndOperandCycleData(raw_ostream &OS,
       // Get string and stage count
       std::string ItinStageString;
       unsigned NStages;
-      FormItineraryStageString(Name, ItinData, ItinStageString, NStages);
+      FormItineraryStageString(ItinData, ItinStageString, NStages);
 
       // Get string and operand cycle count
       std::string ItinOperandCycleString;
@@ -391,7 +367,7 @@ void SubtargetEmitter::EmitStageAndOperandCycleData(raw_ostream &OS,
   }
   
   // Closing stage
-  StageTable += "  { 0, 0, 0, llvm::InstrStage::Required } // End itinerary\n";
+  StageTable += "  { 0, 0, 0 } // End itinerary\n";
   StageTable += "};\n";
 
   // Closing operand cycles
@@ -588,9 +564,9 @@ void SubtargetEmitter::run(raw_ostream &OS) {
   OS << "#include \"llvm/Support/raw_ostream.h\"\n";
   OS << "#include \"llvm/Target/SubtargetFeature.h\"\n";
   OS << "#include \"llvm/Target/TargetInstrItineraries.h\"\n\n";
-
-//  Enumeration(OS, "FuncUnit", true);
-//  OS<<"\n";
+  
+  Enumeration(OS, "FuncUnit", true);
+  OS<<"\n";
 //  Enumeration(OS, "InstrItinClass", false);
 //  OS<<"\n";
   Enumeration(OS, "SubtargetFeature", true);

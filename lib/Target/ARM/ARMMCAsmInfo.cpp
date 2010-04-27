@@ -48,6 +48,7 @@ ARMMCAsmInfoDarwin::ARMMCAsmInfoDarwin() {
 
   // Exceptions handling
   ExceptionsType = ExceptionHandling::SjLj;
+  AbsoluteEHSectionOffsets = false;
 }
 
 ARMELFMCAsmInfo::ARMELFMCAsmInfo() {
@@ -58,6 +59,7 @@ ARMELFMCAsmInfo::ARMELFMCAsmInfo() {
   CommentString = "@";
 
   HasLEB128 = true;
+  AbsoluteDebugSectionOffsets = true;
   PrivateGlobalPrefix = ".L";
   WeakRefDirective = "\t.weak\t";
   HasLCOMMDirective = true;

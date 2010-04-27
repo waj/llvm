@@ -492,16 +492,14 @@ private:
 };
   
 /// CheckTypeMatcher - This checks to see if the current node has the
-/// specified type at the specified result, if not it fails to match.
+/// specified type, if not it fails to match.
 class CheckTypeMatcher : public Matcher {
   MVT::SimpleValueType Type;
-  unsigned ResNo;
 public:
-  CheckTypeMatcher(MVT::SimpleValueType type, unsigned resno)
-    : Matcher(CheckType), Type(type), ResNo(resno) {}
+  CheckTypeMatcher(MVT::SimpleValueType type)
+    : Matcher(CheckType), Type(type) {}
   
   MVT::SimpleValueType getType() const { return Type; }
-  unsigned getResNo() const { return ResNo; }
   
   static inline bool classof(const Matcher *N) {
     return N->getKind() == CheckType;

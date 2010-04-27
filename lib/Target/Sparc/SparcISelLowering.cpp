@@ -14,7 +14,6 @@
 
 #include "SparcISelLowering.h"
 #include "SparcTargetMachine.h"
-#include "SparcMachineFunctionInfo.h"
 #include "llvm/Function.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -38,7 +37,7 @@ SDValue
 SparcTargetLowering::LowerReturn(SDValue Chain,
                                  CallingConv::ID CallConv, bool isVarArg,
                                  const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                 DebugLoc dl, SelectionDAG &DAG) const {
+                                 DebugLoc dl, SelectionDAG &DAG) {
 
   // CCValAssign - represent the assignment of the return value to locations.
   SmallVector<CCValAssign, 16> RVLocs;
@@ -86,12 +85,10 @@ SparcTargetLowering::LowerFormalArguments(SDValue Chain,
                                           const SmallVectorImpl<ISD::InputArg>
                                             &Ins,
                                           DebugLoc dl, SelectionDAG &DAG,
-                                          SmallVectorImpl<SDValue> &InVals)
-                                            const {
+                                          SmallVectorImpl<SDValue> &InVals) {
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
-  SparcMachineFunctionInfo *FuncInfo = MF.getInfo<SparcMachineFunctionInfo>();
 
   // Assign locations to all of the incoming arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
@@ -229,7 +226,7 @@ SparcTargetLowering::LowerFormalArguments(SDValue Chain,
   // Store remaining ArgRegs to the stack if this is a varargs function.
   if (isVarArg) {
     // Remember the vararg offset for the va_start implementation.
-    FuncInfo->setVarArgsFrameOffset(ArgOffset);
+    VarArgsFrameOffset = ArgOffset;
 
     std::vector<SDValue> OutChains;
 
@@ -264,7 +261,7 @@ SparcTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                                const SmallVectorImpl<ISD::OutputArg> &Outs,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
                                DebugLoc dl, SelectionDAG &DAG,
-                               SmallVectorImpl<SDValue> &InVals) const {
+                               SmallVectorImpl<SDValue> &InVals) {
   // Sparc target does not yet support tail call optimization.
   isTailCall = false;
 
@@ -755,8 +752,8 @@ static void LookThroughSetCC(SDValue &LHS, SDValue &RHS,
 }
 
 SDValue SparcTargetLowering::LowerGlobalAddress(SDValue Op, 
-                                                SelectionDAG &DAG) const {
-  const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
+                                                SelectionDAG &DAG) {
+  GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   // FIXME there isn't really any debug info here
   DebugLoc dl = Op.getDebugLoc();
   SDValue GA = DAG.getTargetGlobalAddress(GV, MVT::i32);
@@ -776,11 +773,11 @@ SDValue SparcTargetLowering::LowerGlobalAddress(SDValue Op,
 }
 
 SDValue SparcTargetLowering::LowerConstantPool(SDValue Op,
-                                               SelectionDAG &DAG) const {
+                                               SelectionDAG &DAG) {
   ConstantPoolSDNode *N = cast<ConstantPoolSDNode>(Op);
   // FIXME there isn't really any debug info here
   DebugLoc dl = Op.getDebugLoc();
-  const Constant *C = N->getConstVal();
+  Constant *C = N->getConstVal();
   SDValue CP = DAG.getTargetConstantPool(C, MVT::i32, N->getAlignment());
   SDValue Hi = DAG.getNode(SPISD::Hi, dl, MVT::i32, CP);
   SDValue Lo = DAG.getNode(SPISD::Lo, dl, MVT::i32, CP);
@@ -876,18 +873,14 @@ static SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) {
 }
 
 static SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG,
-                            const SparcTargetLowering &TLI) {
-  MachineFunction &MF = DAG.getMachineFunction();
-  SparcMachineFunctionInfo *FuncInfo = MF.getInfo<SparcMachineFunctionInfo>();
-
+                              SparcTargetLowering &TLI) {
   // vastart just stores the address of the VarArgsFrameIndex slot into the
   // memory location argument.
   DebugLoc dl = Op.getDebugLoc();
-  SDValue Offset =
-    DAG.getNode(ISD::ADD, dl, MVT::i32,
-                DAG.getRegister(SP::I6, MVT::i32),
-                DAG.getConstant(FuncInfo->getVarArgsFrameOffset(),
-                                MVT::i32));
+  SDValue Offset = DAG.getNode(ISD::ADD, dl, MVT::i32,
+                                 DAG.getRegister(SP::I6, MVT::i32),
+                                 DAG.getConstant(TLI.getVarArgsFrameOffset(),
+                                                 MVT::i32));
   const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
   return DAG.getStore(Op.getOperand(0), dl, Offset, Op.getOperand(1), SV, 0,
                       false, false, 0);
@@ -946,7 +939,7 @@ static SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) {
 
 
 SDValue SparcTargetLowering::
-LowerOperation(SDValue Op, SelectionDAG &DAG) const {
+LowerOperation(SDValue Op, SelectionDAG &DAG) {
   switch (Op.getOpcode()) {
   default: llvm_unreachable("Should not custom lower this!");
   // Frame & Return address.  Currently unimplemented

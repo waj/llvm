@@ -1,7 +1,6 @@
 // RUN: tblgen %s | grep {Jr} | count 2
 // RUN: tblgen %s | grep {Sr} | count 2
 // RUN: tblgen %s | grep {NAME} | count 1
-// XFAIL: vg_leak
 
 // Variables for foreach
 class decls {

@@ -185,8 +185,7 @@ unsigned MBlazeTargetLowering::getFunctionAlignment(const Function *) const {
   return 2;
 }
 
-SDValue MBlazeTargetLowering::LowerOperation(SDValue Op,
-                                             SelectionDAG &DAG) const {
+SDValue MBlazeTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) {
   switch (Op.getOpcode())
   {
     case ISD::ConstantPool:       return LowerConstantPool(Op, DAG);
@@ -388,8 +387,7 @@ EmitInstrWithCustomInserter(MachineInstr *MI, MachineBasicBlock *BB,
 //===----------------------------------------------------------------------===//
 //
 
-SDValue MBlazeTargetLowering::LowerSELECT_CC(SDValue Op,
-                                             SelectionDAG &DAG) const {
+SDValue MBlazeTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) {
   SDValue LHS = Op.getOperand(0);
   SDValue RHS = Op.getOperand(1);
   SDValue TrueVal = Op.getOperand(2);
@@ -411,23 +409,23 @@ SDValue MBlazeTargetLowering::LowerSELECT_CC(SDValue Op,
 }
 
 SDValue MBlazeTargetLowering::
-LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const {
+LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) {
   // FIXME there isn't actually debug info here
   DebugLoc dl = Op.getDebugLoc();
-  const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
+  GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   SDValue GA = DAG.getTargetGlobalAddress(GV, MVT::i32);
 
   return DAG.getNode(MBlazeISD::Wrap, dl, MVT::i32, GA);
 }
 
 SDValue MBlazeTargetLowering::
-LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const {
+LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) {
   llvm_unreachable("TLS not implemented for MicroBlaze.");
   return SDValue(); // Not reached
 }
 
 SDValue MBlazeTargetLowering::
-LowerJumpTable(SDValue Op, SelectionDAG &DAG) const {
+LowerJumpTable(SDValue Op, SelectionDAG &DAG) {
   SDValue ResNode;
   SDValue HiPart;
   // FIXME there isn't actually debug info here
@@ -444,11 +442,11 @@ LowerJumpTable(SDValue Op, SelectionDAG &DAG) const {
 }
 
 SDValue MBlazeTargetLowering::
-LowerConstantPool(SDValue Op, SelectionDAG &DAG) const {
+LowerConstantPool(SDValue Op, SelectionDAG &DAG) {
   SDValue ResNode;
   EVT PtrVT = Op.getValueType();
   ConstantPoolSDNode *N = cast<ConstantPoolSDNode>(Op);
-  const Constant *C = N->getConstVal();
+  Constant *C = N->getConstVal();
   SDValue Zero = DAG.getConstant(0, PtrVT);
   DebugLoc dl = Op.getDebugLoc();
 
@@ -457,14 +455,9 @@ LowerConstantPool(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getNode(MBlazeISD::Wrap, dl, MVT::i32, CP);
 }
 
-SDValue MBlazeTargetLowering::LowerVASTART(SDValue Op,
-                                           SelectionDAG &DAG) const {
-  MachineFunction &MF = DAG.getMachineFunction();
-  MBlazeFunctionInfo *FuncInfo = MF.getInfo<MBlazeFunctionInfo>();
-
+SDValue MBlazeTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) {
   DebugLoc dl = Op.getDebugLoc();
-  SDValue FI = DAG.getFrameIndex(FuncInfo->getVarArgsFrameIndex(),
-                                 getPointerTy());
+  SDValue FI = DAG.getFrameIndex(VarArgsFrameIndex, getPointerTy());
 
   // vastart just stores the address of the VarArgsFrameIndex slot into the
   // memory location argument.
@@ -540,7 +533,7 @@ LowerCall(SDValue Chain, SDValue Callee, CallingConv::ID CallConv,
           const SmallVectorImpl<ISD::OutputArg> &Outs,
           const SmallVectorImpl<ISD::InputArg> &Ins,
           DebugLoc dl, SelectionDAG &DAG,
-          SmallVectorImpl<SDValue> &InVals) const {
+          SmallVectorImpl<SDValue> &InVals) {
   // MBlaze does not yet support tail call optimization
   isTailCall = false;
 
@@ -676,7 +669,7 @@ SDValue MBlazeTargetLowering::
 LowerCallResult(SDValue Chain, SDValue InFlag, CallingConv::ID CallConv,
                 bool isVarArg, const SmallVectorImpl<ISD::InputArg> &Ins,
                 DebugLoc dl, SelectionDAG &DAG,
-                SmallVectorImpl<SDValue> &InVals) const {
+                SmallVectorImpl<SDValue> &InVals) {
   // Assign locations to each value returned by this call.
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, getTargetMachine(),
@@ -706,13 +699,13 @@ SDValue MBlazeTargetLowering::
 LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
                      const SmallVectorImpl<ISD::InputArg> &Ins,
                      DebugLoc dl, SelectionDAG &DAG,
-                     SmallVectorImpl<SDValue> &InVals) const {
+                     SmallVectorImpl<SDValue> &InVals) {
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   MBlazeFunctionInfo *MBlazeFI = MF.getInfo<MBlazeFunctionInfo>();
 
   unsigned StackReg = MF.getTarget().getRegisterInfo()->getFrameRegister(MF);
-  MBlazeFI->setVarArgsFrameIndex(0);
+  VarArgsFrameIndex = 0;
 
   // Used with vargs to acumulate store chains.
   std::vector<SDValue> OutChains;
@@ -825,8 +818,8 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
 
       // Record the frame index of the first variable argument
       // which is a value necessary to VASTART.
-      if (!MBlazeFI->getVarArgsFrameIndex())
-        MBlazeFI->setVarArgsFrameIndex(FI);
+      if (!VarArgsFrameIndex)
+        VarArgsFrameIndex = FI;
     }
   }
 
@@ -848,7 +841,7 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
 SDValue MBlazeTargetLowering::
 LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
             const SmallVectorImpl<ISD::OutputArg> &Outs,
-            DebugLoc dl, SelectionDAG &DAG) const {
+            DebugLoc dl, SelectionDAG &DAG) {
   // CCValAssign - represent the assignment of
   // the return value to a location
   SmallVector<CCValAssign, 16> RVLocs;

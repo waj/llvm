@@ -14,6 +14,7 @@
 #ifndef ASMPARSER_H
 #define ASMPARSER_H
 
+#include <vector>
 #include "llvm/MC/MCParser/AsmLexer.h"
 #include "llvm/MC/MCParser/AsmCond.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
@@ -21,7 +22,6 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/ADT/StringMap.h"
-#include <vector>
 
 namespace llvm {
 class AsmCond;
@@ -31,6 +31,7 @@ class MCExpr;
 class MCInst;
 class MCStreamer;
 class MCAsmInfo;
+class MCValue;
 class SourceMgr;
 class TargetAsmParser;
 class Twine;
@@ -50,6 +51,10 @@ private:
   AsmCond TheCondState;
   std::vector<AsmCond> TheCondStack;
 
+  // FIXME: Figure out where this should leave, the code is a copy of that which
+  // is also used by TargetLoweringObjectFile.
+  mutable void *SectionUniquingMap;
+
   /// DirectiveMap - This is a table handlers for directives.  Each handler is
   /// invoked after the directive identifier is read and is responsible for
   /// parsing and validating the rest of the directive.  The handler is passed
@@ -60,7 +65,7 @@ public:
             const MCAsmInfo &MAI);
   ~AsmParser();
 
-  bool Run(bool NoInitialTextSection, bool NoFinalize = false);
+  bool Run();
 
   
   void AddDirectiveHandler(StringRef Directive,
@@ -93,6 +98,13 @@ public:
 private:
   MCSymbol *CreateSymbol(StringRef Name);
 
+  // FIXME: See comment on SectionUniquingMap.
+  const MCSection *getMachOSection(const StringRef &Segment,
+                                   const StringRef &Section,
+                                   unsigned TypeAndAttributes,
+                                   unsigned Reserved2,
+                                   SectionKind Kind) const;
+
   bool ParseStatement();
 
   bool TokError(const char *Msg);
@@ -102,6 +114,8 @@ private:
   /// EnterIncludeFile - Enter the specified file. This returns true on failure.
   bool EnterIncludeFile(const std::string &Filename);
   
+  bool ParseConditionalAssemblyDirectives(StringRef Directive,
+                                          SMLoc DirectiveLoc);
   void EatToEndOfStatement();
   
   bool ParseAssignment(const StringRef &Name);

@@ -143,13 +143,13 @@ public:
                                      MachineBasicBlock::iterator MI) const;
 
   unsigned eliminateFrameIndex(MachineBasicBlock::iterator MI,
-                               int SPAdj, FrameIndexValue *Value = NULL,
+                               int SPAdj, int *Value = NULL,
                                RegScavenger *RS = NULL) const;
 
   void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                             RegScavenger *RS = NULL) const;
 
-  void emitCalleeSavedFrameMoves(MachineFunction &MF, MCSymbol *Label,
+  void emitCalleeSavedFrameMoves(MachineFunction &MF, unsigned LabelId,
                                  unsigned FramePtr) const;
   void emitPrologue(MachineFunction &MF) const;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;

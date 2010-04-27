@@ -1,5 +1,4 @@
 add_llvm_library(LLVMCodeGen
-  Analysis.cpp
   AggressiveAntiDepBreaker.cpp
   BranchFolding.cpp
   CalcSpillWeights.cpp
@@ -28,7 +27,6 @@ add_llvm_library(LLVMCodeGen
   MachineFunction.cpp
   MachineFunctionAnalysis.cpp
   MachineFunctionPass.cpp
-  MachineFunctionPrinterPass.cpp
   MachineInstr.cpp
   MachineLICM.cpp
   MachineLoopInfo.cpp
@@ -50,7 +48,6 @@ add_llvm_library(LLVMCodeGen
   ProcessImplicitDefs.cpp
   PrologEpilogInserter.cpp
   PseudoSourceValue.cpp
-  RegAllocFast.cpp
   RegAllocLinearScan.cpp
   RegAllocLocal.cpp
   RegAllocPBQP.cpp

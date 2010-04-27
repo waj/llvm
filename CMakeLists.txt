@@ -217,9 +217,7 @@ if( MSVC )
   # List of valid CRTs for MSVC
   set(MSVC_CRT
     MD
-    MDd
-    MT
-    MTd)
+    MDd)
 
   set(LLVM_USE_CRT "" CACHE STRING "Specify VC++ CRT to use for debug/release configurations.")
   add_llvm_definitions( -D_CRT_SECURE_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS )

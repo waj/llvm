@@ -31,7 +31,6 @@ class MachineRelocation;
 class Value;
 class GlobalValue;
 class Function;
-class MCSymbol;
 
 /// MachineCodeEmitter - This class defines two sorts of methods: those for
 /// emitting the actual bytes of machine code, and those for emitting auxillary
@@ -248,7 +247,7 @@ public:
   virtual void processDebugLoc(DebugLoc DL, bool BeforePrintintInsn) {}
 
   /// emitLabel - Emits a label
-  virtual void emitLabel(MCSymbol *Label) = 0;
+  virtual void emitLabel(uint64_t LabelID) = 0;
 
   /// allocateSpace - Allocate a block of space in the current output buffer,
   /// returning null (and setting conditions to indicate buffer overflow) on
@@ -317,10 +316,10 @@ public:
   ///
   virtual uintptr_t getMachineBasicBlockAddress(MachineBasicBlock *MBB) const= 0;
 
-  /// getLabelAddress - Return the address of the specified Label, only usable
+  /// getLabelAddress - Return the address of the specified LabelID, only usable
   /// after the LabelID has been emitted.
   ///
-  virtual uintptr_t getLabelAddress(MCSymbol *Label) const = 0;
+  virtual uintptr_t getLabelAddress(uint64_t LabelID) const = 0;
   
   /// Specifies the MachineModuleInfo object. This is used for exception handling
   /// purposes.

@@ -1,5 +1,4 @@
 // RUN: tblgen %s | FileCheck %s
-// XFAIL: vg_leak
 // CHECK: No subst
 // CHECK: No foo
 // CHECK: RECURSE foo

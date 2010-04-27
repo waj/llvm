@@ -29,8 +29,7 @@ using namespace llvm;
 /// If the passes did not compile correctly, output the command required to 
 /// recreate the failure. This returns true if a compiler error is found.
 ///
-bool BugDriver::runManyPasses(const std::vector<const PassInfo*> &AllPasses,
-                              std::string &ErrMsg) {
+bool BugDriver::runManyPasses(const std::vector<const PassInfo*> &AllPasses) {
   setPassesToRun(AllPasses);
   outs() << "Starting bug finding procedure...\n\n";
   
@@ -58,7 +57,7 @@ bool BugDriver::runManyPasses(const std::vector<const PassInfo*> &AllPasses,
     //
     outs() << "Running selected passes on program to test for crash: ";
     for(int i = 0, e = PassesToRun.size(); i != e; i++) {
-      outs() << "-" << PassesToRun[i]->getPassArgument() << " ";
+      outs() << "-" << PassesToRun[i]->getPassArgument( )<< " ";
     }
     
     std::string Filename;
@@ -75,33 +74,33 @@ bool BugDriver::runManyPasses(const std::vector<const PassInfo*> &AllPasses,
     // Step 3: Compile the optimized code.
     //
     outs() << "Running the code generator to test for a crash: ";
-    std::string Error;
-    compileProgram(Program, &Error);
-    if (!Error.empty()) {
+    try {
+      compileProgram(Program);
+      outs() << '\n';
+    } catch (ToolExecutionError &TEE) {
       outs() << "\n*** compileProgram threw an exception: ";
-      outs() << Error;
-      return debugCodeGeneratorCrash(ErrMsg);
+      outs() << TEE.what();
+      return debugCodeGeneratorCrash();
     }
-    outs() << '\n';
     
     //
     // Step 4: Run the program and compare its output to the reference 
     // output (created above).
     //
     outs() << "*** Checking if passes caused miscompliation:\n";
-    bool Diff = diffProgram(Filename, "", false, &Error);
-    if (Error.empty() && Diff) {
-      outs() << "\n*** diffProgram returned true!\n";
-      debugMiscompilation(&Error);
-      if (Error.empty())
+    try {
+      if (diffProgram(Filename, "", false)) {
+        outs() << "\n*** diffProgram returned true!\n";
+        debugMiscompilation();
         return true;
-    }
-    if (!Error.empty()) {
-      errs() << Error;
-      debugCodeGeneratorCrash(ErrMsg);
+      } else {
+        outs() << "\n*** diff'd output matches!\n";
+      }
+    } catch (ToolExecutionError &TEE) {
+      errs() << TEE.what();
+      debugCodeGeneratorCrash();
       return true;
     }
-    outs() << "\n*** diff'd output matches!\n";
     
     sys::Path(Filename).eraseFromDisk();
     

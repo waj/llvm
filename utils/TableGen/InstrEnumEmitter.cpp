@@ -26,15 +26,22 @@ void InstrEnumEmitter::run(raw_ostream &OS) {
   CodeGenTarget Target;
 
   // We must emit the PHI opcode first...
-  std::string Namespace = Target.getInstNamespace();
+  std::string Namespace;
+  for (CodeGenTarget::inst_iterator II = Target.inst_begin(), 
+       E = Target.inst_end(); II != E; ++II) {
+    if (II->second.Namespace != "TargetOpcode") {
+      Namespace = II->second.Namespace;
+      break;
+    }
+  }
   
   if (Namespace.empty()) {
     fprintf(stderr, "No instructions defined!\n");
     exit(1);
   }
 
-  const std::vector<const CodeGenInstruction*> &NumberedInstructions =
-    Target.getInstructionsByEnumValue();
+  std::vector<const CodeGenInstruction*> NumberedInstructions;
+  Target.getInstructionsByEnumValue(NumberedInstructions);
 
   OS << "namespace " << Namespace << " {\n";
   OS << "  enum {\n";

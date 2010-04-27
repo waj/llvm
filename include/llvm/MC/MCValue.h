@@ -19,9 +19,8 @@
 #include <cassert>
 
 namespace llvm {
-class MCAsmInfo;
 class MCSymbol;
-class MCSymbolRefExpr;
+class MCAsmInfo;
 class raw_ostream;
 
 /// MCValue - This represents an "assembler immediate".  In its most general
@@ -35,13 +34,13 @@ class raw_ostream;
 /// Note that this class must remain a simple POD value class, because we need
 /// it to live in unions etc.
 class MCValue {
-  const MCSymbolRefExpr *SymA, *SymB;
+  const MCSymbol *SymA, *SymB;
   int64_t Cst;
 public:
 
   int64_t getConstant() const { return Cst; }
-  const MCSymbolRefExpr *getSymA() const { return SymA; }
-  const MCSymbolRefExpr *getSymB() const { return SymB; }
+  const MCSymbol *getSymA() const { return SymA; }
+  const MCSymbol *getSymB() const { return SymB; }
 
   /// isAbsolute - Is this an absolute (as opposed to relocatable) value.
   bool isAbsolute() const { return !SymA && !SymB; }
@@ -58,11 +57,11 @@ public:
 
   /// print - Print the value to the stream \arg OS.
   void print(raw_ostream &OS, const MCAsmInfo *MAI) const;
-
+  
   /// dump - Print the value to stderr.
   void dump() const;
 
-  static MCValue get(const MCSymbolRefExpr *SymA, const MCSymbolRefExpr *SymB=0,
+  static MCValue get(const MCSymbol *SymA, const MCSymbol *SymB = 0,
                      int64_t Val = 0) {
     MCValue R;
     assert((!SymB || SymA) && "Invalid relocatable MCValue!");
@@ -71,7 +70,7 @@ public:
     R.SymB = SymB;
     return R;
   }
-
+  
   static MCValue get(int64_t Val) {
     MCValue R;
     R.Cst = Val;
@@ -79,7 +78,7 @@ public:
     R.SymB = 0;
     return R;
   }
-
+  
 };
 
 } // end namespace llvm

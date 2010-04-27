@@ -139,16 +139,15 @@ MVT::SimpleValueType BlackfinTargetLowering::getSetCCResultType(EVT VT) const {
 }
 
 SDValue BlackfinTargetLowering::LowerGlobalAddress(SDValue Op,
-                                                   SelectionDAG &DAG) const {
+                                                   SelectionDAG &DAG) {
   DebugLoc DL = Op.getDebugLoc();
-  const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
+  GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
 
   Op = DAG.getTargetGlobalAddress(GV, MVT::i32);
   return DAG.getNode(BFISD::Wrapper, DL, MVT::i32, Op);
 }
 
-SDValue BlackfinTargetLowering::LowerJumpTable(SDValue Op,
-                                               SelectionDAG &DAG) const {
+SDValue BlackfinTargetLowering::LowerJumpTable(SDValue Op, SelectionDAG &DAG) {
   DebugLoc DL = Op.getDebugLoc();
   int JTI = cast<JumpTableSDNode>(Op)->getIndex();
 
@@ -162,8 +161,7 @@ BlackfinTargetLowering::LowerFormalArguments(SDValue Chain,
                                             const SmallVectorImpl<ISD::InputArg>
                                                &Ins,
                                              DebugLoc dl, SelectionDAG &DAG,
-                                             SmallVectorImpl<SDValue> &InVals)
-                                               const {
+                                             SmallVectorImpl<SDValue> &InVals) {
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
@@ -220,7 +218,7 @@ SDValue
 BlackfinTargetLowering::LowerReturn(SDValue Chain,
                                     CallingConv::ID CallConv, bool isVarArg,
                                     const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                    DebugLoc dl, SelectionDAG &DAG) const {
+                                    DebugLoc dl, SelectionDAG &DAG) {
 
   // CCValAssign - represent the assignment of the return value to locations.
   SmallVector<CCValAssign, 16> RVLocs;
@@ -280,7 +278,7 @@ BlackfinTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                                   const SmallVectorImpl<ISD::OutputArg> &Outs,
                                   const SmallVectorImpl<ISD::InputArg> &Ins,
                                   DebugLoc dl, SelectionDAG &DAG,
-                                  SmallVectorImpl<SDValue> &InVals) const {
+                                  SmallVectorImpl<SDValue> &InVals) {
   // Blackfin target does not yet support tail call optimization.
   isTailCall = false;
 
@@ -416,7 +414,7 @@ BlackfinTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
 
 // Expansion of ADDE / SUBE. This is a bit involved since blackfin doesn't have
 // add-with-carry instructions.
-SDValue BlackfinTargetLowering::LowerADDE(SDValue Op, SelectionDAG &DAG) const {
+SDValue BlackfinTargetLowering::LowerADDE(SDValue Op, SelectionDAG &DAG) {
   // Operands: lhs, rhs, carry-in (AC0 flag)
   // Results: sum, carry-out (AC0 flag)
   DebugLoc dl = Op.getDebugLoc();
@@ -450,8 +448,7 @@ SDValue BlackfinTargetLowering::LowerADDE(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getMergeValues(ops, 2, dl);
 }
 
-SDValue BlackfinTargetLowering::LowerOperation(SDValue Op,
-                                               SelectionDAG &DAG) const {
+SDValue BlackfinTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) {
   switch (Op.getOpcode()) {
   default:
     Op.getNode()->dump();
@@ -471,7 +468,7 @@ SDValue BlackfinTargetLowering::LowerOperation(SDValue Op,
 void
 BlackfinTargetLowering::ReplaceNodeResults(SDNode *N,
                                            SmallVectorImpl<SDValue> &Results,
-                                           SelectionDAG &DAG) const {
+                                           SelectionDAG &DAG) {
   DebugLoc dl = N->getDebugLoc();
   switch (N->getOpcode()) {
   default:

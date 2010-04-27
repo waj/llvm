@@ -27,7 +27,6 @@ namespace llvm {
   class MCSection;
   class MCSymbol;
   class StringRef;
-class TargetAsmBackend;
   class Twine;
   class raw_ostream;
   class formatted_raw_ostream;
@@ -62,13 +61,9 @@ class TargetAsmBackend;
     /// @name Assembly File Formatting.
     /// @{
     
-    /// isVerboseAsm - Return true if this streamer supports verbose assembly
-    /// and if it is enabled.
+    /// isVerboseAsm - Return true if this streamer supports verbose assembly at
+    /// all.
     virtual bool isVerboseAsm() const { return false; }
-    
-    /// hasRawTextSupport - Return true if this asm streamer supports emitting
-    /// unformatted text to the .s file with EmitRawText.
-    virtual bool hasRawTextSupport() const { return false; }
 
     /// AddComment - Add a comment that can be emitted to the generated .s
     /// file if applicable as a QoI issue to make the output of the compiler
@@ -92,7 +87,7 @@ class TargetAsmBackend;
     /// @name Symbol & Section Management
     /// @{
     
-    /// getCurrentSection - Return the current section that the streamer is
+    /// getCurrentSection - Return the current seciton that the streamer is
     /// emitting code to.
     const MCSection *getCurrentSection() const { return CurSection; }
 
@@ -196,11 +191,6 @@ class TargetAsmBackend;
     /// EmitIntValue - Special case of EmitValue that avoids the client having
     /// to pass in a MCExpr for constant integers.
     virtual void EmitIntValue(uint64_t Value, unsigned Size,unsigned AddrSpace);
-
-    /// EmitSymbolValue - Special case of EmitValue that avoids the client
-    /// having to pass in a MCExpr for MCSymbols.
-    virtual void EmitSymbolValue(const MCSymbol *Sym, unsigned Size,
-                                 unsigned AddrSpace);
     
     /// EmitGPRel32Value - Emit the expression @p Value into the output as a
     /// gprel32 (32-bit GP relative) value.
@@ -282,12 +272,6 @@ class TargetAsmBackend;
     /// section.
     virtual void EmitInstruction(const MCInst &Inst) = 0;
 
-    /// EmitRawText - If this file is backed by a assembly streamer, this dumps
-    /// the specified string in the output .s file.  This capability is
-    /// indicated by the hasRawTextSupport() predicate.  By default this aborts.
-    virtual void EmitRawText(StringRef String);
-    void EmitRawText(const Twine &String);
-    
     /// Finish - Finish emission of machine code and flush any output.
     virtual void Finish() = 0;
   };
@@ -301,8 +285,7 @@ class TargetAsmBackend;
   /// assembler.
   ///
   /// \param InstPrint - If given, the instruction printer to use. If not given
-  /// the MCInst representation will be printed.  This method takes ownership of
-  /// InstPrint.
+  /// the MCInst representation will be printed.
   ///
   /// \param CE - If given, a code emitter to use to show the instruction
   /// encoding inline with the assembly.
@@ -310,16 +293,24 @@ class TargetAsmBackend;
   /// \param ShowInst - Whether to show the MCInst representation inline with
   /// the assembly.
   MCStreamer *createAsmStreamer(MCContext &Ctx, formatted_raw_ostream &OS,
-                                bool isLittleEndian, bool isVerboseAsm,
+                                const MCAsmInfo &MAI, bool isLittleEndian,
+                                bool isVerboseAsm,
                                 MCInstPrinter *InstPrint = 0,
                                 MCCodeEmitter *CE = 0,
                                 bool ShowInst = false);
 
+  // FIXME: These two may end up getting rolled into a single
+  // createObjectStreamer interface, which implements the assembler backend, and
+  // is parameterized on an output object file writer.
+
   /// createMachOStream - Create a machine code streamer which will generative
   /// Mach-O format object files.
-  MCStreamer *createMachOStreamer(MCContext &Ctx, TargetAsmBackend &TAB,
-                                  raw_ostream &OS, MCCodeEmitter *CE,
-                                  bool RelaxAll = false);
+  MCStreamer *createMachOStreamer(MCContext &Ctx, raw_ostream &OS,
+                                  MCCodeEmitter *CE);
+
+  /// createELFStreamer - Create a machine code streamer which will generative
+  /// ELF format object files.
+  MCStreamer *createELFStreamer(MCContext &Ctx, raw_ostream &OS);
 
 } // end namespace llvm
 

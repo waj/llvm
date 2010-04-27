@@ -49,11 +49,7 @@ namespace llvm {
   /// are opaque objects that the client is not allowed to do much with
   /// directly.
   ///
-  class SCEV : public FoldingSetNode {
-    /// FastID - A reference to an Interned FoldingSetNodeID for this node.
-    /// The ScalarEvolution's BumpPtrAllocator holds the data.
-    FoldingSetNodeIDRef FastID;
-
+  class SCEV : public FastFoldingSetNode {
     // The SCEV baseclass this node corresponds to
     const unsigned short SCEVType;
 
@@ -68,13 +64,10 @@ namespace llvm {
   protected:
     virtual ~SCEV();
   public:
-    explicit SCEV(const FoldingSetNodeIDRef ID, unsigned SCEVTy) :
-      FastID(ID), SCEVType(SCEVTy), SubclassData(0) {}
+    explicit SCEV(const FoldingSetNodeID &ID, unsigned SCEVTy) :
+      FastFoldingSetNode(ID), SCEVType(SCEVTy), SubclassData(0) {}
 
     unsigned getSCEVType() const { return SCEVType; }
-
-    /// Profile - FoldingSet support.
-    void Profile(FoldingSetNodeID& ID) { ID = FastID; }
 
     /// isLoopInvariant - Return true if the value of this SCEV is unchanging in
     /// the specified loop.
@@ -351,8 +344,7 @@ namespace llvm {
     /// (which may not be an immediate predecessor) which has exactly one
     /// successor from which BB is reachable, or null if no such block is
     /// found.
-    std::pair<BasicBlock *, BasicBlock *>
-    getPredecessorWithUniqueSuccessorForBB(BasicBlock *BB);
+    BasicBlock* getPredecessorWithUniqueSuccessorForBB(BasicBlock *BB);
 
     /// isImpliedCond - Test whether the condition described by Pred, LHS,
     /// and RHS is true whenever the given Cond value evaluates to true.
@@ -380,13 +372,6 @@ namespace llvm {
     /// involving constants, fold it.
     Constant *getConstantEvolutionLoopExitValue(PHINode *PN, const APInt& BEs,
                                                 const Loop *L);
-
-    /// isKnownPredicateWithRanges - Test if the given expression is known to
-    /// satisfy the condition described by Pred and the known constant ranges
-    /// of LHS and RHS.
-    ///
-    bool isKnownPredicateWithRanges(ICmpInst::Predicate Pred,
-                                    const SCEV *LHS, const SCEV *RHS);
 
   public:
     static char ID; // Pass identification, replacement for typeid
@@ -562,11 +547,11 @@ namespace llvm {
     /// getSCEVAtScope(getSCEV(V), L).
     const SCEV *getSCEVAtScope(Value *V, const Loop *L);
 
-    /// isLoopEntryGuardedByCond - Test whether entry to the loop is protected
-    /// by a conditional between LHS and RHS.  This is used to help avoid max
+    /// isLoopGuardedByCond - Test whether entry to the loop is protected by
+    /// a conditional between LHS and RHS.  This is used to help avoid max
     /// expressions in loop trip counts, and to eliminate casts.
-    bool isLoopEntryGuardedByCond(const Loop *L, ICmpInst::Predicate Pred,
-                                  const SCEV *LHS, const SCEV *RHS);
+    bool isLoopGuardedByCond(const Loop *L, ICmpInst::Predicate Pred,
+                             const SCEV *LHS, const SCEV *RHS);
 
     /// isLoopBackedgeGuardedByCond - Test whether the backedge of the loop is
     /// protected by a conditional between LHS and RHS.  This is used to
@@ -644,18 +629,11 @@ namespace llvm {
     ///
     bool isKnownNonZero(const SCEV *S);
 
-    /// isKnownPredicate - Test if the given expression is known to satisfy
+    /// isKnownNonZero - Test if the given expression is known to satisfy
     /// the condition described by Pred, LHS, and RHS.
     ///
     bool isKnownPredicate(ICmpInst::Predicate Pred,
                           const SCEV *LHS, const SCEV *RHS);
-
-    /// SimplifyICmpOperands - Simplify LHS and RHS in a comparison with
-    /// predicate Pred. Return true iff any changes were made.
-    ///
-    bool SimplifyICmpOperands(ICmpInst::Predicate &Pred,
-                              const SCEV *&LHS,
-                              const SCEV *&RHS);
 
     virtual bool runOnFunction(Function &F);
     virtual void releaseMemory();

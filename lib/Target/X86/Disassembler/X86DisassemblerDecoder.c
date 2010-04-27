@@ -13,6 +13,7 @@
  *
  *===----------------------------------------------------------------------===*/
 
+#include <assert.h>   /* for assert()     */
 #include <stdarg.h>   /* for va_*()       */
 #include <stdio.h>    /* for vsnprintf()  */
 #include <stdlib.h>   /* for exit()       */
@@ -25,20 +26,17 @@
 #define TRUE  1
 #define FALSE 0
 
-typedef int8_t bool;
-
 #ifdef __GNUC__
 #define NORETURN __attribute__((noreturn))
 #else
 #define NORETURN
 #endif
 
-#ifndef NDEBUG
-#define debug(s) do { x86DisassemblerDebug(__FILE__, __LINE__, s); } while (0)
-#else
-#define debug(s) do { } while (0)
-#endif
-
+#define unreachable(s)                                      \
+  do {                                                      \
+    fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, s);  \
+    exit(-1);                                               \
+  } while (0);
 
 /*
  * contextForAttrs - Client for the instruction context table.  Takes a set of
@@ -86,6 +84,7 @@ static int modRMRequired(OpcodeType type,
   return decision->opcodeDecisions[insnContext].modRMDecisions[opcode].
     modrm_type != MODRM_ONEENTRY;
   
+  unreachable("Unknown opcode type");
   return 0;
 }
 
@@ -97,18 +96,16 @@ static int modRMRequired(OpcodeType type,
  * @param insnContext - See modRMRequired().
  * @param opcode      - See modRMRequired().
  * @param modRM       - The ModR/M byte if required, or any value if not.
- * @return            - The UID of the instruction, or 0 on failure.
  */
 static InstrUID decode(OpcodeType type,
-                       InstructionContext insnContext,
-                       uint8_t opcode,
-                       uint8_t modRM) {
+                               InstructionContext insnContext,
+                               uint8_t opcode,
+                               uint8_t modRM) {
   struct ModRMDecision* dec;
   
   switch (type) {
   default:
-    debug("Unknown opcode type");
-    return 0;
+    unreachable("Unknown opcode type");
   case ONEBYTE:
     dec = &ONEBYTE_SYM.opcodeDecisions[insnContext].modRMDecisions[opcode];
     break;
@@ -125,8 +122,7 @@ static InstrUID decode(OpcodeType type,
   
   switch (dec->modrm_type) {
   default:
-    debug("Corrupt table!  Unknown modrm_type");
-    return 0;
+    unreachable("Corrupt table!  Unknown modrm_type");
   case MODRM_ONEENTRY:
     return dec->instructionIDs[0];
   case MODRM_SPLITRM:
@@ -137,6 +133,8 @@ static InstrUID decode(OpcodeType type,
   case MODRM_FULL:
     return dec->instructionIDs[modRM];
   }
+  
+  return 0;
 }
 
 /*
@@ -344,8 +342,7 @@ static int readPrefixes(struct InternalInstruction* insn) {
         insn->segmentOverride = SEG_OVERRIDE_GS;
         break;
       default:
-        debug("Unhandled override");
-        return -1;
+        unreachable("Unhandled override");
       }
       if (prefixGroups[1])
         dbgprintf(insn, "Redundant Group 2 prefix");
@@ -379,7 +376,7 @@ static int readPrefixes(struct InternalInstruction* insn) {
     if ((byte & 0xf0) == 0x40) {
       uint8_t opcodeByte;
       
-      if (lookAtByte(insn, &opcodeByte) || ((opcodeByte & 0xf0) == 0x40)) {
+      if(lookAtByte(insn, &opcodeByte) || ((opcodeByte & 0xf0) == 0x40)) {
         dbgprintf(insn, "Redundant REX prefix");
         return -1;
       }
@@ -543,17 +540,17 @@ static int getIDWithAttrMask(uint16_t* instructionID,
 static BOOL is16BitEquvalent(const char* orig, const char* equiv) {
   off_t i;
   
-  for (i = 0;; i++) {
-    if (orig[i] == '\0' && equiv[i] == '\0')
+  for(i = 0;; i++) {
+    if(orig[i] == '\0' && equiv[i] == '\0')
       return TRUE;
-    if (orig[i] == '\0' || equiv[i] == '\0')
+    if(orig[i] == '\0' || equiv[i] == '\0')
       return FALSE;
-    if (orig[i] != equiv[i]) {
-      if ((orig[i] == 'Q' || orig[i] == 'L') && equiv[i] == 'W')
+    if(orig[i] != equiv[i]) {
+      if((orig[i] == 'Q' || orig[i] == 'L') && equiv[i] == 'W')
         continue;
-      if ((orig[i] == '6' || orig[i] == '3') && equiv[i] == '1')
+      if((orig[i] == '6' || orig[i] == '3') && equiv[i] == '1')
         continue;
-      if ((orig[i] == '4' || orig[i] == '2') && equiv[i] == '6')
+      if((orig[i] == '4' || orig[i] == '2') && equiv[i] == '6')
         continue;
       return FALSE;
     }
@@ -570,17 +567,17 @@ static BOOL is16BitEquvalent(const char* orig, const char* equiv) {
 static BOOL is64BitEquivalent(const char* orig, const char* equiv) {
   off_t i;
   
-  for (i = 0;; i++) {
-    if (orig[i] == '\0' && equiv[i] == '\0')
+  for(i = 0;; i++) {
+    if(orig[i] == '\0' && equiv[i] == '\0')
       return TRUE;
-    if (orig[i] == '\0' || equiv[i] == '\0')
+    if(orig[i] == '\0' || equiv[i] == '\0')
       return FALSE;
-    if (orig[i] != equiv[i]) {
-      if ((orig[i] == 'W' || orig[i] == 'L') && equiv[i] == 'Q')
+    if(orig[i] != equiv[i]) {
+      if((orig[i] == 'W' || orig[i] == 'L') && equiv[i] == 'Q')
         continue;
-      if ((orig[i] == '1' || orig[i] == '3') && equiv[i] == '6')
+      if((orig[i] == '1' || orig[i] == '3') && equiv[i] == '6')
         continue;
-      if ((orig[i] == '6' || orig[i] == '2') && equiv[i] == '4')
+      if((orig[i] == '6' || orig[i] == '2') && equiv[i] == '4')
         continue;
       return FALSE;
     }
@@ -618,7 +615,7 @@ static int getID(struct InternalInstruction* insn) {
   else if (isPrefixAtLocation(insn, 0xf2, insn->necessaryPrefixLocation))
     attrMask |= ATTR_XD;
   
-  if (getIDWithAttrMask(&instructionID, insn, attrMask))
+  if(getIDWithAttrMask(&instructionID, insn, attrMask))
     return -1;
   
   /* The following clauses compensate for limitations of the tables. */
@@ -795,8 +792,7 @@ static int readSIB(struct InternalInstruction* insn) {
                        SIB_BASE_EBP : SIB_BASE_RBP);
       break;
     case 0x3:
-      debug("Cannot have Mod = 0b11 and a SIB byte");
-      return -1;
+      unreachable("Cannot have Mod = 0b11 and a SIB byte");
     }
     break;
   default:
@@ -907,7 +903,7 @@ static int readModRM(struct InternalInstruction* insn) {
       if (rm == 0x6) {
         insn->eaBase = EA_BASE_NONE;
         insn->eaDisplacement = EA_DISP_16;
-        if (readDisplacement(insn))
+        if(readDisplacement(insn))
           return -1;
       } else {
         insn->eaBase = (EABase)(insn->eaBaseBase + rm);
@@ -917,18 +913,18 @@ static int readModRM(struct InternalInstruction* insn) {
     case 0x1:
       insn->eaBase = (EABase)(insn->eaBaseBase + rm);
       insn->eaDisplacement = EA_DISP_8;
-      if (readDisplacement(insn))
+      if(readDisplacement(insn))
         return -1;
       break;
     case 0x2:
       insn->eaBase = (EABase)(insn->eaBaseBase + rm);
       insn->eaDisplacement = EA_DISP_16;
-      if (readDisplacement(insn))
+      if(readDisplacement(insn))
         return -1;
       break;
     case 0x3:
       insn->eaBase = (EABase)(insn->eaRegBase + rm);
-      if (readDisplacement(insn))
+      if(readDisplacement(insn))
         return -1;
       break;
     }
@@ -946,13 +942,13 @@ static int readModRM(struct InternalInstruction* insn) {
         insn->eaBase = (insn->addressSize == 4 ? 
                         EA_BASE_sib : EA_BASE_sib64);
         readSIB(insn);
-        if (readDisplacement(insn))
+        if(readDisplacement(insn))
           return -1;
         break;
       case 0x5:
         insn->eaBase = EA_BASE_NONE;
         insn->eaDisplacement = EA_DISP_32;
-        if (readDisplacement(insn))
+        if(readDisplacement(insn))
           return -1;
         break;
       default:
@@ -968,12 +964,12 @@ static int readModRM(struct InternalInstruction* insn) {
       case 0xc:   /* in case REXW.b is set */
         insn->eaBase = EA_BASE_sib;
         readSIB(insn);
-        if (readDisplacement(insn))
+        if(readDisplacement(insn))
           return -1;
         break;
       default:
         insn->eaBase = (EABase)(insn->eaBaseBase + rm);
-        if (readDisplacement(insn))
+        if(readDisplacement(insn))
           return -1;
         break;
       }
@@ -997,13 +993,11 @@ static int readModRM(struct InternalInstruction* insn) {
     *valid = 1;                                           \
     switch (type) {                                       \
     default:                                              \
-      debug("Unhandled register type");                   \
-      *valid = 0;                                         \
-      return 0;                                           \
+      unreachable("Unhandled register type");             \
     case TYPE_Rv:                                         \
       return base + index;                                \
     case TYPE_R8:                                         \
-      if (insn->rexPrefix &&                              \
+      if(insn->rexPrefix &&                               \
          index >= 4 && index <= 7) {                      \
         return prefix##_SPL + (index - 4);                \
       } else {                                            \
@@ -1023,23 +1017,23 @@ static int readModRM(struct InternalInstruction* insn) {
     case TYPE_MM64:                                       \
     case TYPE_MM32:                                       \
     case TYPE_MM:                                         \
-      if (index > 7)                                      \
+      if(index > 7)                                       \
         *valid = 0;                                       \
       return prefix##_MM0 + index;                        \
     case TYPE_SEGMENTREG:                                 \
-      if (index > 5)                                      \
+      if(index > 5)                                       \
         *valid = 0;                                       \
       return prefix##_ES + index;                         \
     case TYPE_DEBUGREG:                                   \
-      if (index > 7)                                      \
+      if(index > 7)                                       \
         *valid = 0;                                       \
       return prefix##_DR0 + index;                        \
     case TYPE_CR32:                                       \
-      if (index > 7)                                      \
+      if(index > 7)                                       \
         *valid = 0;                                       \
       return prefix##_ECR0 + index;                       \
     case TYPE_CR64:                                       \
-      if (index > 8)                                      \
+      if(index > 8)                                       \
         *valid = 0;                                       \
       return prefix##_RCR0 + index;                       \
     }                                                     \
@@ -1056,7 +1050,6 @@ static int readModRM(struct InternalInstruction* insn) {
  * @param index - The existing value of the field as reported by readModRM().
  * @param valid - The address of a uint8_t.  The target is set to 1 if the
  *                field is valid for the register class; 0 if not.
- * @return      - The proper value.
  */
 GENERIC_FIXUP_FUNC(fixupRegValue, insn->regBase,    MODRM_REG)
 GENERIC_FIXUP_FUNC(fixupRMValue,  insn->eaRegBase,  EA_REG)
@@ -1078,8 +1071,7 @@ static int fixupReg(struct InternalInstruction *insn,
   
   switch ((OperandEncoding)op->encoding) {
   default:
-    debug("Expected a REG or R/M encoding in fixupReg");
-    return -1;
+    unreachable("Expected a REG or R/M encoding in fixupReg");
   case ENCODING_REG:
     insn->reg = (Reg)fixupRegValue(insn,
                                    (OperandType)op->type,
@@ -1110,29 +1102,26 @@ static int fixupReg(struct InternalInstruction *insn,
  * @param insn    - The instruction whose opcode field is to be read.
  * @param inModRM - Indicates that the opcode field is to be read from the
  *                  ModR/M extension; useful for escape opcodes
- * @return        - 0 on success; nonzero otherwise.
  */
-static int readOpcodeModifier(struct InternalInstruction* insn) {
+static void readOpcodeModifier(struct InternalInstruction* insn) {
   dbgprintf(insn, "readOpcodeModifier()");
   
   if (insn->consumedOpcodeModifier)
-    return 0;
+    return;
   
   insn->consumedOpcodeModifier = TRUE;
   
-  switch (insn->spec->modifierType) {
+  switch(insn->spec->modifierType) {
   default:
-    debug("Unknown modifier type.");
-    return -1;
+    unreachable("Unknown modifier type.");
   case MODIFIER_NONE:
-    debug("No modifier but an operand expects one.");
-    return -1;
+    unreachable("No modifier but an operand expects one.");
   case MODIFIER_OPCODE:
     insn->opcodeModifier = insn->opcode - insn->spec->modifierBase;
-    return 0;
+    break;
   case MODIFIER_MODRM:
     insn->opcodeModifier = insn->modRM - insn->spec->modifierBase;
-    return 0;
+    break;
   }  
 }
 
@@ -1145,13 +1134,11 @@ static int readOpcodeModifier(struct InternalInstruction* insn) {
  * @param size  - The width (in bytes) of the register being specified.
  *                1 means AL and friends, 2 means AX, 4 means EAX, and 8 means
  *                RAX.
- * @return      - 0 on success; nonzero otherwise.
  */
-static int readOpcodeRegister(struct InternalInstruction* insn, uint8_t size) {
+static void readOpcodeRegister(struct InternalInstruction* insn, uint8_t size) {
   dbgprintf(insn, "readOpcodeRegister()");
 
-  if (readOpcodeModifier(insn))
-    return -1;
+  readOpcodeModifier(insn);
   
   if (size == 0)
     size = insn->registerSize;
@@ -1160,9 +1147,9 @@ static int readOpcodeRegister(struct InternalInstruction* insn, uint8_t size) {
   case 1:
     insn->opcodeRegister = (Reg)(MODRM_REG_AL + ((bFromREX(insn->rexPrefix) << 3) 
                                                   | insn->opcodeModifier));
-    if (insn->rexPrefix && 
-        insn->opcodeRegister >= MODRM_REG_AL + 0x4 &&
-        insn->opcodeRegister < MODRM_REG_AL + 0x8) {
+    if(insn->rexPrefix && 
+       insn->opcodeRegister >= MODRM_REG_AL + 0x4 &&
+       insn->opcodeRegister < MODRM_REG_AL + 0x8) {
       insn->opcodeRegister = (Reg)(MODRM_REG_SPL
                                    + (insn->opcodeRegister - MODRM_REG_AL - 4));
     }
@@ -1174,7 +1161,7 @@ static int readOpcodeRegister(struct InternalInstruction* insn, uint8_t size) {
                                     | insn->opcodeModifier));
     break;
   case 4:
-    insn->opcodeRegister = (Reg)(MODRM_REG_EAX
+    insn->opcodeRegister = (Reg)(MODRM_REG_EAX +
                                  + ((bFromREX(insn->rexPrefix) << 3) 
                                     | insn->opcodeModifier));
     break;
@@ -1184,8 +1171,6 @@ static int readOpcodeRegister(struct InternalInstruction* insn, uint8_t size) {
                                     | insn->opcodeModifier));
     break;
   }
-  
-  return 0;
 }
 
 /*
@@ -1205,10 +1190,8 @@ static int readImmediate(struct InternalInstruction* insn, uint8_t size) {
   
   dbgprintf(insn, "readImmediate()");
   
-  if (insn->numImmediatesConsumed == 2) {
-    debug("Already consumed two immediates");
-    return -1;
-  }
+  if (insn->numImmediatesConsumed == 2)
+    unreachable("Already consumed two immediates");
   
   if (size == 0)
     size = insn->immediateSize;
@@ -1277,9 +1260,6 @@ static int readOperands(struct InternalInstruction* insn) {
     case ENCODING_IB:
       if (readImmediate(insn, 1))
         return -1;
-      if (insn->spec->operands[index].type == TYPE_IMM3 &&
-          insn->immediates[insn->numImmediatesConsumed - 1] > 7)
-        return -1;
       break;
     case ENCODING_IW:
       if (readImmediate(insn, 2))
@@ -1294,36 +1274,29 @@ static int readOperands(struct InternalInstruction* insn) {
         return -1;
       break;
     case ENCODING_Iv:
-      if (readImmediate(insn, insn->immediateSize))
-        return -1;
+      readImmediate(insn, insn->immediateSize);
       break;
     case ENCODING_Ia:
-      if (readImmediate(insn, insn->addressSize))
-        return -1;
+      readImmediate(insn, insn->addressSize);
       break;
     case ENCODING_RB:
-      if (readOpcodeRegister(insn, 1))
-        return -1;
+      readOpcodeRegister(insn, 1);
       break;
     case ENCODING_RW:
-      if (readOpcodeRegister(insn, 2))
-        return -1;
+      readOpcodeRegister(insn, 2);
       break;
     case ENCODING_RD:
-      if (readOpcodeRegister(insn, 4))
-        return -1;
+      readOpcodeRegister(insn, 4);
       break;
     case ENCODING_RO:
-      if (readOpcodeRegister(insn, 8))
-        return -1;
+      readOpcodeRegister(insn, 8);
       break;
     case ENCODING_Rv:
-      if (readOpcodeRegister(insn, 0))
-        return -1;
+      readOpcodeRegister(insn, 0);
       break;
     case ENCODING_I:
-      if (readOpcodeModifier(insn))
-        return -1;
+      readOpcodeModifier(insn);
+      break;
     case ENCODING_DUP:
       break;
     default:
@@ -1382,8 +1355,8 @@ int decodeInstruction(struct InternalInstruction* insn,
   
   insn->length = insn->readerCursor - insn->startLocation;
   
-  dbgprintf(insn, "Read from 0x%llx to 0x%llx: length %zu",
-            startLoc, insn->readerCursor, insn->length);
+  dbgprintf(insn, "Read from 0x%llx to 0x%llx: length %llu",
+          startLoc, insn->readerCursor, insn->length);
     
   if (insn->length > 15)
     dbgprintf(insn, "Instruction exceeds 15-byte limit");

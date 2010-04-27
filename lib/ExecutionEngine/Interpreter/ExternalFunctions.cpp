@@ -126,7 +126,7 @@ static ffi_type *ffiTypeFor(const Type *Ty) {
     default: break;
   }
   // TODO: Support other types such as StructTyID, ArrayTyID, OpaqueTyID, etc.
-  report_fatal_error("Type could not be mapped for use with libffi.");
+  llvm_report_error("Type could not be mapped for use with libffi.");
   return NULL;
 }
 
@@ -174,7 +174,7 @@ static void *ffiValueFor(const Type *Ty, const GenericValue &AV,
     default: break;
   }
   // TODO: Support other types such as StructTyID, ArrayTyID, OpaqueTyID, etc.
-  report_fatal_error("Type value could not be mapped for use with libffi.");
+  llvm_report_error("Type value could not be mapped for use with libffi.");
   return NULL;
 }
 
@@ -188,7 +188,7 @@ static bool ffiInvoke(RawFunc Fn, Function *F,
   // TODO: We don't have type information about the remaining arguments, because
   // this information is never passed into ExecutionEngine::runFunction().
   if (ArgVals.size() > NumArgs && F->isVarArg()) {
-    report_fatal_error("Calling external var arg function '" + F->getName()
+    llvm_report_error("Calling external var arg function '" + F->getName()
                       + "' is not supported by the Interpreter.");
   }
 
@@ -265,8 +265,6 @@ GenericValue Interpreter::callExternalFunction(Function *F,
   if (RF == RawFunctions->end()) {
     RawFn = (RawFunc)(intptr_t)
       sys::DynamicLibrary::SearchForAddressOfSymbol(F->getName());
-    if (!RawFn)
-	RawFn = (RawFunc)(intptr_t)getPointerToGlobalIfAvailable(F);
     if (RawFn != 0)
       RawFunctions->insert(std::make_pair(F, RawFn));  // Cache for later
   } else {
@@ -284,7 +282,7 @@ GenericValue Interpreter::callExternalFunction(Function *F,
     errs() << "Tried to execute an unknown external function: "
       << F->getType()->getDescription() << " __main\n";
   else
-    report_fatal_error("Tried to execute an unknown external function: " +
+    llvm_report_error("Tried to execute an unknown external function: " +
                       F->getType()->getDescription() + " " +F->getName());
 #ifndef USE_LIBFFI
   errs() << "Recompiling LLVM with --enable-libffi might help.\n";
@@ -325,7 +323,7 @@ GenericValue lle_X_exit(const FunctionType *FT,
 GenericValue lle_X_abort(const FunctionType *FT,
                          const std::vector<GenericValue> &Args) {
   //FIXME: should we report or raise here?
-  //report_fatal_error("Interpreted program raised SIGABRT");
+  //llvm_report_error("Interpreted program raised SIGABRT");
   raise (SIGABRT);
   return GenericValue();
 }

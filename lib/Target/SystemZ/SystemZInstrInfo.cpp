@@ -62,7 +62,7 @@ void SystemZInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
                                           MachineBasicBlock::iterator MI,
                                     unsigned SrcReg, bool isKill, int FrameIdx,
                                     const TargetRegisterClass *RC) const {
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   unsigned Opc = 0;
@@ -91,7 +91,7 @@ void SystemZInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
                                            MachineBasicBlock::iterator MI,
                                            unsigned DestReg, int FrameIdx,
                                            const TargetRegisterClass *RC) const{
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   unsigned Opc = 0;
@@ -120,7 +120,7 @@ bool SystemZInstrInfo::copyRegToReg(MachineBasicBlock &MBB,
                                     unsigned DestReg, unsigned SrcReg,
                                     const TargetRegisterClass *DestRC,
                                     const TargetRegisterClass *SrcRC) const {
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (I != MBB.end()) DL = I->getDebugLoc();
 
   // Determine if DstRC and SrcRC have a common superclass.
@@ -273,7 +273,7 @@ SystemZInstrInfo::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
   if (CSI.empty())
     return false;
 
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   MachineFunction &MF = *MBB.getParent();
@@ -347,7 +347,7 @@ SystemZInstrInfo::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
   if (CSI.empty())
     return false;
 
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   MachineFunction &MF = *MBB.getParent();
@@ -424,8 +424,6 @@ bool SystemZInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
   MachineBasicBlock::iterator I = MBB.end();
   while (I != MBB.begin()) {
     --I;
-    if (I->isDebugValue())
-      continue;
     // Working from the bottom, when we see a non-terminator
     // instruction, we're done.
     if (!isUnpredicatedTerminator(I))
@@ -502,8 +500,6 @@ unsigned SystemZInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
 
   while (I != MBB.begin()) {
     --I;
-    if (I->isDebugValue())
-      continue;
     if (I->getOpcode() != SystemZ::JMP &&
         getCondFromBranchOpc(I->getOpcode()) == SystemZCC::INVALID)
       break;
@@ -521,7 +517,7 @@ SystemZInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                                MachineBasicBlock *FBB,
                             const SmallVectorImpl<MachineOperand> &Cond) const {
   // FIXME: this should probably have a DebugLoc operand
-  DebugLoc DL;
+  DebugLoc dl = DebugLoc::getUnknownLoc();
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 1 || Cond.size() == 0) &&
@@ -530,19 +526,19 @@ SystemZInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
   if (Cond.empty()) {
     // Unconditional branch?
     assert(!FBB && "Unconditional branch with multiple successors!");
-    BuildMI(&MBB, DL, get(SystemZ::JMP)).addMBB(TBB);
+    BuildMI(&MBB, dl, get(SystemZ::JMP)).addMBB(TBB);
     return 1;
   }
 
   // Conditional branch.
   unsigned Count = 0;
   SystemZCC::CondCodes CC = (SystemZCC::CondCodes)Cond[0].getImm();
-  BuildMI(&MBB, DL, getBrCond(CC)).addMBB(TBB);
+  BuildMI(&MBB, dl, getBrCond(CC)).addMBB(TBB);
   ++Count;
 
   if (FBB) {
     // Two-way Conditional branch. Insert the second branch.
-    BuildMI(&MBB, DL, get(SystemZ::JMP)).addMBB(FBB);
+    BuildMI(&MBB, dl, get(SystemZ::JMP)).addMBB(FBB);
     ++Count;
   }
   return Count;

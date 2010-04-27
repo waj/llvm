@@ -17,19 +17,18 @@
 
 #define DEBUG_TYPE "pre-RA-sched"
 #include "ScheduleDAGSDNodes.h"
-#include "llvm/InlineAsm.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/ADT/PriorityQueue.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <climits>
 using namespace llvm;
@@ -648,14 +647,13 @@ bool ScheduleDAGRRList::DelayForLiveRegsBottomUp(SUnit *SU,
       if (Node->getOperand(NumOps-1).getValueType() == MVT::Flag)
         --NumOps;  // Ignore the flag operand.
 
-      for (unsigned i = InlineAsm::Op_FirstOperand; i != NumOps;) {
+      for (unsigned i = 2; i != NumOps;) {
         unsigned Flags =
           cast<ConstantSDNode>(Node->getOperand(i))->getZExtValue();
-        unsigned NumVals = InlineAsm::getNumOperandRegisters(Flags);
+        unsigned NumVals = (Flags & 0xffff) >> 3;
 
         ++i; // Skip the ID value.
-        if (InlineAsm::isRegDefKind(Flags) ||
-            InlineAsm::isRegDefEarlyClobberKind(Flags)) {
+        if ((Flags & 7) == 2 || (Flags & 7) == 6) {
           // Check for def of register or earlyclobber register.
           for (; NumVals; --NumVals, ++i) {
             unsigned Reg = cast<RegisterSDNode>(Node->getOperand(i))->getReg();

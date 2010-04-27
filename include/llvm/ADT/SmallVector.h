@@ -57,18 +57,17 @@ protected:
   // something else.  An array of char would work great, but might not be
   // aligned sufficiently.  Instead, we either use GCC extensions, or some
   // number of union instances for the space, which guarantee maximal alignment.
-  struct U {
 #ifdef __GNUC__
-    char X __attribute__((aligned));
+  typedef char U;
+  U FirstEl __attribute__((aligned));
 #else
-    union {
-      double D;
-      long double LD;
-      long long L;
-      void *P;
-    } X;
-#endif
+  union U {
+    double D;
+    long double LD;
+    long long L;
+    void *P;
   } FirstEl;
+#endif
   // Space after 'FirstEl' is clobbered, do not add any instance vars after it.
   
 protected:
@@ -239,20 +238,11 @@ public:
   /// starting with "Dest", constructing elements into it as needed.
   template<typename It1, typename It2>
   static void uninitialized_copy(It1 I, It1 E, It2 Dest) {
-    // Arbitrary iterator types; just use the basic implementation.
-    std::uninitialized_copy(I, E, Dest);
+    // Use memcpy for PODs: std::uninitialized_copy optimizes to memmove, memcpy
+    // is better.
+    memcpy(&*Dest, &*I, (E-I)*sizeof(T));
   }
-
-  /// uninitialized_copy - Copy the range [I, E) onto the uninitialized memory
-  /// starting with "Dest", constructing elements into it as needed.
-  template<typename T1, typename T2>
-  static void uninitialized_copy(T1 *I, T1 *E, T2 *Dest) {
-    // Use memcpy for PODs iterated by pointers (which includes SmallVector
-    // iterators): std::uninitialized_copy optimizes to memmove, but we can
-    // use memcpy here.
-    memcpy(Dest, I, (E-I)*sizeof(T));
-  }
-
+  
   /// grow - double the size of the allocated memory, guaranteeing space for at
   /// least one more element or MinSize if specified.
   void grow(size_t MinSize = 0) {
@@ -510,13 +500,10 @@ public:
     this->uninitialized_copy(I, OldEnd, this->end()-NumOverwritten);
     
     // Replace the overwritten part.
-    for (; NumOverwritten > 0; --NumOverwritten) {
-      *I = *From;
-      ++I; ++From;
-    }
+    std::copy(From, From+NumOverwritten, I);
     
     // Insert the non-overwritten middle part.
-    this->uninitialized_copy(From, To, OldEnd);
+    this->uninitialized_copy(From+NumOverwritten, To, OldEnd);
     return I;
   }
   

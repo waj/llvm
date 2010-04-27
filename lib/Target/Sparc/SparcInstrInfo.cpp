@@ -111,7 +111,7 @@ SparcInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
                              MachineBasicBlock *FBB,
                              const SmallVectorImpl<MachineOperand> &Cond)const{
   // FIXME this should probably take a DebugLoc argument
-  DebugLoc dl;
+  DebugLoc dl = DebugLoc::getUnknownLoc();
   // Can only insert uncond branches so far.
   assert(Cond.empty() && !FBB && TBB && "Can only handle uncond branches!");
   BuildMI(&MBB, dl, get(SP::BA)).addMBB(TBB);
@@ -128,7 +128,7 @@ bool SparcInstrInfo::copyRegToReg(MachineBasicBlock &MBB,
     return false;
   }
 
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (I != MBB.end()) DL = I->getDebugLoc();
 
   if (DestRC == SP::IntRegsRegisterClass)
@@ -149,7 +149,7 @@ void SparcInstrInfo::
 storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                     unsigned SrcReg, bool isKill, int FI,
                     const TargetRegisterClass *RC) const {
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (I != MBB.end()) DL = I->getDebugLoc();
 
   // On the order of operands here: think "[FrameIdx + 0] = SrcReg".
@@ -170,7 +170,7 @@ void SparcInstrInfo::
 loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                      unsigned DestReg, int FI,
                      const TargetRegisterClass *RC) const {
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (I != MBB.end()) DL = I->getDebugLoc();
 
   if (RC == SP::IntRegsRegisterClass)
@@ -253,7 +253,7 @@ unsigned SparcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const
   GlobalBaseReg = RegInfo.createVirtualRegister(&SP::IntRegsRegClass);
 
 
-  DebugLoc dl;
+  DebugLoc dl = DebugLoc::getUnknownLoc();
 
   BuildMI(FirstMBB, MBBI, dl, get(SP::GETPCX), GlobalBaseReg);
   SparcFI->setGlobalBaseReg(GlobalBaseReg);

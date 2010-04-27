@@ -1,4 +1,4 @@
-//===- InlineCost.h - Cost analysis for inliner -----------------*- C++ -*-===//
+//===- InlineCost.cpp - Cost analysis for inliner ---------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -16,9 +16,8 @@
 
 #include <cassert>
 #include <climits>
+#include <map>
 #include <vector>
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/ValueMap.h"
 
 namespace llvm {
 
@@ -42,9 +41,6 @@ namespace llvm {
     /// NumInsts, NumBlocks - Keep track of how large each function is, which
     /// is used to estimate the code size cost of inlining it.
     unsigned NumInsts, NumBlocks;
-
-    /// NumBBInsts - Keeps track of basic block code size estimates.
-    DenseMap<const BasicBlock *, unsigned> NumBBInsts;
 
     /// NumCalls - Keep track of the number of calls to 'big' functions.
     unsigned NumCalls;
@@ -165,9 +161,7 @@ namespace llvm {
       void analyzeFunction(Function *F);
     };
 
-    // The Function* for a function can be changed (by ArgumentPromotion);
-    // the ValueMap will update itself when this happens.
-    ValueMap<const Function *, FunctionInfo> CachedFunctionInfo;
+    std::map<const Function *, FunctionInfo> CachedFunctionInfo;
 
   public:
 
@@ -185,16 +179,7 @@ namespace llvm {
     void resetCachedCostInfo(Function* Caller) {
       CachedFunctionInfo[Caller] = FunctionInfo();
     }
-
-    /// growCachedCostInfo - update the cached cost info for Caller after Callee
-    /// has been inlined. If Callee is NULL it means a dead call has been
-    /// eliminated.
-    void growCachedCostInfo(Function* Caller, Function* Callee);
   };
-
-  /// callIsSmall - If a call is likely to lower to a single target instruction,
-  /// or is otherwise deemed small return true.
-  bool callIsSmall(const Function *Callee);
 }
 
 #endif

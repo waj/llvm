@@ -241,8 +241,6 @@ extern const PassInfo *const LowerSwitchID;
 // lowering pass.
 //
 FunctionPass *createLowerInvokePass(const TargetLowering *TLI = 0);
-FunctionPass *createLowerInvokePass(const TargetLowering *TLI,
-                                    bool useExpensiveEHSupport);
 extern const PassInfo *const LowerInvokePassID;
 
 //===----------------------------------------------------------------------===//
@@ -325,6 +323,12 @@ FunctionPass *createSSIEverythingPass();
 // GEPSplitter - Split complex GEPs into simple ones
 //
 FunctionPass *createGEPSplitterPass();
+
+//===----------------------------------------------------------------------===//
+//
+// SCCVN - Aggressively eliminate redundant scalar values
+//
+FunctionPass *createSCCVNPass();
 
 //===----------------------------------------------------------------------===//
 //

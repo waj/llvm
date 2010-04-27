@@ -21,6 +21,7 @@ namespace llvm {
 
 class BasicBlock;
 class MachineFunction;
+class MCContext;
 class MCSymbol;
 class StringRef;
 class raw_ostream;
@@ -201,9 +202,12 @@ public:
 
   // Iteration support for live in sets.  These sets are kept in sorted
   // order by their register number.
-  typedef std::vector<unsigned>::const_iterator livein_iterator;
-  livein_iterator livein_begin() const { return LiveIns.begin(); }
-  livein_iterator livein_end()   const { return LiveIns.end(); }
+  typedef std::vector<unsigned>::iterator       livein_iterator;
+  typedef std::vector<unsigned>::const_iterator const_livein_iterator;
+  livein_iterator       livein_begin()       { return LiveIns.begin(); }
+  const_livein_iterator livein_begin() const { return LiveIns.begin(); }
+  livein_iterator       livein_end()         { return LiveIns.end(); }
+  const_livein_iterator livein_end()   const { return LiveIns.end(); }
   bool            livein_empty() const { return LiveIns.empty(); }
 
   /// getAlignment - Return alignment of the basic block.
@@ -348,7 +352,7 @@ public:
 
   /// getSymbol - Return the MCSymbol for this basic block.
   ///
-  MCSymbol *getSymbol() const;
+  MCSymbol *getSymbol(MCContext &Ctx) const;
   
 private:   // Methods used to maintain doubly linked list of blocks...
   friend struct ilist_traits<MachineBasicBlock>;

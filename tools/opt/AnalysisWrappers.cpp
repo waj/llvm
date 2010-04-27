@@ -22,6 +22,7 @@
 #include "llvm/Support/CallSite.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Support/raw_ostream.h"
+#include <iostream>
 using namespace llvm;
 
 namespace {

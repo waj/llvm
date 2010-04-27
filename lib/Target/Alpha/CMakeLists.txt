@@ -23,7 +23,6 @@ add_llvm_target(AlphaCodeGen
   AlphaRegisterInfo.cpp
   AlphaSubtarget.cpp
   AlphaTargetMachine.cpp
-  AlphaSelectionDAGInfo.cpp
   )
 
 target_link_libraries (LLVMAlphaCodeGen LLVMSelectionDAG)

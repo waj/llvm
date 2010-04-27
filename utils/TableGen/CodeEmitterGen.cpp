@@ -86,8 +86,8 @@ void CodeEmitterGen::run(raw_ostream &o) {
   EmitSourceFileHeader("Machine Code Emitter", o);
   std::string Namespace = Insts[0]->getValueAsString("Namespace") + "::";
   
-  const std::vector<const CodeGenInstruction*> &NumberedInstructions =
-    Target.getInstructionsByEnumValue();
+  std::vector<const CodeGenInstruction*> NumberedInstructions;
+  Target.getInstructionsByEnumValue(NumberedInstructions);
 
   // Emit function declaration
   o << "unsigned " << Target.getName() << "CodeEmitter::"
@@ -95,7 +95,7 @@ void CodeEmitterGen::run(raw_ostream &o) {
 
   // Emit instruction base values
   o << "  static const unsigned InstBits[] = {\n";
-  for (std::vector<const CodeGenInstruction*>::const_iterator
+  for (std::vector<const CodeGenInstruction*>::iterator
           IN = NumberedInstructions.begin(),
           EN = NumberedInstructions.end();
        IN != EN; ++IN) {
@@ -156,7 +156,7 @@ void CodeEmitterGen::run(raw_ostream &o) {
 
     BitsInit *BI = R->getValueAsBitsInit("Inst");
     const std::vector<RecordVal> &Vals = R->getValues();
-    CodeGenInstruction &CGI = Target.getInstruction(R);
+    CodeGenInstruction &CGI = Target.getInstruction(InstName);
     
     // Loop over all of the fields in the instruction, determining which are the
     // operands to the instruction.
@@ -249,7 +249,7 @@ void CodeEmitterGen::run(raw_ostream &o) {
     << "    std::string msg;\n"
     << "    raw_string_ostream Msg(msg);\n"
     << "    Msg << \"Not supported instr: \" << MI;\n"
-    << "    report_fatal_error(Msg.str());\n"
+    << "    llvm_report_error(Msg.str());\n"
     << "  }\n"
     << "  return Value;\n"
     << "}\n\n";

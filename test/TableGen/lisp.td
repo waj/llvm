@@ -1,5 +1,4 @@
 // RUN: tblgen %s | grep {}
-// XFAIL: vg_leak
 
 class List<list<string> n> {
   list<string> names = n;

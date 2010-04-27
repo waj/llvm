@@ -48,8 +48,6 @@ template <typename T> class SmallVectorImpl;
 class SourceMgr;
 class Target;
 class TargetRegisterInfo;
-
-struct EDInstInfo;
 }
 
 /// EDDisassembler - Encapsulates a disassembler for a single architecture and
@@ -115,13 +113,13 @@ struct EDDisassembler {
   // Per-object members //
   ////////////////////////
   
-  /// True only if the object has been successfully initialized
+  /// True only if the object has been fully and successfully initialized
   bool Valid;
-  /// True if the disassembler can provide semantic information
-  bool HasSemantics;
   
-  /// The stream to write errors to
-  llvm::raw_ostream &ErrorStream;
+  /// The string that stores disassembler errors from the backend
+  std::string ErrorString;
+  /// The stream that wraps the ErrorString
+  llvm::raw_string_ostream ErrorStream;
 
   /// The architecture/syntax pair for the current architecture
   CPUKey Key;
@@ -145,7 +143,7 @@ struct EDDisassembler {
   llvm::sys::Mutex PrinterMutex;
   /// The array of instruction information provided by the TableGen backend for
   ///   the target architecture
-  const llvm::EDInstInfo *InstInfos;
+  const InstInfo *InstInfos;
   /// The target-specific lexer for use in tokenizing strings, in
   ///   target-independent and target-specific portions
   llvm::OwningPtr<llvm::AsmLexer> GenericAsmLexer;
@@ -180,12 +178,6 @@ struct EDDisassembler {
   /// valid - reports whether there was a failure in the constructor.
   bool valid() {
     return Valid;
-  }
-  
-  /// hasSemantics - reports whether the disassembler can provide operands and
-  ///   tokens.
-  bool hasSemantics() {
-    return HasSemantics;
   }
   
   ~EDDisassembler();

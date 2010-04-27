@@ -60,6 +60,8 @@ namespace llvm {
   }
 
   class AlphaTargetLowering : public TargetLowering {
+    int VarArgsOffset;  // What is the offset to the first vaarg
+    int VarArgsBase;    // What is the base FrameIndex
   public:
     explicit AlphaTargetLowering(TargetMachine &TM);
     
@@ -68,13 +70,13 @@ namespace llvm {
 
     /// LowerOperation - Provide custom lowering hooks for some operations.
     ///
-    virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const;
+    virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG);
 
     /// ReplaceNodeResults - Replace the results of node with an illegal result
     /// type with new values built out of custom code.
     ///
     virtual void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue>&Results,
-                                    SelectionDAG &DAG) const;
+                                    SelectionDAG &DAG);
 
     // Friendly names for dumps
     const char *getTargetNodeName(unsigned Opcode) const;
@@ -83,7 +85,7 @@ namespace llvm {
                             CallingConv::ID CallConv, bool isVarArg,
                             const SmallVectorImpl<ISD::InputArg> &Ins,
                             DebugLoc dl, SelectionDAG &DAG,
-                            SmallVectorImpl<SDValue> &InVals) const;
+                            SmallVectorImpl<SDValue> &InVals);
 
     ConstraintType getConstraintType(const std::string &Constraint) const;
 
@@ -108,14 +110,14 @@ namespace llvm {
   private:
     // Helpers for custom lowering.
     void LowerVAARG(SDNode *N, SDValue &Chain, SDValue &DataPtr,
-                    SelectionDAG &DAG) const;
+                    SelectionDAG &DAG);
 
     virtual SDValue
       LowerFormalArguments(SDValue Chain,
                            CallingConv::ID CallConv, bool isVarArg,
                            const SmallVectorImpl<ISD::InputArg> &Ins,
                            DebugLoc dl, SelectionDAG &DAG,
-                           SmallVectorImpl<SDValue> &InVals) const;
+                           SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerCall(SDValue Chain, SDValue Callee,
@@ -123,13 +125,13 @@ namespace llvm {
                 const SmallVectorImpl<ISD::OutputArg> &Outs,
                 const SmallVectorImpl<ISD::InputArg> &Ins,
                 DebugLoc dl, SelectionDAG &DAG,
-                SmallVectorImpl<SDValue> &InVals) const;
+                SmallVectorImpl<SDValue> &InVals);
 
     virtual SDValue
       LowerReturn(SDValue Chain,
                   CallingConv::ID CallConv, bool isVarArg,
                   const SmallVectorImpl<ISD::OutputArg> &Outs,
-                  DebugLoc dl, SelectionDAG &DAG) const;
+                  DebugLoc dl, SelectionDAG &DAG);
   };
 }
 

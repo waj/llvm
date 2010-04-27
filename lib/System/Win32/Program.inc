@@ -138,24 +138,6 @@ static bool ArgNeedsQuotes(const char *Str) {
   return Str[0] == '\0' || strchr(Str, ' ') != 0;
 }
 
-
-/// ArgLenWithQuotes - Check whether argument needs to be quoted when calling
-/// CreateProcess and returns length of quoted arg with escaped quotes
-static unsigned int ArgLenWithQuotes(const char *Str) {
-  unsigned int len = ArgNeedsQuotes(Str) ? 2 : 0;
-
-  while (*Str != '\0') {
-    if (*Str == '\"')
-      ++len;
-
-    ++len;
-    ++Str;
-  }
-
-  return len;
-}
-
-
 bool
 Program::Execute(const Path& path,
                  const char** args,
@@ -183,7 +165,9 @@ Program::Execute(const Path& path,
   // First, determine the length of the command line.
   unsigned len = 0;
   for (unsigned i = 0; args[i]; i++) {
-    len += ArgLenWithQuotes(args[i]) + 1;
+    len += strlen(args[i]) + 1;
+    if (ArgNeedsQuotes(args[i]))
+      len += 2;
   }
 
   // Now build the command line.
@@ -192,18 +176,12 @@ Program::Execute(const Path& path,
 
   for (unsigned i = 0; args[i]; i++) {
     const char *arg = args[i];
-
+    size_t len = strlen(arg);
     bool needsQuoting = ArgNeedsQuotes(arg);
     if (needsQuoting)
       *p++ = '"';
-
-    while (*arg != '\0') {
-      if (*arg == '\"')
-        *p++ = '\\';
-
-      *p++ = *arg++;
-    }
-
+    memcpy(p, arg, len);
+    p += len;
     if (needsQuoting)
       *p++ = '"';
     *p++ = ' ';

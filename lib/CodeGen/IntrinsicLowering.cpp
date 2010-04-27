@@ -331,15 +331,15 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
   IRBuilder<> Builder(CI->getParent(), CI);
   LLVMContext &Context = CI->getContext();
 
-  const Function *Callee = CI->getCalledFunction();
+  Function *Callee = CI->getCalledFunction();
   assert(Callee && "Cannot lower an indirect call!");
 
   switch (Callee->getIntrinsicID()) {
   case Intrinsic::not_intrinsic:
-    report_fatal_error("Cannot lower a call to a non-intrinsic function '"+
+    llvm_report_error("Cannot lower a call to a non-intrinsic function '"+
                       Callee->getName() + "'!");
   default:
-    report_fatal_error("Code generator does not support intrinsic function '"+
+    llvm_report_error("Code generator does not support intrinsic function '"+
                       Callee->getName()+"'!");
 
     // The setjmp/longjmp intrinsics should only exist in the code if it was

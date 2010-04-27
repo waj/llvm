@@ -28,12 +28,11 @@ using namespace llvm;
 #include "MSP430GenAsmWriter.inc"
 #undef MachineInstr
 
-void MSP430InstPrinter::printInst(const MCInst *MI, raw_ostream &O) {
-  printInstruction(MI, O);
+void MSP430InstPrinter::printInst(const MCInst *MI) {
+  printInstruction(MI);
 }
 
-void MSP430InstPrinter::printPCRelImmOperand(const MCInst *MI, unsigned OpNo,
-                                             raw_ostream &O) {
+void MSP430InstPrinter::printPCRelImmOperand(const MCInst *MI, unsigned OpNo) {
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isImm())
     O << Op.getImm();
@@ -44,7 +43,7 @@ void MSP430InstPrinter::printPCRelImmOperand(const MCInst *MI, unsigned OpNo,
 }
 
 void MSP430InstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                     raw_ostream &O, const char *Modifier) {
+                                     const char *Modifier) {
   assert((Modifier == 0 || Modifier[0] == 0) && "No modifiers supported");
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
@@ -58,7 +57,6 @@ void MSP430InstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 }
 
 void MSP430InstPrinter::printSrcMemOperand(const MCInst *MI, unsigned OpNo,
-                                           raw_ostream &O,
                                            const char *Modifier) {
   const MCOperand &Base = MI->getOperand(OpNo);
   const MCOperand &Disp = MI->getOperand(OpNo+1);
@@ -86,8 +84,7 @@ void MSP430InstPrinter::printSrcMemOperand(const MCInst *MI, unsigned OpNo,
     O << '(' << getRegisterName(Base.getReg()) << ')';
 }
 
-void MSP430InstPrinter::printCCOperand(const MCInst *MI, unsigned OpNo,
-                                       raw_ostream &O) {
+void MSP430InstPrinter::printCCOperand(const MCInst *MI, unsigned OpNo) {
   unsigned CC = MI->getOperand(OpNo).getImm();
 
   switch (CC) {

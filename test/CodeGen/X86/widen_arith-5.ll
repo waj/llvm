@@ -1,5 +1,5 @@
 ; RUN: llc < %s -march=x86-64 -mattr=+sse42 -disable-mmx  | FileCheck %s
-; CHECK: movdqa
+; CHECK: movaps
 ; CHECK: pmulld
 ; CHECK: psubd
 

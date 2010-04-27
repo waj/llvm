@@ -15,7 +15,6 @@
 #include "llvm/ExecutionEngine/JITMemoryManager.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/Twine.h"
 #include "llvm/GlobalValue.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Compiler.h"
@@ -23,9 +22,12 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/System/Memory.h"
+#include <map>
 #include <vector>
 #include <cassert>
 #include <climits>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 using namespace llvm;
 
@@ -612,8 +614,8 @@ sys::MemoryBlock DefaultJITMemoryManager::allocateNewSlab(size_t size) {
   sys::MemoryBlock *LastSlabPtr = LastSlab.base() ? &LastSlab : 0;
   sys::MemoryBlock B = sys::Memory::AllocateRWX(size, LastSlabPtr, &ErrMsg);
   if (B.base() == 0) {
-    report_fatal_error("Allocation failed when allocating new memory in the"
-                       " JIT\n" + Twine(ErrMsg));
+    llvm_report_error("Allocation failed when allocating new memory in the"
+                      " JIT\n" + ErrMsg);
   }
   LastSlab = B;
   ++NumSlabs;

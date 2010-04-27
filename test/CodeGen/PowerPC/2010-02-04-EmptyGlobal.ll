@@ -8,13 +8,4 @@
 ; CHECK:      .globl __cmd
 ; CHECK-NEXT: .align 3
 ; CHECK-NEXT: __cmd:
-; CHECK-NEXT: .byte 0
-
-; PR6340
-
-%Ty = type { i32, {}, i32 }
-@k = global %Ty { i32 1, {} zeroinitializer, i32 3 }
-
-; CHECK: _k:
-; CHECK-NEXT:	.long	1
-; CHECK-NEXT:	.long	3
+; CHECK-NEXT: .space 1

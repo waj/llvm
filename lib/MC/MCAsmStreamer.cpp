@@ -16,7 +16,6 @@
 #include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -30,7 +29,7 @@ namespace {
 class MCAsmStreamer : public MCStreamer {
   formatted_raw_ostream &OS;
   const MCAsmInfo &MAI;
-  OwningPtr<MCInstPrinter> InstPrinter;
+  MCInstPrinter *InstPrinter;
   MCCodeEmitter *Emitter;
   
   SmallString<128> CommentToEmit;
@@ -42,10 +41,11 @@ class MCAsmStreamer : public MCStreamer {
 
 public:
   MCAsmStreamer(MCContext &Context, formatted_raw_ostream &os,
+                const MCAsmInfo &mai,
                 bool isLittleEndian, bool isVerboseAsm, MCInstPrinter *printer,
                 MCCodeEmitter *emitter, bool showInst)
-    : MCStreamer(Context), OS(os), MAI(Context.getAsmInfo()),
-      InstPrinter(printer), Emitter(emitter), CommentStream(CommentToEmit),
+    : MCStreamer(Context), OS(os), MAI(mai), InstPrinter(printer),
+      Emitter(emitter), CommentStream(CommentToEmit),
       IsLittleEndian(isLittleEndian), IsVerboseAsm(isVerboseAsm),
       ShowInst(showInst) {
     if (InstPrinter && IsVerboseAsm)
@@ -68,9 +68,6 @@ public:
   /// isVerboseAsm - Return true if this streamer supports verbose assembly at
   /// all.
   virtual bool isVerboseAsm() const { return IsVerboseAsm; }
-  
-  /// hasRawTextSupport - We support EmitRawText.
-  virtual bool hasRawTextSupport() const { return true; }
 
   /// AddComment - Add a comment that can be emitted to the generated .s
   /// file if applicable as a QoI issue to make the output of the compiler
@@ -148,11 +145,6 @@ public:
 
   virtual void EmitInstruction(const MCInst &Inst);
   
-  /// EmitRawText - If this file is backed by a assembly streamer, this dumps
-  /// the specified string in the output .s file.  This capability is
-  /// indicated by the hasRawTextSupport() predicate.
-  virtual void EmitRawText(StringRef String);
-  
   virtual void Finish();
   
   /// @}
@@ -202,6 +194,7 @@ void MCAsmStreamer::EmitCommentsAndEOL() {
   // Tell the comment stream that the vector changed underneath it.
   CommentStream.resync();
 }
+
 
 static inline int64_t truncateToSize(int64_t Value, unsigned Bytes) {
   assert(Bytes && "Invalid size!");
@@ -630,24 +623,28 @@ void MCAsmStreamer::EmitInstruction(const MCInst &Inst) {
     AddEncodingComment(Inst);
 
   // Show the MCInst if enabled.
-  if (ShowInst)
-    Inst.dump_pretty(GetCommentOS(), &MAI, InstPrinter.get(), "\n ");
+  if (ShowInst) {
+    raw_ostream &OS = GetCommentOS();
+    OS << "<MCInst #" << Inst.getOpcode();
+    
+    StringRef InstName;
+    if (InstPrinter)
+      InstName = InstPrinter->getOpcodeName(Inst.getOpcode());
+    if (!InstName.empty())
+      OS << ' ' << InstName;
+    
+    for (unsigned i = 0, e = Inst.getNumOperands(); i != e; ++i) {
+      OS << "\n  ";
+      Inst.getOperand(i).print(OS, &MAI);
+    }
+    OS << ">\n";
+  }
   
-  // If we have an AsmPrinter, use that to print, otherwise print the MCInst.
+  // If we have an AsmPrinter, use that to print, otherwise dump the MCInst.
   if (InstPrinter)
-    InstPrinter->printInst(&Inst, OS);
+    InstPrinter->printInst(&Inst);
   else
     Inst.print(OS, &MAI);
-  EmitEOL();
-}
-
-/// EmitRawText - If this file is backed by a assembly streamer, this dumps
-/// the specified string in the output .s file.  This capability is
-/// indicated by the hasRawTextSupport() predicate.
-void MCAsmStreamer::EmitRawText(StringRef String) {
-  if (!String.empty() && String.back() == '\n')
-    String = String.substr(0, String.size()-1);
-  OS << String;
   EmitEOL();
 }
 
@@ -657,9 +654,9 @@ void MCAsmStreamer::Finish() {
 
 MCStreamer *llvm::createAsmStreamer(MCContext &Context,
                                     formatted_raw_ostream &OS,
-                                    bool isLittleEndian,
+                                    const MCAsmInfo &MAI, bool isLittleEndian,
                                     bool isVerboseAsm, MCInstPrinter *IP,
                                     MCCodeEmitter *CE, bool ShowInst) {
-  return new MCAsmStreamer(Context, OS, isLittleEndian, isVerboseAsm,
+  return new MCAsmStreamer(Context, OS, MAI, isLittleEndian, isVerboseAsm,
                            IP, CE, ShowInst);
 }

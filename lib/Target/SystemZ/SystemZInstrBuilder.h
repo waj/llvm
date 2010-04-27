@@ -44,7 +44,7 @@ struct SystemZAddressMode {
 
   unsigned IndexReg;
   int32_t Disp;
-  const GlobalValue *GV;
+  GlobalValue *GV;
 
   SystemZAddressMode() : BaseType(RegBase), IndexReg(0), Disp(0) {
     Base.Reg = 0;

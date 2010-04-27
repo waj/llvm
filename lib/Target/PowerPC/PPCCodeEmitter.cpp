@@ -30,7 +30,6 @@ namespace {
   class PPCCodeEmitter : public MachineFunctionPass {
     TargetMachine &TM;
     JITCodeEmitter &MCE;
-    MachineModuleInfo *MMI;
     
     void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.addRequired<MachineModuleInfo>();
@@ -88,8 +87,7 @@ bool PPCCodeEmitter::runOnMachineFunction(MachineFunction &MF) {
           MF.getTarget().getRelocationModel() != Reloc::Static) &&
          "JIT relocation model must be set to static or default!");
 
-  MMI = &getAnalysis<MachineModuleInfo>();
-  MCE.setModuleInfo(MMI);
+  MCE.setModuleInfo(&getAnalysis<MachineModuleInfo>());
   do {
     MovePCtoLROffset = 0;
     MCE.startFunction(MF);
@@ -112,7 +110,7 @@ void PPCCodeEmitter::emitBasicBlock(MachineBasicBlock &MBB) {
       break;
     case TargetOpcode::DBG_LABEL:
     case TargetOpcode::EH_LABEL:
-      MCE.emitLabel(MI.getOperand(0).getMCSymbol());
+      MCE.emitLabel(MI.getOperand(0).getImm());
       break;
     case TargetOpcode::IMPLICIT_DEF:
     case TargetOpcode::KILL:
@@ -202,7 +200,7 @@ unsigned PPCCodeEmitter::getMachineOpValue(const MachineInstr &MI,
     MachineRelocation R;
     if (MO.isGlobal()) {
       R = MachineRelocation::getGV(MCE.getCurrentPCOffset(), Reloc,
-                                   const_cast<GlobalValue *>(MO.getGlobal()), 0,
+                                   MO.getGlobal(), 0,
                                    isa<Function>(MO.getGlobal()));
     } else if (MO.isSymbol()) {
       R = MachineRelocation::getExtSym(MCE.getCurrentPCOffset(),

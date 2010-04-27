@@ -104,7 +104,7 @@ public:
     return *this;
   }
 
-  const MachineInstrBuilder &addGlobalAddress(const GlobalValue *GV,
+  const MachineInstrBuilder &addGlobalAddress(GlobalValue *GV,
                                               int64_t Offset = 0,
                                           unsigned char TargetFlags = 0) const {
     MI->addOperand(MachineOperand::CreateGA(GV, Offset, TargetFlags));
@@ -129,11 +129,6 @@ public:
 
   const MachineInstrBuilder &addMetadata(const MDNode *MD) const {
     MI->addOperand(MachineOperand::CreateMetadata(MD));
-    return *this;
-  }
-  
-  const MachineInstrBuilder &addSym(MCSymbol *Sym) const {
-    MI->addOperand(MachineOperand::CreateMCSymbol(Sym));
     return *this;
   }
 };

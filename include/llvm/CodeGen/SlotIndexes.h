@@ -22,12 +22,13 @@
 #ifndef LLVM_CODEGEN_SLOTINDEXES_H
 #define LLVM_CODEGEN_SLOTINDEXES_H
 
-#include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/CodeGen/MachineBasicBlock.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/ErrorHandling.h"
 
 namespace llvm {
 
@@ -36,6 +37,8 @@ namespace llvm {
   /// SlotIndex & SlotIndexes classes for the public interface to this
   /// information.
   class IndexListEntry {
+  private:
+
     static const unsigned EMPTY_KEY_INDEX = ~0U & ~3U,
                           TOMBSTONE_KEY_INDEX = ~0U & ~7U;
 
@@ -63,9 +66,10 @@ namespace llvm {
   public:
 
     IndexListEntry(MachineInstr *mi, unsigned index) : mi(mi), index(index) {
-      assert(index != EMPTY_KEY_INDEX && index != TOMBSTONE_KEY_INDEX &&
-             "Attempt to create invalid index. "
-             "Available indexes may have been exhausted?.");
+      if (index == EMPTY_KEY_INDEX || index == TOMBSTONE_KEY_INDEX) {
+        llvm_report_error("Attempt to create invalid index. "
+                          "Available indexes may have been exhausted?.");
+      }
     }
 
     bool isValid() const {

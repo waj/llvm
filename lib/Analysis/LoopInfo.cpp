@@ -29,9 +29,9 @@ using namespace llvm;
 
 // Always verify loopinfo if expensive checking is enabled.
 #ifdef XDEBUG
-static bool VerifyLoopInfo = true;
+bool VerifyLoopInfo = true;
 #else
-static bool VerifyLoopInfo = false;
+bool VerifyLoopInfo = false;
 #endif
 static cl::opt<bool,true>
 VerifyLoopInfoX("verify-loop-info", cl::location(VerifyLoopInfo),
@@ -263,7 +263,7 @@ unsigned Loop::getSmallConstantTripMultiple() const {
 }
 
 /// isLCSSAForm - Return true if the Loop is in LCSSA form
-bool Loop::isLCSSAForm(DominatorTree &DT) const {
+bool Loop::isLCSSAForm() const {
   // Sort the blocks vector so that we can use binary search to do quick
   // lookups.
   SmallPtrSet<BasicBlock *, 16> LoopBBs(block_begin(), block_end());
@@ -277,13 +277,9 @@ bool Loop::isLCSSAForm(DominatorTree &DT) const {
         if (PHINode *P = dyn_cast<PHINode>(*UI))
           UserBB = P->getIncomingBlock(UI);
 
-        // Check the current block, as a fast-path, before checking whether
-        // the use is anywhere in the loop.  Most values are used in the same
-        // block they are defined in.  Also, blocks not reachable from the
-        // entry are special; uses in them don't need to go through PHIs.
-        if (UserBB != BB &&
-            !LoopBBs.count(UserBB) &&
-            DT.isReachableFromEntry(UserBB))
+        // Check the current block, as a fast-path.  Most values are used in
+        // the same block they are defined in.
+        if (UserBB != BB && !LoopBBs.count(UserBB))
           return false;
       }
   }

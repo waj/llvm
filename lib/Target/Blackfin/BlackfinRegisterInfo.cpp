@@ -110,8 +110,7 @@ BlackfinRegisterInfo::getPhysicalRegisterRegClass(unsigned reg, EVT VT) const {
 // if frame pointer elimination is disabled.
 bool BlackfinRegisterInfo::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  return DisableFramePointerElim(MF) ||
-    MFI->hasCalls() || MFI->hasVarSizedObjects();
+  return NoFramePointerElim || MFI->hasCalls() || MFI->hasVarSizedObjects();
 }
 
 bool BlackfinRegisterInfo::
@@ -165,7 +164,7 @@ void BlackfinRegisterInfo::loadConstant(MachineBasicBlock &MBB,
     return;
   }
 
-  if (isUInt<16>(value)) {
+  if (isUint<16>(value)) {
     BuildMI(MBB, I, DL, TII.get(BF::LOADuimm16), Reg).addImm(value);
     return;
   }
@@ -222,7 +221,7 @@ static unsigned findScratchRegister(MachineBasicBlock::iterator II,
 
 unsigned
 BlackfinRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                          int SPAdj, FrameIndexValue *Value,
+                                          int SPAdj, int *Value,
                                           RegScavenger *RS) const {
   MachineInstr &MI = *II;
   MachineBasicBlock &MBB = *MI.getParent();
@@ -256,13 +255,13 @@ BlackfinRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     assert(FIPos==1 && "Bad frame index operand");
     MI.getOperand(FIPos).ChangeToRegister(BaseReg, false);
     MI.getOperand(FIPos+1).setImm(Offset);
-    if (isUInt<6>(Offset)) {
+    if (isUint<6>(Offset)) {
       MI.setDesc(TII.get(isStore
                          ? BF::STORE32p_uimm6m4
                          : BF::LOAD32p_uimm6m4));
       return 0;
     }
-    if (BaseReg == BF::FP && isUInt<7>(-Offset)) {
+    if (BaseReg == BF::FP && isUint<7>(-Offset)) {
       MI.setDesc(TII.get(isStore
                          ? BF::STORE32fp_nimm7m4
                          : BF::LOAD32fp_nimm7m4));
@@ -385,7 +384,9 @@ void BlackfinRegisterInfo::emitPrologue(MachineFunction &MF) const {
   MachineBasicBlock &MBB = MF.front();   // Prolog goes in entry BB
   MachineBasicBlock::iterator MBBI = MBB.begin();
   MachineFrameInfo *MFI = MF.getFrameInfo();
-  DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+  DebugLoc dl = (MBBI != MBB.end()
+                 ? MBBI->getDebugLoc()
+                 : DebugLoc::getUnknownLoc());
 
   int FrameSize = MFI->getStackSize();
   if (FrameSize%4) {

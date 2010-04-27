@@ -38,15 +38,14 @@ public:
   ~X86MCCodeEmitter() {}
 
   unsigned getNumFixupKinds() const {
-    return 4;
+    return 3;
   }
 
   const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const {
     const static MCFixupKindInfo Infos[] = {
-      { "reloc_pcrel_4byte", 0, 4 * 8, MCFixupKindInfo::FKF_IsPCRel },
-      { "reloc_pcrel_1byte", 0, 1 * 8, MCFixupKindInfo::FKF_IsPCRel },
-      { "reloc_riprel_4byte", 0, 4 * 8, MCFixupKindInfo::FKF_IsPCRel },
-      { "reloc_riprel_4byte_movq_load", 0, 4 * 8, MCFixupKindInfo::FKF_IsPCRel }
+      { "reloc_pcrel_4byte", 0, 4 * 8 },
+      { "reloc_pcrel_1byte", 0, 1 * 8 },
+      { "reloc_riprel_4byte", 0, 4 * 8 }
     };
     
     if (Kind < FirstTargetFixupKind)
@@ -166,8 +165,7 @@ EmitImmediate(const MCOperand &DispOp, unsigned Size, MCFixupKind FixupKind,
   // If the fixup is pc-relative, we need to bias the value to be relative to
   // the start of the field, not the end of the field.
   if (FixupKind == MCFixupKind(X86::reloc_pcrel_4byte) ||
-      FixupKind == MCFixupKind(X86::reloc_riprel_4byte) ||
-      FixupKind == MCFixupKind(X86::reloc_riprel_4byte_movq_load))
+      FixupKind == MCFixupKind(X86::reloc_riprel_4byte))
     ImmOffset -= 4;
   if (FixupKind == MCFixupKind(X86::reloc_pcrel_1byte))
     ImmOffset -= 1;
@@ -199,15 +197,6 @@ void X86MCCodeEmitter::EmitMemModRMByte(const MCInst &MI, unsigned Op,
            "Invalid rip-relative address");
     EmitByte(ModRMByte(0, RegOpcodeField, 5), CurByte, OS);
     
-    unsigned FixupKind = X86::reloc_riprel_4byte;
-    
-    // movq loads are handled with a special relocation form which allows the
-    // linker to eliminate some loads for GOT references which end up in the
-    // same linkage unit.
-    if (MI.getOpcode() == X86::MOV64rm ||
-        MI.getOpcode() == X86::MOV64rm_TC)
-      FixupKind = X86::reloc_riprel_4byte_movq_load;
-    
     // rip-relative addressing is actually relative to the *next* instruction.
     // Since an immediate can follow the mod/rm byte for an instruction, this
     // means that we need to bias the immediate field of the instruction with
@@ -215,7 +204,7 @@ void X86MCCodeEmitter::EmitMemModRMByte(const MCInst &MI, unsigned Op,
     // expression to emit.
     int ImmSize = X86II::hasImm(TSFlags) ? X86II::getSizeOfImm(TSFlags) : 0;
     
-    EmitImmediate(Disp, 4, MCFixupKind(FixupKind),
+    EmitImmediate(Disp, 4, MCFixupKind(X86::reloc_riprel_4byte),
                   CurByte, OS, Fixups, -ImmSize);
     return;
   }
@@ -280,10 +269,7 @@ void X86MCCodeEmitter::EmitMemModRMByte(const MCInst &MI, unsigned Op,
     // Emit the normal disp32 encoding.
     EmitByte(ModRMByte(2, RegOpcodeField, 4), CurByte, OS);
     ForceDisp32 = true;
-  } else if (Disp.getImm() == 0 &&
-             // Base reg can't be anything that ends up with '5' as the base
-             // reg, it is the magic [*] nomenclature that indicates no base.
-             BaseRegNo != N86::EBP) {
+  } else if (Disp.getImm() == 0 && BaseReg != X86::EBP) {
     // Emit no displacement ModR/M byte
     EmitByte(ModRMByte(0, RegOpcodeField, 4), CurByte, OS);
   } else if (isDisp8(Disp.getImm())) {

@@ -185,7 +185,7 @@ matcher(struct re_guts *g, const char *string, size_t nmatch,
 		endp = fast(m, start, stop, gf, gl);
 		if (endp == NULL) {		/* a miss */
 			free(m->pmatch);
-			free((void*)m->lastpos);
+			free(m->lastpos);
 			STATETEARDOWN(m);
 			return(REG_NOMATCH);
 		}

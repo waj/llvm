@@ -124,7 +124,7 @@ namespace llvm {
     }
     
     void *getOpaqueValue() const { return Val.getOpaqueValue(); }
-    static inline PointerUnion getFromOpaqueValue(void *VP) {
+    static PointerUnion getFromOpaqueValue(void *VP) {
       PointerUnion V;
       V.Val = ValTy::getFromOpaqueValue(VP);
       return V;
@@ -227,7 +227,7 @@ namespace llvm {
     }
     
     void *getOpaqueValue() const { return Val.getOpaqueValue(); }
-    static inline PointerUnion3 getFromOpaqueValue(void *VP) {
+    static PointerUnion3 getFromOpaqueValue(void *VP) {
       PointerUnion3 V;
       V.Val = ValTy::getFromOpaqueValue(VP);
       return V;
@@ -338,7 +338,7 @@ namespace llvm {
     }
     
     void *getOpaqueValue() const { return Val.getOpaqueValue(); }
-    static inline PointerUnion4 getFromOpaqueValue(void *VP) {
+    static PointerUnion4 getFromOpaqueValue(void *VP) {
       PointerUnion4 V;
       V.Val = ValTy::getFromOpaqueValue(VP);
       return V;

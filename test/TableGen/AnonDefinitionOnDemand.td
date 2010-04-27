@@ -1,5 +1,4 @@
 // RUN: tblgen < %s
-// XFAIL: vg_leak
 
 class foo<int X> { int THEVAL = X; }
 def foo_imp : foo<1>;

@@ -19,11 +19,12 @@
 #include "llvm/Value.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/Dominators.h"
-#include "llvm/Support/raw_ostream.h"
+#include <iostream>
+#include <fstream>
 using namespace llvm;
 
 template<typename GraphType>
-static void WriteGraphToFile(raw_ostream &O, const std::string &GraphName,
+static void WriteGraphToFile(std::ostream &O, const std::string &GraphName,
                              const GraphType &GT) {
   std::string Filename = GraphName + ".dot";
   O << "Writing '" << Filename << "'...";
@@ -68,7 +69,7 @@ namespace {
     CallGraphPrinter() : ModulePass(&ID) {}
 
     virtual bool runOnModule(Module &M) {
-      WriteGraphToFile(llvm::errs(), "callgraph", &getAnalysis<CallGraph>());
+      WriteGraphToFile(std::cerr, "callgraph", &getAnalysis<CallGraph>());
       return false;
     }
 

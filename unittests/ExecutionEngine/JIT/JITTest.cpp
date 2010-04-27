@@ -701,7 +701,9 @@ ExecutionEngine *getJITFromBitcode(
   LLVMContext &Context, const std::string &Bitcode, Module *&M) {
   // c_str() is null-terminated like MemoryBuffer::getMemBuffer requires.
   MemoryBuffer *BitcodeBuffer =
-    MemoryBuffer::getMemBuffer(Bitcode, "Bitcode for test");
+    MemoryBuffer::getMemBuffer(Bitcode.c_str(),
+                               Bitcode.c_str() + Bitcode.size(),
+                               "Bitcode for test");
   std::string errMsg;
   M = getLazyBitcodeModule(BitcodeBuffer, Context, &errMsg);
   if (M == NULL) {

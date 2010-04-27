@@ -38,14 +38,11 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/CommandLine.h"
+using namespace llvm;
 
-namespace llvm {
-cl::opt<bool>
+static cl::opt<bool>
 ReuseFrameIndexVals("arm-reuse-frame-index-vals", cl::Hidden, cl::init(true),
           cl::desc("Reuse repeated frame index values"));
-}
-
-using namespace llvm;
 
 unsigned ARMBaseRegisterInfo::getRegisterNumbering(unsigned RegEnum,
                                                    bool *isSPVFP) {
@@ -481,7 +478,7 @@ ARMBaseRegisterInfo::UpdateRegAllocHint(unsigned Reg, unsigned NewReg,
 ///
 bool ARMBaseRegisterInfo::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  return ((DisableFramePointerElim(MF) && MFI->hasCalls())||
+  return ((NoFramePointerElim && MFI->hasCalls())||
           needsStackRealignment(MF) ||
           MFI->hasVarSizedObjects() ||
           MFI->isFrameAddressTaken());
@@ -509,7 +506,7 @@ needsStackRealignment(const MachineFunction &MF) const {
 bool ARMBaseRegisterInfo::
 cannotEliminateFrame(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  if (DisableFramePointerElim(MF) && MFI->hasCalls())
+  if (NoFramePointerElim && MFI->hasCalls())
     return true;
   return MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken()
     || needsStackRealignment(MF);
@@ -592,10 +589,6 @@ ARMBaseRegisterInfo::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
   if (needsStackRealignment(MF) &&
       AFI->isThumb2Function())
     MF.getRegInfo().setPhysRegUsed(ARM::R4);
-
-  // Spill LR if Thumb1 function uses variable length argument lists.
-  if (AFI->isThumb1OnlyFunction() && AFI->getVarArgsRegSaveSize() > 0)
-    MF.getRegInfo().setPhysRegUsed(ARM::LR);
 
   // Don't spill FP if the frame can be eliminated. This is determined
   // by scanning the callee-save registers to see if any is used.
@@ -1053,7 +1046,7 @@ emitLoadConstPool(MachineBasicBlock &MBB,
                   unsigned PredReg) const {
   MachineFunction &MF = *MBB.getParent();
   MachineConstantPool *ConstantPool = MF.getConstantPool();
-  const Constant *C =
+  Constant *C =
         ConstantInt::get(Type::getInt32Ty(MF.getFunction()->getContext()), Val);
   unsigned Idx = ConstantPool->getConstantPoolIndex(C, 4);
 
@@ -1160,7 +1153,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 
 unsigned
 ARMBaseRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                         int SPAdj, FrameIndexValue *Value,
+                                         int SPAdj, int *Value,
                                          RegScavenger *RS) const {
   unsigned i = 0;
   MachineInstr &MI = *II;
@@ -1182,13 +1175,6 @@ ARMBaseRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   if (FrameReg != ARM::SP)
     SPAdj = 0;
   Offset += SPAdj;
-
-  // Special handling of dbg_value instructions.
-  if (MI.isDebugValue()) {
-    MI.getOperand(i).  ChangeToRegister(FrameReg, false /*isDef*/);
-    MI.getOperand(i+1).ChangeToImmediate(Offset);
-    return 0;
-  }
 
   // Modify MI as necessary to handle as much of 'Offset' as possible
   bool Done = false;
@@ -1219,10 +1205,7 @@ ARMBaseRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     MI.getOperand(i).ChangeToRegister(FrameReg, false, false, false);
   else {
     ScratchReg = MF.getRegInfo().createVirtualRegister(ARM::GPRRegisterClass);
-    if (Value) {
-      Value->first = FrameReg; // use the frame register as a kind indicator
-      Value->second = Offset;
-    }
+    if (Value) *Value = Offset;
     if (!AFI->isThumbFunction())
       emitARMRegPlusImmediate(MBB, II, MI.getDebugLoc(), ScratchReg, FrameReg,
                               Offset, Pred, PredReg, TII);
@@ -1287,7 +1270,8 @@ emitPrologue(MachineFunction &MF) const {
   unsigned VARegSaveSize = AFI->getVarArgsRegSaveSize();
   unsigned NumBytes = MFI->getStackSize();
   const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
-  DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+  DebugLoc dl = (MBBI != MBB.end() ?
+                 MBBI->getDebugLoc() : DebugLoc::getUnknownLoc());
 
   // Determine the sizes of each callee-save spill areas and record which frame
   // belongs to which callee-save spill areas.

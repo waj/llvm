@@ -14,7 +14,6 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/System/Errno.h"
 #include "llvm/System/Path.h"
 #include "llvm/System/Process.h"
 #include "llvm/System/Program.h"
@@ -71,12 +70,13 @@ namespace {
 class MemoryBufferMem : public MemoryBuffer {
   std::string FileID;
 public:
-  MemoryBufferMem(StringRef InputData, StringRef FID, bool Copy = false)
+  MemoryBufferMem(const char *Start, const char *End, StringRef FID,
+                  bool Copy = false)
   : FileID(FID) {
     if (!Copy)
-      init(InputData.data(), InputData.data()+InputData.size());
+      init(Start, End);
     else
-      initCopyOf(InputData.data(), InputData.data()+InputData.size());
+      initCopyOf(Start, End);
   }
   
   virtual const char *getBufferIdentifier() const {
@@ -87,17 +87,19 @@ public:
 
 /// getMemBuffer - Open the specified memory range as a MemoryBuffer.  Note
 /// that EndPtr[0] must be a null byte and be accessible!
-MemoryBuffer *MemoryBuffer::getMemBuffer(StringRef InputData,
+MemoryBuffer *MemoryBuffer::getMemBuffer(const char *StartPtr, 
+                                         const char *EndPtr,
                                          const char *BufferName) {
-  return new MemoryBufferMem(InputData, BufferName);
+  return new MemoryBufferMem(StartPtr, EndPtr, BufferName);
 }
 
 /// getMemBufferCopy - Open the specified memory range as a MemoryBuffer,
 /// copying the contents and taking ownership of it.  This has no requirements
 /// on EndPtr[0].
-MemoryBuffer *MemoryBuffer::getMemBufferCopy(StringRef InputData,
+MemoryBuffer *MemoryBuffer::getMemBufferCopy(const char *StartPtr, 
+                                             const char *EndPtr,
                                              const char *BufferName) {
-  return new MemoryBufferMem(InputData, BufferName, true);
+  return new MemoryBufferMem(StartPtr, EndPtr, BufferName, true);
 }
 
 /// getNewUninitMemBuffer - Allocate a new MemoryBuffer of the specified size
@@ -109,7 +111,7 @@ MemoryBuffer *MemoryBuffer::getNewUninitMemBuffer(size_t Size,
   char *Buf = (char *)malloc(Size+1);
   if (!Buf) return 0;
   Buf[Size] = 0;
-  MemoryBufferMem *SB = new MemoryBufferMem(StringRef(Buf, Size), BufferName);
+  MemoryBufferMem *SB = new MemoryBufferMem(Buf, Buf+Size, BufferName);
   // The memory for this buffer is owned by the MemoryBuffer.
   SB->MustDeleteBuffer = true;
   return SB;
@@ -134,11 +136,10 @@ MemoryBuffer *MemoryBuffer::getNewMemBuffer(size_t Size,
 /// returns an empty buffer.
 MemoryBuffer *MemoryBuffer::getFileOrSTDIN(StringRef Filename,
                                            std::string *ErrStr,
-                                           int64_t FileSize,
-                                           struct stat *FileInfo) {
+                                           int64_t FileSize) {
   if (Filename == "-")
     return getSTDIN();
-  return getFile(Filename, ErrStr, FileSize, FileInfo);
+  return getFile(Filename, ErrStr, FileSize);
 }
 
 //===----------------------------------------------------------------------===//
@@ -165,18 +166,10 @@ public:
     sys::Path::UnMapFilePages(getBufferStart(), getBufferSize());
   }
 };
-
-/// FileCloser - RAII object to make sure an FD gets closed properly.
-class FileCloser {
-  int FD;
-public:
-  FileCloser(int FD) : FD(FD) {}
-  ~FileCloser() { ::close(FD); }
-};
 }
 
 MemoryBuffer *MemoryBuffer::getFile(StringRef Filename, std::string *ErrStr,
-                                    int64_t FileSize, struct stat *FileInfo) {
+                                    int64_t FileSize) {
   int OpenFlags = 0;
 #ifdef O_BINARY
   OpenFlags |= O_BINARY;  // Open input file in binary mode on win32.
@@ -184,23 +177,21 @@ MemoryBuffer *MemoryBuffer::getFile(StringRef Filename, std::string *ErrStr,
   SmallString<256> PathBuf(Filename.begin(), Filename.end());
   int FD = ::open(PathBuf.c_str(), O_RDONLY|OpenFlags);
   if (FD == -1) {
-    if (ErrStr) *ErrStr = sys::StrError();
+    if (ErrStr) *ErrStr = strerror(errno);
     return 0;
   }
-  FileCloser FC(FD); // Close FD on return.
   
   // If we don't know the file size, use fstat to find out.  fstat on an open
   // file descriptor is cheaper than stat on a random path.
-  if (FileSize == -1 || FileInfo) {
-    struct stat MyFileInfo;
-    struct stat *FileInfoPtr = FileInfo? FileInfo : &MyFileInfo;
-    
+  if (FileSize == -1) {
+    struct stat FileInfo;
     // TODO: This should use fstat64 when available.
-    if (fstat(FD, FileInfoPtr) == -1) {
-      if (ErrStr) *ErrStr = sys::StrError();
+    if (fstat(FD, &FileInfo) == -1) {
+      if (ErrStr) *ErrStr = strerror(errno);
+      ::close(FD);
       return 0;
     }
-    FileSize = FileInfoPtr->st_size;
+    FileSize = FileInfo.st_size;
   }
   
   
@@ -214,6 +205,7 @@ MemoryBuffer *MemoryBuffer::getFile(StringRef Filename, std::string *ErrStr,
       (FileSize & (sys::Process::GetPageSize()-1)) != 0) {
     if (const char *Pages = sys::Path::MapInFilePages(FD, FileSize)) {
       // Close the file descriptor, now that the whole file is in memory.
+      ::close(FD);
       return new MemoryBufferMMapFile(Filename, Pages, FileSize);
     }
   }
@@ -222,31 +214,30 @@ MemoryBuffer *MemoryBuffer::getFile(StringRef Filename, std::string *ErrStr,
   if (!Buf) {
     // Failed to create a buffer.
     if (ErrStr) *ErrStr = "could not allocate buffer";
+    ::close(FD);
     return 0;
   }
 
   OwningPtr<MemoryBuffer> SB(Buf);
   char *BufPtr = const_cast<char*>(SB->getBufferStart());
-
+  
   size_t BytesLeft = FileSize;
   while (BytesLeft) {
     ssize_t NumRead = ::read(FD, BufPtr, BytesLeft);
-    if (NumRead == -1) {
-      if (errno == EINTR)
-        continue;
-      // Error while reading.
-      if (ErrStr) *ErrStr = sys::StrError();
+    if (NumRead > 0) {
+      BytesLeft -= NumRead;
+      BufPtr += NumRead;
+    } else if (NumRead == -1 && errno == EINTR) {
+      // try again
+    } else {
+      // error reading.
+      if (ErrStr) *ErrStr = strerror(errno);
+      close(FD);
       return 0;
-    } else if (NumRead == 0) {
-      // We hit EOF early, truncate and terminate buffer.
-      Buf->BufferEnd = BufPtr;
-      *BufPtr = 0;
-      return SB.take();
     }
-    BytesLeft -= NumRead;
-    BufPtr += NumRead;
   }
-
+  close(FD);
+  
   return SB.take();
 }
 

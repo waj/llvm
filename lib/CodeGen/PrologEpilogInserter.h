@@ -102,8 +102,7 @@ namespace llvm {
     // When using the scavenger post-pass to resolve frame reference
     // materialization registers, maintain a map of the registers to
     // the constant value and SP adjustment associated with it.
-    typedef std::pair<TargetRegisterInfo::FrameIndexValue, int>
-      FrameConstantEntry;
+    typedef std::pair<int, int> FrameConstantEntry;
     DenseMap<unsigned, FrameConstantEntry> FrameConstantRegMap;
 
 #ifndef NDEBUG

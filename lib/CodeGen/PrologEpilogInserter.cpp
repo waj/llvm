@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/Target/TargetMachine.h"
@@ -56,7 +57,11 @@ bool PEI::runOnMachineFunction(MachineFunction &Fn) {
   const TargetRegisterInfo *TRI = Fn.getTarget().getRegisterInfo();
   RS = TRI->requiresRegisterScavenging(Fn) ? new RegScavenger() : NULL;
   FrameIndexVirtualScavenging = TRI->requiresFrameIndexScavenging(Fn);
-  FrameConstantRegMap.clear();
+
+  // Get MachineModuleInfo so that we can track the construction of the
+  // frame.
+  if (MachineModuleInfo *MMI = getAnalysisIfAvailable<MachineModuleInfo>())
+    Fn.getFrameInfo()->setMachineModuleInfo(MMI);
 
   // Calculate the MaxCallFrameSize and HasCalls variables for the function's
   // frame information. Also eliminates call frame pseudo instructions.
@@ -131,10 +136,10 @@ void PEI::getAnalysisUsage(AnalysisUsage &AU) const {
 /// pseudo instructions.
 void PEI::calculateCallsInformation(MachineFunction &Fn) {
   const TargetRegisterInfo *RegInfo = Fn.getTarget().getRegisterInfo();
-  MachineFrameInfo *MFI = Fn.getFrameInfo();
+  MachineFrameInfo *FFI = Fn.getFrameInfo();
 
   unsigned MaxCallFrameSize = 0;
-  bool HasCalls = MFI->hasCalls();
+  bool HasCalls = FFI->hasCalls();
 
   // Get the function call frame set-up and tear-down instruction opcode
   int FrameSetupOpcode   = RegInfo->getCallFrameSetupOpcode();
@@ -162,8 +167,8 @@ void PEI::calculateCallsInformation(MachineFunction &Fn) {
         HasCalls = true;
       }
 
-  MFI->setHasCalls(HasCalls);
-  MFI->setMaxCallFrameSize(MaxCallFrameSize);
+  FFI->setHasCalls(HasCalls);
+  FFI->setMaxCallFrameSize(MaxCallFrameSize);
 
   for (std::vector<MachineBasicBlock::iterator>::iterator
          i = FrameSDOps.begin(), e = FrameSDOps.end(); i != e; ++i) {
@@ -184,7 +189,7 @@ void PEI::calculateCallsInformation(MachineFunction &Fn) {
 void PEI::calculateCalleeSavedRegisters(MachineFunction &Fn) {
   const TargetRegisterInfo *RegInfo = Fn.getTarget().getRegisterInfo();
   const TargetFrameInfo *TFI = Fn.getTarget().getFrameInfo();
-  MachineFrameInfo *MFI = Fn.getFrameInfo();
+  MachineFrameInfo *FFI = Fn.getFrameInfo();
 
   // Get the callee saved register list...
   const unsigned *CSRegs = RegInfo->getCalleeSavedRegs(&Fn);
@@ -255,19 +260,19 @@ void PEI::calculateCalleeSavedRegisters(MachineFunction &Fn) {
       // the TargetRegisterClass if the stack alignment is smaller. Use the
       // min.
       Align = std::min(Align, StackAlign);
-      FrameIdx = MFI->CreateStackObject(RC->getSize(), Align, true);
+      FrameIdx = FFI->CreateStackObject(RC->getSize(), Align, true);
       if ((unsigned)FrameIdx < MinCSFrameIndex) MinCSFrameIndex = FrameIdx;
       if ((unsigned)FrameIdx > MaxCSFrameIndex) MaxCSFrameIndex = FrameIdx;
     } else {
       // Spill it to the stack where we must.
-      FrameIdx = MFI->CreateFixedObject(RC->getSize(), FixedSlot->Offset,
+      FrameIdx = FFI->CreateFixedObject(RC->getSize(), FixedSlot->Offset,
                                         true, false);
     }
 
     I->setFrameIdx(FrameIdx);
   }
 
-  MFI->setCalleeSavedInfo(CSI);
+  FFI->setCalleeSavedInfo(CSI);
 }
 
 /// insertCSRSpillsAndRestores - Insert spill and restore code for
@@ -275,10 +280,10 @@ void PEI::calculateCalleeSavedRegisters(MachineFunction &Fn) {
 ///
 void PEI::insertCSRSpillsAndRestores(MachineFunction &Fn) {
   // Get callee saved register information.
-  MachineFrameInfo *MFI = Fn.getFrameInfo();
-  const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+  MachineFrameInfo *FFI = Fn.getFrameInfo();
+  const std::vector<CalleeSavedInfo> &CSI = FFI->getCalleeSavedInfo();
 
-  MFI->setCalleeSavedInfoValid(true);
+  FFI->setCalleeSavedInfoValid(true);
 
   // Early exit if no callee saved registers are modified!
   if (CSI.empty())
@@ -436,14 +441,14 @@ void PEI::insertCSRSpillsAndRestores(MachineFunction &Fn) {
 
 /// AdjustStackOffset - Helper function used to adjust the stack frame offset.
 static inline void
-AdjustStackOffset(MachineFrameInfo *MFI, int FrameIdx,
+AdjustStackOffset(MachineFrameInfo *FFI, int FrameIdx,
                   bool StackGrowsDown, int64_t &Offset,
                   unsigned &MaxAlign) {
   // If the stack grows down, add the object size to find the lowest address.
   if (StackGrowsDown)
-    Offset += MFI->getObjectSize(FrameIdx);
+    Offset += FFI->getObjectSize(FrameIdx);
 
-  unsigned Align = MFI->getObjectAlignment(FrameIdx);
+  unsigned Align = FFI->getObjectAlignment(FrameIdx);
 
   // If the alignment of this object is greater than that of the stack, then
   // increase the stack alignment to match.
@@ -453,10 +458,10 @@ AdjustStackOffset(MachineFrameInfo *MFI, int FrameIdx,
   Offset = (Offset + Align - 1) / Align * Align;
 
   if (StackGrowsDown) {
-    MFI->setObjectOffset(FrameIdx, -Offset); // Set the computed offset
+    FFI->setObjectOffset(FrameIdx, -Offset); // Set the computed offset
   } else {
-    MFI->setObjectOffset(FrameIdx, Offset);
-    Offset += MFI->getObjectSize(FrameIdx);
+    FFI->setObjectOffset(FrameIdx, Offset);
+    Offset += FFI->getObjectSize(FrameIdx);
   }
 }
 
@@ -470,7 +475,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     TFI.getStackGrowthDirection() == TargetFrameInfo::StackGrowsDown;
 
   // Loop over all of the stack objects, assigning sequential addresses...
-  MachineFrameInfo *MFI = Fn.getFrameInfo();
+  MachineFrameInfo *FFI = Fn.getFrameInfo();
 
   // Start at the beginning of the local area.
   // The Offset is the distance from the stack top in the direction
@@ -487,17 +492,17 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
   // We currently don't support filling in holes in between fixed sized
   // objects, so we adjust 'Offset' to point to the end of last fixed sized
   // preallocated object.
-  for (int i = MFI->getObjectIndexBegin(); i != 0; ++i) {
+  for (int i = FFI->getObjectIndexBegin(); i != 0; ++i) {
     int64_t FixedOff;
     if (StackGrowsDown) {
       // The maximum distance from the stack pointer is at lower address of
       // the object -- which is given by offset. For down growing stack
       // the offset is negative, so we negate the offset to get the distance.
-      FixedOff = -MFI->getObjectOffset(i);
+      FixedOff = -FFI->getObjectOffset(i);
     } else {
       // The maximum distance from the start pointer is at the upper
       // address of the object.
-      FixedOff = MFI->getObjectOffset(i) + MFI->getObjectSize(i);
+      FixedOff = FFI->getObjectOffset(i) + FFI->getObjectSize(i);
     }
     if (FixedOff > Offset) Offset = FixedOff;
   }
@@ -508,27 +513,27 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     for (unsigned i = MinCSFrameIndex; i <= MaxCSFrameIndex; ++i) {
       // If stack grows down, we need to add size of find the lowest
       // address of the object.
-      Offset += MFI->getObjectSize(i);
+      Offset += FFI->getObjectSize(i);
 
-      unsigned Align = MFI->getObjectAlignment(i);
+      unsigned Align = FFI->getObjectAlignment(i);
       // Adjust to alignment boundary
       Offset = (Offset+Align-1)/Align*Align;
 
-      MFI->setObjectOffset(i, -Offset);        // Set the computed offset
+      FFI->setObjectOffset(i, -Offset);        // Set the computed offset
     }
   } else {
     int MaxCSFI = MaxCSFrameIndex, MinCSFI = MinCSFrameIndex;
     for (int i = MaxCSFI; i >= MinCSFI ; --i) {
-      unsigned Align = MFI->getObjectAlignment(i);
+      unsigned Align = FFI->getObjectAlignment(i);
       // Adjust to alignment boundary
       Offset = (Offset+Align-1)/Align*Align;
 
-      MFI->setObjectOffset(i, Offset);
-      Offset += MFI->getObjectSize(i);
+      FFI->setObjectOffset(i, Offset);
+      Offset += FFI->getObjectSize(i);
     }
   }
 
-  unsigned MaxAlign = MFI->getMaxAlignment();
+  unsigned MaxAlign = FFI->getMaxAlignment();
 
   // Make sure the special register scavenging spill slot is closest to the
   // frame pointer if a frame pointer is required.
@@ -536,28 +541,28 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
   if (RS && RegInfo->hasFP(Fn) && !RegInfo->needsStackRealignment(Fn)) {
     int SFI = RS->getScavengingFrameIndex();
     if (SFI >= 0)
-      AdjustStackOffset(MFI, SFI, StackGrowsDown, Offset, MaxAlign);
+      AdjustStackOffset(FFI, SFI, StackGrowsDown, Offset, MaxAlign);
   }
 
   // Make sure that the stack protector comes before the local variables on the
   // stack.
-  if (MFI->getStackProtectorIndex() >= 0)
-    AdjustStackOffset(MFI, MFI->getStackProtectorIndex(), StackGrowsDown,
+  if (FFI->getStackProtectorIndex() >= 0)
+    AdjustStackOffset(FFI, FFI->getStackProtectorIndex(), StackGrowsDown,
                       Offset, MaxAlign);
 
   // Then assign frame offsets to stack objects that are not used to spill
   // callee saved registers.
-  for (unsigned i = 0, e = MFI->getObjectIndexEnd(); i != e; ++i) {
+  for (unsigned i = 0, e = FFI->getObjectIndexEnd(); i != e; ++i) {
     if (i >= MinCSFrameIndex && i <= MaxCSFrameIndex)
       continue;
     if (RS && (int)i == RS->getScavengingFrameIndex())
       continue;
-    if (MFI->isDeadObjectIndex(i))
+    if (FFI->isDeadObjectIndex(i))
       continue;
-    if (MFI->getStackProtectorIndex() == (int)i)
+    if (FFI->getStackProtectorIndex() == (int)i)
       continue;
 
-    AdjustStackOffset(MFI, i, StackGrowsDown, Offset, MaxAlign);
+    AdjustStackOffset(FFI, i, StackGrowsDown, Offset, MaxAlign);
   }
 
   // Make sure the special register scavenging spill slot is closest to the
@@ -565,15 +570,15 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
   if (RS && (!RegInfo->hasFP(Fn) || RegInfo->needsStackRealignment(Fn))) {
     int SFI = RS->getScavengingFrameIndex();
     if (SFI >= 0)
-      AdjustStackOffset(MFI, SFI, StackGrowsDown, Offset, MaxAlign);
+      AdjustStackOffset(FFI, SFI, StackGrowsDown, Offset, MaxAlign);
   }
 
   if (!RegInfo->targetHandlesStackFrameRounding()) {
     // If we have reserved argument space for call sites in the function
     // immediately on entry to the current function, count it as part of the
     // overall stack size.
-    if (MFI->hasCalls() && RegInfo->hasReservedCallFrame(Fn))
-      Offset += MFI->getMaxCallFrameSize();
+    if (FFI->hasCalls() && RegInfo->hasReservedCallFrame(Fn))
+      Offset += FFI->getMaxCallFrameSize();
 
     // Round up the size to a multiple of the alignment.  If the function has
     // any calls or alloca's, align to the target's StackAlignment value to
@@ -581,8 +586,8 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     // otherwise, for leaf functions, align to the TransientStackAlignment
     // value.
     unsigned StackAlign;
-    if (MFI->hasCalls() || MFI->hasVarSizedObjects() ||
-        (RegInfo->needsStackRealignment(Fn) && MFI->getObjectIndexEnd() != 0))
+    if (FFI->hasCalls() || FFI->hasVarSizedObjects() ||
+        (RegInfo->needsStackRealignment(Fn) && FFI->getObjectIndexEnd() != 0))
       StackAlign = TFI.getStackAlignment();
     else
       StackAlign = TFI.getTransientStackAlignment();
@@ -594,7 +599,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
   }
 
   // Update frame info to pretend that this is part of the stack...
-  MFI->setStackSize(Offset - LocalAreaOffset);
+  FFI->setStackSize(Offset - LocalAreaOffset);
 }
 
 
@@ -680,7 +685,7 @@ void PEI::replaceFrameIndices(MachineFunction &Fn) {
           // If this instruction has a FrameIndex operand, we need to
           // use that target machine register info object to eliminate
           // it.
-          TargetRegisterInfo::FrameIndexValue Value;
+          int Value;
           unsigned VReg =
             TRI.eliminateFrameIndex(MI, SPAdj, &Value,
                                     FrameIndexVirtualScavenging ?  NULL : RS);
@@ -759,12 +764,12 @@ void PEI::scavengeFrameVirtualRegs(MachineFunction &Fn) {
     unsigned CurrentVirtReg = 0;
     unsigned CurrentScratchReg = 0;
     bool havePrevValue = false;
-    TargetRegisterInfo::FrameIndexValue PrevValue(0,0);
-    TargetRegisterInfo::FrameIndexValue Value(0,0);
+    int PrevValue = 0;
     MachineInstr *PrevLastUseMI = NULL;
     unsigned PrevLastUseOp = 0;
     bool trackingCurrentValue = false;
     int SPAdj = 0;
+    int Value = 0;
 
     // The instruction stream may change in the loop, so check BB->end()
     // directly.
@@ -821,11 +826,8 @@ void PEI::scavengeFrameVirtualRegs(MachineFunction &Fn) {
             if (trackingCurrentValue) {
               SPAdj = (*Entry).second.second;
               Value = (*Entry).second.first;
-            } else {
-              SPAdj = 0;
-              Value.first = 0;
-              Value.second = 0;
-            }
+            } else
+              SPAdj = Value = 0;
 
             // If the scratch register from the last allocation is still
             // available, see if the value matches. If it does, just re-use it.

@@ -24,7 +24,8 @@
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Constants.h"
 #include "llvm/GlobalVariable.h"
-#include "llvm/Metadata.h"
+#include "llvm/Analysis/ValueTracking.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//

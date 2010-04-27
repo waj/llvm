@@ -14,6 +14,7 @@
 #ifndef CODEGEN_ASMPRINTER_DIE_H__
 #define CODEGEN_ASMPRINTER_DIE_H__
 
+#include "DwarfLabel.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
@@ -22,8 +23,9 @@
 
 namespace llvm {
   class AsmPrinter;
+  class DwarfPrinter;
+  class TargetData;
   class MCSymbol;
-  class raw_ostream;
 
   //===--------------------------------------------------------------------===//
   /// DIEAbbrevData - Dwarf abbreviation data, describes the one attribute of a
@@ -99,7 +101,7 @@ namespace llvm {
 
     /// Emit - Print the abbreviation using the specified asm printer.
     ///
-    void Emit(AsmPrinter *AP) const;
+    void Emit(const DwarfPrinter *DP) const;
 
 #ifndef NDEBUG
     void print(raw_ostream &O);
@@ -110,6 +112,7 @@ namespace llvm {
   //===--------------------------------------------------------------------===//
   /// DIE - A structured debug information entry.  Has an abbreviation which
   /// describes it's organization.
+  class CompileUnit;
   class DIEValue;
 
   class DIE {
@@ -151,11 +154,12 @@ namespace llvm {
     unsigned getOffset() const { return Offset; }
     unsigned getSize() const { return Size; }
     const std::vector<DIE *> &getChildren() const { return Children; }
-    const SmallVector<DIEValue*, 32> &getValues() const { return Values; }
+    SmallVector<DIEValue*, 32> &getValues() { return Values; }
     DIE *getParent() const { return Parent; }
     void setTag(unsigned Tag) { Abbrev.setTag(Tag); }
     void setOffset(unsigned O) { Offset = O; }
     void setSize(unsigned S) { Size = S; }
+    void setParent(DIE *P) { Parent = P; }
     
     /// addValue - Add a value and attributes to a DIE.
     ///
@@ -169,10 +173,8 @@ namespace llvm {
     unsigned getSiblingOffset() const { return Offset + Size; }
 
     /// addSiblingOffset - Add a sibling offset field to the front of the DIE.
-    /// The caller is responsible for deleting the return value at or after the
-    /// same time it destroys this DIE.
     ///
-    DIEValue *addSiblingOffset(BumpPtrAllocator &A);
+    void addSiblingOffset();
 
     /// addChild - Add a child to the DIE.
     ///
@@ -183,7 +185,7 @@ namespace llvm {
       }
       Abbrev.setChildrenFlag(dwarf::DW_CHILDREN_yes);
       Children.push_back(Child);
-      Child->Parent = this;
+      Child->setParent(this);
     }
 
 #ifndef NDEBUG
@@ -201,6 +203,7 @@ namespace llvm {
       isInteger,
       isString,
       isLabel,
+      isAsIsLabel,
       isSectionOffset,
       isDelta,
       isEntry,
@@ -219,11 +222,11 @@ namespace llvm {
 
     /// EmitValue - Emit value via the Dwarf writer.
     ///
-    virtual void EmitValue(AsmPrinter *AP, unsigned Form) const = 0;
+    virtual void EmitValue(DwarfPrinter *D, unsigned Form) const = 0;
 
     /// SizeOf - Return the size of a value in bytes.
     ///
-    virtual unsigned SizeOf(AsmPrinter *AP, unsigned Form) const = 0;
+    virtual unsigned SizeOf(const TargetData *TD, unsigned Form) const = 0;
 
     // Implement isa/cast/dyncast.
     static bool classof(const DIEValue *) { return true; }
@@ -259,13 +262,12 @@ namespace llvm {
 
     /// EmitValue - Emit integer of appropriate size.
     ///
-    virtual void EmitValue(AsmPrinter *AP, unsigned Form) const;
-
-    uint64_t getValue() const { return Integer; }
+    virtual void EmitValue(DwarfPrinter *D, unsigned Form) const;
 
     /// SizeOf - Determine size of integer value in bytes.
     ///
-    virtual unsigned SizeOf(AsmPrinter *AP, unsigned Form) const;
+    virtual unsigned SizeOf(const TargetData *TD, unsigned Form) const;
+
 
     // Implement isa/cast/dyncast.
     static bool classof(const DIEInteger *) { return true; }
@@ -286,11 +288,11 @@ namespace llvm {
 
     /// EmitValue - Emit string value.
     ///
-    virtual void EmitValue(AsmPrinter *AP, unsigned Form) const;
+    virtual void EmitValue(DwarfPrinter *D, unsigned Form) const;
 
     /// SizeOf - Determine size of string value in bytes.
     ///
-    virtual unsigned SizeOf(AsmPrinter *AP, unsigned /*Form*/) const {
+    virtual unsigned SizeOf(const TargetData *, unsigned /*Form*/) const {
       return Str.size() + sizeof(char); // sizeof('\0');
     }
 
@@ -304,24 +306,85 @@ namespace llvm {
   };
 
   //===--------------------------------------------------------------------===//
-  /// DIELabel - A label expression DIE.
+  /// DIEDwarfLabel - A Dwarf internal label expression DIE.
   //
-  class DIELabel : public DIEValue {
-    const MCSymbol *Label;
+  class DIEDwarfLabel : public DIEValue {
+    const DWLabel Label;
   public:
-    explicit DIELabel(const MCSymbol *L) : DIEValue(isLabel), Label(L) {}
+    explicit DIEDwarfLabel(const DWLabel &L) : DIEValue(isLabel), Label(L) {}
 
     /// EmitValue - Emit label value.
     ///
-    virtual void EmitValue(AsmPrinter *AP, unsigned Form) const;
+    virtual void EmitValue(DwarfPrinter *D, unsigned Form) const;
 
     /// SizeOf - Determine size of label value in bytes.
     ///
-    virtual unsigned SizeOf(AsmPrinter *AP, unsigned Form) const;
+    virtual unsigned SizeOf(const TargetData *TD, unsigned Form) const;
 
     // Implement isa/cast/dyncast.
-    static bool classof(const DIELabel *)  { return true; }
+    static bool classof(const DIEDwarfLabel *)  { return true; }
     static bool classof(const DIEValue *L) { return L->getType() == isLabel; }
+
+#ifndef NDEBUG
+    virtual void print(raw_ostream &O);
+#endif
+  };
+
+  //===--------------------------------------------------------------------===//
+  /// DIEObjectLabel - A label to an object in code or data.
+  //
+  class DIEObjectLabel : public DIEValue {
+    const MCSymbol *Sym;
+  public:
+    explicit DIEObjectLabel(const MCSymbol *S)
+      : DIEValue(isAsIsLabel), Sym(S) {}
+
+    /// EmitValue - Emit label value.
+    ///
+    virtual void EmitValue(DwarfPrinter *D, unsigned Form) const;
+
+    /// SizeOf - Determine size of label value in bytes.
+    ///
+    virtual unsigned SizeOf(const TargetData *TD, unsigned Form) const;
+
+    // Implement isa/cast/dyncast.
+    static bool classof(const DIEObjectLabel *) { return true; }
+    static bool classof(const DIEValue *L) {
+      return L->getType() == isAsIsLabel;
+    }
+
+#ifndef NDEBUG
+    virtual void print(raw_ostream &O);
+#endif
+  };
+
+  //===--------------------------------------------------------------------===//
+  /// DIESectionOffset - A section offset DIE.
+  ///
+  class DIESectionOffset : public DIEValue {
+    const DWLabel Label;
+    const DWLabel Section;
+    bool IsEH : 1;
+    bool UseSet : 1;
+  public:
+    DIESectionOffset(const DWLabel &Lab, const DWLabel &Sec,
+                     bool isEH = false, bool useSet = true)
+      : DIEValue(isSectionOffset), Label(Lab), Section(Sec),
+        IsEH(isEH), UseSet(useSet) {}
+
+    /// EmitValue - Emit section offset.
+    ///
+    virtual void EmitValue(DwarfPrinter *D, unsigned Form) const;
+
+    /// SizeOf - Determine size of section offset value in bytes.
+    ///
+    virtual unsigned SizeOf(const TargetData *TD, unsigned Form) const;
+
+    // Implement isa/cast/dyncast.
+    static bool classof(const DIESectionOffset *)  { return true; }
+    static bool classof(const DIEValue *D) {
+      return D->getType() == isSectionOffset;
+    }
 
 #ifndef NDEBUG
     virtual void print(raw_ostream &O);
@@ -332,19 +395,19 @@ namespace llvm {
   /// DIEDelta - A simple label difference DIE.
   ///
   class DIEDelta : public DIEValue {
-    const MCSymbol *LabelHi;
-    const MCSymbol *LabelLo;
+    const DWLabel LabelHi;
+    const DWLabel LabelLo;
   public:
-    DIEDelta(const MCSymbol *Hi, const MCSymbol *Lo)
+    DIEDelta(const DWLabel &Hi, const DWLabel &Lo)
       : DIEValue(isDelta), LabelHi(Hi), LabelLo(Lo) {}
 
     /// EmitValue - Emit delta value.
     ///
-    virtual void EmitValue(AsmPrinter *AP, unsigned Form) const;
+    virtual void EmitValue(DwarfPrinter *D, unsigned Form) const;
 
     /// SizeOf - Determine size of delta value in bytes.
     ///
-    virtual unsigned SizeOf(AsmPrinter *AP, unsigned Form) const;
+    virtual unsigned SizeOf(const TargetData *TD, unsigned Form) const;
 
     // Implement isa/cast/dyncast.
     static bool classof(const DIEDelta *)  { return true; }
@@ -360,19 +423,20 @@ namespace llvm {
   /// this class can also be used as a proxy for a debug information entry not
   /// yet defined (ie. types.)
   class DIEEntry : public DIEValue {
-    DIE *const Entry;
+    DIE *Entry;
   public:
     explicit DIEEntry(DIE *E) : DIEValue(isEntry), Entry(E) {}
 
     DIE *getEntry() const { return Entry; }
+    void setEntry(DIE *E) { Entry = E; }
 
     /// EmitValue - Emit debug information entry offset.
     ///
-    virtual void EmitValue(AsmPrinter *AP, unsigned Form) const;
+    virtual void EmitValue(DwarfPrinter *D, unsigned Form) const;
 
     /// SizeOf - Determine size of debug information entry in bytes.
     ///
-    virtual unsigned SizeOf(AsmPrinter *AP, unsigned Form) const {
+    virtual unsigned SizeOf(const TargetData *TD, unsigned Form) const {
       return sizeof(int32_t);
     }
 
@@ -397,7 +461,7 @@ namespace llvm {
 
     /// ComputeSize - calculate the size of the block.
     ///
-    unsigned ComputeSize(AsmPrinter *AP);
+    unsigned ComputeSize(const TargetData *TD);
 
     /// BestForm - Choose the best form for data.
     ///
@@ -410,11 +474,11 @@ namespace llvm {
 
     /// EmitValue - Emit block data.
     ///
-    virtual void EmitValue(AsmPrinter *AP, unsigned Form) const;
+    virtual void EmitValue(DwarfPrinter *D, unsigned Form) const;
 
     /// SizeOf - Determine size of block data in bytes.
     ///
-    virtual unsigned SizeOf(AsmPrinter *AP, unsigned Form) const;
+    virtual unsigned SizeOf(const TargetData *TD, unsigned Form) const;
 
     // Implement isa/cast/dyncast.
     static bool classof(const DIEBlock *)  { return true; }

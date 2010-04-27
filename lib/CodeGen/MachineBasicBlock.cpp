@@ -23,7 +23,6 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LeakDetector.h"
 #include "llvm/Support/raw_ostream.h"
@@ -42,13 +41,13 @@ MachineBasicBlock::~MachineBasicBlock() {
 
 /// getSymbol - Return the MCSymbol for this basic block.
 ///
-MCSymbol *MachineBasicBlock::getSymbol() const {
+MCSymbol *MachineBasicBlock::getSymbol(MCContext &Ctx) const {
+  SmallString<60> Name;
   const MachineFunction *MF = getParent();
-  MCContext &Ctx = MF->getContext();
-  const char *Prefix = Ctx.getAsmInfo().getPrivateGlobalPrefix();
-  return Ctx.GetOrCreateSymbol(Twine(Prefix) + "BB" +
-                               Twine(MF->getFunctionNumber()) + "_" +
-                               Twine(getNumber()));
+  raw_svector_ostream(Name)
+    << MF->getTarget().getMCAsmInfo()->getPrivateGlobalPrefix() << "BB"
+    << MF->getFunctionNumber() << '_' << getNumber();
+  return Ctx.GetOrCreateSymbol(Name.str());
 }
 
 
@@ -191,7 +190,7 @@ void MachineBasicBlock::print(raw_ostream &OS) const {
   const TargetRegisterInfo *TRI = MF->getTarget().getRegisterInfo();  
   if (!livein_empty()) {
     OS << "    Live Ins:";
-    for (livein_iterator I = livein_begin(),E = livein_end(); I != E; ++I)
+    for (const_livein_iterator I = livein_begin(),E = livein_end(); I != E; ++I)
       OutputReg(OS, *I, TRI);
     OS << '\n';
   }
@@ -218,14 +217,13 @@ void MachineBasicBlock::print(raw_ostream &OS) const {
 }
 
 void MachineBasicBlock::removeLiveIn(unsigned Reg) {
-  std::vector<unsigned>::iterator I =
-    std::find(LiveIns.begin(), LiveIns.end(), Reg);
-  assert(I != LiveIns.end() && "Not a live in!");
+  livein_iterator I = std::find(livein_begin(), livein_end(), Reg);
+  assert(I != livein_end() && "Not a live in!");
   LiveIns.erase(I);
 }
 
 bool MachineBasicBlock::isLiveIn(unsigned Reg) const {
-  livein_iterator I = std::find(livein_begin(), livein_end(), Reg);
+  const_livein_iterator I = std::find(livein_begin(), livein_end(), Reg);
   return I != livein_end();
 }
 
@@ -461,41 +459,54 @@ bool MachineBasicBlock::CorrectExtraCFGEdges(MachineBasicBlock *DestA,
   //    conditional branch followed by an unconditional branch. DestA is the
   //    'true' destination and DestB is the 'false' destination.
 
-  bool Changed = false;
+  bool MadeChange = false;
+  bool AddedFallThrough = false;
 
   MachineFunction::iterator FallThru =
     llvm::next(MachineFunction::iterator(this));
-
-  if (DestA == 0 && DestB == 0) {
-    // Block falls through to successor.
-    DestA = FallThru;
-    DestB = FallThru;
-  } else if (DestA != 0 && DestB == 0) {
-    if (isCond)
-      // Block ends in conditional jump that falls through to successor.
+  
+  if (isCond) {
+    // If this block ends with a conditional branch that falls through to its
+    // successor, set DestB as the successor.
+    if (DestB == 0 && FallThru != getParent()->end()) {
       DestB = FallThru;
+      AddedFallThrough = true;
+    }
   } else {
-    assert(DestA && DestB && isCond &&
-           "CFG in a bad state. Cannot correct CFG edges");
+    // If this is an unconditional branch with no explicit dest, it must just be
+    // a fallthrough into DestA.
+    if (DestA == 0 && FallThru != getParent()->end()) {
+      DestA = FallThru;
+      AddedFallThrough = true;
+    }
   }
-
-  // Remove superfluous edges. I.e., those which aren't destinations of this
-  // basic block, duplicate edges, or landing pads.
-  SmallPtrSet<const MachineBasicBlock*, 8> SeenMBBs;
+  
   MachineBasicBlock::succ_iterator SI = succ_begin();
+  MachineBasicBlock *OrigDestA = DestA, *OrigDestB = DestB;
   while (SI != succ_end()) {
     const MachineBasicBlock *MBB = *SI;
-    if (!SeenMBBs.insert(MBB) ||
-        (MBB != DestA && MBB != DestB && !MBB->isLandingPad())) {
-      // This is a superfluous edge, remove it.
-      SI = removeSuccessor(SI);
-      Changed = true;
-    } else {
+    if (MBB == DestA) {
+      DestA = 0;
       ++SI;
+    } else if (MBB == DestB) {
+      DestB = 0;
+      ++SI;
+    } else if (MBB->isLandingPad() && 
+               MBB != OrigDestA && MBB != OrigDestB) {
+      ++SI;
+    } else {
+      // Otherwise, this is a superfluous edge, remove it.
+      SI = removeSuccessor(SI);
+      MadeChange = true;
     }
   }
 
-  return Changed;
+  if (!AddedFallThrough)
+    assert(DestA == 0 && DestB == 0 && "MachineCFG is missing edges!");
+  else if (isCond)
+    assert(DestA == 0 && "MachineCFG is missing edges!");
+
+  return MadeChange;
 }
 
 /// findDebugLoc - find the next valid DebugLoc starting at MBBI, skipping

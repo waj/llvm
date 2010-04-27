@@ -401,12 +401,11 @@ void Pattern::PrintFailureInfo(const SourceMgr &SM, StringRef Buffer,
     }
   }
 
-  // Print the "possible intended match here" line if we found something
-  // reasonable and not equal to what we showed in the "scanning from here"
-  // line.
-  if (Best && Best != StringRef::npos && BestQuality < 50) {
-      SM.PrintMessage(SMLoc::getFromPointer(Buffer.data() + Best),
-                      "possible intended match here", "note");
+  if (Best != StringRef::npos && BestQuality < 50) {
+    // Print the "possible intended match here" line if we found something
+    // reasonable.
+    SM.PrintMessage(SMLoc::getFromPointer(Buffer.data() + Best),
+                    "possible intended match here", "note");
 
     // FIXME: If we wanted to be really friendly we would show why the match
     // failed, as it can be hard to spot simple one character differences.
@@ -441,7 +440,7 @@ struct CheckString {
 /// CanonicalizeInputFile - Remove duplicate horizontal space from the specified
 /// memory buffer, free it, and return a new one.
 static MemoryBuffer *CanonicalizeInputFile(MemoryBuffer *MB) {
-  SmallString<128> NewFile;
+  SmallVector<char, 16> NewFile;
   NewFile.reserve(MB->getBufferSize());
   
   for (const char *Ptr = MB->getBufferStart(), *End = MB->getBufferEnd();
@@ -461,7 +460,9 @@ static MemoryBuffer *CanonicalizeInputFile(MemoryBuffer *MB) {
   
   // Free the old buffer and return a new one.
   MemoryBuffer *MB2 =
-    MemoryBuffer::getMemBufferCopy(NewFile.str(), MB->getBufferIdentifier());
+    MemoryBuffer::getMemBufferCopy(NewFile.data(), 
+                                   NewFile.data() + NewFile.size(),
+                                   MB->getBufferIdentifier());
   
   delete MB;
   return MB2;

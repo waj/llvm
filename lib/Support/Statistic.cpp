@@ -32,8 +32,8 @@
 #include <cstring>
 using namespace llvm;
 
-// CreateInfoOutputFile - Return a file stream to print our output on.
-namespace llvm { extern raw_ostream *CreateInfoOutputFile(); }
+// GetLibSupportInfoOutputFile - Return a file stream to print our output on.
+namespace llvm { extern raw_ostream *GetLibSupportInfoOutputFile(); }
 
 /// -stats - Command line option to cause transformations to emit stats about
 /// what they did.
@@ -48,8 +48,6 @@ namespace {
 /// llvm_shutdown is called.  We print statistics from the destructor.
 class StatisticInfo {
   std::vector<const Statistic*> Stats;
-  friend void llvm::PrintStatistics();
-  friend void llvm::PrintStatistics(raw_ostream &OS);
 public:
   ~StatisticInfo();
   
@@ -94,55 +92,42 @@ struct NameCompare {
 
 // Print information when destroyed, iff command line option is specified.
 StatisticInfo::~StatisticInfo() {
-  llvm::PrintStatistics();
-}
+  // Statistics not enabled?
+  if (Stats.empty()) return;
 
-void llvm::EnableStatistics() {
-  Enabled.setValue(true);
-}
-
-void llvm::PrintStatistics(raw_ostream &OS) {
-  StatisticInfo &Stats = *StatInfo;
+  // Get the stream to write to.
+  raw_ostream &OutStream = *GetLibSupportInfoOutputFile();
 
   // Figure out how long the biggest Value and Name fields are.
   unsigned MaxNameLen = 0, MaxValLen = 0;
-  for (size_t i = 0, e = Stats.Stats.size(); i != e; ++i) {
+  for (size_t i = 0, e = Stats.size(); i != e; ++i) {
     MaxValLen = std::max(MaxValLen,
-                         (unsigned)utostr(Stats.Stats[i]->getValue()).size());
+                         (unsigned)utostr(Stats[i]->getValue()).size());
     MaxNameLen = std::max(MaxNameLen,
-                          (unsigned)std::strlen(Stats.Stats[i]->getName()));
+                          (unsigned)std::strlen(Stats[i]->getName()));
   }
   
   // Sort the fields by name.
-  std::stable_sort(Stats.Stats.begin(), Stats.Stats.end(), NameCompare());
+  std::stable_sort(Stats.begin(), Stats.end(), NameCompare());
 
   // Print out the statistics header...
-  OS << "===" << std::string(73, '-') << "===\n"
-     << "                          ... Statistics Collected ...\n"
-     << "===" << std::string(73, '-') << "===\n\n";
+  OutStream << "===" << std::string(73, '-') << "===\n"
+            << "                          ... Statistics Collected ...\n"
+            << "===" << std::string(73, '-') << "===\n\n";
   
   // Print all of the statistics.
-  for (size_t i = 0, e = Stats.Stats.size(); i != e; ++i) {
-    std::string CountStr = utostr(Stats.Stats[i]->getValue());
-    OS << std::string(MaxValLen-CountStr.size(), ' ')
-       << CountStr << " " << Stats.Stats[i]->getName()
-       << std::string(MaxNameLen-std::strlen(Stats.Stats[i]->getName()), ' ')
-       << " - " << Stats.Stats[i]->getDesc() << "\n";
+  for (size_t i = 0, e = Stats.size(); i != e; ++i) {
+    std::string CountStr = utostr(Stats[i]->getValue());
+    OutStream << std::string(MaxValLen-CountStr.size(), ' ')
+              << CountStr << " " << Stats[i]->getName()
+              << std::string(MaxNameLen-std::strlen(Stats[i]->getName()), ' ')
+              << " - " << Stats[i]->getDesc() << "\n";
+    
   }
   
-  OS << '\n';  // Flush the output stream.
-  OS.flush();
-
-}
-
-void llvm::PrintStatistics() {
-  StatisticInfo &Stats = *StatInfo;
-
-  // Statistics not enabled?
-  if (Stats.Stats.empty()) return;
-
-  // Get the stream to write to.
-  raw_ostream &OutStream = *CreateInfoOutputFile();
-  PrintStatistics(OutStream);
-  delete &OutStream;   // Close the file.
+  OutStream << '\n';  // Flush the output stream...
+  OutStream.flush();
+  
+  if (&OutStream != &outs() && &OutStream != &errs() && &OutStream != &dbgs())
+    delete &OutStream;   // Close the file.
 }

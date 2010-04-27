@@ -23,10 +23,13 @@
 #include "llvm/CodeGen/LinkAllAsmWriterComponents.h"
 #include "llvm/CodeGen/LinkAllCodegenComponents.h"
 #include "llvm/Config/config.h"
+#include "llvm/LinkAllVMCore.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/PluginLoader.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/System/Host.h"
@@ -36,6 +39,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegistry.h"
 #include "llvm/Target/TargetSelect.h"
+#include "llvm/Transforms/Scalar.h"
 #include <memory>
 using namespace llvm;
 
@@ -214,7 +218,6 @@ int main(int argc, char **argv) {
   // Initialize targets first, so that --version shows registered targets.
   InitializeAllTargets();
   InitializeAllAsmPrinters();
-  InitializeAllAsmParsers();
 
   cl::ParseCommandLineOptions(argc, argv, "llvm system compiler\n");
   

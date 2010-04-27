@@ -50,8 +50,8 @@ public:
     return &(InstrInfo.getRegisterInfo()); 
   }
 
-  virtual const PIC16TargetLowering *getTargetLowering() const { 
-    return &TLInfo;
+  virtual PIC16TargetLowering *getTargetLowering() const { 
+    return const_cast<PIC16TargetLowering*>(&TLInfo); 
   }
 
   virtual bool addInstSelector(PassManagerBase &PM,

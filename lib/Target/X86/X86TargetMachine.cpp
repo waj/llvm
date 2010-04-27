@@ -22,7 +22,7 @@
 #include "llvm/Target/TargetRegistry.h"
 using namespace llvm;
 
-static MCAsmInfo *createMCAsmInfo(const Target &T, StringRef TT) {
+static const MCAsmInfo *createMCAsmInfo(const Target &T, StringRef TT) {
   Triple TheTriple(TT);
   switch (TheTriple.getOS()) {
   case Triple::Darwin:
@@ -168,15 +168,6 @@ bool X86TargetMachine::addPostRegAlloc(PassManagerBase &PM,
                                        CodeGenOpt::Level OptLevel) {
   PM.add(createX86FloatingPointStackifierPass());
   return true;  // -print-machineinstr should print after this.
-}
-
-bool X86TargetMachine::addPreEmitPass(PassManagerBase &PM,
-                                      CodeGenOpt::Level OptLevel) {
-  if (OptLevel != CodeGenOpt::None && Subtarget.hasSSE2()) {
-    PM.add(createSSEDomainFixPass());
-    return true;
-  }
-  return false;
 }
 
 bool X86TargetMachine::addCodeEmitter(PassManagerBase &PM,

@@ -94,8 +94,6 @@ namespace llvm {
 class MCInst;
 class MemoryObject;
 class raw_ostream;
-
-struct EDInstInfo;
   
 namespace X86Disassembler {
 
@@ -117,9 +115,6 @@ public:
                       const MemoryObject &region,
                       uint64_t address,
                       raw_ostream &vStream) const;
-
-  /// getEDInfo - See MCDisassembler.
-  EDInstInfo *getEDInfo() const;
 private:
   DisassemblerMode              fMode;
 };

@@ -670,10 +670,8 @@ bool JumpThreading::ProcessBranchOnDuplicateCond(BasicBlock *PredBB,
     Value *OldCond = DestBI->getCondition();
     DestBI->setCondition(ConstantInt::get(Type::getInt1Ty(BB->getContext()),
                                           BranchDir));
-    // Delete dead instructions before we fold the branch.  Folding the branch
-    // can eliminate edges from the CFG which can end up deleting OldCond.
-    RecursivelyDeleteTriviallyDeadInstructions(OldCond);
     ConstantFoldTerminator(BB);
+    RecursivelyDeleteTriviallyDeadInstructions(OldCond);
     return true;
   }
  

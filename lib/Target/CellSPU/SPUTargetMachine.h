@@ -57,8 +57,8 @@ public:
     return NULL;
   }
 
-  virtual const SPUTargetLowering *getTargetLowering() const { 
-   return &TLInfo;
+  virtual       SPUTargetLowering *getTargetLowering() const { 
+   return const_cast<SPUTargetLowering*>(&TLInfo); 
   }
 
   virtual const SPURegisterInfo *getRegisterInfo() const {

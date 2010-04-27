@@ -21,4 +21,4 @@ lpad:		; preds = %cont, %entry
 }
 
 ; CHECK: lpad
-; CHECK-NEXT: Ltmp
+; CHECK-NEXT: Llabel

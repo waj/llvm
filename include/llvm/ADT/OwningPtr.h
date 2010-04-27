@@ -128,6 +128,7 @@ inline void swap(OwningArrayPtr<T> &a, OwningArrayPtr<T> &b) {
   a.swap(b);
 }
 
+
 } // end namespace llvm
 
 #endif

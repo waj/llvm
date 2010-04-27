@@ -4,7 +4,6 @@
 // RUN: tblgen %s | grep {LAST} | count 1
 // RUN: tblgen %s | grep {TVAR} | count 2
 // RUN: tblgen %s | grep {Bogus} | count 1
-// XFAIL: vg_leak
 
 class Honorific<string t> {
   string honorific = t;

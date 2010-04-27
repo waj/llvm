@@ -41,7 +41,6 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Constants.h"
 #include "llvm/Instructions.h"
-#include "llvm/IntrinsicInst.h"
 #include "llvm/Function.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Type.h"
@@ -133,7 +132,7 @@ bool LoopSimplify::ProcessLoop(Loop *L, LPPassManager &LPM) {
   bool Changed = false;
 ReprocessLoop:
 
-  // Check to see that no blocks (other than the header) in this loop have
+  // Check to see that no blocks (other than the header) in this loop that has
   // predecessors that are not in the loop.  This is not valid for natural
   // loops, but can occur if the blocks are unreachable.  Since they are
   // unreachable we can just shamelessly delete those CFG edges!
@@ -291,9 +290,6 @@ ReprocessLoop:
       bool AllInvariant = true;
       for (BasicBlock::iterator I = ExitingBlock->begin(); &*I != BI; ) {
         Instruction *Inst = I++;
-        // Skip debug info intrinsics.
-        if (isa<DbgInfoIntrinsic>(Inst))
-          continue;
         if (Inst == CI)
           continue;
         if (!L->makeLoopInvariant(Inst, Changed,

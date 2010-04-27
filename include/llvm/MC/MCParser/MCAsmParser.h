@@ -18,6 +18,7 @@ class MCAsmLexer;
 class MCContext;
 class MCExpr;
 class MCStreamer;
+class MCValue;
 class SMLoc;
 class Twine;
 

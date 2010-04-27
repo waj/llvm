@@ -12,8 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/InlineAsm.h"
-#include "ConstantsContext.h"
-#include "LLVMContextImpl.h"
 #include "llvm/DerivedTypes.h"
 #include <algorithm>
 #include <cctype>
@@ -25,29 +23,28 @@ InlineAsm::~InlineAsm() {
 }
 
 
+// NOTE: when memoizing the function type, we have to be careful to handle the
+// case when the type gets refined.
+
 InlineAsm *InlineAsm::get(const FunctionType *Ty, StringRef AsmString,
                           StringRef Constraints, bool hasSideEffects,
                           bool isAlignStack) {
-  InlineAsmKeyType Key(AsmString, Constraints, hasSideEffects, isAlignStack);
-  LLVMContextImpl *pImpl = Ty->getContext().pImpl;
-  return pImpl->InlineAsms.getOrCreate(PointerType::getUnqual(Ty), Key);
+  // FIXME: memoize!
+  return new InlineAsm(Ty, AsmString, Constraints, hasSideEffects, 
+                       isAlignStack);
 }
 
-InlineAsm::InlineAsm(const PointerType *Ty, const std::string &asmString,
-                     const std::string &constraints, bool hasSideEffects,
+InlineAsm::InlineAsm(const FunctionType *Ty, StringRef asmString,
+                     StringRef constraints, bool hasSideEffects,
                      bool isAlignStack)
-  : Value(Ty, Value::InlineAsmVal),
+  : Value(PointerType::getUnqual(Ty), 
+          Value::InlineAsmVal), 
     AsmString(asmString), 
     Constraints(constraints), HasSideEffects(hasSideEffects), 
     IsAlignStack(isAlignStack) {
 
   // Do various checks on the constraint string and type.
-  assert(Verify(getFunctionType(), constraints) &&
-         "Function type not legal for constraints!");
-}
-
-void InlineAsm::destroyConstant() {
-  delete this;
+  assert(Verify(Ty, constraints) && "Function type not legal for constraints!");
 }
 
 const FunctionType *InlineAsm::getFunctionType() const {

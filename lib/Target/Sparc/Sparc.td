@@ -38,7 +38,11 @@ include "SparcRegisterInfo.td"
 include "SparcCallingConv.td"
 include "SparcInstrInfo.td"
 
-def SparcInstrInfo : InstrInfo;
+def SparcInstrInfo : InstrInfo {
+  // Define how we want to layout our target-specific information field.
+  let TSFlagsFields = [];
+  let TSFlagsShifts = [];
+}
 
 //===----------------------------------------------------------------------===//
 // SPARC processors supported.

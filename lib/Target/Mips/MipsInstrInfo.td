@@ -29,8 +29,7 @@ def SDT_MipsCallSeqEnd   : SDCallSeqEnd<[SDTCisVT<0, i32>, SDTCisVT<1, i32>]>;
 
 // Call
 def MipsJmpLink : SDNode<"MipsISD::JmpLink",SDT_MipsJmpLink, 
-                         [SDNPHasChain, SDNPOutFlag, SDNPOptInFlag,
-                          SDNPVariadic]>;
+                         [SDNPHasChain, SDNPOutFlag, SDNPOptInFlag]>;
 
 // Hi and Lo nodes are used to handle global addresses. Used on 
 // MipsISelLowering to lower stuff like GlobalAddress, ExternalSymbol 

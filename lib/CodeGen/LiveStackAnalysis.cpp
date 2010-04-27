@@ -36,7 +36,7 @@ void LiveStacks::getAnalysisUsage(AnalysisUsage &AU) const {
 
 void LiveStacks::releaseMemory() {
   // Release VNInfo memroy regions after all VNInfo objects are dtor'd.
-  VNInfoAllocator.DestroyAll();
+  VNInfoAllocator.Reset();
   S2IMap.clear();
   S2RCMap.clear();
 }

@@ -18,10 +18,10 @@
 #include "llvm/GlobalVariable.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/MC/MCAsmInfo.h"
-#include "llvm/MC/MCStreamer.h"
 #include "llvm/Support/DebugLoc.h"
+#include "llvm/Support/FormattedStream.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/StringExtras.h"
+
 using namespace llvm;
 
 /// PopulateDebugInfo - Populate the TypeNo, Aux[] and TagName from Ty.
@@ -256,19 +256,22 @@ void PIC16DbgInfo::BeginFunction(const MachineFunction &MF) {
 ///
 void PIC16DbgInfo::ChangeDebugLoc(const MachineFunction &MF,  
                                   const DebugLoc &DL, bool IsInBeginFunction) {
-  if (!EmitDebugDirectives) return;
-  assert(!DL.isUnknown() && "can't change to invalid debug loc");
+  if (! EmitDebugDirectives) return;
+  assert (! DL.isUnknown()  && "can't change to invalid debug loc");
 
-  SwitchToCU(DL.getScope(MF.getFunction()->getContext()));
-  SwitchToLine(DL.getLine(), IsInBeginFunction);
+  DILocation Loc = MF.getDILocation(DL);
+  MDNode *CU = Loc.getScope().getNode();
+  unsigned line = Loc.getLineNumber();
+
+  SwitchToCU(CU);
+  SwitchToLine(line, IsInBeginFunction);
 }
 
 /// SwitchToLine - Emit line directive for a new line.
 ///
 void PIC16DbgInfo::SwitchToLine(unsigned Line, bool IsInBeginFunction) {
   if (CurLine == Line) return;
-  if (!IsInBeginFunction)
-    OS.EmitRawText("\n\t.line " + Twine(Line));
+  if (!IsInBeginFunction)  O << "\n\t.line " << Line << "\n";
   CurLine = Line;
 }
 
@@ -287,7 +290,7 @@ void PIC16DbgInfo::EndFunction(const MachineFunction &MF) {
 void PIC16DbgInfo::EndModule(Module &M) {
   if (! EmitDebugDirectives) return;
   EmitVarDebugInfo(M);
-  if (CurFile != "") OS.EmitRawText(StringRef("\n\t.eof"));
+  if (CurFile != "") O << "\n\t.eof";
 }
  
 /// EmitCompositeTypeElements - Emit debug information for members of a 
@@ -330,7 +333,7 @@ void PIC16DbgInfo::EmitCompositeTypeDecls(Module &M) {
   for (DebugInfoFinder::iterator I = DbgFinder.type_begin(),
          E = DbgFinder.type_end(); I != E; ++I) {
     DICompositeType CTy(*I);
-    if (!CTy.Verify())
+    if (CTy.isNull())
       continue;
     if (CTy.getTag() == dwarf::DW_TAG_union_type ||
         CTy.getTag() == dwarf::DW_TAG_structure_type ) {
@@ -411,26 +414,22 @@ void PIC16DbgInfo::EmitFunctEndDI(const Function *F, unsigned Line) {
 ///
 void PIC16DbgInfo::EmitAuxEntry(const std::string VarName, int Aux[], int Num,
                                 std::string TagName) {
-  std::string Tmp;
+  O << "\n\t.dim " << VarName << ", 1" ;
   // TagName is emitted in case of structure/union objects.
-  if (!TagName.empty()) Tmp += ", " + TagName;
-  
+  if (TagName != "")
+    O << ", " << TagName;
   for (int i = 0; i<Num; i++)
-    Tmp += "," + utostr(Aux[i] && 0xff);
-  
-  OS.EmitRawText("\n\t.dim " + Twine(VarName) + ", 1" + Tmp);
+    O << "," << (Aux[i] && 0xff);
 }
 
 /// EmitSymbol - Emit .def for a symbol. Value is offset for the member.
 ///
-void PIC16DbgInfo::EmitSymbol(std::string Name, short Class,
-                              unsigned short Type, unsigned long Value) {
-  std::string Tmp;
+void PIC16DbgInfo::EmitSymbol(std::string Name, short Class, unsigned short
+                              Type, unsigned long Value) {
+  O << "\n\t" << ".def "<< Name << ", type = " << Type << ", class = " 
+    << Class;
   if (Value > 0)
-    Tmp = ", value = " + utostr(Value);
-  
-  OS.EmitRawText("\n\t.def " + Twine(Name) + ", type = " + utostr(Type) +
-                 ", class = " + utostr(Class) + Tmp);
+    O  << ", value = " << Value;
 }
 
 /// EmitVarDebugInfo - Emit debug information for all variables.
@@ -452,13 +451,14 @@ void PIC16DbgInfo::EmitVarDebugInfo(Module &M) {
     PopulateDebugInfo(Ty, TypeNo, HasAux, Aux, TagName);
     // Emit debug info only if type information is availaible.
     if (TypeNo != PIC16Dbg::T_NULL) {
-      OS.EmitRawText("\t.type " + Twine(VarName) + ", " + Twine(TypeNo));
+      O << "\n\t.type " << VarName << ", " << TypeNo;
       short ClassNo = getStorageClass(DIGV);
-      OS.EmitRawText("\t.class " + Twine(VarName) + ", " + Twine(ClassNo));
-      if (HasAux)
+      O << "\n\t.class " << VarName << ", " << ClassNo;
+      if (HasAux) 
         EmitAuxEntry(VarName, Aux, PIC16Dbg::AuxSize, TagName);
     }
   }
+  O << "\n";
 }
 
 /// SwitchToCU - Switch to a new compilation unit.
@@ -474,9 +474,8 @@ void PIC16DbgInfo::SwitchToCU(MDNode *CU) {
   if ( FilePath == CurFile ) return;
 
   // Else, close the current one and start a new.
-  if (CurFile != "")
-    OS.EmitRawText(StringRef("\t.eof"));
-  OS.EmitRawText("\n\t.file\t\"" + Twine(FilePath) + "\"");
+  if (CurFile != "") O << "\n\t.eof";
+  O << "\n\t.file\t\"" << FilePath << "\"\n" ;
   CurFile = FilePath;
   CurLine = 0;
 }
@@ -485,6 +484,6 @@ void PIC16DbgInfo::SwitchToCU(MDNode *CU) {
 ///
 void PIC16DbgInfo::EmitEOF() {
   if (CurFile != "")
-    OS.EmitRawText(StringRef("\t.EOF"));
+    O << "\n\t.EOF";
 }
 

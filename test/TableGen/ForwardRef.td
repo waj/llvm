@@ -1,5 +1,4 @@
 // RUN: tblgen %s -o -
-// XFAIL: vg_leak
 
 class bar {
   list<bar> x;

@@ -262,7 +262,7 @@ bool SPUInstrInfo::copyRegToReg(MachineBasicBlock &MBB,
   // we instruction select bitconvert i64 -> f64 as a noop for example, so our
   // types have no specific meaning.
 
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   if (DestRC == SPU::R8CRegisterClass) {
@@ -317,7 +317,7 @@ SPUInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
     llvm_unreachable("Unknown regclass!");
   }
 
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (MI != MBB.end()) DL = MI->getDebugLoc();
   addFrameReference(BuildMI(MBB, MI, DL, get(opc))
                     .addReg(SrcReg, getKillRegState(isKill)), FrameIdx);
@@ -351,7 +351,7 @@ SPUInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     llvm_unreachable("Unknown regclass in loadRegFromStackSlot!");
   }
 
-  DebugLoc DL;
+  DebugLoc DL = DebugLoc::getUnknownLoc();
   if (MI != MBB.end()) DL = MI->getDebugLoc();
   addFrameReference(BuildMI(MBB, MI, DL, get(opc), DestReg), FrameIdx);
 }
@@ -450,15 +450,7 @@ SPUInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                             bool AllowModify) const {
   // If the block has no terminators, it just falls into the block after it.
   MachineBasicBlock::iterator I = MBB.end();
-  if (I == MBB.begin())
-    return false;
-  --I;
-  while (I->isDebugValue()) {
-    if (I == MBB.begin())
-      return false;
-    --I;
-  }
-  if (!isUnpredicatedTerminator(I))
+  if (I == MBB.begin() || !isUnpredicatedTerminator(--I))
     return false;
 
   // Get the last instruction in the block.
@@ -521,11 +513,6 @@ SPUInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   if (I == MBB.begin())
     return 0;
   --I;
-  while (I->isDebugValue()) {
-    if (I == MBB.begin())
-      return 0;
-    --I;
-  }
   if (!isCondBranch(I) && !isUncondBranch(I))
     return 0;
 
@@ -553,7 +540,7 @@ SPUInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                            MachineBasicBlock *FBB,
                            const SmallVectorImpl<MachineOperand> &Cond) const {
   // FIXME this should probably have a DebugLoc argument
-  DebugLoc dl;
+  DebugLoc dl = DebugLoc::getUnknownLoc();
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 2 || Cond.size() == 0) &&

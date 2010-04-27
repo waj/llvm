@@ -15,16 +15,14 @@ OPTIONAL_PARALLEL_DIRS := clang
 # NOTE: The tools are organized into five groups of four consisting of one
 # large and three small executables. This is done to minimize memory load
 # in parallel builds.  Please retain this ordering.
-
-# libEnhancedDisassembly must be built ahead of llvm-mc
-# because llvm-mc links against libEnhancedDisassembly
-DIRS := llvm-config edis llvm-mc
+DIRS := llvm-config
 PARALLEL_DIRS := opt llvm-as llvm-dis \
                  llc llvm-ranlib llvm-ar llvm-nm \
                  llvm-ld llvm-prof llvm-link \
                  lli llvm-extract \
                  bugpoint llvm-bcanalyzer llvm-stub \
-                 llvmc
+                 llvm-mc llvmc
+                 
 
 # Let users override the set of tools to build from the command line.
 ifdef ONLY_TOOLS
@@ -39,18 +37,21 @@ include $(LEVEL)/Makefile.config
 ifeq ($(ENABLE_PIC),1)
   # No support for dynamic libraries on windows targets.
   ifneq ($(TARGET_OS), $(filter $(TARGET_OS), Cygwin MingW))
+    PARALLEL_DIRS += edis
+    
     # gold only builds if binutils is around.  It requires "lto" to build before
     # it so it is added to DIRS.
     ifdef BINUTILS_INCDIR
-      DIRS += lto gold
+      PARALLEL_DIRS += gold
+      DIRS += lto
     else
       PARALLEL_DIRS += lto
     endif
   endif
 endif
 
-# Don't build edis if we explicitly disabled it.
-ifeq ($(DISABLE_EDIS),1)
+# Only build edis if X86 target support is enabled.
+ifeq ($(filter $(TARGETS_TO_BUILD), X86),)
   PARALLEL_DIRS := $(filter-out edis, $(PARALLEL_DIRS))
 endif
 

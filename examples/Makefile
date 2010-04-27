@@ -25,8 +25,4 @@ ifeq ($(LLVM_ON_UNIX),1)
     endif
 endif
 
-ifeq ($(filter $(BINDINGS_TO_BUILD),ocaml),ocaml)
-	PARALLEL_DIRS += OCaml-Kaleidoscope
-endif
-
 include $(LEVEL)/Makefile.common

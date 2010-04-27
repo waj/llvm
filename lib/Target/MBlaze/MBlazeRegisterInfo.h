@@ -67,7 +67,7 @@ struct MBlazeRegisterInfo : public MBlazeGenRegisterInfo {
 
   /// Stack Frame Processing Methods
   unsigned eliminateFrameIndex(MachineBasicBlock::iterator II,
-                               int SPAdj, FrameIndexValue *Value = NULL,
+                               int SPAdj, int *Value = NULL,
                                RegScavenger *RS = NULL) const;
 
   void processFunctionBeforeFrameFinalized(MachineFunction &MF) const;

@@ -49,7 +49,7 @@ struct X86AddressMode {
   unsigned Scale;
   unsigned IndexReg;
   int Disp;
-  const GlobalValue *GV;
+  GlobalValue *GV;
   unsigned GVOpFlags;
 
   X86AddressMode()

@@ -17,14 +17,14 @@
 namespace llvm {
   class X86TargetMachine;
 
-  /// X8664_MachoTargetObjectFile - This TLOF implementation is used for Darwin
-  /// x86-64.
+  /// X8664_MachoTargetObjectFile - This TLOF implementation is used for
+  /// Darwin/x86-64.
   class X8664_MachoTargetObjectFile : public TargetLoweringObjectFileMachO {
   public:
+
     virtual const MCExpr *
-    getExprForDwarfGlobalReference(const GlobalValue *GV, Mangler *Mang,
-                                   MachineModuleInfo *MMI, unsigned Encoding,
-                                   MCStreamer &Streamer) const;
+    getSymbolForDwarfGlobalReference(const GlobalValue *GV, Mangler *Mang,
+                              MachineModuleInfo *MMI, unsigned Encoding) const;
   };
 
   class X8632_ELFTargetObjectFile : public TargetLoweringObjectFileELF {

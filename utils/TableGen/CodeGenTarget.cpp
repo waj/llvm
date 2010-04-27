@@ -18,7 +18,6 @@
 #include "CodeGenIntrinsics.h"
 #include "Record.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/CommandLine.h"
 #include <algorithm>
 using namespace llvm;
@@ -121,20 +120,23 @@ const std::string &CodeGenTarget::getName() const {
 }
 
 std::string CodeGenTarget::getInstNamespace() const {
+  std::string InstNS;
+
   for (inst_iterator i = inst_begin(), e = inst_end(); i != e; ++i) {
-    // Make sure not to pick up "TargetOpcode" by accidentally getting
+    InstNS = i->second.Namespace;
+
+    // Make sure not to pick up "TargetInstrInfo" by accidentally getting
     // the namespace off the PHI instruction or something.
-    if ((*i)->Namespace != "TargetOpcode")
-      return (*i)->Namespace;
+    if (InstNS != "TargetInstrInfo")
+      break;
   }
 
-  return "";
+  return InstNS;
 }
 
 Record *CodeGenTarget::getInstructionSet() const {
   return TargetRec->getValueAsDef("InstructionSet");
 }
-
 
 /// getAsmParser - Return the AssemblyParser definition for this target.
 ///
@@ -182,23 +184,19 @@ void CodeGenTarget::ReadRegisterClasses() const {
   RegisterClasses.assign(RegClasses.begin(), RegClasses.end());
 }
 
-std::vector<MVT::SimpleValueType> CodeGenTarget::
-getRegisterVTs(Record *R) const {
-  std::vector<MVT::SimpleValueType> Result;
+std::vector<unsigned char> CodeGenTarget::getRegisterVTs(Record *R) const {
+  std::vector<unsigned char> Result;
   const std::vector<CodeGenRegisterClass> &RCs = getRegisterClasses();
   for (unsigned i = 0, e = RCs.size(); i != e; ++i) {
     const CodeGenRegisterClass &RC = RegisterClasses[i];
     for (unsigned ei = 0, ee = RC.Elements.size(); ei != ee; ++ei) {
       if (R == RC.Elements[ei]) {
         const std::vector<MVT::SimpleValueType> &InVTs = RC.getValueTypes();
-        Result.insert(Result.end(), InVTs.begin(), InVTs.end());
+        for (unsigned i = 0, e = InVTs.size(); i != e; ++i)
+          Result.push_back(InVTs[i]);
       }
     }
   }
-  
-  // Remove duplicates.
-  array_pod_sort(Result.begin(), Result.end());
-  Result.erase(std::unique(Result.begin(), Result.end()), Result.end());
   return Result;
 }
 
@@ -279,92 +277,98 @@ void CodeGenTarget::ReadInstructions() const {
 
   for (unsigned i = 0, e = Insts.size(); i != e; ++i) {
     std::string AsmStr = Insts[i]->getValueAsString(InstFormatName);
-    Instructions[Insts[i]] = new CodeGenInstruction(Insts[i], AsmStr);
+    Instructions.insert(std::make_pair(Insts[i]->getName(),
+                                       CodeGenInstruction(Insts[i], AsmStr)));
   }
-}
-
-static const CodeGenInstruction *
-GetInstByName(const char *Name,
-              const DenseMap<const Record*, CodeGenInstruction*> &Insts) {
-  const Record *Rec = Records.getDef(Name);
-  
-  DenseMap<const Record*, CodeGenInstruction*>::const_iterator
-    I = Insts.find(Rec);
-  if (Rec == 0 || I == Insts.end())
-    throw std::string("Could not find '") + Name + "' instruction!";
-  return I->second;
-}
-
-namespace {
-/// SortInstByName - Sorting predicate to sort instructions by name.
-///
-struct SortInstByName {
-  bool operator()(const CodeGenInstruction *Rec1,
-                  const CodeGenInstruction *Rec2) const {
-    return Rec1->TheDef->getName() < Rec2->TheDef->getName();
-  }
-};
 }
 
 /// getInstructionsByEnumValue - Return all of the instructions defined by the
 /// target, ordered by their enum value.
-void CodeGenTarget::ComputeInstrsByEnum() const {
-  const DenseMap<const Record*, CodeGenInstruction*> &Insts = getInstructions();
-  const CodeGenInstruction *PHI = GetInstByName("PHI", Insts);
-  const CodeGenInstruction *INLINEASM = GetInstByName("INLINEASM", Insts);
-  const CodeGenInstruction *DBG_LABEL = GetInstByName("DBG_LABEL", Insts);
-  const CodeGenInstruction *EH_LABEL = GetInstByName("EH_LABEL", Insts);
-  const CodeGenInstruction *GC_LABEL = GetInstByName("GC_LABEL", Insts);
-  const CodeGenInstruction *KILL = GetInstByName("KILL", Insts);
-  const CodeGenInstruction *EXTRACT_SUBREG =
-    GetInstByName("EXTRACT_SUBREG", Insts);
-  const CodeGenInstruction *INSERT_SUBREG =
-    GetInstByName("INSERT_SUBREG", Insts);
-  const CodeGenInstruction *IMPLICIT_DEF = GetInstByName("IMPLICIT_DEF", Insts);
-  const CodeGenInstruction *SUBREG_TO_REG =
-    GetInstByName("SUBREG_TO_REG", Insts);
-  const CodeGenInstruction *COPY_TO_REGCLASS =
-    GetInstByName("COPY_TO_REGCLASS", Insts);
-  const CodeGenInstruction *DBG_VALUE = GetInstByName("DBG_VALUE", Insts);
+void CodeGenTarget::
+getInstructionsByEnumValue(std::vector<const CodeGenInstruction*>
+                                                 &NumberedInstructions) {
+  std::map<std::string, CodeGenInstruction>::const_iterator I;
+  I = getInstructions().find("PHI");
+  if (I == Instructions.end()) throw "Could not find 'PHI' instruction!";
+  const CodeGenInstruction *PHI = &I->second;
+  
+  I = getInstructions().find("INLINEASM");
+  if (I == Instructions.end()) throw "Could not find 'INLINEASM' instruction!";
+  const CodeGenInstruction *INLINEASM = &I->second;
+  
+  I = getInstructions().find("DBG_LABEL");
+  if (I == Instructions.end()) throw "Could not find 'DBG_LABEL' instruction!";
+  const CodeGenInstruction *DBG_LABEL = &I->second;
+  
+  I = getInstructions().find("EH_LABEL");
+  if (I == Instructions.end()) throw "Could not find 'EH_LABEL' instruction!";
+  const CodeGenInstruction *EH_LABEL = &I->second;
+  
+  I = getInstructions().find("GC_LABEL");
+  if (I == Instructions.end()) throw "Could not find 'GC_LABEL' instruction!";
+  const CodeGenInstruction *GC_LABEL = &I->second;
+  
+  I = getInstructions().find("KILL");
+  if (I == Instructions.end()) throw "Could not find 'KILL' instruction!";
+  const CodeGenInstruction *KILL = &I->second;
+  
+  I = getInstructions().find("EXTRACT_SUBREG");
+  if (I == Instructions.end()) 
+    throw "Could not find 'EXTRACT_SUBREG' instruction!";
+  const CodeGenInstruction *EXTRACT_SUBREG = &I->second;
+  
+  I = getInstructions().find("INSERT_SUBREG");
+  if (I == Instructions.end()) 
+    throw "Could not find 'INSERT_SUBREG' instruction!";
+  const CodeGenInstruction *INSERT_SUBREG = &I->second;
+  
+  I = getInstructions().find("IMPLICIT_DEF");
+  if (I == Instructions.end())
+    throw "Could not find 'IMPLICIT_DEF' instruction!";
+  const CodeGenInstruction *IMPLICIT_DEF = &I->second;
+  
+  I = getInstructions().find("SUBREG_TO_REG");
+  if (I == Instructions.end())
+    throw "Could not find 'SUBREG_TO_REG' instruction!";
+  const CodeGenInstruction *SUBREG_TO_REG = &I->second;
+
+  I = getInstructions().find("COPY_TO_REGCLASS");
+  if (I == Instructions.end())
+    throw "Could not find 'COPY_TO_REGCLASS' instruction!";
+  const CodeGenInstruction *COPY_TO_REGCLASS = &I->second;
+
+  I = getInstructions().find("DBG_VALUE");
+  if (I == Instructions.end())
+    throw "Could not find 'DBG_VALUE' instruction!";
+  const CodeGenInstruction *DBG_VALUE = &I->second;
 
   // Print out the rest of the instructions now.
-  InstrsByEnum.push_back(PHI);
-  InstrsByEnum.push_back(INLINEASM);
-  InstrsByEnum.push_back(DBG_LABEL);
-  InstrsByEnum.push_back(EH_LABEL);
-  InstrsByEnum.push_back(GC_LABEL);
-  InstrsByEnum.push_back(KILL);
-  InstrsByEnum.push_back(EXTRACT_SUBREG);
-  InstrsByEnum.push_back(INSERT_SUBREG);
-  InstrsByEnum.push_back(IMPLICIT_DEF);
-  InstrsByEnum.push_back(SUBREG_TO_REG);
-  InstrsByEnum.push_back(COPY_TO_REGCLASS);
-  InstrsByEnum.push_back(DBG_VALUE);
-  
-  unsigned EndOfPredefines = InstrsByEnum.size();
-  
-  for (DenseMap<const Record*, CodeGenInstruction*>::const_iterator
-       I = Insts.begin(), E = Insts.end(); I != E; ++I) {
-    const CodeGenInstruction *CGI = I->second;
-    if (CGI != PHI &&
-        CGI != INLINEASM &&
-        CGI != DBG_LABEL &&
-        CGI != EH_LABEL &&
-        CGI != GC_LABEL &&
-        CGI != KILL &&
-        CGI != EXTRACT_SUBREG &&
-        CGI != INSERT_SUBREG &&
-        CGI != IMPLICIT_DEF &&
-        CGI != SUBREG_TO_REG &&
-        CGI != COPY_TO_REGCLASS &&
-        CGI != DBG_VALUE)
-      InstrsByEnum.push_back(CGI);
-  }
-  
-  // All of the instructions are now in random order based on the map iteration.
-  // Sort them by name.
-  std::sort(InstrsByEnum.begin()+EndOfPredefines, InstrsByEnum.end(),
-            SortInstByName());
+  NumberedInstructions.push_back(PHI);
+  NumberedInstructions.push_back(INLINEASM);
+  NumberedInstructions.push_back(DBG_LABEL);
+  NumberedInstructions.push_back(EH_LABEL);
+  NumberedInstructions.push_back(GC_LABEL);
+  NumberedInstructions.push_back(KILL);
+  NumberedInstructions.push_back(EXTRACT_SUBREG);
+  NumberedInstructions.push_back(INSERT_SUBREG);
+  NumberedInstructions.push_back(IMPLICIT_DEF);
+  NumberedInstructions.push_back(SUBREG_TO_REG);
+  NumberedInstructions.push_back(COPY_TO_REGCLASS);
+  NumberedInstructions.push_back(DBG_VALUE);
+  for (inst_iterator II = inst_begin(), E = inst_end(); II != E; ++II)
+    if (&II->second != PHI &&
+        &II->second != INLINEASM &&
+        &II->second != DBG_LABEL &&
+        &II->second != EH_LABEL &&
+        &II->second != GC_LABEL &&
+        &II->second != KILL &&
+        &II->second != EXTRACT_SUBREG &&
+        &II->second != INSERT_SUBREG &&
+        &II->second != IMPLICIT_DEF &&
+        &II->second != SUBREG_TO_REG &&
+        &II->second != COPY_TO_REGCLASS &&
+        &II->second != DBG_VALUE)
+      NumberedInstructions.push_back(&II->second);
 }
 
 
@@ -400,8 +404,6 @@ ComplexPattern::ComplexPattern(Record *R) {
       Properties |= 1 << SDNPSideEffect;
     } else if (PropList[i]->getName() == "SDNPMemOperand") {
       Properties |= 1 << SDNPMemOperand;
-    } else if (PropList[i]->getName() == "SDNPVariadic") {
-      Properties |= 1 << SDNPVariadic;
     } else {
       errs() << "Unsupported SD Node property '" << PropList[i]->getName()
              << "' on ComplexPattern '" << R->getName() << "'!\n";
@@ -493,17 +495,15 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
     }
     if (EVT(VT).isOverloaded()) {
       OverloadedVTs.push_back(VT);
-      isOverloaded = true;
+      isOverloaded |= true;
     }
-
-    // Reject invalid types.
-    if (VT == MVT::isVoid)
-      throw "Intrinsic '" + DefName + " has void in result type list!";
-    
     IS.RetVTs.push_back(VT);
     IS.RetTypeDefs.push_back(TyEl);
   }
-  
+
+  if (IS.RetVTs.size() == 0)
+    throw "Intrinsic '"+DefName+"' needs at least a type for the ret value!";
+
   // Parse the list of parameter types.
   TypeList = R->getValueAsListInit("ParamTypes");
   for (unsigned i = 0, e = TypeList->getSize(); i != e; ++i) {
@@ -524,16 +524,10 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
              "Expected iAny or vAny type");
     } else
       VT = getValueType(TyEl->getValueAsDef("VT"));
-    
     if (EVT(VT).isOverloaded()) {
       OverloadedVTs.push_back(VT);
-      isOverloaded = true;
+      isOverloaded |= true;
     }
-    
-    // Reject invalid types.
-    if (VT == MVT::isVoid && i != e-1 /*void at end means varargs*/)
-      throw "Intrinsic '" + DefName + " has void in result type list!";
-    
     IS.ParamVTs.push_back(VT);
     IS.ParamTypeDefs.push_back(TyEl);
   }
