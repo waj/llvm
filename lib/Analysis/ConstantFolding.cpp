@@ -30,7 +30,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/System/FEnv.h"
 #include <cerrno>
 #include <cmath>
 using namespace llvm;
@@ -1040,10 +1039,10 @@ llvm::canConstantFoldCallTo(const Function *F) {
 
 static Constant *ConstantFoldFP(double (*NativeFP)(double), double V, 
                                 const Type *Ty) {
-  sys::llvm_fenv_clearexcept();
+  errno = 0;
   V = NativeFP(V);
-  if (sys::llvm_fenv_testexcept()) {
-    sys::llvm_fenv_clearexcept();
+  if (errno != 0) {
+    errno = 0;
     return 0;
   }
   
@@ -1057,10 +1056,10 @@ static Constant *ConstantFoldFP(double (*NativeFP)(double), double V,
 
 static Constant *ConstantFoldBinaryFP(double (*NativeFP)(double, double),
                                       double V, double W, const Type *Ty) {
-  sys::llvm_fenv_clearexcept();
+  errno = 0;
   V = NativeFP(V, W);
-  if (sys::llvm_fenv_testexcept()) {
-    sys::llvm_fenv_clearexcept();
+  if (errno != 0) {
+    errno = 0;
     return 0;
   }
   
@@ -1094,13 +1093,6 @@ llvm::ConstantFoldCall(Function *F,
 
       if (!Ty->isFloatTy() && !Ty->isDoubleTy())
         return 0;
-
-      /// We only fold functions with finite arguments. Folding NaN and inf is
-      /// likely to be aborted with an exception anyway, and some host libms
-      /// have known errors raising exceptions.
-      if (Op->getValueAPF().isNaN() || Op->getValueAPF().isInfinity())
-        return 0;
-
       /// Currently APFloat versions of these functions do not exist, so we use
       /// the host native double versions.  Float versions are not called
       /// directly but for all these it is true (float)(f((double)arg)) ==

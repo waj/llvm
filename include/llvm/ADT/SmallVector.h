@@ -57,13 +57,19 @@ protected:
   // Allocate raw space for N elements of type T.  If T has a ctor or dtor, we
   // don't want it to be automatically run, so we need to represent the space as
   // something else.  An array of char would work great, but might not be
-  // aligned sufficiently.  Instead we use some number of union instances for
-  // the space, which guarantee maximal alignment.
-  union U {
-    double D;
-    long double LD;
-    long long L;
-    void *P;
+  // aligned sufficiently.  Instead, we either use GCC extensions, or some
+  // number of union instances for the space, which guarantee maximal alignment.
+  struct U {
+#ifdef __GNUC__
+    char X __attribute__((aligned));
+#else
+    union {
+      double D;
+      long double LD;
+      long long L;
+      void *P;
+    } X;
+#endif
   } FirstEl;
   // Space after 'FirstEl' is clobbered, do not add any instance vars after it.
 

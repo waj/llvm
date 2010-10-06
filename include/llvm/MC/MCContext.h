@@ -160,11 +160,7 @@ namespace llvm {
     /// GetDwarfFile - creates an entry in the dwarf file and directory tables.
     unsigned GetDwarfFile(StringRef FileName, unsigned FileNumber);
 
-    bool isValidDwarfFileNumber(unsigned FileNumber);
-
-    bool hasDwarfFiles(void) {
-      return MCDwarfFiles.size() != 0;
-    }
+    bool ValidateDwarfFileNumber(unsigned FileNumber);
 
     const std::vector<MCDwarfFile *> &getMCDwarfFiles() {
       return MCDwarfFiles;
@@ -177,8 +173,7 @@ namespace llvm {
     }
 
     /// setCurrentDwarfLoc - saves the information from the currently parsed
-    /// dwarf .loc directive and sets DwarfLocSeen.  When the next instruction
-    /// is assembled an entry in the line number table with this information and
+    /// dwarf .loc directive and sets DwarfLocSeen.  When the next instruction      /// is assembled an entry in the line number table with this information and
     /// the address of the instruction will be created.
     void setCurrentDwarfLoc(unsigned FileNum, unsigned Line, unsigned Column,
                             unsigned Flags, unsigned Isa) {
@@ -189,7 +184,7 @@ namespace llvm {
       CurrentDwarfLoc.setIsa(Isa);
       DwarfLocSeen = true;
     }
-    void ClearDwarfLocSeen() { DwarfLocSeen = false; }
+    void clearDwarfLocSeen() { DwarfLocSeen = false; }
 
     bool getDwarfLocSeen() { return DwarfLocSeen; }
     const MCDwarfLoc &getCurrentDwarfLoc() { return CurrentDwarfLoc; }

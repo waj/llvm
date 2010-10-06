@@ -636,11 +636,11 @@ MachineVerifier::visitMachineOperand(const MachineOperand *MO, unsigned MONum) {
         SlotIndex DefIdx = LiveInts->getInstructionIndex(MI).getDefIndex();
         if (LiveInts->hasInterval(Reg)) {
           const LiveInterval &LI = LiveInts->getInterval(Reg);
-          if (const VNInfo *VNI = LI.getVNInfoAt(DefIdx)) {
-            assert(VNI && "NULL valno is not allowed");
-            if (VNI->def != DefIdx) {
+          if (const LiveRange *LR = LI.getLiveRangeContaining(DefIdx)) {
+            assert(LR->valno && "NULL valno is not allowed");
+            if (LR->valno->def != DefIdx) {
               report("Inconsistent valno->def", MO, MONum);
-              *OS << "Valno " << VNI->id << " is not defined at "
+              *OS << "Valno " << LR->valno->id << " is not defined at "
                   << DefIdx << " in " << LI << '\n';
             }
           } else {
@@ -889,9 +889,9 @@ void MachineVerifier::verifyLiveIntervals() {
     for (LiveInterval::const_vni_iterator I = LI.vni_begin(), E = LI.vni_end();
          I!=E; ++I) {
       VNInfo *VNI = *I;
-      const VNInfo *DefVNI = LI.getVNInfoAt(VNI->def);
+      const LiveRange *DefLR = LI.getLiveRangeContaining(VNI->def);
 
-      if (!DefVNI) {
+      if (!DefLR) {
         if (!VNI->isUnused()) {
           report("Valno not live at def and not marked unused", MF);
           *OS << "Valno #" << VNI->id << " in " << LI << '\n';
@@ -902,27 +902,28 @@ void MachineVerifier::verifyLiveIntervals() {
       if (VNI->isUnused())
         continue;
 
-      if (DefVNI != VNI) {
+      if (DefLR->valno != VNI) {
         report("Live range at def has different valno", MF);
-        *OS << "Valno #" << VNI->id << " is defined at " << VNI->def
-            << " where valno #" << DefVNI->id << " is live.\n";
+        DefLR->print(*OS);
+        *OS << " should use valno #" << VNI->id << " in " << LI << '\n';
       }
 
     }
 
     for (LiveInterval::const_iterator I = LI.begin(), E = LI.end(); I!=E; ++I) {
-      const VNInfo *VNI = I->valno;
-      assert(VNI && "Live range has no valno");
+      const LiveRange &LR = *I;
+      assert(LR.valno && "Live range has no valno");
 
-      if (VNI->id >= LI.getNumValNums() || VNI != LI.getValNumInfo(VNI->id)) {
+      if (LR.valno->id >= LI.getNumValNums() ||
+          LR.valno != LI.getValNumInfo(LR.valno->id)) {
         report("Foreign valno in live range", MF);
-        I->print(*OS);
+        LR.print(*OS);
         *OS << " has a valno not in " << LI << '\n';
       }
 
-      if (VNI->isUnused()) {
+      if (LR.valno->isUnused()) {
         report("Live range valno is marked unused", MF);
-        I->print(*OS);
+        LR.print(*OS);
         *OS << " in " << LI << '\n';
       }
 

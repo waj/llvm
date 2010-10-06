@@ -22,3 +22,5 @@ add_llvm_target(MipsCodeGen
   MipsTargetObjectFile.cpp
   MipsSelectionDAGInfo.cpp
   )
+
+target_link_libraries (LLVMMipsCodeGen LLVMSelectionDAG)

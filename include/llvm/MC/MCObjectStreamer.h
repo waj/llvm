@@ -35,8 +35,7 @@ class MCObjectStreamer : public MCStreamer {
 
 protected:
   MCObjectStreamer(MCContext &Context, TargetAsmBackend &TAB,
-                   raw_ostream &_OS, MCCodeEmitter *_Emitter,
-                   bool _PadSectionToAlignment);
+                   raw_ostream &_OS, MCCodeEmitter *_Emitter);
   ~MCObjectStreamer();
 
   MCSectionData *getCurrentSectionData() const {

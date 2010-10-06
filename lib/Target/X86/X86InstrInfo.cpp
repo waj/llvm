@@ -360,8 +360,8 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::Int_CVTPD2PSrr,  X86::Int_CVTPD2PSrm, 16 },
     { X86::Int_CVTPS2DQrr,  X86::Int_CVTPS2DQrm, 16 },
     { X86::Int_CVTPS2PDrr,  X86::Int_CVTPS2PDrm, 0 },
-    { X86::CVTSD2SI64rr,    X86::CVTSD2SI64rm, 0 },
-    { X86::CVTSD2SIrr,      X86::CVTSD2SIrm, 0 },
+    { X86::Int_CVTSD2SI64rr,X86::Int_CVTSD2SI64rm, 0 },
+    { X86::Int_CVTSD2SIrr,  X86::Int_CVTSD2SIrm, 0 },
     { X86::Int_CVTSD2SSrr,  X86::Int_CVTSD2SSrm, 0 },
     { X86::Int_CVTSI2SD64rr,X86::Int_CVTSI2SD64rm, 0 },
     { X86::Int_CVTSI2SDrr,  X86::Int_CVTSI2SDrm, 0 },
@@ -370,8 +370,8 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::Int_CVTSS2SDrr,  X86::Int_CVTSS2SDrm, 0 },
     { X86::Int_CVTSS2SI64rr,X86::Int_CVTSS2SI64rm, 0 },
     { X86::Int_CVTSS2SIrr,  X86::Int_CVTSS2SIrm, 0 },
-    { X86::CVTTPD2DQrr,     X86::CVTTPD2DQrm, 16 },
-    { X86::CVTTPS2DQrr,     X86::CVTTPS2DQrm, 16 },
+    { X86::Int_CVTTPD2DQrr, X86::Int_CVTTPD2DQrm, 16 },
+    { X86::Int_CVTTPS2DQrr, X86::Int_CVTTPS2DQrm, 16 },
     { X86::Int_CVTTSD2SI64rr,X86::Int_CVTTSD2SI64rm, 0 },
     { X86::Int_CVTTSD2SIrr, X86::Int_CVTTSD2SIrm, 0 },
     { X86::Int_CVTTSS2SI64rr,X86::Int_CVTTSS2SI64rm, 0 },
@@ -2343,8 +2343,8 @@ MachineInstr* X86InstrInfo::foldMemoryOperandImpl(MachineFunction &MF,
     case X86::Int_CVTSS2SDrr:
     case X86::RCPSSr:
     case X86::RCPSSr_Int:
-    case X86::ROUNDSDr:
-    case X86::ROUNDSSr:
+    case X86::ROUNDSDr_Int:
+    case X86::ROUNDSSr_Int:
     case X86::RSQRTSSr:
     case X86::RSQRTSSr_Int:
     case X86::SQRTSSr:
@@ -2395,8 +2395,8 @@ MachineInstr* X86InstrInfo::foldMemoryOperandImpl(MachineFunction &MF,
     case X86::Int_CVTSS2SDrr:
     case X86::RCPSSr:
     case X86::RCPSSr_Int:
-    case X86::ROUNDSDr:
-    case X86::ROUNDSSr:
+    case X86::ROUNDSDr_Int:
+    case X86::ROUNDSSr_Int:
     case X86::RSQRTSSr:
     case X86::RSQRTSSr_Int:
     case X86::SQRTSSr:
@@ -2993,8 +2993,6 @@ bool X86InstrInfo::isX86_64ExtendedReg(unsigned RegNo) {
   case X86::XMM12: case X86::XMM13: case X86::XMM14: case X86::XMM15:
   case X86::YMM8:  case X86::YMM9:  case X86::YMM10: case X86::YMM11:
   case X86::YMM12: case X86::YMM13: case X86::YMM14: case X86::YMM15:
-  case X86::CR8:   case X86::CR9:   case X86::CR10:  case X86::CR11:
-  case X86::CR12:  case X86::CR13:  case X86::CR14:  case X86::CR15:
     return true;
   }
   return false;
@@ -3110,13 +3108,6 @@ namespace {
       if (TM->getRelocationModel() != Reloc::PIC_)
         return false;
 
-      X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
-      unsigned GlobalBaseReg = X86FI->getGlobalBaseReg();
-
-      // If we didn't need a GlobalBaseReg, don't insert code.
-      if (GlobalBaseReg == 0)
-        return false;
-
       // Insert the set of GlobalBaseReg into the first MBB of the function
       MachineBasicBlock &FirstMBB = MF.front();
       MachineBasicBlock::iterator MBBI = FirstMBB.begin();
@@ -3128,7 +3119,7 @@ namespace {
       if (TM->getSubtarget<X86Subtarget>().isPICStyleGOT())
         PC = RegInfo.createVirtualRegister(X86::GR32RegisterClass);
       else
-        PC = GlobalBaseReg;
+        PC = TII->getGlobalBaseReg(&MF);
   
       // Operand of MovePCtoStack is completely ignored by asm printer. It's
       // only used in JIT code emission as displacement to pc.
@@ -3137,6 +3128,7 @@ namespace {
       // If we're using vanilla 'GOT' PIC style, we should use relative addressing
       // not to pc, but to _GLOBAL_OFFSET_TABLE_ external.
       if (TM->getSubtarget<X86Subtarget>().isPICStyleGOT()) {
+        unsigned GlobalBaseReg = TII->getGlobalBaseReg(&MF);
         // Generate addl $__GLOBAL_OFFSET_TABLE_ + [.-piclabel], %some_register
         BuildMI(FirstMBB, MBBI, DL, TII->get(X86::ADD32ri), GlobalBaseReg)
           .addReg(PC).addExternalSymbol("_GLOBAL_OFFSET_TABLE_",

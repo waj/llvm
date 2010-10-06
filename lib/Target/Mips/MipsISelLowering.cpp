@@ -506,7 +506,7 @@ SDValue MipsTargetLowering::LowerGlobalAddress(SDValue Op,
     SDValue GA = DAG.getTargetGlobalAddress(GV, dl, MVT::i32, 0,
                                             MipsII::MO_GOT);
     SDValue ResNode = DAG.getLoad(MVT::i32, dl, 
-                                  DAG.getEntryNode(), GA, MachinePointerInfo(),
+                                  DAG.getEntryNode(), GA, NULL, 0,
                                   false, false, 0);
     // On functions and global targets not internal linked only
     // a load from got/GP is necessary for PIC to work.
@@ -546,8 +546,7 @@ LowerJumpTable(SDValue Op, SelectionDAG &DAG) const
     SDValue Ops[] = { JTI };
     HiPart = DAG.getNode(MipsISD::Hi, dl, DAG.getVTList(MVT::i32), Ops, 1);
   } else // Emit Load from Global Pointer
-    HiPart = DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), JTI,
-                         MachinePointerInfo(),
+    HiPart = DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), JTI, NULL, 0,
                          false, false, 0);
 
   SDValue Lo = DAG.getNode(MipsISD::Lo, dl, MVT::i32, JTI);
@@ -585,8 +584,7 @@ LowerConstantPool(SDValue Op, SelectionDAG &DAG) const
     SDValue CP = DAG.getTargetConstantPool(C, MVT::i32, N->getAlignment(), 
                                       N->getOffset(), MipsII::MO_GOT);
     SDValue Load = DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), 
-                               CP, MachinePointerInfo::getConstantPool(),
-                               false, false, 0);
+                               CP, NULL, 0, false, false, 0);
     SDValue Lo = DAG.getNode(MipsISD::Lo, dl, MVT::i32, CP);
     ResNode = DAG.getNode(ISD::ADD, dl, MVT::i32, Load, Lo);
   }
@@ -605,8 +603,7 @@ SDValue MipsTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   // vastart just stores the address of the VarArgsFrameIndex slot into the
   // memory location argument.
   const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
-  return DAG.getStore(Op.getOperand(0), dl, FI, Op.getOperand(1),
-                      MachinePointerInfo(SV),
+  return DAG.getStore(Op.getOperand(0), dl, FI, Op.getOperand(1), SV, 0,
                       false, false, 0);
 }
 
@@ -866,8 +863,7 @@ MipsTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
 
     // emit ISD::STORE whichs stores the 
     // parameter value to a stack Location
-    MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
-                                       MachinePointerInfo(),
+    MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff, NULL, 0,
                                        false, false, 0));
   }
 
@@ -941,9 +937,8 @@ MipsTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
 
       // Reload GP value.
       FI = MipsFI->getGPFI();
-      SDValue FIN = DAG.getFrameIndex(FI, getPointerTy());
-      SDValue GPLoad = DAG.getLoad(MVT::i32, dl, Chain, FIN,
-                                   MachinePointerInfo::getFixedStack(FI),
+      SDValue FIN = DAG.getFrameIndex(FI,getPointerTy());
+      SDValue GPLoad = DAG.getLoad(MVT::i32, dl, Chain, FIN, NULL, 0,
                                    false, false, 0);
       Chain = GPLoad.getValue(1);
       Chain = DAG.getCopyToReg(Chain, dl, DAG.getRegister(Mips::GP, MVT::i32), 
@@ -1109,8 +1104,7 @@ MipsTargetLowering::LowerFormalArguments(SDValue Chain,
 
       // Create load nodes to retrieve arguments from the stack
       SDValue FIN = DAG.getFrameIndex(FI, getPointerTy());
-      InVals.push_back(DAG.getLoad(VA.getValVT(), dl, Chain, FIN,
-                                   MachinePointerInfo::getFixedStack(FI),
+      InVals.push_back(DAG.getLoad(VA.getValVT(), dl, Chain, FIN, NULL, 0,
                                    false, false, 0));
     }
   }
@@ -1146,8 +1140,7 @@ MipsTargetLowering::LowerFormalArguments(SDValue Chain,
       int FI = MFI->CreateFixedObject(4, 0, true);
       MipsFI->recordStoreVarArgsFI(FI, -(4+(StackLoc*4)));
       SDValue PtrOff = DAG.getFrameIndex(FI, getPointerTy());
-      OutChains.push_back(DAG.getStore(Chain, dl, ArgValue, PtrOff,
-                                       MachinePointerInfo(),
+      OutChains.push_back(DAG.getStore(Chain, dl, ArgValue, PtrOff, NULL, 0,
                                        false, false, 0));
 
       // Record the frame index of the first variable argument

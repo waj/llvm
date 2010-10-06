@@ -10,7 +10,6 @@
 #include "llvm/ADT/Triple.h"
 
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
 #include <cassert>
 #include <cstring>
@@ -42,7 +41,6 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   case x86_64:  return "x86_64";
   case xcore:   return "xcore";
   case mblaze:  return "mblaze";
-  case ptx:     return "ptx";
   }
 
   return "<invalid>";
@@ -72,10 +70,7 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
 
   case x86:
   case x86_64:  return "x86";
-
   case xcore:   return "xcore";
-
-  case ptx:     return "ptx";
   }
 }
 
@@ -110,14 +105,6 @@ const char *Triple::getOSTypeName(OSType Kind) {
   case Win32: return "win32";
   case Haiku: return "haiku";
   case Minix: return "minix";
-  }
-
-  return "<invalid>";
-}
-
-const char *Triple::getEnvironmentTypeName(EnvironmentType Kind) {
-  switch (Kind) {
-  case UnknownEnvironment: return "unknown";
   }
 
   return "<invalid>";
@@ -162,8 +149,6 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     return x86_64;
   if (Name == "xcore")
     return xcore;
-  if (Name == "ptx")
-    return ptx;
 
   return UnknownArch;
 }
@@ -202,9 +187,6 @@ Triple::ArchType Triple::getArchTypeForDarwinArchName(StringRef Str) {
       Str == "armv6" || Str == "armv7")
     return Triple::arm;
 
-  if (Str == "ptx")
-    return Triple::ptx;
-
   return Triple::UnknownArch;
 }
 
@@ -234,8 +216,6 @@ const char *Triple::getArchNameForAssembler() {
     return "armv6";
   if (Str == "armv7" || Str == "thumbv7")
     return "armv7";
-  if (Str == "ptx")
-    return "ptx";
   return NULL;
 }
 
@@ -286,8 +266,6 @@ Triple::ArchType Triple::ParseArch(StringRef ArchName) {
     return tce;
   else if (ArchName == "xcore")
     return xcore;
-  else if (ArchName == "ptx")
-    return ptx;
   else
     return UnknownArch;
 }
@@ -338,17 +316,12 @@ Triple::OSType Triple::ParseOS(StringRef OSName) {
     return UnknownOS;
 }
 
-Triple::EnvironmentType Triple::ParseEnvironment(StringRef EnvironmentName) {
-  return UnknownEnvironment;
-}
-
 void Triple::Parse() const {
   assert(!isInitialized() && "Invalid parse call.");
 
   Arch = ParseArch(getArchName());
   Vendor = ParseVendor(getVendorName());
   OS = ParseOS(getOSName());
-  Environment = ParseEnvironment(getEnvironmentName());
 
   assert(isInitialized() && "Failed to initialize!");
 }
@@ -375,28 +348,24 @@ std::string Triple::normalize(StringRef Str) {
   OSType OS = UnknownOS;
   if (Components.size() > 2)
     OS = ParseOS(Components[2]);
-  EnvironmentType Environment = UnknownEnvironment;
-  if (Components.size() > 3)
-    Environment = ParseEnvironment(Components[3]);
 
   // Note which components are already in their final position.  These will not
   // be moved.
-  bool Found[4];
+  bool Found[3];
   Found[0] = Arch != UnknownArch;
   Found[1] = Vendor != UnknownVendor;
   Found[2] = OS != UnknownOS;
-  Found[3] = Environment != UnknownEnvironment;
 
   // If they are not there already, permute the components into their canonical
   // positions by seeing if they parse as a valid architecture, and if so moving
   // the component to the architecture position etc.
-  for (unsigned Pos = 0; Pos != array_lengthof(Found); ++Pos) {
+  for (unsigned Pos = 0; Pos != 3; ++Pos) {
     if (Found[Pos])
       continue; // Already in the canonical position.
 
     for (unsigned Idx = 0; Idx != Components.size(); ++Idx) {
       // Do not reparse any components that already matched.
-      if (Idx < array_lengthof(Found) && Found[Idx])
+      if (Idx < 3 && Found[Idx])
         continue;
 
       // Does this component parse as valid for the target position?
@@ -417,10 +386,6 @@ std::string Triple::normalize(StringRef Str) {
         OS = ParseOS(Comp);
         Valid = OS != UnknownOS;
         break;
-      case 3:
-        Environment = ParseEnvironment(Comp);
-        Valid = Environment != UnknownEnvironment;
-        break;
       }
       if (!Valid)
         continue; // Nope, try the next component.
@@ -439,7 +404,7 @@ std::string Triple::normalize(StringRef Str) {
         // components to the right.
         for (unsigned i = Pos; !CurrentComponent.empty(); ++i) {
           // Skip over any fixed components.
-          while (i < array_lengthof(Found) && Found[i]) ++i;
+          while (i < 3 && Found[i]) ++i;
           // Place the component at the new position, getting the component
           // that was at this position - it will be moved right.
           std::swap(CurrentComponent, Components[i]);
@@ -453,7 +418,7 @@ std::string Triple::normalize(StringRef Str) {
           StringRef CurrentComponent(""); // The empty component.
           for (unsigned i = Idx; i < Components.size(); ++i) {
             // Skip over any fixed components.
-            while (i < array_lengthof(Found) && Found[i]) ++i;
+            while (i < 3 && Found[i]) ++i;
             // Place the component at the new position, getting the component
             // that was at this position - it will be moved right.
             std::swap(CurrentComponent, Components[i]);
@@ -466,7 +431,7 @@ std::string Triple::normalize(StringRef Str) {
             Components.push_back(CurrentComponent);
 
           // Advance Idx to the component's new position.
-          while (++Idx < array_lengthof(Found) && Found[Idx]) {}
+          while (++Idx < 3 && Found[Idx]) {}
         } while (Idx < Pos); // Add more until the final position is reached.
       }
       assert(Pos < Components.size() && Components[Pos] == Comp &&
@@ -594,10 +559,6 @@ void Triple::setVendor(VendorType Kind) {
 
 void Triple::setOS(OSType Kind) {
   setOSName(getOSTypeName(Kind));
-}
-
-void Triple::setEnvironment(EnvironmentType Kind) {
-  setEnvironmentName(getEnvironmentTypeName(Kind));
 }
 
 void Triple::setArchName(StringRef Str) {

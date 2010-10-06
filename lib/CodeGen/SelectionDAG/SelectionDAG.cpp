@@ -3276,8 +3276,8 @@ static SDValue getMemcpyLoadsAndStores(SelectionDAG &DAG, DebugLoc dl,
                                        SDValue Src, uint64_t Size,
                                        unsigned Align, bool isVol,
                                        bool AlwaysInline,
-                                       MachinePointerInfo DstPtrInfo,
-                                       MachinePointerInfo SrcPtrInfo) {
+                                       const Value *DstSV, uint64_t DstSVOff,
+                                       const Value *SrcSV, uint64_t SrcSVOff) {
   // Turn a memcpy of undef to nop.
   if (Src.getOpcode() == ISD::UNDEF)
     return Chain;
@@ -3334,8 +3334,7 @@ static SDValue getMemcpyLoadsAndStores(SelectionDAG &DAG, DebugLoc dl,
       Value = getMemsetStringVal(VT, dl, DAG, TLI, Str, SrcOff);
       Store = DAG.getStore(Chain, dl, Value,
                            getMemBasePlusOffset(Dst, DstOff, DAG),
-                           DstPtrInfo.getWithOffset(DstOff), isVol,
-                           false, Align);
+                           DstSV, DstSVOff + DstOff, isVol, false, Align);
     } else {
       // The type might not be legal for the target.  This should only happen
       // if the type is smaller than a legal type, as on PPC, so the right
@@ -3346,12 +3345,12 @@ static SDValue getMemcpyLoadsAndStores(SelectionDAG &DAG, DebugLoc dl,
       assert(NVT.bitsGE(VT));
       Value = DAG.getExtLoad(ISD::EXTLOAD, NVT, dl, Chain,
                              getMemBasePlusOffset(Src, SrcOff, DAG),
-                             SrcPtrInfo.getWithOffset(SrcOff), VT, isVol, false,
+                             SrcSV, SrcSVOff + SrcOff, VT, isVol, false,
                              MinAlign(SrcAlign, SrcOff));
       Store = DAG.getTruncStore(Chain, dl, Value,
                                 getMemBasePlusOffset(Dst, DstOff, DAG),
-                                DstPtrInfo.getWithOffset(DstOff), VT, isVol,
-                                false, Align);
+                                DstSV, DstSVOff + DstOff, VT, isVol, false,
+                                Align);
     }
     OutChains.push_back(Store);
     SrcOff += VTSize;
@@ -3367,8 +3366,8 @@ static SDValue getMemmoveLoadsAndStores(SelectionDAG &DAG, DebugLoc dl,
                                         SDValue Src, uint64_t Size,
                                         unsigned Align,  bool isVol,
                                         bool AlwaysInline,
-                                        MachinePointerInfo DstPtrInfo,
-                                        MachinePointerInfo SrcPtrInfo) {
+                                        const Value *DstSV, uint64_t DstSVOff,
+                                        const Value *SrcSV, uint64_t SrcSVOff) {
   // Turn a memmove of undef to nop.
   if (Src.getOpcode() == ISD::UNDEF)
     return Chain;
@@ -3415,8 +3414,7 @@ static SDValue getMemmoveLoadsAndStores(SelectionDAG &DAG, DebugLoc dl,
 
     Value = DAG.getLoad(VT, dl, Chain,
                         getMemBasePlusOffset(Src, SrcOff, DAG),
-                        SrcPtrInfo.getWithOffset(SrcOff), isVol,
-                        false, SrcAlign);
+                        SrcSV, SrcSVOff + SrcOff, isVol, false, SrcAlign);
     LoadValues.push_back(Value);
     LoadChains.push_back(Value.getValue(1));
     SrcOff += VTSize;
@@ -3431,7 +3429,7 @@ static SDValue getMemmoveLoadsAndStores(SelectionDAG &DAG, DebugLoc dl,
 
     Store = DAG.getStore(Chain, dl, LoadValues[i],
                          getMemBasePlusOffset(Dst, DstOff, DAG),
-                         DstPtrInfo.getWithOffset(DstOff), isVol, false, Align);
+                         DstSV, DstSVOff + DstOff, isVol, false, Align);
     OutChains.push_back(Store);
     DstOff += VTSize;
   }
@@ -3444,7 +3442,7 @@ static SDValue getMemsetStores(SelectionDAG &DAG, DebugLoc dl,
                                SDValue Chain, SDValue Dst,
                                SDValue Src, uint64_t Size,
                                unsigned Align, bool isVol,
-                               MachinePointerInfo DstPtrInfo) {
+                               const Value *DstSV, uint64_t DstSVOff) {
   // Turn a memset of undef to nop.
   if (Src.getOpcode() == ISD::UNDEF)
     return Chain;
@@ -3485,8 +3483,7 @@ static SDValue getMemsetStores(SelectionDAG &DAG, DebugLoc dl,
     SDValue Value = getMemsetValue(Src, VT, DAG, dl);
     SDValue Store = DAG.getStore(Chain, dl, Value,
                                  getMemBasePlusOffset(Dst, DstOff, DAG),
-                                 DstPtrInfo.getWithOffset(DstOff),
-                                 isVol, false, 0);
+                                 DstSV, DstSVOff + DstOff, isVol, false, 0);
     OutChains.push_back(Store);
     DstOff += VTSize;
   }
@@ -3498,8 +3495,8 @@ static SDValue getMemsetStores(SelectionDAG &DAG, DebugLoc dl,
 SDValue SelectionDAG::getMemcpy(SDValue Chain, DebugLoc dl, SDValue Dst,
                                 SDValue Src, SDValue Size,
                                 unsigned Align, bool isVol, bool AlwaysInline,
-                                MachinePointerInfo DstPtrInfo,
-                                MachinePointerInfo SrcPtrInfo) {
+                                const Value *DstSV, uint64_t DstSVOff,
+                                const Value *SrcSV, uint64_t SrcSVOff) {
 
   // Check to see if we should lower the memcpy to loads and stores first.
   // For cases within the target-specified limits, this is the best choice.
@@ -3511,7 +3508,7 @@ SDValue SelectionDAG::getMemcpy(SDValue Chain, DebugLoc dl, SDValue Dst,
 
     SDValue Result = getMemcpyLoadsAndStores(*this, dl, Chain, Dst, Src,
                                              ConstantSize->getZExtValue(),Align,
-                                isVol, false, DstPtrInfo, SrcPtrInfo);
+                                isVol, false, DstSV, DstSVOff, SrcSV, SrcSVOff);
     if (Result.getNode())
       return Result;
   }
@@ -3521,7 +3518,7 @@ SDValue SelectionDAG::getMemcpy(SDValue Chain, DebugLoc dl, SDValue Dst,
   SDValue Result =
     TSI.EmitTargetCodeForMemcpy(*this, dl, Chain, Dst, Src, Size, Align,
                                 isVol, AlwaysInline,
-                                DstPtrInfo, SrcPtrInfo);
+                                DstSV, DstSVOff, SrcSV, SrcSVOff);
   if (Result.getNode())
     return Result;
 
@@ -3531,7 +3528,7 @@ SDValue SelectionDAG::getMemcpy(SDValue Chain, DebugLoc dl, SDValue Dst,
     assert(ConstantSize && "AlwaysInline requires a constant size!");
     return getMemcpyLoadsAndStores(*this, dl, Chain, Dst, Src,
                                    ConstantSize->getZExtValue(), Align, isVol,
-                                   true, DstPtrInfo, SrcPtrInfo);
+                                   true, DstSV, DstSVOff, SrcSV, SrcSVOff);
   }
 
   // FIXME: If the memcpy is volatile (isVol), lowering it to a plain libc
@@ -3562,8 +3559,8 @@ SDValue SelectionDAG::getMemcpy(SDValue Chain, DebugLoc dl, SDValue Dst,
 SDValue SelectionDAG::getMemmove(SDValue Chain, DebugLoc dl, SDValue Dst,
                                  SDValue Src, SDValue Size,
                                  unsigned Align, bool isVol,
-                                 MachinePointerInfo DstPtrInfo,
-                                 MachinePointerInfo SrcPtrInfo) {
+                                 const Value *DstSV, uint64_t DstSVOff,
+                                 const Value *SrcSV, uint64_t SrcSVOff) {
 
   // Check to see if we should lower the memmove to loads and stores first.
   // For cases within the target-specified limits, this is the best choice.
@@ -3576,7 +3573,7 @@ SDValue SelectionDAG::getMemmove(SDValue Chain, DebugLoc dl, SDValue Dst,
     SDValue Result =
       getMemmoveLoadsAndStores(*this, dl, Chain, Dst, Src,
                                ConstantSize->getZExtValue(), Align, isVol,
-                               false, DstPtrInfo, SrcPtrInfo);
+                               false, DstSV, DstSVOff, SrcSV, SrcSVOff);
     if (Result.getNode())
       return Result;
   }
@@ -3585,7 +3582,7 @@ SDValue SelectionDAG::getMemmove(SDValue Chain, DebugLoc dl, SDValue Dst,
   // code. If the target chooses to do this, this is the next best.
   SDValue Result =
     TSI.EmitTargetCodeForMemmove(*this, dl, Chain, Dst, Src, Size, Align, isVol,
-                                 DstPtrInfo, SrcPtrInfo);
+                                 DstSV, DstSVOff, SrcSV, SrcSVOff);
   if (Result.getNode())
     return Result;
 
@@ -3614,7 +3611,7 @@ SDValue SelectionDAG::getMemmove(SDValue Chain, DebugLoc dl, SDValue Dst,
 SDValue SelectionDAG::getMemset(SDValue Chain, DebugLoc dl, SDValue Dst,
                                 SDValue Src, SDValue Size,
                                 unsigned Align, bool isVol,
-                                MachinePointerInfo DstPtrInfo) {
+                                const Value *DstSV, uint64_t DstSVOff) {
 
   // Check to see if we should lower the memset to stores first.
   // For cases within the target-specified limits, this is the best choice.
@@ -3626,7 +3623,7 @@ SDValue SelectionDAG::getMemset(SDValue Chain, DebugLoc dl, SDValue Dst,
 
     SDValue Result =
       getMemsetStores(*this, dl, Chain, Dst, Src, ConstantSize->getZExtValue(),
-                      Align, isVol, DstPtrInfo);
+                      Align, isVol, DstSV, DstSVOff);
 
     if (Result.getNode())
       return Result;
@@ -3636,7 +3633,7 @@ SDValue SelectionDAG::getMemset(SDValue Chain, DebugLoc dl, SDValue Dst,
   // code. If the target chooses to do this, this is the next best.
   SDValue Result =
     TSI.EmitTargetCodeForMemset(*this, dl, Chain, Dst, Src, Size, Align, isVol,
-                                DstPtrInfo);
+                                DstSV, DstSVOff);
   if (Result.getNode())
     return Result;
 
@@ -3672,11 +3669,18 @@ SDValue SelectionDAG::getMemset(SDValue Chain, DebugLoc dl, SDValue Dst,
 }
 
 SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
-                                SDValue Chain, SDValue Ptr, SDValue Cmp,
-                                SDValue Swp, MachinePointerInfo PtrInfo,
+                                SDValue Chain,
+                                SDValue Ptr, SDValue Cmp,
+                                SDValue Swp, const Value* PtrVal,
                                 unsigned Alignment) {
   if (Alignment == 0)  // Ensure that codegen never sees alignment 0
     Alignment = getEVTAlignment(MemVT);
+
+  // Check if the memory reference references a frame index
+  if (!PtrVal)
+    if (const FrameIndexSDNode *FI =
+          dyn_cast<const FrameIndexSDNode>(Ptr.getNode()))
+      PtrVal = PseudoSourceValue::getFixedStack(FI->getIndex());
 
   MachineFunction &MF = getMachineFunction();
   unsigned Flags = MachineMemOperand::MOLoad | MachineMemOperand::MOStore;
@@ -3685,7 +3689,8 @@ SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
   Flags |= MachineMemOperand::MOVolatile;
 
   MachineMemOperand *MMO =
-    MF.getMachineMemOperand(PtrInfo, Flags, MemVT.getStoreSize(), Alignment);
+    MF.getMachineMemOperand(PtrVal, Flags, 0,
+                            MemVT.getStoreSize(), Alignment);
 
   return getAtomic(Opcode, dl, MemVT, Chain, Ptr, Cmp, Swp, MMO);
 }
@@ -3724,6 +3729,12 @@ SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
   if (Alignment == 0)  // Ensure that codegen never sees alignment 0
     Alignment = getEVTAlignment(MemVT);
 
+  // Check if the memory reference references a frame index
+  if (!PtrVal)
+    if (const FrameIndexSDNode *FI =
+          dyn_cast<const FrameIndexSDNode>(Ptr.getNode()))
+      PtrVal = PseudoSourceValue::getFixedStack(FI->getIndex());
+
   MachineFunction &MF = getMachineFunction();
   unsigned Flags = MachineMemOperand::MOLoad | MachineMemOperand::MOStore;
 
@@ -3731,7 +3742,7 @@ SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
   Flags |= MachineMemOperand::MOVolatile;
 
   MachineMemOperand *MMO =
-    MF.getMachineMemOperand(MachinePointerInfo(PtrVal), Flags,
+    MF.getMachineMemOperand(PtrVal, Flags, 0,
                             MemVT.getStoreSize(), Alignment);
 
   return getAtomic(Opcode, dl, MemVT, Chain, Ptr, Val, MMO);
@@ -3792,18 +3803,18 @@ SDValue
 SelectionDAG::getMemIntrinsicNode(unsigned Opcode, DebugLoc dl,
                                   const EVT *VTs, unsigned NumVTs,
                                   const SDValue *Ops, unsigned NumOps,
-                                  EVT MemVT, MachinePointerInfo PtrInfo,
+                                  EVT MemVT, const Value *srcValue, int SVOff,
                                   unsigned Align, bool Vol,
                                   bool ReadMem, bool WriteMem) {
   return getMemIntrinsicNode(Opcode, dl, makeVTList(VTs, NumVTs), Ops, NumOps,
-                             MemVT, PtrInfo, Align, Vol,
+                             MemVT, srcValue, SVOff, Align, Vol,
                              ReadMem, WriteMem);
 }
 
 SDValue
 SelectionDAG::getMemIntrinsicNode(unsigned Opcode, DebugLoc dl, SDVTList VTList,
                                   const SDValue *Ops, unsigned NumOps,
-                                  EVT MemVT, MachinePointerInfo PtrInfo,
+                                  EVT MemVT, const Value *srcValue, int SVOff,
                                   unsigned Align, bool Vol,
                                   bool ReadMem, bool WriteMem) {
   if (Align == 0)  // Ensure that codegen never sees alignment 0
@@ -3818,7 +3829,8 @@ SelectionDAG::getMemIntrinsicNode(unsigned Opcode, DebugLoc dl, SDVTList VTList,
   if (Vol)
     Flags |= MachineMemOperand::MOVolatile;
   MachineMemOperand *MMO =
-    MF.getMachineMemOperand(PtrInfo, Flags, MemVT.getStoreSize(), Align);
+    MF.getMachineMemOperand(srcValue, Flags, SVOff,
+                            MemVT.getStoreSize(), Align);
 
   return getMemIntrinsicNode(Opcode, dl, VTList, Ops, NumOps, MemVT, MMO);
 }
@@ -3855,64 +3867,31 @@ SelectionDAG::getMemIntrinsicNode(unsigned Opcode, DebugLoc dl, SDVTList VTList,
   return SDValue(N, 0);
 }
 
-/// InferPointerInfo - If the specified ptr/offset is a frame index, infer a
-/// MachinePointerInfo record from it.  This is particularly useful because the
-/// code generator has many cases where it doesn't bother passing in a
-/// MachinePointerInfo to getLoad or getStore when it has "FI+Cst".
-static MachinePointerInfo InferPointerInfo(SDValue Ptr, int64_t Offset = 0) {
-  // If this is FI+Offset, we can model it.
-  if (const FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Ptr))
-    return MachinePointerInfo::getFixedStack(FI->getIndex(), Offset);
-
-  // If this is (FI+Offset1)+Offset2, we can model it.
-  if (Ptr.getOpcode() != ISD::ADD ||
-      !isa<ConstantSDNode>(Ptr.getOperand(1)) ||
-      !isa<FrameIndexSDNode>(Ptr.getOperand(0)))
-    return MachinePointerInfo();
-  
-  int FI = cast<FrameIndexSDNode>(Ptr.getOperand(0))->getIndex();
-  return MachinePointerInfo::getFixedStack(FI, Offset+
-                       cast<ConstantSDNode>(Ptr.getOperand(1))->getSExtValue());
-}
-
-/// InferPointerInfo - If the specified ptr/offset is a frame index, infer a
-/// MachinePointerInfo record from it.  This is particularly useful because the
-/// code generator has many cases where it doesn't bother passing in a
-/// MachinePointerInfo to getLoad or getStore when it has "FI+Cst".
-static MachinePointerInfo InferPointerInfo(SDValue Ptr, SDValue OffsetOp) {
-  // If the 'Offset' value isn't a constant, we can't handle this.
-  if (ConstantSDNode *OffsetNode = dyn_cast<ConstantSDNode>(OffsetOp))
-    return InferPointerInfo(Ptr, OffsetNode->getSExtValue());
-  if (OffsetOp.getOpcode() == ISD::UNDEF)
-    return InferPointerInfo(Ptr);
-  return MachinePointerInfo();
-}
-  
-
 SDValue
 SelectionDAG::getLoad(ISD::MemIndexedMode AM, ISD::LoadExtType ExtType,
                       EVT VT, DebugLoc dl, SDValue Chain,
                       SDValue Ptr, SDValue Offset,
-                      MachinePointerInfo PtrInfo, EVT MemVT,
+                      const Value *SV, int SVOffset, EVT MemVT,
                       bool isVolatile, bool isNonTemporal,
                       unsigned Alignment) {
   if (Alignment == 0)  // Ensure that codegen never sees alignment 0
     Alignment = getEVTAlignment(VT);
 
+  // Check if the memory reference references a frame index
+  if (!SV)
+    if (const FrameIndexSDNode *FI =
+          dyn_cast<const FrameIndexSDNode>(Ptr.getNode()))
+      SV = PseudoSourceValue::getFixedStack(FI->getIndex());
+
+  MachineFunction &MF = getMachineFunction();
   unsigned Flags = MachineMemOperand::MOLoad;
   if (isVolatile)
     Flags |= MachineMemOperand::MOVolatile;
   if (isNonTemporal)
     Flags |= MachineMemOperand::MONonTemporal;
-  
-  // If we don't have a PtrInfo, infer the trivial frame index case to simplify
-  // clients.
-  if (PtrInfo.V == 0)
-    PtrInfo = InferPointerInfo(Ptr, Offset);
-  
-  MachineFunction &MF = getMachineFunction();
   MachineMemOperand *MMO =
-    MF.getMachineMemOperand(PtrInfo, Flags, MemVT.getStoreSize(), Alignment);
+    MF.getMachineMemOperand(SV, Flags, SVOffset,
+                            MemVT.getStoreSize(), Alignment);
   return getLoad(AM, ExtType, VT, dl, Chain, Ptr, Offset, MemVT, MMO);
 }
 
@@ -3964,24 +3943,24 @@ SelectionDAG::getLoad(ISD::MemIndexedMode AM, ISD::LoadExtType ExtType,
 
 SDValue SelectionDAG::getLoad(EVT VT, DebugLoc dl,
                               SDValue Chain, SDValue Ptr,
-                              MachinePointerInfo PtrInfo,
+                              const Value *SV, int SVOffset,
                               bool isVolatile, bool isNonTemporal,
                               unsigned Alignment) {
   SDValue Undef = getUNDEF(Ptr.getValueType());
   return getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD, VT, dl, Chain, Ptr, Undef,
-                 PtrInfo, VT, isVolatile, isNonTemporal, Alignment);
+                 SV, SVOffset, VT, isVolatile, isNonTemporal, Alignment);
 }
 
 SDValue SelectionDAG::getExtLoad(ISD::LoadExtType ExtType, EVT VT, DebugLoc dl,
                                  SDValue Chain, SDValue Ptr,
-                                 MachinePointerInfo PtrInfo, EVT MemVT,
+                                 const Value *SV,
+                                 int SVOffset, EVT MemVT,
                                  bool isVolatile, bool isNonTemporal,
                                  unsigned Alignment) {
   SDValue Undef = getUNDEF(Ptr.getValueType());
   return getLoad(ISD::UNINDEXED, ExtType, VT, dl, Chain, Ptr, Undef,
-                 PtrInfo, MemVT, isVolatile, isNonTemporal, Alignment);
+                 SV, SVOffset, MemVT, isVolatile, isNonTemporal, Alignment);
 }
-
 
 SDValue
 SelectionDAG::getIndexedLoad(SDValue OrigLoad, DebugLoc dl, SDValue Base,
@@ -3990,30 +3969,32 @@ SelectionDAG::getIndexedLoad(SDValue OrigLoad, DebugLoc dl, SDValue Base,
   assert(LD->getOffset().getOpcode() == ISD::UNDEF &&
          "Load is already a indexed load!");
   return getLoad(AM, LD->getExtensionType(), OrigLoad.getValueType(), dl,
-                 LD->getChain(), Base, Offset, LD->getPointerInfo(),
-                 LD->getMemoryVT(),
+                 LD->getChain(), Base, Offset, LD->getSrcValue(),
+                 LD->getSrcValueOffset(), LD->getMemoryVT(),
                  LD->isVolatile(), LD->isNonTemporal(), LD->getAlignment());
 }
 
 SDValue SelectionDAG::getStore(SDValue Chain, DebugLoc dl, SDValue Val,
-                               SDValue Ptr, MachinePointerInfo PtrInfo,
+                               SDValue Ptr, const Value *SV, int SVOffset,
                                bool isVolatile, bool isNonTemporal,
                                unsigned Alignment) {
   if (Alignment == 0)  // Ensure that codegen never sees alignment 0
     Alignment = getEVTAlignment(Val.getValueType());
 
+  // Check if the memory reference references a frame index
+  if (!SV)
+    if (const FrameIndexSDNode *FI =
+          dyn_cast<const FrameIndexSDNode>(Ptr.getNode()))
+      SV = PseudoSourceValue::getFixedStack(FI->getIndex());
+
+  MachineFunction &MF = getMachineFunction();
   unsigned Flags = MachineMemOperand::MOStore;
   if (isVolatile)
     Flags |= MachineMemOperand::MOVolatile;
   if (isNonTemporal)
     Flags |= MachineMemOperand::MONonTemporal;
-  
-  if (PtrInfo.V == 0)
-    PtrInfo = InferPointerInfo(Ptr);
-
-  MachineFunction &MF = getMachineFunction();
   MachineMemOperand *MMO =
-    MF.getMachineMemOperand(PtrInfo, Flags,
+    MF.getMachineMemOperand(SV, Flags, SVOffset,
                             Val.getValueType().getStoreSize(), Alignment);
 
   return getStore(Chain, dl, Val, Ptr, MMO);
@@ -4043,24 +4024,27 @@ SDValue SelectionDAG::getStore(SDValue Chain, DebugLoc dl, SDValue Val,
 }
 
 SDValue SelectionDAG::getTruncStore(SDValue Chain, DebugLoc dl, SDValue Val,
-                                    SDValue Ptr, MachinePointerInfo PtrInfo,
-                                    EVT SVT,bool isVolatile, bool isNonTemporal,
+                                    SDValue Ptr, const Value *SV,
+                                    int SVOffset, EVT SVT,
+                                    bool isVolatile, bool isNonTemporal,
                                     unsigned Alignment) {
   if (Alignment == 0)  // Ensure that codegen never sees alignment 0
     Alignment = getEVTAlignment(SVT);
 
+  // Check if the memory reference references a frame index
+  if (!SV)
+    if (const FrameIndexSDNode *FI =
+          dyn_cast<const FrameIndexSDNode>(Ptr.getNode()))
+      SV = PseudoSourceValue::getFixedStack(FI->getIndex());
+
+  MachineFunction &MF = getMachineFunction();
   unsigned Flags = MachineMemOperand::MOStore;
   if (isVolatile)
     Flags |= MachineMemOperand::MOVolatile;
   if (isNonTemporal)
     Flags |= MachineMemOperand::MONonTemporal;
-  
-  if (PtrInfo.V == 0)
-    PtrInfo = InferPointerInfo(Ptr);
-
-  MachineFunction &MF = getMachineFunction();
   MachineMemOperand *MMO =
-    MF.getMachineMemOperand(PtrInfo, Flags, SVT.getStoreSize(), Alignment);
+    MF.getMachineMemOperand(SV, Flags, SVOffset, SVT.getStoreSize(), Alignment);
 
   return getTruncStore(Chain, dl, Val, Ptr, SVT, MMO);
 }
@@ -5494,9 +5478,9 @@ bool SDNode::isOperandOf(SDNode *N) const {
 
 /// reachesChainWithoutSideEffects - Return true if this operand (which must
 /// be a chain) reaches the specified operand without crossing any
-/// side-effecting instructions on any chain path.  In practice, this looks 
-/// through token factors and non-volatile loads.  In order to remain efficient, 
-/// this only looks a couple of nodes in, it does not do an exhaustive search.
+/// side-effecting instructions.  In practice, this looks through token
+/// factors and non-volatile loads.  In order to remain efficient, this only
+/// looks a couple of nodes in, it does not do an exhaustive search.
 bool SDValue::reachesChainWithoutSideEffects(SDValue Dest,
                                                unsigned Depth) const {
   if (*this == Dest) return true;
@@ -5506,12 +5490,12 @@ bool SDValue::reachesChainWithoutSideEffects(SDValue Dest,
   if (Depth == 0) return false;
 
   // If this is a token factor, all inputs to the TF happen in parallel.  If any
-  // of the operands of the TF does not reach dest, then we cannot do the xform.
+  // of the operands of the TF reach dest, then we can do the xform.
   if (getOpcode() == ISD::TokenFactor) {
     for (unsigned i = 0, e = getNumOperands(); i != e; ++i)
-      if (!getOperand(i).reachesChainWithoutSideEffects(Dest, Depth-1))
-        return false;
-    return true;
+      if (getOperand(i).reachesChainWithoutSideEffects(Dest, Depth-1))
+        return true;
+    return false;
   }
 
   // Loads don't have side effects, look through them.

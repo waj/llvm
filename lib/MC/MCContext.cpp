@@ -160,10 +160,6 @@ getELFSection(StringRef Section, unsigned Type, unsigned Flags,
   StringMapEntry<const MCSectionELF*> &Entry = Map.GetOrCreateValue(Section);
   if (Entry.getValue()) return Entry.getValue();
   
-  // Possibly refine the entry size first.
-  if (!EntrySize) {
-    EntrySize = MCSectionELF::DetermineEntrySize(Kind);
-  }
   MCSectionELF *Result = new (*this) MCSectionELF(Entry.getKey(), Type, Flags,
                                                   Kind, IsExplicit, EntrySize);
   Entry.setValue(Result);
@@ -255,11 +251,15 @@ unsigned MCContext::GetDwarfFile(StringRef FileName, unsigned FileNumber) {
   return FileNumber;
 }
 
-/// isValidDwarfFileNumber - takes a dwarf file number and returns true if it
+/// ValidateDwarfFileNumber - takes a dwarf file number and returns true if it
 /// currently is assigned and false otherwise.
-bool MCContext::isValidDwarfFileNumber(unsigned FileNumber) {
+bool MCContext::ValidateDwarfFileNumber(unsigned FileNumber) {
   if(FileNumber == 0 || FileNumber >= MCDwarfFiles.size())
     return false;
 
-  return MCDwarfFiles[FileNumber] != 0;
+  MCDwarfFile *&ExistingFile = MCDwarfFiles[FileNumber];
+  if (ExistingFile)
+    return true;
+  else
+    return false;
 }

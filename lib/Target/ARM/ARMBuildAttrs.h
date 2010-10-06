@@ -16,7 +16,7 @@
 #define __TARGET_ARMBUILDATTRS_H__
 
 namespace ARMBuildAttrs {
-  enum AttrType {
+  enum {
     File                      = 1,
     Section                   = 2,
     Symbol                    = 3,

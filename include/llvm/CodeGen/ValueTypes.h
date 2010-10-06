@@ -74,13 +74,11 @@ namespace llvm {
       FIRST_VECTOR_VALUETYPE = v2i8,
       LAST_VECTOR_VALUETYPE  = v4f64,
 
-      x86mmx         =  33,   // This is an X86 MMX value
+      Flag           =  33,   // This glues nodes together during pre-RA sched
 
-      Flag           =  34,   // This glues nodes together during pre-RA sched
+      isVoid         =  34,   // This has no value
 
-      isVoid         =  35,   // This has no value
-
-      LAST_VALUETYPE =  36,   // This always remains at the end of the list.
+      LAST_VALUETYPE =  35,   // This always remains at the end of the list.
 
       // This is the current maximum for LAST_VALUETYPE.
       // EVT::MAX_ALLOWED_VALUETYPE is used for asserts and to size bit vectors
@@ -249,7 +247,6 @@ namespace llvm {
       case i32 :
       case v4i8:
       case v2i16: return 32;
-      case x86mmx:
       case f64 :
       case i64 :
       case v8i8:

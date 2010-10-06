@@ -36,7 +36,7 @@ namespace llvm {
     ~LibCallAliasAnalysis();
     
     ModRefResult getModRefInfo(ImmutableCallSite CS,
-                               const Location &Loc);
+                               const Value *P, unsigned Size);
     
     ModRefResult getModRefInfo(ImmutableCallSite CS1,
                                ImmutableCallSite CS2) {
@@ -64,7 +64,7 @@ namespace llvm {
   private:
     ModRefResult AnalyzeLibCallDetails(const LibCallFunctionInfo *FI,
                                        ImmutableCallSite CS,
-                                       const Location &Loc);
+                                       const Value *P, unsigned Size);
   };
 }  // End of llvm namespace
 

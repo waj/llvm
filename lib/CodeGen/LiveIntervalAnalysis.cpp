@@ -285,8 +285,8 @@ bool LiveIntervals::isPartialRedef(SlotIndex MIIdx, MachineOperand &MO,
   SlotIndex RedefIndex = MIIdx.getDefIndex();
   const LiveRange *OldLR =
     interval.getLiveRangeContaining(RedefIndex.getUseIndex());
-  MachineInstr *DefMI = getInstructionFromIndex(OldLR->valno->def);
-  if (DefMI != 0) {
+  if (OldLR->valno->isDefAccurate()) {
+    MachineInstr *DefMI = getInstructionFromIndex(OldLR->valno->def);
     return DefMI->findRegisterDefOperandIdx(interval.reg) != -1;
   }
   return false;
@@ -326,7 +326,8 @@ void LiveIntervals::handleVirtualRegisterDef(MachineBasicBlock *mbb,
       CopyMI = mi;
     }
 
-    VNInfo *ValNo = interval.getNextValue(defIndex, CopyMI, VNInfoAllocator);
+    VNInfo *ValNo = interval.getNextValue(defIndex, CopyMI, true,
+                                          VNInfoAllocator);
     assert(ValNo->id == 0 && "First value in interval is not 0?");
 
     // Loop over all of the blocks that the vreg is defined in.  There are
@@ -392,9 +393,8 @@ void LiveIntervals::handleVirtualRegisterDef(MachineBasicBlock *mbb,
       // Create interval with one of a NEW value number.  Note that this value
       // number isn't actually defined by an instruction, weird huh? :)
       if (PHIJoin) {
-        assert(getInstructionFromIndex(Start) == 0 &&
-               "PHI def index points at actual instruction.");
-        ValNo = interval.getNextValue(Start, 0, VNInfoAllocator);
+        ValNo = interval.getNextValue(SlotIndex(Start, true), 0, false,
+                                      VNInfoAllocator);
         ValNo->setIsPHIDef(true);
       }
       LiveRange LR(Start, killIdx, ValNo);
@@ -440,7 +440,10 @@ void LiveIntervals::handleVirtualRegisterDef(MachineBasicBlock *mbb,
 
       // The new value number (#1) is defined by the instruction we claimed
       // defined value #0.
-      VNInfo *ValNo = interval.createValueCopy(OldValNo, VNInfoAllocator);
+      VNInfo *ValNo = interval.getNextValue(OldValNo->def, OldValNo->getCopy(),
+                                            false, // update at *
+                                            VNInfoAllocator);
+      ValNo->setFlags(OldValNo->getFlags()); // * <- updating here
 
       // Value#0 is now defined by the 2-addr instruction.
       OldValNo->def  = RedefIndex;
@@ -478,7 +481,7 @@ void LiveIntervals::handleVirtualRegisterDef(MachineBasicBlock *mbb,
       MachineInstr *CopyMI = NULL;
       if (mi->isCopyLike())
         CopyMI = mi;
-      ValNo = interval.getNextValue(defIndex, CopyMI, VNInfoAllocator);
+      ValNo = interval.getNextValue(defIndex, CopyMI, true, VNInfoAllocator);
 
       SlotIndex killIndex = getMBBEndIdx(mbb);
       LiveRange LR(defIndex, killIndex, ValNo);
@@ -573,7 +576,7 @@ exit:
   LiveInterval::iterator OldLR = interval.FindLiveRangeContaining(start);
   bool Extend = OldLR != interval.end();
   VNInfo *ValNo = Extend
-    ? OldLR->valno : interval.getNextValue(start, CopyMI, VNInfoAllocator);
+    ? OldLR->valno : interval.getNextValue(start, CopyMI, true, VNInfoAllocator);
   if (MO.isEarlyClobber() && Extend)
     ValNo->setHasRedefByEC(true);
   LiveRange LR(start, end, ValNo);
@@ -669,11 +672,9 @@ void LiveIntervals::handleLiveInRegister(MachineBasicBlock *MBB,
     }
   }
 
-  SlotIndex defIdx = getMBBStartIdx(MBB);
-  assert(getInstructionFromIndex(defIdx) == 0 &&
-         "PHI def index points at actual instruction.");
   VNInfo *vni =
-    interval.getNextValue(defIdx, 0, VNInfoAllocator);
+    interval.getNextValue(SlotIndex(getMBBStartIdx(MBB), true),
+                          0, false, VNInfoAllocator);
   vni->setIsPHIDef(true);
   LiveRange LR(start, end, vni);
 
@@ -864,9 +865,9 @@ bool LiveIntervals::isReMaterializable(const LiveInterval &li,
     if (VNI->isUnused())
       continue; // Dead val#.
     // Is the def for the val# rematerializable?
-    MachineInstr *ReMatDefMI = getInstructionFromIndex(VNI->def);
-    if (!ReMatDefMI)
+    if (!VNI->isDefAccurate())
       return false;
+    MachineInstr *ReMatDefMI = getInstructionFromIndex(VNI->def);
     bool DefIsLoad = false;
     if (!ReMatDefMI ||
         !isReMaterializable(li, VNI, ReMatDefMI, SpillIs, DefIsLoad))
@@ -1189,7 +1190,7 @@ rewriteInstructionForSpills(const LiveInterval &li, const VNInfo *VNI,
     if (HasUse) {
       if (CreatedNewVReg) {
         LiveRange LR(index.getLoadIndex(), index.getDefIndex(),
-                     nI.getNextValue(SlotIndex(), 0, VNInfoAllocator));
+                     nI.getNextValue(SlotIndex(), 0, false, VNInfoAllocator));
         DEBUG(dbgs() << " +" << LR);
         nI.addRange(LR);
       } else {
@@ -1203,7 +1204,7 @@ rewriteInstructionForSpills(const LiveInterval &li, const VNInfo *VNI,
     }
     if (HasDef) {
       LiveRange LR(index.getDefIndex(), index.getStoreIndex(),
-                   nI.getNextValue(SlotIndex(), 0, VNInfoAllocator));
+                   nI.getNextValue(SlotIndex(), 0, false, VNInfoAllocator));
       DEBUG(dbgs() << " +" << LR);
       nI.addRange(LR);
     }
@@ -1652,7 +1653,8 @@ addIntervalsForSpills(const LiveInterval &li,
     if (VNI->isUnused())
       continue; // Dead val#.
     // Is the def for the val# rematerializable?
-    MachineInstr *ReMatDefMI = getInstructionFromIndex(VNI->def);
+    MachineInstr *ReMatDefMI = VNI->isDefAccurate()
+      ? getInstructionFromIndex(VNI->def) : 0;
     bool dummy;
     if (ReMatDefMI && isReMaterializable(li, VNI, ReMatDefMI, SpillIs, dummy)) {
       // Remember how to remat the def of this val#.
@@ -1994,7 +1996,7 @@ LiveRange LiveIntervals::addLiveRangeToEndOfBlock(unsigned reg,
   LiveInterval& Interval = getOrCreateInterval(reg);
   VNInfo* VN = Interval.getNextValue(
     SlotIndex(getInstructionIndex(startInst).getDefIndex()),
-    startInst, getVNInfoAllocator());
+    startInst, true, getVNInfoAllocator());
   VN->setHasPHIKill(true);
   LiveRange LR(
      SlotIndex(getInstructionIndex(startInst).getDefIndex()),

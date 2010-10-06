@@ -129,8 +129,11 @@ reconfigure:
 	  $(ConfigStatusScript) --recheck $(ConfigureScriptFLAGS) && \
 	  $(ConfigStatusScript)
 
+# FIXME: The {PIC16,MSP430}/AsmPrinter line here is a hack to force a reconfigure to pick
+# up AsmPrinter changes. Remove it after a reasonable delay from 2009-08-13.
+
 .PRECIOUS: $(ConfigStatusScript)
-$(ConfigStatusScript): $(ConfigureScript)
+$(ConfigStatusScript): $(ConfigureScript) $(LLVM_SRC_ROOT)/lib/Target/PIC16/AsmPrinter/Makefile $(LLVM_SRC_ROOT)/lib/Target/MSP430/AsmPrinter/Makefile
 	$(Echo) Reconfiguring with $<
 	$(Verb) cd $(PROJ_OBJ_ROOT) && \
 	  if test -w $(PROJ_OBJ_ROOT)/config.cache ; then \
@@ -158,13 +161,9 @@ endif
 # If the Makefile in the source tree has been updated, copy it over into the
 # build tree. But, only do this if the source and object makefiles differ
 #------------------------------------------------------------------------
-ifndef PROJ_MAKEFILE
-PROJ_MAKEFILE := $(PROJ_SRC_DIR)/Makefile
-endif
-
 ifneq ($(PROJ_OBJ_DIR),$(PROJ_SRC_DIR))
 
-Makefile: $(PROJ_MAKEFILE) $(ExtraMakefiles)
+Makefile: $(PROJ_SRC_DIR)/Makefile $(ExtraMakefiles)
 	$(Echo) "Updating Makefile"
 	$(Verb) $(MKDIR) $(@D)
 	$(Verb) $(CP) -f $< $@
@@ -172,7 +171,7 @@ Makefile: $(PROJ_MAKEFILE) $(ExtraMakefiles)
 # Copy the Makefile.* files unless we're in the root directory which avoids
 # the copying of Makefile.config.in or other things that should be explicitly
 # taken care of.
-$(PROJ_OBJ_DIR)/Makefile% : $(PROJ_MAKEFILE)%
+$(PROJ_OBJ_DIR)/Makefile% : $(PROJ_SRC_DIR)/Makefile%
 	@case '$?' in \
           *Makefile.rules) ;; \
           *.in) ;; \
@@ -891,13 +890,10 @@ LLVMUsedLibs    := $(patsubst %.a.o, lib%.a, $(addsuffix .o, $(LLVMLIBS)))
 LLVMLibsPaths   := $(addprefix $(LLVMLibDir)/,$(LLVMUsedLibs))
 endif
 
-# Loadable module for Win32 requires all symbols resolved for linking.
-# Then all symbols in LLVM.dll will be available.
-ifeq ($(ENABLE_SHARED),1)
+# Win32.DLL may refer to other components.
+ifeq ($(HOST_OS), $(filter $(HOST_OS), Cygwin MingW))
   ifdef LOADABLE_MODULE
-    ifneq (,$(filter $(HOST_OS),Cygwin MingW))
-      LINK_COMPONENTS += all
-    endif
+    LINK_COMPONENTS := all
   endif
 endif
 
@@ -1328,18 +1324,6 @@ endif
 endif
 
 #---------------------------------------------------------
-# Tool Order File Support
-#---------------------------------------------------------
-
-ifeq ($(HOST_OS),Darwin)
-ifdef TOOL_ORDER_FINE
-
-LD.Flags += -Wl,-order_file,$(TOOL_ORDER_FILE)
-
-endif
-endif
-
-#---------------------------------------------------------
 # Tool Version Info Support
 #---------------------------------------------------------
 
@@ -1457,27 +1441,27 @@ DEPEND_OPTIONS = -MMD -MP -MF "$(ObjDir)/$*.d.tmp" \
 DEPEND_MOVEFILE = then $(MV) -f "$(ObjDir)/$*.d.tmp" "$(ObjDir)/$*.d"; \
                   else $(RM) "$(ObjDir)/$*.d.tmp"; exit 1; fi
 
-$(ObjDir)/%.o: %.cpp $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_MAKEFILE)
+$(ObjDir)/%.o: %.cpp $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_SRC_DIR)/Makefile
 	$(Echo) "Compiling $*.cpp for $(BuildMode) build" $(PIC_FLAG)
 	$(Verb) if $(Compile.CXX) $(DEPEND_OPTIONS) $< -o $(ObjDir)/$*.o ; \
 	        $(DEPEND_MOVEFILE)
 
-$(ObjDir)/%.o: %.mm $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_MAKEFILE)
+$(ObjDir)/%.o: %.mm $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_SRC_DIR)/Makefile
 	$(Echo) "Compiling $*.mm for $(BuildMode) build" $(PIC_FLAG)
 	$(Verb) if $(Compile.CXX) $(DEPEND_OPTIONS) $< -o $(ObjDir)/$*.o ; \
 	        $(DEPEND_MOVEFILE)
 
-$(ObjDir)/%.o: %.cc $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_MAKEFILE)
+$(ObjDir)/%.o: %.cc $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_SRC_DIR)/Makefile
 	$(Echo) "Compiling $*.cc for $(BuildMode) build" $(PIC_FLAG)
 	$(Verb) if $(Compile.CXX) $(DEPEND_OPTIONS) $< -o $(ObjDir)/$*.o ; \
 	        $(DEPEND_MOVEFILE)
 
-$(ObjDir)/%.o: %.c $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_MAKEFILE)
+$(ObjDir)/%.o: %.c $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_SRC_DIR)/Makefile
 	$(Echo) "Compiling $*.c for $(BuildMode) build" $(PIC_FLAG)
 	$(Verb) if $(Compile.C) $(DEPEND_OPTIONS) $< -o $(ObjDir)/$*.o ; \
 	        $(DEPEND_MOVEFILE)
 
-$(ObjDir)/%.o: %.m $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_MAKEFILE)
+$(ObjDir)/%.o: %.m $(ObjDir)/.dir $(BUILT_SOURCES) $(PROJ_SRC_DIR)/Makefile
 	$(Echo) "Compiling $*.m for $(BuildMode) build" $(PIC_FLAG)
 	$(Verb) if $(Compile.C) $(DEPEND_OPTIONS) $< -o $(ObjDir)/$*.o ; \
 	        $(DEPEND_MOVEFILE)
@@ -1779,7 +1763,7 @@ $(INCTMPFiles) : $(TBLGEN) $(TDFiles)
 
 $(ObjDir)/%.inc.tmp: %.td $(ObjDir)/.dir
 	$(Echo) "Building LLVMC compilation graph description with tblgen"
-	$(Verb) $(TableGen) -gen-llvmc -llvmc-temp-hack -o $(call SYSPATH, $@) $<
+	$(Verb) $(TableGen) -gen-llvmc -o $(call SYSPATH, $@) $<
 
 clean-local::
 	-$(Verb) $(RM) -f $(INCFiles)

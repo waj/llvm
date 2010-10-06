@@ -101,7 +101,6 @@ namespace llvm {
     const MachineLoopInfo &MLI;
     const MachineDominatorTree &MDT;
     const MachineFrameInfo *MFI;
-    const InstrItineraryData *InstrItins;
 
     /// Defs, Uses - Remember where defs and uses of each physical register
     /// are as we iterate upward through the instructions. This is allocated

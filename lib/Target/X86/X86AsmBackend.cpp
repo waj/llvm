@@ -36,7 +36,6 @@ static unsigned getFixupKindLog2Size(unsigned Kind) {
   case X86::reloc_pcrel_4byte:
   case X86::reloc_riprel_4byte:
   case X86::reloc_riprel_4byte_movq_load:
-  case X86::reloc_signed_4byte:
   case FK_Data_4: return 2;
   case FK_Data_8: return 3;
   }
@@ -187,37 +186,25 @@ bool X86AsmBackend::WriteNopData(uint64_t Count, MCObjectWriter *OW) const {
 namespace {
 class ELFX86AsmBackend : public X86AsmBackend {
 public:
-  Triple::OSType OSType;
-  ELFX86AsmBackend(const Target &T, Triple::OSType _OSType)
-    : X86AsmBackend(T), OSType(_OSType) {
+  ELFX86AsmBackend(const Target &T)
+    : X86AsmBackend(T) {
     HasAbsolutizedSet = true;
     HasScatteredSymbols = true;
-    HasReliableSymbolDifference = true;
-  }
-
-  virtual bool doesSectionRequireSymbols(const MCSection &Section) const {
-    const MCSectionELF &ES = static_cast<const MCSectionELF&>(Section);
-    return ES.getFlags() & MCSectionELF::SHF_MERGE;
   }
 
   bool isVirtualSection(const MCSection &Section) const {
     const MCSectionELF &SE = static_cast<const MCSectionELF&>(Section);
-    return SE.getType() == MCSectionELF::SHT_NOBITS;
+    return SE.getType() == MCSectionELF::SHT_NOBITS;;
   }
 };
 
 class ELFX86_32AsmBackend : public ELFX86AsmBackend {
 public:
-  ELFX86_32AsmBackend(const Target &T, Triple::OSType OSType)
-    : ELFX86AsmBackend(T, OSType) {}
-
-  unsigned getPointerSize() const {
-    return 4;
-  }
+  ELFX86_32AsmBackend(const Target &T)
+    : ELFX86AsmBackend(T) {}
 
   MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
     return new ELFObjectWriter(OS, /*Is64Bit=*/false,
-                               OSType,
                                /*IsLittleEndian=*/true,
                                /*HasRelocationAddend=*/false);
   }
@@ -225,16 +212,11 @@ public:
 
 class ELFX86_64AsmBackend : public ELFX86AsmBackend {
 public:
-  ELFX86_64AsmBackend(const Target &T, Triple::OSType OSType)
-    : ELFX86AsmBackend(T, OSType) {}
-
-  unsigned getPointerSize() const {
-    return 8;
-  }
+  ELFX86_64AsmBackend(const Target &T)
+    : ELFX86AsmBackend(T) {}
 
   MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
     return new ELFObjectWriter(OS, /*Is64Bit=*/true,
-                               OSType,
                                /*IsLittleEndian=*/true,
                                /*HasRelocationAddend=*/true);
   }
@@ -247,13 +229,6 @@ public:
     : X86AsmBackend(T)
     , Is64Bit(is64Bit) {
     HasScatteredSymbols = true;
-  }
-
-  unsigned getPointerSize() const {
-    if (Is64Bit)
-      return 8;
-    else
-      return 4;
   }
 
   MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
@@ -287,10 +262,6 @@ public:
   DarwinX86_32AsmBackend(const Target &T)
     : DarwinX86AsmBackend(T) {}
 
-  unsigned getPointerSize() const {
-    return 4;
-  }
-
   MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
     return new MachObjectWriter(OS, /*Is64Bit=*/false);
   }
@@ -301,10 +272,6 @@ public:
   DarwinX86_64AsmBackend(const Target &T)
     : DarwinX86AsmBackend(T) {
     HasReliableSymbolDifference = true;
-  }
-
-  unsigned getPointerSize() const {
-    return 8;
   }
 
   MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
@@ -357,7 +324,7 @@ TargetAsmBackend *llvm::createX86_32AsmBackend(const Target &T,
   case Triple::Win32:
     return new WindowsX86AsmBackend(T, false);
   default:
-    return new ELFX86_32AsmBackend(T, Triple(TT).getOS());
+    return new ELFX86_32AsmBackend(T);
   }
 }
 
@@ -371,6 +338,6 @@ TargetAsmBackend *llvm::createX86_64AsmBackend(const Target &T,
   case Triple::Win32:
     return new WindowsX86AsmBackend(T, true);
   default:
-    return new ELFX86_64AsmBackend(T, Triple(TT).getOS());
+    return new ELFX86_64AsmBackend(T);
   }
 }

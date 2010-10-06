@@ -76,8 +76,7 @@ namespace {
     }
 
   private:
-    bool OptimizeCmpInstr(MachineInstr *MI, MachineBasicBlock *MBB,
-                          MachineBasicBlock::iterator &MII);
+    bool OptimizeCmpInstr(MachineInstr *MI, MachineBasicBlock *MBB);
     bool OptimizeExtInstr(MachineInstr *MI, MachineBasicBlock *MBB,
                           SmallPtrSet<MachineInstr*, 8> &LocalMIs);
   };
@@ -233,18 +232,22 @@ OptimizeExtInstr(MachineInstr *MI, MachineBasicBlock *MBB,
 /// set) the same flag as the compare, then we can remove the comparison and use
 /// the flag from the previous instruction.
 bool PeepholeOptimizer::OptimizeCmpInstr(MachineInstr *MI,
-                                         MachineBasicBlock *MBB,
-                                         MachineBasicBlock::iterator &NextIter){
+                                         MachineBasicBlock *MBB) {
   // If this instruction is a comparison against zero and isn't comparing a
   // physical register, we can try to optimize it.
   unsigned SrcReg;
-  int CmpMask, CmpValue;
-  if (!TII->AnalyzeCompare(MI, SrcReg, CmpMask, CmpValue) ||
-      TargetRegisterInfo::isPhysicalRegister(SrcReg))
+  int CmpValue;
+  if (!TII->AnalyzeCompare(MI, SrcReg, CmpValue) ||
+      TargetRegisterInfo::isPhysicalRegister(SrcReg) || CmpValue != 0)
     return false;
 
-  // Attempt to optimize the comparison instruction.
-  if (TII->OptimizeCompareInstr(MI, SrcReg, CmpMask, CmpValue, NextIter)) {
+  MachineRegisterInfo::def_iterator DI = MRI->def_begin(SrcReg);
+  if (llvm::next(DI) != MRI->def_end())
+    // Only support one definition.
+    return false;
+
+  // Attempt to convert the defining instruction to set the "zero" flag.
+  if (TII->ConvertToSetZeroFlag(&*DI, MI)) {
     ++NumEliminated;
     return true;
   }
@@ -266,15 +269,13 @@ bool PeepholeOptimizer::runOnMachineFunction(MachineFunction &MF) {
     LocalMIs.clear();
 
     for (MachineBasicBlock::iterator
-           MII = I->begin(), MIE = I->end(); MII != MIE; ) {
+           MII = I->begin(), ME = I->end(); MII != ME; ) {
       MachineInstr *MI = &*MII;
 
       if (MI->getDesc().isCompare() &&
           !MI->getDesc().hasUnmodeledSideEffects()) {
-        if (OptimizeCmpInstr(MI, MBB, MII))
-          Changed = true;
-        else
-          ++MII;
+        ++MII; // The iterator may become invalid if the compare is deleted.
+        Changed |= OptimizeCmpInstr(MI, MBB);
       } else {
         Changed |= OptimizeExtInstr(MI, MBB, LocalMIs);
         ++MII;

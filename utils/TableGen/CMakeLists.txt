@@ -27,7 +27,6 @@ add_executable(tblgen
   OptParserEmitter.cpp
   Record.cpp
   RegisterInfoEmitter.cpp
-  StringMatcher.cpp
   SubtargetEmitter.cpp
   TGLexer.cpp
   TGParser.cpp

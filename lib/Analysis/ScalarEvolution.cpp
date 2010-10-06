@@ -1711,6 +1711,7 @@ const SCEV *ScalarEvolution::getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(scAddExpr);
+  ID.AddInteger(Ops.size());
   for (unsigned i = 0, e = Ops.size(); i != e; ++i)
     ID.AddPointer(Ops[i]);
   void *IP = 0;
@@ -1916,6 +1917,7 @@ const SCEV *ScalarEvolution::getMulExpr(SmallVectorImpl<const SCEV *> &Ops,
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(scMulExpr);
+  ID.AddInteger(Ops.size());
   for (unsigned i = 0, e = Ops.size(); i != e; ++i)
     ID.AddPointer(Ops[i]);
   void *IP = 0;
@@ -2129,6 +2131,7 @@ ScalarEvolution::getAddRecExpr(SmallVectorImpl<const SCEV *> &Operands,
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(scAddRecExpr);
+  ID.AddInteger(Operands.size());
   for (unsigned i = 0, e = Operands.size(); i != e; ++i)
     ID.AddPointer(Operands[i]);
   ID.AddPointer(L);
@@ -2239,6 +2242,7 @@ ScalarEvolution::getSMaxExpr(SmallVectorImpl<const SCEV *> &Ops) {
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(scSMaxExpr);
+  ID.AddInteger(Ops.size());
   for (unsigned i = 0, e = Ops.size(); i != e; ++i)
     ID.AddPointer(Ops[i]);
   void *IP = 0;
@@ -2343,6 +2347,7 @@ ScalarEvolution::getUMaxExpr(SmallVectorImpl<const SCEV *> &Ops) {
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(scUMaxExpr);
+  ID.AddInteger(Ops.size());
   for (unsigned i = 0, e = Ops.size(); i != e; ++i)
     ID.AddPointer(Ops[i]);
   void *IP = 0;

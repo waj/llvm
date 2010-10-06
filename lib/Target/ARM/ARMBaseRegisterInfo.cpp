@@ -54,6 +54,97 @@ static cl::opt<bool>
 EnableBasePointer("arm-use-base-pointer", cl::Hidden, cl::init(true),
           cl::desc("Enable use of a base pointer for complex stack frames"));
 
+unsigned ARMBaseRegisterInfo::getRegisterNumbering(unsigned RegEnum,
+                                                   bool *isSPVFP) {
+  if (isSPVFP)
+    *isSPVFP = false;
+
+  using namespace ARM;
+  switch (RegEnum) {
+  default:
+    llvm_unreachable("Unknown ARM register!");
+  case R0:  case D0:  case Q0:  return 0;
+  case R1:  case D1:  case Q1:  return 1;
+  case R2:  case D2:  case Q2:  return 2;
+  case R3:  case D3:  case Q3:  return 3;
+  case R4:  case D4:  case Q4:  return 4;
+  case R5:  case D5:  case Q5:  return 5;
+  case R6:  case D6:  case Q6:  return 6;
+  case R7:  case D7:  case Q7:  return 7;
+  case R8:  case D8:  case Q8:  return 8;
+  case R9:  case D9:  case Q9:  return 9;
+  case R10: case D10: case Q10: return 10;
+  case R11: case D11: case Q11: return 11;
+  case R12: case D12: case Q12: return 12;
+  case SP:  case D13: case Q13: return 13;
+  case LR:  case D14: case Q14: return 14;
+  case PC:  case D15: case Q15: return 15;
+
+  case D16: return 16;
+  case D17: return 17;
+  case D18: return 18;
+  case D19: return 19;
+  case D20: return 20;
+  case D21: return 21;
+  case D22: return 22;
+  case D23: return 23;
+  case D24: return 24;
+  case D25: return 25;
+  case D26: return 26;
+  case D27: return 27;
+  case D28: return 28;
+  case D29: return 29;
+  case D30: return 30;
+  case D31: return 31;
+
+  case S0: case S1: case S2: case S3:
+  case S4: case S5: case S6: case S7:
+  case S8: case S9: case S10: case S11:
+  case S12: case S13: case S14: case S15:
+  case S16: case S17: case S18: case S19:
+  case S20: case S21: case S22: case S23:
+  case S24: case S25: case S26: case S27:
+  case S28: case S29: case S30: case S31: {
+    if (isSPVFP)
+      *isSPVFP = true;
+    switch (RegEnum) {
+    default: return 0; // Avoid compile time warning.
+    case S0: return 0;
+    case S1: return 1;
+    case S2: return 2;
+    case S3: return 3;
+    case S4: return 4;
+    case S5: return 5;
+    case S6: return 6;
+    case S7: return 7;
+    case S8: return 8;
+    case S9: return 9;
+    case S10: return 10;
+    case S11: return 11;
+    case S12: return 12;
+    case S13: return 13;
+    case S14: return 14;
+    case S15: return 15;
+    case S16: return 16;
+    case S17: return 17;
+    case S18: return 18;
+    case S19: return 19;
+    case S20: return 20;
+    case S21: return 21;
+    case S22: return 22;
+    case S23: return 23;
+    case S24: return 24;
+    case S25: return 25;
+    case S26: return 26;
+    case S27: return 27;
+    case S28: return 28;
+    case S29: return 29;
+    case S30: return 30;
+    case S31: return 31;
+    }
+  }
+  }
+}
 
 ARMBaseRegisterInfo::ARMBaseRegisterInfo(const ARMBaseInstrInfo &tii,
                                          const ARMSubtarget &sti)
@@ -77,8 +168,8 @@ ARMBaseRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   static const unsigned DarwinCalleeSavedRegs[] = {
     // Darwin ABI deviates from ARM standard ABI. R9 is not a callee-saved
     // register.
-    ARM::LR, ARM::R11, ARM::R10, ARM::R8,
-    ARM::R7, ARM::R6,  ARM::R5,  ARM::R4,
+    ARM::LR,  ARM::R7,  ARM::R6, ARM::R5, ARM::R4,
+    ARM::R11, ARM::R10, ARM::R8,
 
     ARM::D15, ARM::D14, ARM::D13, ARM::D12,
     ARM::D11, ARM::D10, ARM::D9,  ARM::D8,
@@ -701,6 +792,7 @@ ARMBaseRegisterInfo::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
   bool LRSpilled = false;
   unsigned NumGPRSpills = 0;
   SmallVector<unsigned, 4> UnspilledCS1GPRs;
+  SmallVector<unsigned, 4> UnspilledCS2GPRs;
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   MachineFrameInfo *MFI = MF.getFrameInfo();
 
@@ -767,7 +859,23 @@ ARMBaseRegisterInfo::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
         break;
       }
     } else {
-      UnspilledCS1GPRs.push_back(Reg);
+      if (!STI.isTargetDarwin()) {
+        UnspilledCS1GPRs.push_back(Reg);
+        continue;
+      }
+
+      switch (Reg) {
+      case ARM::R4:
+      case ARM::R5:
+      case ARM::R6:
+      case ARM::R7:
+      case ARM::LR:
+        UnspilledCS1GPRs.push_back(Reg);
+        break;
+      default:
+        UnspilledCS2GPRs.push_back(Reg);
+        break;
+      }
     }
   }
 
@@ -843,6 +951,13 @@ ARMBaseRegisterInfo::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
             break;
           }
         }
+      } else if (!UnspilledCS2GPRs.empty() &&
+                 !AFI->isThumb1OnlyFunction()) {
+        unsigned Reg = UnspilledCS2GPRs.front();
+        MF.getRegInfo().setPhysRegUsed(Reg);
+        AFI->setCSRegisterIsSpilled(Reg);
+        if (!isReservedReg(MF, Reg))
+          ExtraCSSpill = true;
       }
     }
 
@@ -864,6 +979,17 @@ ARMBaseRegisterInfo::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
              Reg == ARM::LR)) {
           Extras.push_back(Reg);
           NumExtras--;
+        }
+      }
+      // For non-Thumb1 functions, also check for hi-reg CS registers
+      if (!AFI->isThumb1OnlyFunction()) {
+        while (NumExtras && !UnspilledCS2GPRs.empty()) {
+          unsigned Reg = UnspilledCS2GPRs.back();
+          UnspilledCS2GPRs.pop_back();
+          if (!isReservedReg(MF, Reg)) {
+            Extras.push_back(Reg);
+            NumExtras--;
+          }
         }
       }
       if (Extras.size() && NumExtras == 0) {
@@ -923,8 +1049,10 @@ ARMBaseRegisterInfo::ResolveFrameIndexReference(const MachineFunction &MF,
 
   FrameReg = ARM::SP;
   Offset += SPAdj;
-  if (AFI->isGPRCalleeSavedAreaFrame(FI))
-    return Offset - AFI->getGPRCalleeSavedAreaOffset();
+  if (AFI->isGPRCalleeSavedArea1Frame(FI))
+    return Offset - AFI->getGPRCalleeSavedArea1Offset();
+  else if (AFI->isGPRCalleeSavedArea2Frame(FI))
+    return Offset - AFI->getGPRCalleeSavedArea2Offset();
   else if (AFI->isDPRCalleeSavedAreaFrame(FI))
     return Offset - AFI->getDPRCalleeSavedAreaOffset();
 
@@ -1614,7 +1742,8 @@ ARMBaseRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 }
 
 /// Move iterator past the next bunch of callee save load / store ops for
-/// the particular spill area (1: integer area 1, 2: fp area, 0: don't care).
+/// the particular spill area (1: integer area 1, 2: integer area 2,
+/// 3: fp area, 0: don't care).
 static void movePastCSLoadStoreOps(MachineBasicBlock &MBB,
                                    MachineBasicBlock::iterator &MBBI,
                                    int Opc1, int Opc2, unsigned Area,
@@ -1627,13 +1756,15 @@ static void movePastCSLoadStoreOps(MachineBasicBlock &MBB,
       unsigned Category = 0;
       switch (MBBI->getOperand(0).getReg()) {
       case ARM::R4:  case ARM::R5:  case ARM::R6: case ARM::R7:
-      case ARM::R8:  case ARM::R9:  case ARM::R10: case ARM::R11:
       case ARM::LR:
         Category = 1;
         break;
+      case ARM::R8:  case ARM::R9:  case ARM::R10: case ARM::R11:
+        Category = STI.isTargetDarwin() ? 2 : 1;
+        break;
       case ARM::D8:  case ARM::D9:  case ARM::D10: case ARM::D11:
       case ARM::D12: case ARM::D13: case ARM::D14: case ARM::D15:
-        Category = 2;
+        Category = 3;
         break;
       default:
         Done = true;
@@ -1663,7 +1794,7 @@ emitPrologue(MachineFunction &MF) const {
 
   // Determine the sizes of each callee-save spill areas and record which frame
   // belongs to which callee-save spill areas.
-  unsigned GPRCSSize = 0/*, GPRCS2Size = 0*/, DPRCSSize = 0;
+  unsigned GPRCS1Size = 0, GPRCS2Size = 0, DPRCSSize = 0;
   int FramePtrSpillFI = 0;
 
   // Allocate the vararg register save area. This is not counted in NumBytes.
@@ -1684,15 +1815,25 @@ emitPrologue(MachineFunction &MF) const {
     case ARM::R5:
     case ARM::R6:
     case ARM::R7:
+    case ARM::LR:
+      if (Reg == FramePtr)
+        FramePtrSpillFI = FI;
+      AFI->addGPRCalleeSavedArea1Frame(FI);
+      GPRCS1Size += 4;
+      break;
     case ARM::R8:
     case ARM::R9:
     case ARM::R10:
     case ARM::R11:
-    case ARM::LR:
       if (Reg == FramePtr)
         FramePtrSpillFI = FI;
-      AFI->addGPRCalleeSavedAreaFrame(FI);
-      GPRCSSize += 4;
+      if (STI.isTargetDarwin()) {
+        AFI->addGPRCalleeSavedArea2Frame(FI);
+        GPRCS2Size += 4;
+      } else {
+        AFI->addGPRCalleeSavedArea1Frame(FI);
+        GPRCS1Size += 4;
+      }
       break;
     default:
       AFI->addDPRCalleeSavedAreaFrame(FI);
@@ -1700,11 +1841,15 @@ emitPrologue(MachineFunction &MF) const {
     }
   }
 
-  // Build the new SUBri to adjust SP for integer callee-save spill area.
-  emitSPUpdate(isARM, MBB, MBBI, dl, TII, -GPRCSSize);
+  // Build the new SUBri to adjust SP for integer callee-save spill area 1.
+  emitSPUpdate(isARM, MBB, MBBI, dl, TII, -GPRCS1Size);
   movePastCSLoadStoreOps(MBB, MBBI, ARM::STR, ARM::t2STRi12, 1, STI);
 
   // Set FP to point to the stack slot that contains the previous FP.
+  // For Darwin, FP is R7, which has now been stored in spill area 1.
+  // Otherwise, if this is not Darwin, all the callee-saved registers go
+  // into spill area 1, including the FP in R11.  In either case, it is
+  // now safe to emit this assignment.
   bool HasFP = hasFP(MF);
   if (HasFP) {
     unsigned ADDriOpc = !AFI->isThumbFunction() ? ARM::ADDri : ARM::t2ADDri;
@@ -1714,19 +1859,25 @@ emitPrologue(MachineFunction &MF) const {
     AddDefaultCC(AddDefaultPred(MIB));
   }
 
+  // Build the new SUBri to adjust SP for integer callee-save spill area 2.
+  emitSPUpdate(isARM, MBB, MBBI, dl, TII, -GPRCS2Size);
+
   // Build the new SUBri to adjust SP for FP callee-save spill area.
+  movePastCSLoadStoreOps(MBB, MBBI, ARM::STR, ARM::t2STRi12, 2, STI);
   emitSPUpdate(isARM, MBB, MBBI, dl, TII, -DPRCSSize);
 
   // Determine starting offsets of spill areas.
-  unsigned DPRCSOffset  = NumBytes - (GPRCSSize + DPRCSSize);
-  unsigned GPRCSOffset = DPRCSOffset + DPRCSSize;
+  unsigned DPRCSOffset  = NumBytes - (GPRCS1Size + GPRCS2Size + DPRCSSize);
+  unsigned GPRCS2Offset = DPRCSOffset + DPRCSSize;
+  unsigned GPRCS1Offset = GPRCS2Offset + GPRCS2Size;
   if (HasFP)
     AFI->setFramePtrSpillOffset(MFI->getObjectOffset(FramePtrSpillFI) +
                                 NumBytes);
-  AFI->setGPRCalleeSavedAreaOffset(GPRCSOffset);
+  AFI->setGPRCalleeSavedArea1Offset(GPRCS1Offset);
+  AFI->setGPRCalleeSavedArea2Offset(GPRCS2Offset);
   AFI->setDPRCalleeSavedAreaOffset(DPRCSOffset);
 
-  movePastCSLoadStoreOps(MBB, MBBI, ARM::VSTRD, 0, 2, STI);
+  movePastCSLoadStoreOps(MBB, MBBI, ARM::VSTRD, 0, 3, STI);
   NumBytes = DPRCSOffset;
   if (NumBytes) {
     // Adjust SP after all the callee-save spills.
@@ -1741,7 +1892,8 @@ emitPrologue(MachineFunction &MF) const {
     AFI->setShouldRestoreSPFromFP(true);
   }
 
-  AFI->setGPRCalleeSavedAreaSize(GPRCSSize);
+  AFI->setGPRCalleeSavedArea1Size(GPRCS1Size);
+  AFI->setGPRCalleeSavedArea2Size(GPRCS2Size);
   AFI->setDPRCalleeSavedAreaSize(DPRCSSize);
 
   // If we need dynamic stack realignment, do it here. Be paranoid and make
@@ -1843,7 +1995,8 @@ emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const {
     }
 
     // Move SP to start of FP callee save spill area.
-    NumBytes -= (AFI->getGPRCalleeSavedAreaSize() +
+    NumBytes -= (AFI->getGPRCalleeSavedArea1Size() +
+                 AFI->getGPRCalleeSavedArea2Size() +
                  AFI->getDPRCalleeSavedAreaSize());
 
     // Reset SP based on frame pointer only if the stack frame extends beyond
@@ -1869,13 +2022,17 @@ emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const {
     } else if (NumBytes)
       emitSPUpdate(isARM, MBB, MBBI, dl, TII, NumBytes);
 
-    // Move SP to start of integer callee save spill area.
-    movePastCSLoadStoreOps(MBB, MBBI, ARM::VLDRD, 0, 2, STI);
+    // Move SP to start of integer callee save spill area 2.
+    movePastCSLoadStoreOps(MBB, MBBI, ARM::VLDRD, 0, 3, STI);
     emitSPUpdate(isARM, MBB, MBBI, dl, TII, AFI->getDPRCalleeSavedAreaSize());
+
+    // Move SP to start of integer callee save spill area 1.
+    movePastCSLoadStoreOps(MBB, MBBI, ARM::LDR, ARM::t2LDRi12, 2, STI);
+    emitSPUpdate(isARM, MBB, MBBI, dl, TII, AFI->getGPRCalleeSavedArea2Size());
 
     // Move SP to SP upon entry to the function.
     movePastCSLoadStoreOps(MBB, MBBI, ARM::LDR, ARM::t2LDRi12, 1, STI);
-    emitSPUpdate(isARM, MBB, MBBI, dl, TII, AFI->getGPRCalleeSavedAreaSize());
+    emitSPUpdate(isARM, MBB, MBBI, dl, TII, AFI->getGPRCalleeSavedArea1Size());
   }
 
   if (RetOpcode == ARM::TCRETURNdi || RetOpcode == ARM::TCRETURNdiND ||

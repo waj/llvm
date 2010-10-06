@@ -91,6 +91,12 @@ public:
   }
 };
 
+template<void (*CleanupFn)(void*)>
+class ManagedCleanup : public ManagedStaticBase {
+public:
+  void Register() { RegisterManagedStatic(0, CleanupFn); }
+};
+
 /// llvm_shutdown - Deallocate and destroy all ManagedStatic variables.
 void llvm_shutdown();
 

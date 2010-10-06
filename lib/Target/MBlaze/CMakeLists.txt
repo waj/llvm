@@ -24,3 +24,5 @@ add_llvm_target(MBlazeCodeGen
   MBlazeIntrinsicInfo.cpp
   MBlazeSelectionDAGInfo.cpp
   )
+
+target_link_libraries (LLVMMBlazeCodeGen LLVMSelectionDAG)

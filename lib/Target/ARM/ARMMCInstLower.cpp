@@ -12,72 +12,52 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "ARM.h"
 #include "ARMMCInstLower.h"
+//#include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/Constants.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+//#include "llvm/MC/MCStreamer.h"
 #include "llvm/Target/Mangler.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/SmallString.h"
 using namespace llvm;
 
-MCSymbol *ARMMCInstLower::GetGlobalAddressSymbol(const GlobalValue *GV) const {
-  return Printer.Mang->getSymbol(GV);
+
+#if 0
+const ARMSubtarget &ARMMCInstLower::getSubtarget() const {
+  return AsmPrinter.getSubtarget();
 }
 
-const MCSymbolRefExpr *ARMMCInstLower::
-GetSymbolRef(const MachineOperand &MO) const {
-  assert(MO.isGlobal() && "Isn't a global address reference?");
+MachineModuleInfoMachO &ARMMCInstLower::getMachOMMI() const {
+  assert(getSubtarget().isTargetDarwin() &&"Can only get MachO info on darwin");
+  return AsmPrinter.MMI->getObjFileInfo<MachineModuleInfoMachO>(); 
+}
+#endif
 
-  const MCSymbolRefExpr *SymRef;
-  const MCSymbol *Symbol = GetGlobalAddressSymbol(MO.getGlobal());
-
+MCSymbol *ARMMCInstLower::
+GetGlobalAddressSymbol(const MachineOperand &MO) const {
+  // FIXME: HANDLE PLT references how??
   switch (MO.getTargetFlags()) {
   default: assert(0 && "Unknown target flag on GV operand");
-  case 0:
-    SymRef = MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_None, Ctx);
-    break;
-  case ARMII::MO_LO16:
-    SymRef = MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_ARM_LO16, Ctx);
-    break;
-  case ARMII::MO_HI16:
-    SymRef = MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_ARM_HI16, Ctx);
-    break;
-  case ARMII::MO_PLT:
-    SymRef = MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_ARM_PLT, Ctx);
-    break;
+  case 0: break;
   }
-
-  return SymRef;
+  
+  return Printer.Mang->getSymbol(MO.getGlobal());
 }
 
-const MCSymbolRefExpr *ARMMCInstLower::
+MCSymbol *ARMMCInstLower::
 GetExternalSymbolSymbol(const MachineOperand &MO) const {
-  const MCSymbolRefExpr *SymRef;
-  const MCSymbol *Symbol = Printer.GetExternalSymbolSymbol(MO.getSymbolName());
-
+  // FIXME: HANDLE PLT references how??
   switch (MO.getTargetFlags()) {
-  default: assert(0 && "Unknown target flag on external symbol operand");
-  case 0:
-    SymRef = MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_None, Ctx);
-    break;
-  case ARMII::MO_LO16:
-    SymRef = MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_ARM_LO16, Ctx);
-    break;
-  case ARMII::MO_HI16:
-    SymRef = MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_ARM_HI16, Ctx);
-    break;
-  case ARMII::MO_PLT:
-    SymRef = MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_ARM_PLT, Ctx);
-    break;
+  default: assert(0 && "Unknown target flag on GV operand");
+  case 0: break;
   }
-
-  return SymRef;
+  
+  return Printer.GetExternalSymbolSymbol(MO.getSymbolName());
 }
 
 
@@ -87,12 +67,13 @@ GetJumpTableSymbol(const MachineOperand &MO) const {
   SmallString<256> Name;
   raw_svector_ostream(Name) << Printer.MAI->getPrivateGlobalPrefix() << "JTI"
     << Printer.getFunctionNumber() << '_' << MO.getIndex();
-
+  
+#if 0
   switch (MO.getTargetFlags()) {
-  default: assert(0 && "Unknown target flag on jump table operand");
-  case 0: break;
+    default: llvm_unreachable("Unknown target flag on GV operand");
   }
-
+#endif
+  
   // Create a symbol for the name.
   return Ctx.GetOrCreateSymbol(Name.str());
 }
@@ -102,38 +83,29 @@ GetConstantPoolIndexSymbol(const MachineOperand &MO) const {
   SmallString<256> Name;
   raw_svector_ostream(Name) << Printer.MAI->getPrivateGlobalPrefix() << "CPI"
     << Printer.getFunctionNumber() << '_' << MO.getIndex();
-
+  
+#if 0
   switch (MO.getTargetFlags()) {
-  default: assert(0 && "Unknown target flag on CPI operand");
-  case 0: break;
+  default: llvm_unreachable("Unknown target flag on GV operand");
   }
-
+#endif
+  
   // Create a symbol for the name.
   return Ctx.GetOrCreateSymbol(Name.str());
 }
-
+  
 MCOperand ARMMCInstLower::
 LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const {
   // FIXME: We would like an efficient form for this, so we don't have to do a
   // lot of extra uniquing.
   const MCExpr *Expr = MCSymbolRefExpr::Create(Sym, Ctx);
-
+  
+#if 0
   switch (MO.getTargetFlags()) {
-  default: assert(0 && "Unknown target flag on Symbol operand");
-  case 0: break;
+  default: llvm_unreachable("Unknown target flag on GV operand");
   }
-
-  if (!MO.isJTI() && MO.getOffset())
-    Expr = MCBinaryExpr::CreateAdd(Expr,
-                                   MCConstantExpr::Create(MO.getOffset(), Ctx),
-                                   Ctx);
-  return MCOperand::CreateExpr(Expr);
-}
-
-MCOperand ARMMCInstLower::
-LowerSymbolRefOperand(const MachineOperand &MO,
-                      const MCSymbolRefExpr *Sym) const {
-  const MCExpr *Expr = Sym;
+#endif
+  
   if (!MO.isJTI() && MO.getOffset())
     Expr = MCBinaryExpr::CreateAdd(Expr,
                                    MCConstantExpr::Create(MO.getOffset(), Ctx),
@@ -144,18 +116,18 @@ LowerSymbolRefOperand(const MachineOperand &MO,
 
 void ARMMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   OutMI.setOpcode(MI->getOpcode());
-
+  
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
     const MachineOperand &MO = MI->getOperand(i);
-
+    
     MCOperand MCOp;
     switch (MO.getType()) {
     default:
       MI->dump();
       assert(0 && "unknown operand type");
     case MachineOperand::MO_Register:
-      // Ignore all non-CPSR implicit register operands.
-      if (MO.isImplicit() && MO.getReg() != ARM::CPSR) continue;
+      // Ignore all implicit register operands.
+      if (MO.isImplicit()) continue;
       assert(!MO.getSubReg() && "Subregs should be eliminated!");
       MCOp = MCOperand::CreateReg(MO.getReg());
       break;
@@ -167,10 +139,10 @@ void ARMMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
                        MO.getMBB()->getSymbol(), Ctx));
       break;
     case MachineOperand::MO_GlobalAddress:
-      MCOp = LowerSymbolRefOperand(MO, GetSymbolRef(MO));
+      MCOp = LowerSymbolOperand(MO, GetGlobalAddressSymbol(MO));
       break;
     case MachineOperand::MO_ExternalSymbol:
-      MCOp = LowerSymbolRefOperand(MO, GetExternalSymbolSymbol(MO));
+      MCOp = LowerSymbolOperand(MO, GetExternalSymbolSymbol(MO));
       break;
     case MachineOperand::MO_JumpTableIndex:
       MCOp = LowerSymbolOperand(MO, GetJumpTableSymbol(MO));
@@ -182,15 +154,9 @@ void ARMMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
       MCOp = LowerSymbolOperand(MO, Printer.GetBlockAddressSymbol(
                                               MO.getBlockAddress()));
       break;
-    case MachineOperand::MO_FPImmediate:
-      APFloat Val = MO.getFPImm()->getValueAPF();
-      bool ignored;
-      Val.convert(APFloat::IEEEdouble, APFloat::rmTowardZero, &ignored);
-      MCOp = MCOperand::CreateFPImm(Val.convertToDouble());
-      break;
     }
-
+    
     OutMI.addOperand(MCOp);
   }
-
+  
 }

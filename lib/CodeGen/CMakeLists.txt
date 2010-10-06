@@ -82,3 +82,5 @@ add_llvm_library(LLVMCodeGen
   VirtRegMap.cpp
   VirtRegRewriter.cpp
   )
+
+target_link_libraries (LLVMCodeGen LLVMCore LLVMScalarOpts)

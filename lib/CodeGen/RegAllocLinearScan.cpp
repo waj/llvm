@@ -431,7 +431,8 @@ unsigned RALinScan::attemptTrivialCoalescing(LiveInterval &cur, unsigned Reg) {
   unsigned CandReg;
   {
     MachineInstr *CopyMI;
-    if ((CopyMI = li_->getInstructionFromIndex(vni->def)) && CopyMI->isCopy())
+    if (vni->def != SlotIndex() && vni->isDefAccurate() &&
+        (CopyMI = li_->getInstructionFromIndex(vni->def)) && CopyMI->isCopy())
       // Defined by a copy, try to extend SrcReg forward
       CandReg = CopyMI->getOperand(1).getReg();
     else if (TrivCoalesceEnds &&
@@ -799,7 +800,7 @@ static void addStackInterval(LiveInterval *cur, LiveStacks *ls_,
   if (SI.hasAtLeastOneValue())
     VNI = SI.getValNumInfo(0);
   else
-    VNI = SI.getNextValue(SlotIndex(), 0,
+    VNI = SI.getNextValue(SlotIndex(), 0, false,
                           ls_->getVNInfoAllocator());
 
   LiveInterval &RI = li_->getInterval(cur->reg);
@@ -983,7 +984,8 @@ void RALinScan::assignRegOrStackSlotAtInterval(LiveInterval* cur) {
   // one, e.g. X86::mov32to32_. These move instructions are not coalescable.
   if (!vrm_->getRegAllocPref(cur->reg) && cur->hasAtLeastOneValue()) {
     VNInfo *vni = cur->begin()->valno;
-    if (!vni->isUnused()) {
+    if ((vni->def != SlotIndex()) && !vni->isUnused() &&
+         vni->isDefAccurate()) {
       MachineInstr *CopyMI = li_->getInstructionFromIndex(vni->def);
       if (CopyMI && CopyMI->isCopy()) {
         unsigned DstSubReg = CopyMI->getOperand(0).getSubReg();

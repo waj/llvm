@@ -608,7 +608,7 @@ DeleteTriviallyDeadInstructions(SmallVectorImpl<WeakVH> &DeadInsts) {
   bool Changed = false;
 
   while (!DeadInsts.empty()) {
-    Instruction *I = dyn_cast_or_null<Instruction>(&*DeadInsts.pop_back_val());
+    Instruction *I = dyn_cast_or_null<Instruction>(DeadInsts.pop_back_val());
 
     if (I == 0 || !isInstructionTriviallyDead(I))
       continue;
@@ -644,6 +644,8 @@ public:
   Cost()
     : NumRegs(0), AddRecCost(0), NumIVMuls(0), NumBaseAdds(0), ImmCost(0),
       SetupCost(0) {}
+
+  unsigned getNumRegs() const { return NumRegs; }
 
   bool operator<(const Cost &Other) const;
 

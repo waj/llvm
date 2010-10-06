@@ -31,7 +31,6 @@
 #include "llvm/Transforms/Utils/BuildLibCalls.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/Statistic.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/CommandLine.h"
@@ -43,12 +42,10 @@
 using namespace llvm;
 using namespace llvm::PatternMatch;
 
-STATISTIC(NumElim,  "Number of blocks eliminated");
-
 static cl::opt<bool>
 CriticalEdgeSplit("cgp-critical-edge-splitting",
                   cl::desc("Split critical edges during codegen prepare"),
-                  cl::init(false), cl::Hidden);
+                  cl::init(true), cl::Hidden);
 
 namespace {
   class CodeGenPrepare : public FunctionPass {
@@ -305,7 +302,6 @@ void CodeGenPrepare::EliminateMostlyEmptyBlock(BasicBlock *BB) {
     PFI->removeEdge(ProfileInfo::getEdge(BB, DestBB));
   }
   BB->eraseFromParent();
-  ++NumElim;
 
   DEBUG(dbgs() << "AFTER:\n" << *DestBB << "\n\n\n");
 }
@@ -740,21 +736,43 @@ bool CodeGenPrepare::OptimizeMemoryInst(Instruction *MemoryInst, Value *Addr,
 bool CodeGenPrepare::OptimizeInlineAsmInst(Instruction *I, CallSite CS,
                                            DenseMap<Value*,Value*> &SunkAddrs) {
   bool MadeChange = false;
+  InlineAsm *IA = cast<InlineAsm>(CS.getCalledValue());
 
-  std::vector<TargetLowering::AsmOperandInfo> TargetConstraints = TLI->ParseConstraints(CS);
-  unsigned ArgNo = 0;
-  for (unsigned i = 0, e = TargetConstraints.size(); i != e; ++i) {
-    TargetLowering::AsmOperandInfo &OpInfo = TargetConstraints[i];
-    
+  // Do a prepass over the constraints, canonicalizing them, and building up the
+  // ConstraintOperands list.
+  std::vector<InlineAsm::ConstraintInfo>
+    ConstraintInfos = IA->ParseConstraints();
+
+  /// ConstraintOperands - Information about all of the constraints.
+  std::vector<TargetLowering::AsmOperandInfo> ConstraintOperands;
+  unsigned ArgNo = 0;   // ArgNo - The argument of the CallInst.
+  for (unsigned i = 0, e = ConstraintInfos.size(); i != e; ++i) {
+    ConstraintOperands.
+      push_back(TargetLowering::AsmOperandInfo(ConstraintInfos[i]));
+    TargetLowering::AsmOperandInfo &OpInfo = ConstraintOperands.back();
+
+    // Compute the value type for each operand.
+    switch (OpInfo.Type) {
+    case InlineAsm::isOutput:
+      if (OpInfo.isIndirect)
+        OpInfo.CallOperandVal = CS.getArgument(ArgNo++);
+      break;
+    case InlineAsm::isInput:
+      OpInfo.CallOperandVal = CS.getArgument(ArgNo++);
+      break;
+    case InlineAsm::isClobber:
+      // Nothing to do.
+      break;
+    }
+
     // Compute the constraint code and ConstraintType to use.
     TLI->ComputeConstraintToUse(OpInfo, SDValue());
 
     if (OpInfo.ConstraintType == TargetLowering::C_Memory &&
         OpInfo.isIndirect) {
-      Value *OpVal = const_cast<Value *>(CS.getArgument(ArgNo++));
+      Value *OpVal = OpInfo.CallOperandVal;
       MadeChange |= OptimizeMemoryInst(I, OpVal, OpVal->getType(), SunkAddrs);
-    } else if (OpInfo.Type == InlineAsm::isInput)
-      ArgNo++;
+    }
   }
 
   return MadeChange;
@@ -776,9 +794,7 @@ bool CodeGenPrepare::MoveExtToFormExtLoad(Instruction *I) {
   // If the load has other users and the truncate is not free, this probably
   // isn't worthwhile.
   if (!LI->hasOneUse() &&
-      TLI && (TLI->isTypeLegal(TLI->getValueType(LI->getType())) ||
-              !TLI->isTypeLegal(TLI->getValueType(I->getType()))) &&
-      !TLI->isTruncateFree(I->getType(), LI->getType()))
+      TLI && !TLI->isTruncateFree(I->getType(), LI->getType()))
     return false;
 
   // Check whether the target supports casts folded into loads.
@@ -802,7 +818,7 @@ bool CodeGenPrepare::MoveExtToFormExtLoad(Instruction *I) {
 bool CodeGenPrepare::OptimizeExtUses(Instruction *I) {
   BasicBlock *DefBB = I->getParent();
 
-  // If the result of a {s|z}ext and its source are both live out, rewrite all
+  // If both result of the {s|z}xt and its source are live out, rewrite all
   // other uses of the source with result of extension.
   Value *Src = I->getOperand(0);
   if (Src->hasOneUse())

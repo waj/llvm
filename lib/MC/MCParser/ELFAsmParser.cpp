@@ -48,11 +48,11 @@ public:
     AddDirectiveHandler<&ELFAsmParser::ParseSectionDirectiveEhFrame>(".eh_frame");
     AddDirectiveHandler<&ELFAsmParser::ParseDirectiveSection>(".section");
     AddDirectiveHandler<&ELFAsmParser::ParseDirectiveSize>(".size");
+    AddDirectiveHandler<&ELFAsmParser::ParseDirectiveLEB128>(".sleb128");
+    AddDirectiveHandler<&ELFAsmParser::ParseDirectiveLEB128>(".uleb128");
     AddDirectiveHandler<&ELFAsmParser::ParseDirectivePrevious>(".previous");
   }
 
-  // FIXME: Part of this logic is duplicated in the MCELFStreamer. What is
-  // the best way for us to get access to it?
   bool ParseSectionDirectiveData(StringRef, SMLoc) {
     return ParseSectionSwitch(".data", MCSectionELF::SHT_PROGBITS,
                               MCSectionELF::SHF_WRITE |MCSectionELF::SHF_ALLOC,
@@ -109,12 +109,10 @@ public:
                               MCSectionELF::SHF_WRITE,
                               SectionKind::getDataRel());
   }
+  bool ParseDirectiveLEB128(StringRef, SMLoc);
   bool ParseDirectiveSection(StringRef, SMLoc);
   bool ParseDirectiveSize(StringRef, SMLoc);
   bool ParseDirectivePrevious(StringRef, SMLoc);
-
-private:
-  bool ParseSectionName(StringRef &SectionName);
 };
 
 }
@@ -152,43 +150,11 @@ bool ELFAsmParser::ParseDirectiveSize(StringRef, SMLoc) {
   return false;
 }
 
-bool ELFAsmParser::ParseSectionName(StringRef &SectionName) {
-  // A section name can contain -, so we cannot just use
-  // ParseIdentifier.
-  SMLoc FirstLoc = getLexer().getLoc();
-  unsigned Size = 0;
-
-  for (;;) {
-    StringRef Tmp;
-    unsigned CurSize;
-
-    SMLoc PrevLoc = getLexer().getLoc();
-    if (getLexer().is(AsmToken::Minus)) {
-      CurSize = 1;
-      Lex(); // Consume the "-".
-    } else if (!getParser().ParseIdentifier(Tmp))
-      CurSize = Tmp.size();
-    else
-      break;
-
-    Size += CurSize;
-    SectionName = StringRef(FirstLoc.getPointer(), Size);
-
-    // Make sure the following token is adjacent.
-    if (PrevLoc.getPointer() + CurSize != getTok().getLoc().getPointer())
-      break;
-  }
-  if (Size == 0)
-    return true;
-
-  return false;
-}
-
 // FIXME: This is a work in progress.
 bool ELFAsmParser::ParseDirectiveSection(StringRef, SMLoc) {
   StringRef SectionName;
-
-  if (ParseSectionName(SectionName))
+  // FIXME: This doesn't parse section names like ".note.GNU-stack" correctly.
+  if (getParser().ParseIdentifier(SectionName))
     return TokError("expected identifier in directive");
 
   std::string FlagsStr;
@@ -284,9 +250,28 @@ bool ELFAsmParser::ParseDirectiveSection(StringRef, SMLoc) {
                      ? SectionKind::getText()
                      : SectionKind::getDataRel();
   getStreamer().SwitchSection(getContext().getELFSection(SectionName, Type,
-                                                         Flags, Kind, false,
-                                                         Size));
+                                                         Flags, Kind, false));
   return false;
+}
+
+bool ELFAsmParser::ParseDirectiveLEB128(StringRef DirName, SMLoc) {
+  int64_t Value;
+  if (getParser().ParseAbsoluteExpression(Value))
+    return true;
+
+  if (getLexer().isNot(AsmToken::EndOfStatement))
+    return TokError("unexpected token in directive");
+
+  // FIXME: Add proper MC support.
+  if (getContext().getAsmInfo().hasLEB128()) {
+    if (DirName[1] == 's')
+      getStreamer().EmitRawText("\t.sleb128\t" + Twine(Value));
+    else
+      getStreamer().EmitRawText("\t.uleb128\t" + Twine(Value));
+    return false;
+  }
+  // FIXME: This shouldn't be an error!
+  return TokError("LEB128 not supported yet");
 }
 
 bool ELFAsmParser::ParseDirectivePrevious(StringRef DirName, SMLoc) {

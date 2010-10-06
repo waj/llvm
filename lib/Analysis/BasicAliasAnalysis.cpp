@@ -22,7 +22,6 @@
 #include "llvm/GlobalVariable.h"
 #include "llvm/Instructions.h"
 #include "llvm/IntrinsicInst.h"
-#include "llvm/LLVMContext.h"
 #include "llvm/Operator.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/CaptureTracking.h"
@@ -150,7 +149,8 @@ namespace {
       TD = getAnalysisIfAvailable<TargetData>();
     }
 
-    virtual AliasResult alias(const Location &LocA, const Location &LocB) {
+    virtual AliasResult alias(const Value *V1, unsigned V1Size,
+                              const Value *V2, unsigned V2Size) {
       return MayAlias;
     }
 
@@ -161,9 +161,9 @@ namespace {
       return UnknownModRefBehavior;
     }
 
-    virtual bool pointsToConstantMemory(const Location &Loc) { return false; }
+    virtual bool pointsToConstantMemory(const Value *P) { return false; }
     virtual ModRefResult getModRefInfo(ImmutableCallSite CS,
-                                       const Location &Loc) {
+                                       const Value *P, unsigned Size) {
       return ModRef;
     }
     virtual ModRefResult getModRefInfo(ImmutableCallSite CS1,
@@ -386,8 +386,8 @@ DecomposeGEPExpression(const Value *V, int64_t &BaseOffs,
       
       // The GEP index scale ("Scale") scales C1*V+C2, yielding (C1*V+C2)*Scale.
       // This gives us an aggregate computation of (C1*Scale)*V + C2*Scale.
-      BaseOffs += IndexOffset.getSExtValue()*Scale;
-      Scale *= IndexScale.getSExtValue();
+      BaseOffs += IndexOffset.getZExtValue()*Scale;
+      Scale *= IndexScale.getZExtValue();
       
       
       // If we already had an occurrance of this index variable, merge this
@@ -407,7 +407,7 @@ DecomposeGEPExpression(const Value *V, int64_t &BaseOffs,
       // pointer size.
       if (unsigned ShiftBits = 64-TD->getPointerSizeInBits()) {
         Scale <<= ShiftBits;
-        Scale = (int64_t)Scale >> ShiftBits;
+        Scale >>= ShiftBits;
       }
       
       if (Scale) {
@@ -492,18 +492,18 @@ namespace {
     static char ID; // Class identification, replacement for typeinfo
     BasicAliasAnalysis() : NoAA(ID) {}
 
-    virtual AliasResult alias(const Location &LocA,
-                              const Location &LocB) {
+    virtual AliasResult alias(const Value *V1, unsigned V1Size,
+                              const Value *V2, unsigned V2Size) {
       assert(Visited.empty() && "Visited must be cleared after use!");
-      assert(notDifferentParent(LocA.Ptr, LocB.Ptr) &&
+      assert(notDifferentParent(V1, V2) &&
              "BasicAliasAnalysis doesn't support interprocedural queries.");
-      AliasResult Alias = aliasCheck(LocA.Ptr, LocA.Size, LocB.Ptr, LocB.Size);
+      AliasResult Alias = aliasCheck(V1, V1Size, V2, V2Size);
       Visited.clear();
       return Alias;
     }
 
     virtual ModRefResult getModRefInfo(ImmutableCallSite CS,
-                                       const Location &Loc);
+                                       const Value *P, unsigned Size);
 
     virtual ModRefResult getModRefInfo(ImmutableCallSite CS1,
                                        ImmutableCallSite CS2) {
@@ -513,7 +513,7 @@ namespace {
 
     /// pointsToConstantMemory - Chase pointers until we find a (constant
     /// global) or not.
-    virtual bool pointsToConstantMemory(const Location &Loc);
+    virtual bool pointsToConstantMemory(const Value *P);
 
     /// getModRefBehavior - Return the behavior when calling the given
     /// call site.
@@ -570,15 +570,15 @@ ImmutablePass *llvm::createBasicAliasAnalysisPass() {
 
 /// pointsToConstantMemory - Chase pointers until we find a (constant
 /// global) or not.
-bool BasicAliasAnalysis::pointsToConstantMemory(const Location &Loc) {
+bool BasicAliasAnalysis::pointsToConstantMemory(const Value *P) {
   if (const GlobalVariable *GV = 
-        dyn_cast<GlobalVariable>(Loc.Ptr->getUnderlyingObject()))
+        dyn_cast<GlobalVariable>(P->getUnderlyingObject()))
     // Note: this doesn't require GV to be "ODR" because it isn't legal for a
     // global to be marked constant in some modules and non-constant in others.
     // GV may even be a declaration, not a definition.
     return GV->isConstant();
 
-  return NoAA::pointsToConstantMemory(Loc);
+  return NoAA::pointsToConstantMemory(P);
 }
 
 /// getModRefBehavior - Return the behavior when calling the given call site.
@@ -620,13 +620,13 @@ BasicAliasAnalysis::getModRefBehavior(const Function *F) {
 /// simple "address taken" analysis on local objects.
 AliasAnalysis::ModRefResult
 BasicAliasAnalysis::getModRefInfo(ImmutableCallSite CS,
-                                  const Location &Loc) {
-  assert(notDifferentParent(CS.getInstruction(), Loc.Ptr) &&
+                                  const Value *P, unsigned Size) {
+  assert(notDifferentParent(CS.getInstruction(), P) &&
          "AliasAnalysis query involving multiple functions!");
 
-  const Value *Object = Loc.Ptr->getUnderlyingObject();
+  const Value *Object = P->getUnderlyingObject();
   
-  // If this is a tail call and Loc.Ptr points to a stack location, we know that
+  // If this is a tail call and P points to a stack location, we know that
   // the tail call cannot access or modify the local stack.
   // We cannot exclude byval arguments here; these belong to the caller of
   // the current function not to the current function, and a tail callee
@@ -650,11 +650,11 @@ BasicAliasAnalysis::getModRefInfo(ImmutableCallSite CS,
           !CS.paramHasAttr(ArgNo+1, Attribute::NoCapture))
         continue;
       
-      // If this is a no-capture pointer argument, see if we can tell that it
+      // If  this is a no-capture pointer argument, see if we can tell that it
       // is impossible to alias the pointer we're checking.  If not, we have to
       // assume that the call could touch the pointer, even though it doesn't
       // escape.
-      if (!isNoAlias(Location(cast<Value>(CI)), Loc)) {
+      if (!isNoAlias(cast<Value>(CI), UnknownSize, P, UnknownSize)) {
         PassedAsArg = true;
         break;
       }
@@ -676,8 +676,8 @@ BasicAliasAnalysis::getModRefInfo(ImmutableCallSite CS,
         Len = LenCI->getZExtValue();
       Value *Dest = II->getArgOperand(0);
       Value *Src = II->getArgOperand(1);
-      if (isNoAlias(Location(Dest, Len), Loc)) {
-        if (isNoAlias(Location(Src, Len), Loc))
+      if (isNoAlias(Dest, Len, P, Size)) {
+        if (isNoAlias(Src, Len, P, Size))
           return NoModRef;
         return Ref;
       }
@@ -689,7 +689,7 @@ BasicAliasAnalysis::getModRefInfo(ImmutableCallSite CS,
       if (ConstantInt *LenCI = dyn_cast<ConstantInt>(II->getArgOperand(2))) {
         unsigned Len = LenCI->getZExtValue();
         Value *Dest = II->getArgOperand(0);
-        if (isNoAlias(Location(Dest, Len), Loc))
+        if (isNoAlias(Dest, Len, P, Size))
           return NoModRef;
       }
       break;
@@ -708,8 +708,7 @@ BasicAliasAnalysis::getModRefInfo(ImmutableCallSite CS,
       if (TD) {
         Value *Op1 = II->getArgOperand(0);
         unsigned Op1Size = TD->getTypeStoreSize(Op1->getType());
-        MDNode *Tag = II->getMetadata(LLVMContext::MD_tbaa);
-        if (isNoAlias(Location(Op1, Op1Size, Tag), Loc))
+        if (isNoAlias(Op1, Op1Size, P, Size))
           return NoModRef;
       }
       break;
@@ -718,28 +717,23 @@ BasicAliasAnalysis::getModRefInfo(ImmutableCallSite CS,
     case Intrinsic::invariant_start: {
       unsigned PtrSize =
         cast<ConstantInt>(II->getArgOperand(0))->getZExtValue();
-      if (isNoAlias(Location(II->getArgOperand(1),
-                             PtrSize,
-                             II->getMetadata(LLVMContext::MD_tbaa)),
-                    Loc))
+      if (isNoAlias(II->getArgOperand(1), PtrSize, P, Size))
         return NoModRef;
       break;
     }
     case Intrinsic::invariant_end: {
       unsigned PtrSize =
         cast<ConstantInt>(II->getArgOperand(1))->getZExtValue();
-      if (isNoAlias(Location(II->getArgOperand(2),
-                             PtrSize,
-                             II->getMetadata(LLVMContext::MD_tbaa)),
-                    Loc))
+      if (isNoAlias(II->getArgOperand(2), PtrSize, P, Size))
         return NoModRef;
       break;
     }
     }
 
   // The AliasAnalysis base class has some smarts, lets use them.
-  return AliasAnalysis::getModRefInfo(CS, Loc);
+  return AliasAnalysis::getModRefInfo(CS, P, Size);
 }
+
 
 /// aliasGEP - Provide a bunch of ad-hoc rules to disambiguate a GEP instruction
 /// against another pointer.  We know that V1 is a GEP, but we don't know
@@ -1082,7 +1076,7 @@ BasicAliasAnalysis::aliasCheck(const Value *V1, unsigned V1Size,
   if (const SelectInst *S1 = dyn_cast<SelectInst>(V1))
     return aliasSelect(S1, V1Size, V2, V2Size);
 
-  return NoAA::alias(Location(V1, V1Size), Location(V2, V2Size));
+  return NoAA::alias(V1, V1Size, V2, V2Size);
 }
 
 // Make sure that anything that uses AliasAnalysis pulls in this file.

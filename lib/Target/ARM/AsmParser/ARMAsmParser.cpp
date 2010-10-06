@@ -80,26 +80,26 @@ private:
 
   bool ParseDirectiveSyntax(SMLoc L);
 
-  bool MatchAndEmitInstruction(SMLoc IDLoc,
-                               SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                               MCStreamer &Out) {
-    MCInst Inst;
-    unsigned ErrorInfo;
-    if (MatchInstructionImpl(Operands, Inst, ErrorInfo) == Match_Success) {
-      Out.EmitInstruction(Inst);
+  bool MatchInstruction(SMLoc IDLoc,
+                        const SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+                        MCInst &Inst) {
+    if (!MatchInstructionImpl(Operands, Inst))
       return false;
-    }
 
     // FIXME: We should give nicer diagnostics about the exact failure.
     Error(IDLoc, "unrecognized instruction");
+
     return true;
   }
 
   /// @name Auto-generated Match Functions
   /// {
 
-#define GET_ASSEMBLER_HEADER
-#include "ARMGenAsmMatcher.inc"
+  unsigned ComputeAvailableFeatures(const ARMSubtarget *Subtarget) const;
+
+  bool MatchInstructionImpl(const SmallVectorImpl<MCParsedAsmOperand*>
+                              &Operands,
+                            MCInst &Inst);
 
   /// }
 
@@ -728,29 +728,17 @@ bool ARMAsmParser::ParseInstruction(StringRef Name, SMLoc NameLoc,
   if (getLexer().isNot(AsmToken::EndOfStatement)) {
     // Read the first operand.
     OwningPtr<ARMOperand> Op;
-    if (ParseOperand(Op)) {
-      Parser.EatToEndOfStatement();
-      return true;
-    }
+    if (ParseOperand(Op)) return true;
     Operands.push_back(Op.take());
 
     while (getLexer().is(AsmToken::Comma)) {
       Parser.Lex();  // Eat the comma.
 
       // Parse and remember the operand.
-      if (ParseOperand(Op)) {
-        Parser.EatToEndOfStatement();
-        return true;
-      }
+      if (ParseOperand(Op)) return true;
       Operands.push_back(Op.take());
     }
   }
-  
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    Parser.EatToEndOfStatement();
-    return TokError("unexpected token in argument list");
-  }
-  Parser.Lex(); // Consume the EndOfStatement
   return false;
 }
 
@@ -881,6 +869,4 @@ extern "C" void LLVMInitializeARMAsmParser() {
   LLVMInitializeARMAsmLexer();
 }
 
-#define GET_REGISTER_MATCHER
-#define GET_MATCHER_IMPLEMENTATION
 #include "ARMGenAsmMatcher.inc"

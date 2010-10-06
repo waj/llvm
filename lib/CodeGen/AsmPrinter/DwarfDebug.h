@@ -23,7 +23,6 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/UniqueVector.h"
 #include "llvm/Support/Allocator.h"
-#include "llvm/Support/DebugLoc.h"
 
 namespace llvm {
 
@@ -422,7 +421,7 @@ private:
   DIE *createMemberDIE(DIDerivedType DT);
 
   /// createSubprogramDIE - Create new DIE using SP.
-  DIE *createSubprogramDIE(DISubprogram SP);
+  DIE *createSubprogramDIE(DISubprogram SP, bool MakeDecl = false);
 
   /// getOrCreateDbgScope - Create DbgScope for the scope.
   DbgScope *getOrCreateDbgScope(const MDNode *Scope, const MDNode *InlinedAt);

@@ -48,18 +48,15 @@ INITIALIZE_PASS(LoopInfo, "loops", "Natural Loop Information", true, true);
 ///
 bool Loop::isLoopInvariant(Value *V) const {
   if (Instruction *I = dyn_cast<Instruction>(V))
-    return !contains(I);
+    return isLoopInvariant(I);
   return true;  // All non-instructions are loop invariant
 }
 
-/// hasLoopInvariantOperands - Return true if all the operands of the
-/// specified instruction are loop invariant. 
-bool Loop::hasLoopInvariantOperands(Instruction *I) const {
-  for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
-    if (!isLoopInvariant(I->getOperand(i)))
-      return false;
-  
-  return true;
+/// isLoopInvariant - Return true if the specified instruction is
+/// loop-invariant.
+///
+bool Loop::isLoopInvariant(Instruction *I) const {
+  return !contains(I);
 }
 
 /// makeLoopInvariant - If the given value is an instruciton inside of the
@@ -108,7 +105,6 @@ bool Loop::makeLoopInvariant(Instruction *I, bool &Changed,
   for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
     if (!makeLoopInvariant(I->getOperand(i), Changed, InsertPt))
       return false;
-  
   // Hoist.
   I->moveBefore(InsertPt);
   Changed = true;

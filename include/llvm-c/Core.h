@@ -204,8 +204,7 @@ typedef enum {
   LLVMPointerTypeKind,     /**< Pointers */
   LLVMOpaqueTypeKind,      /**< Opaque: type with unknown structure */
   LLVMVectorTypeKind,      /**< SIMD 'packed' format, or other vector type */
-  LLVMMetadataTypeKind,    /**< Metadata */
-  LLVMX86_MMXTypeKind      /**< X86 MMX */
+  LLVMMetadataTypeKind     /**< Metadata */
 } LLVMTypeKind;
 
 typedef enum {
@@ -409,12 +408,10 @@ unsigned LLVMGetVectorSize(LLVMTypeRef VectorTy);
 LLVMTypeRef LLVMVoidTypeInContext(LLVMContextRef C);
 LLVMTypeRef LLVMLabelTypeInContext(LLVMContextRef C);
 LLVMTypeRef LLVMOpaqueTypeInContext(LLVMContextRef C);
-LLVMTypeRef LLVMX86MMXTypeInContext(LLVMContextRef C);
 
 LLVMTypeRef LLVMVoidType(void);
 LLVMTypeRef LLVMLabelType(void);
 LLVMTypeRef LLVMOpaqueType(void);
-LLVMTypeRef LLVMX86MMXType(void);
 
 /* Operations on type handles */
 LLVMTypeHandleRef LLVMCreateTypeHandle(LLVMTypeRef PotentiallyAbstractTy);

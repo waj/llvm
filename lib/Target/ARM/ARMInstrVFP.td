@@ -354,7 +354,7 @@ def VMOVSRR : AVConv5I<0b11000100, 0b1010,
 
 // FMSRR: GPR -> SPR
 
-// FMXR: GPR -> VFP system reg
+// FMXR: GPR -> VFP Sstem reg
 
 
 // Int to FP:

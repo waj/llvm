@@ -37,8 +37,9 @@ define %vec @test_mul(%vec %param)
 }
 
 define <2 x i32> @test_splat(i32 %param ) {
-;see svn log for why this is here...
-;CHECK-NOT: or $3, $3, $3
+;TODO insertelement transforms to a PREFSLOT2VEC, that trasforms to the 
+;     somewhat redundant: 
+;CHECK-NOT or $3, $3, $3
 ;CHECK: lqa
 ;CHECK: shufb
   %sv = insertelement <1 x i32> undef, i32 %param, i32 0 

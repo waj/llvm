@@ -190,18 +190,20 @@ MachineFunction::DeleteMachineBasicBlock(MachineBasicBlock *MBB) {
 }
 
 MachineMemOperand *
-MachineFunction::getMachineMemOperand(MachinePointerInfo PtrInfo, unsigned f,
-                                      uint64_t s, unsigned base_alignment) {
-  return new (Allocator) MachineMemOperand(PtrInfo, f, s, base_alignment);
+MachineFunction::getMachineMemOperand(const Value *v, unsigned f,
+                                      int64_t o, uint64_t s,
+                                      unsigned base_alignment) {
+  return new (Allocator) MachineMemOperand(v, f, o, s, base_alignment);
 }
 
 MachineMemOperand *
 MachineFunction::getMachineMemOperand(const MachineMemOperand *MMO,
                                       int64_t Offset, uint64_t Size) {
   return new (Allocator)
-             MachineMemOperand(MachinePointerInfo(MMO->getValue(),
-                                                  MMO->getOffset()+Offset),
-                               MMO->getFlags(), Size, MMO->getBaseAlignment());
+             MachineMemOperand(MMO->getValue(), MMO->getFlags(),
+                               int64_t(uint64_t(MMO->getOffset()) +
+                                       uint64_t(Offset)),
+                               Size, MMO->getBaseAlignment());
 }
 
 MachineInstr::mmo_iterator
@@ -229,9 +231,10 @@ MachineFunction::extractLoadMemRefs(MachineInstr::mmo_iterator Begin,
       else {
         // Clone the MMO and unset the store flag.
         MachineMemOperand *JustLoad =
-          getMachineMemOperand((*I)->getPointerInfo(),
+          getMachineMemOperand((*I)->getValue(),
                                (*I)->getFlags() & ~MachineMemOperand::MOStore,
-                               (*I)->getSize(), (*I)->getBaseAlignment());
+                               (*I)->getOffset(), (*I)->getSize(),
+                               (*I)->getBaseAlignment());
         Result[Index] = JustLoad;
       }
       ++Index;
@@ -260,9 +263,10 @@ MachineFunction::extractStoreMemRefs(MachineInstr::mmo_iterator Begin,
       else {
         // Clone the MMO and unset the load flag.
         MachineMemOperand *JustStore =
-          getMachineMemOperand((*I)->getPointerInfo(),
+          getMachineMemOperand((*I)->getValue(),
                                (*I)->getFlags() & ~MachineMemOperand::MOLoad,
-                               (*I)->getSize(), (*I)->getBaseAlignment());
+                               (*I)->getOffset(), (*I)->getSize(),
+                               (*I)->getBaseAlignment());
         Result[Index] = JustStore;
       }
       ++Index;

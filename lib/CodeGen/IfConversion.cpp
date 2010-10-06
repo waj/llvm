@@ -17,9 +17,7 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
-#include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Target/TargetInstrItineraries.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
@@ -152,29 +150,20 @@ namespace {
     const TargetLowering *TLI;
     const TargetInstrInfo *TII;
     const TargetRegisterInfo *TRI;
-    const InstrItineraryData *InstrItins;
-    const MachineLoopInfo *MLI;
     bool MadeChange;
     int FnNum;
   public:
     static char ID;
     IfConverter() : MachineFunctionPass(ID), FnNum(-1) {}
-    
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-      AU.addRequired<MachineLoopInfo>();
-      MachineFunctionPass::getAnalysisUsage(AU);
-    }
 
     virtual bool runOnMachineFunction(MachineFunction &MF);
     virtual const char *getPassName() const { return "If Converter"; }
 
   private:
     bool ReverseBranchCondition(BBInfo &BBI);
-    bool ValidSimple(BBInfo &TrueBBI, unsigned &Dups,
-                     float Prediction, float Confidence) const;
+    bool ValidSimple(BBInfo &TrueBBI, unsigned &Dups) const;
     bool ValidTriangle(BBInfo &TrueBBI, BBInfo &FalseBBI,
-                       bool FalseBranch, unsigned &Dups,
-                       float Prediction, float Confidence) const;
+                       bool FalseBranch, unsigned &Dups) const;
     bool ValidDiamond(BBInfo &TrueBBI, BBInfo &FalseBBI,
                       unsigned &Dups1, unsigned &Dups2) const;
     void ScanInstructions(BBInfo &BBI);
@@ -199,18 +188,14 @@ namespace {
                                bool IgnoreBr = false);
     void MergeBlocks(BBInfo &ToBBI, BBInfo &FromBBI, bool AddEdges = true);
 
-    bool MeetIfcvtSizeLimit(MachineBasicBlock &BB, unsigned Size,
-                            float Prediction, float Confidence) const {
-      return Size > 0 && TII->isProfitableToIfCvt(BB, Size,
-                                                  Prediction, Confidence);
+    bool MeetIfcvtSizeLimit(MachineBasicBlock &BB, unsigned Size) const {
+      return Size > 0 && TII->isProfitableToIfCvt(BB, Size);
     }
 
     bool MeetIfcvtSizeLimit(MachineBasicBlock &TBB, unsigned TSize,
-                            MachineBasicBlock &FBB, unsigned FSize,
-                            float Prediction, float Confidence) const {
+                            MachineBasicBlock &FBB, unsigned FSize) const {
       return TSize > 0 && FSize > 0 &&
-        TII->isProfitableToIfCvt(TBB, TSize, FBB, FSize,
-                                 Prediction, Confidence);
+        TII->isProfitableToIfCvt(TBB, TSize, FBB, FSize);
     }
 
     // blockAlwaysFallThrough - Block ends without a terminator.
@@ -253,8 +238,6 @@ bool IfConverter::runOnMachineFunction(MachineFunction &MF) {
   TLI = MF.getTarget().getTargetLowering();
   TII = MF.getTarget().getInstrInfo();
   TRI = MF.getTarget().getRegisterInfo();
-  MLI = &getAnalysis<MachineLoopInfo>();
-  InstrItins = MF.getTarget().getInstrItineraryData();
   if (!TII) return false;
 
   // Tail merge tend to expose more if-conversion opportunities.
@@ -448,8 +431,7 @@ static inline MachineBasicBlock *getNextBlock(MachineBasicBlock *BB) {
 /// predecessor) forms a valid simple shape for ifcvt. It also returns the
 /// number of instructions that the ifcvt would need to duplicate if performed
 /// in Dups.
-bool IfConverter::ValidSimple(BBInfo &TrueBBI, unsigned &Dups,
-                              float Prediction, float Confidence) const {
+bool IfConverter::ValidSimple(BBInfo &TrueBBI, unsigned &Dups) const {
   Dups = 0;
   if (TrueBBI.IsBeingAnalyzed || TrueBBI.IsDone)
     return false;
@@ -459,8 +441,7 @@ bool IfConverter::ValidSimple(BBInfo &TrueBBI, unsigned &Dups,
 
   if (TrueBBI.BB->pred_size() > 1) {
     if (TrueBBI.CannotBeCopied ||
-        !TII->isProfitableToDupForIfCvt(*TrueBBI.BB, TrueBBI.NonPredSize,
-                                        Prediction, Confidence))
+        !TII->isProfitableToDupForIfCvt(*TrueBBI.BB, TrueBBI.NonPredSize))
       return false;
     Dups = TrueBBI.NonPredSize;
   }
@@ -475,8 +456,7 @@ bool IfConverter::ValidSimple(BBInfo &TrueBBI, unsigned &Dups,
 /// returns the number of instructions that the ifcvt would need to duplicate
 /// if performed in 'Dups'.
 bool IfConverter::ValidTriangle(BBInfo &TrueBBI, BBInfo &FalseBBI,
-                                bool FalseBranch, unsigned &Dups,
-                                float Prediction, float Confidence) const {
+                                bool FalseBranch, unsigned &Dups) const {
   Dups = 0;
   if (TrueBBI.IsBeingAnalyzed || TrueBBI.IsDone)
     return false;
@@ -498,8 +478,7 @@ bool IfConverter::ValidTriangle(BBInfo &TrueBBI, BBInfo &FalseBBI,
           ++Size;
       }
     }
-    if (!TII->isProfitableToDupForIfCvt(*TrueBBI.BB, Size,
-                                        Prediction, Confidence))
+    if (!TII->isProfitableToDupForIfCvt(*TrueBBI.BB, Size))
       return false;
     Dups = Size;
   }
@@ -662,10 +641,9 @@ void IfConverter::ScanInstructions(BBInfo &BBI) {
     bool isCondBr = BBI.IsBrAnalyzable && TID.isConditionalBranch();
 
     if (!isCondBr) {
-      if (!isPredicated) {
-        unsigned NumOps = TII->getNumMicroOps(&*I, InstrItins);
-        BBI.NonPredSize += NumOps;
-      } else if (!AlreadyPredicated) {
+      if (!isPredicated)
+        BBI.NonPredSize++;
+      else if (!AlreadyPredicated) {
         // FIXME: This instruction is already predicated before the
         // if-conversion pass. It's probably something like a conditional move.
         // Mark this block unpredicable for now.
@@ -787,33 +765,9 @@ IfConverter::BBInfo &IfConverter::AnalyzeBlock(MachineBasicBlock *BB,
   bool TNeedSub = TrueBBI.Predicate.size() > 0;
   bool FNeedSub = FalseBBI.Predicate.size() > 0;
   bool Enqueued = false;
-  
-  // Try to predict the branch, using loop info to guide us.
-  // General heuristics are:
-  //   - backedge -> 90% taken
-  //   - early exit -> 20% taken
-  //   - branch predictor confidence -> 90%
-  float Prediction = 0.5f;
-  float Confidence = 0.9f;
-  MachineLoop *Loop = MLI->getLoopFor(BB);
-  if (Loop) {
-    if (TrueBBI.BB == Loop->getHeader())
-      Prediction = 0.9f;
-    else if (FalseBBI.BB == Loop->getHeader())
-      Prediction = 0.1f;
-
-    MachineLoop *TrueLoop = MLI->getLoopFor(TrueBBI.BB);
-    MachineLoop *FalseLoop = MLI->getLoopFor(FalseBBI.BB);
-    if (!TrueLoop || TrueLoop->getParentLoop() == Loop)
-      Prediction = 0.2f;
-    else if (!FalseLoop || FalseLoop->getParentLoop() == Loop)
-      Prediction = 0.8f;
-  }
-  
   if (CanRevCond && ValidDiamond(TrueBBI, FalseBBI, Dups, Dups2) &&
       MeetIfcvtSizeLimit(*TrueBBI.BB, TrueBBI.NonPredSize - (Dups + Dups2),
-                         *FalseBBI.BB, FalseBBI.NonPredSize - (Dups + Dups2),
-                         Prediction, Confidence) &&
+                         *FalseBBI.BB, FalseBBI.NonPredSize - (Dups + Dups2)) &&
       FeasibilityAnalysis(TrueBBI, BBI.BrCond) &&
       FeasibilityAnalysis(FalseBBI, RevCond)) {
     // Diamond:
@@ -829,9 +783,8 @@ IfConverter::BBInfo &IfConverter::AnalyzeBlock(MachineBasicBlock *BB,
     Enqueued = true;
   }
 
-  if (ValidTriangle(TrueBBI, FalseBBI, false, Dups, Prediction, Confidence) &&
-      MeetIfcvtSizeLimit(*TrueBBI.BB, TrueBBI.NonPredSize,
-                         Prediction, Confidence) &&
+  if (ValidTriangle(TrueBBI, FalseBBI, false, Dups) &&
+      MeetIfcvtSizeLimit(*TrueBBI.BB, TrueBBI.NonPredSize) &&
       FeasibilityAnalysis(TrueBBI, BBI.BrCond, true)) {
     // Triangle:
     //   EBB
@@ -844,17 +797,15 @@ IfConverter::BBInfo &IfConverter::AnalyzeBlock(MachineBasicBlock *BB,
     Enqueued = true;
   }
 
-  if (ValidTriangle(TrueBBI, FalseBBI, true, Dups, Prediction, Confidence) &&
-      MeetIfcvtSizeLimit(*TrueBBI.BB, TrueBBI.NonPredSize,
-                         Prediction, Confidence) &&
+  if (ValidTriangle(TrueBBI, FalseBBI, true, Dups) &&
+      MeetIfcvtSizeLimit(*TrueBBI.BB, TrueBBI.NonPredSize) &&
       FeasibilityAnalysis(TrueBBI, BBI.BrCond, true, true)) {
     Tokens.push_back(new IfcvtToken(BBI, ICTriangleRev, TNeedSub, Dups));
     Enqueued = true;
   }
 
-  if (ValidSimple(TrueBBI, Dups, Prediction, Confidence) &&
-      MeetIfcvtSizeLimit(*TrueBBI.BB, TrueBBI.NonPredSize,
-                         Prediction, Confidence) &&
+  if (ValidSimple(TrueBBI, Dups) &&
+      MeetIfcvtSizeLimit(*TrueBBI.BB, TrueBBI.NonPredSize) &&
       FeasibilityAnalysis(TrueBBI, BBI.BrCond)) {
     // Simple (split, no rejoin):
     //   EBB
@@ -869,27 +820,22 @@ IfConverter::BBInfo &IfConverter::AnalyzeBlock(MachineBasicBlock *BB,
 
   if (CanRevCond) {
     // Try the other path...
-    if (ValidTriangle(FalseBBI, TrueBBI, false, Dups,
-                      1.0-Prediction, Confidence) &&
-        MeetIfcvtSizeLimit(*FalseBBI.BB, FalseBBI.NonPredSize,
-                           1.0-Prediction, Confidence) &&
+    if (ValidTriangle(FalseBBI, TrueBBI, false, Dups) &&
+        MeetIfcvtSizeLimit(*FalseBBI.BB, FalseBBI.NonPredSize) &&
         FeasibilityAnalysis(FalseBBI, RevCond, true)) {
       Tokens.push_back(new IfcvtToken(BBI, ICTriangleFalse, FNeedSub, Dups));
       Enqueued = true;
     }
 
-    if (ValidTriangle(FalseBBI, TrueBBI, true, Dups,
-                      1.0-Prediction, Confidence) &&
-        MeetIfcvtSizeLimit(*FalseBBI.BB, FalseBBI.NonPredSize,
-                           1.0-Prediction, Confidence) &&
+    if (ValidTriangle(FalseBBI, TrueBBI, true, Dups) &&
+        MeetIfcvtSizeLimit(*FalseBBI.BB, FalseBBI.NonPredSize) &&
         FeasibilityAnalysis(FalseBBI, RevCond, true, true)) {
       Tokens.push_back(new IfcvtToken(BBI, ICTriangleFRev, FNeedSub, Dups));
       Enqueued = true;
     }
 
-    if (ValidSimple(FalseBBI, Dups, 1.0-Prediction, Confidence) &&
-        MeetIfcvtSizeLimit(*FalseBBI.BB, FalseBBI.NonPredSize,
-                           1.0-Prediction, Confidence) &&
+    if (ValidSimple(FalseBBI, Dups) &&
+        MeetIfcvtSizeLimit(*FalseBBI.BB, FalseBBI.NonPredSize) &&
         FeasibilityAnalysis(FalseBBI, RevCond)) {
       Tokens.push_back(new IfcvtToken(BBI, ICSimpleFalse, FNeedSub, Dups));
       Enqueued = true;
@@ -1418,8 +1364,7 @@ void IfConverter::CopyAndPredicateBlock(BBInfo &ToBBI, BBInfo &FromBBI,
 
     MachineInstr *MI = MF.CloneMachineInstr(I);
     ToBBI.BB->insert(ToBBI.BB->end(), MI);
-    unsigned NumOps = TII->getNumMicroOps(MI, InstrItins);
-    ToBBI.NonPredSize += NumOps;
+    ToBBI.NonPredSize++;
 
     if (!TII->isPredicated(I) && !MI->isDebugValue()) {
       if (!TII->PredicateInstruction(MI, Cond)) {

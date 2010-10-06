@@ -20,7 +20,6 @@ namespace llvm {
 class LLVMContextImpl;
 class StringRef;
 class Instruction;
-class Module;
 template <typename T> class SmallVectorImpl;
 
 /// This is an important class for using LLVM in a threaded context.  It
@@ -29,6 +28,10 @@ template <typename T> class SmallVectorImpl;
 /// LLVMContext itself provides no locking guarantees, so you should be careful
 /// to have one context per thread.
 class LLVMContext {
+  // DO NOT IMPLEMENT
+  LLVMContext(LLVMContext&);
+  void operator=(LLVMContext&);
+
 public:
   LLVMContextImpl *const pImpl;
   LLVMContext();
@@ -37,8 +40,7 @@ public:
   // Pinned metadata names, which always have the same value.  This is a
   // compile-time performance optimization, not a correctness optimization.
   enum {
-    MD_dbg = 0,  // "dbg"
-    MD_tbaa = 1  // "tbaa"
+    MD_dbg = 0   // "dbg"
   };
   
   /// getMDKindID - Return a unique non-zero ID for the specified metadata kind.
@@ -75,21 +77,6 @@ public:
   void emitError(unsigned LocCookie, StringRef ErrorStr);
   void emitError(const Instruction *I, StringRef ErrorStr);
   void emitError(StringRef ErrorStr);
-
-private:
-  // DO NOT IMPLEMENT
-  LLVMContext(LLVMContext&);
-  void operator=(LLVMContext&);
-
-  /// addModule - Register a module as being instantiated in this context.  If
-  /// the context is deleted, the module will be deleted as well.
-  void addModule(Module*);
-  
-  /// removeModule - Unregister a module from this context.
-  void removeModule(Module*);
-  
-  // Module needs access to the add/removeModule methods.
-  friend class Module;
 };
 
 /// getGlobalContext - Returns a global context.  This is for LLVM clients that

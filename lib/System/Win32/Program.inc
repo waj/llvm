@@ -22,15 +22,6 @@
 //===          and must not be UNIX code
 //===----------------------------------------------------------------------===//
 
-#ifdef __MINGW32__
-// Ancient mingw32's w32api might not have this declaration.
-extern "C"
-BOOL WINAPI SetInformationJobObject(HANDLE hJob,
-                                    JOBOBJECTINFOCLASS JobObjectInfoClass,
-                                    LPVOID lpJobObjectInfo,
-                                    DWORD cbJobObjectInfoLength);
-#endif
-
 namespace {
   struct Win32ProcessInfo {
     HANDLE hProcess;
@@ -131,6 +122,15 @@ static HANDLE RedirectIO(const Path *path, int fd, std::string* ErrMsg) {
 
   return h;
 }
+
+#ifdef __MINGW32__
+  // Due to unknown reason, mingw32's w32api doesn't have this declaration.
+  extern "C"
+  BOOL WINAPI SetInformationJobObject(HANDLE hJob,
+                                      JOBOBJECTINFOCLASS JobObjectInfoClass,
+                                      LPVOID lpJobObjectInfo,
+                                      DWORD cbJobObjectInfoLength);
+#endif
 
 /// ArgNeedsQuotes - Check whether argument needs to be quoted when calling
 /// CreateProcess.

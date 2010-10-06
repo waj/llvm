@@ -38,7 +38,7 @@ namespace llvm {
     };
 
   public:
-    X86ELFWriterInfo(bool is64Bit_, bool isLittleEndian_);
+    X86ELFWriterInfo(TargetMachine &TM);
     virtual ~X86ELFWriterInfo();
 
     /// getRelocationType - Returns the target specific ELF Relocation type.

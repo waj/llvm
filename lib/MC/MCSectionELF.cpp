@@ -104,16 +104,21 @@ void MCSectionELF::PrintSwitchToSection(const MCAsmInfo &MAI,
     else if (Type == MCSectionELF::SHT_PROGBITS)
       OS << "progbits";
   
-    if (EntrySize) {
-      OS << "," << EntrySize;
+    if (getKind().isMergeable1ByteCString()) {
+      OS << ",1";
+    } else if (getKind().isMergeable2ByteCString()) {
+      OS << ",2";
+    } else if (getKind().isMergeable4ByteCString() || 
+               getKind().isMergeableConst4()) {
+      OS << ",4";
+    } else if (getKind().isMergeableConst8()) {
+      OS << ",8";
+    } else if (getKind().isMergeableConst16()) {
+      OS << ",16";
     }
   }
   
   OS << '\n';
-}
-
-bool MCSectionELF::UseCodeAlign() const {
-  return getFlags() & MCSectionELF::SHF_EXECINSTR;
 }
 
 // HasCommonSymbols - True if this section holds common symbols, this is
@@ -127,12 +132,4 @@ bool MCSectionELF::HasCommonSymbols() const {
   return false;
 }
 
-unsigned MCSectionELF::DetermineEntrySize(SectionKind Kind) {
-  if (Kind.isMergeable1ByteCString()) return 1;
-  if (Kind.isMergeable2ByteCString()) return 2;
-  if (Kind.isMergeable4ByteCString()) return 4;
-  if (Kind.isMergeableConst4())       return 4;
-  if (Kind.isMergeableConst8())       return 8;
-  if (Kind.isMergeableConst16())      return 16;
-  return 0;
-}
+

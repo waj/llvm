@@ -139,29 +139,25 @@ struct CallGraphSCCPassPrinter : public CallGraphSCCPass {
   static char ID;
   const PassInfo *PassToPrint;
   raw_ostream &Out;
-  std::string PassName;
-
   CallGraphSCCPassPrinter(const PassInfo *PI, raw_ostream &out) :
-    CallGraphSCCPass(ID), PassToPrint(PI), Out(out) {
-      std::string PassToPrintName =  PassToPrint->getPassName();
-      PassName = "CallGraphSCCPass Printer: " + PassToPrintName;
-    }
+    CallGraphSCCPass(ID), PassToPrint(PI), Out(out) {}
 
   virtual bool runOnSCC(CallGraphSCC &SCC) {
-    if (!Quiet)
+    if (!Quiet) {
       Out << "Printing analysis '" << PassToPrint->getPassName() << "':\n";
 
-    // Get and print pass...
-    for (CallGraphSCC::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
-      Function *F = (*I)->getFunction();
-      if (F)
-        getAnalysisID<Pass>(PassToPrint->getTypeInfo()).print(Out,
-                                                              F->getParent());
+      for (CallGraphSCC::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
+        Function *F = (*I)->getFunction();
+        if (F)
+          getAnalysisID<Pass>(PassToPrint->getTypeInfo()).print(Out, 
+                F->getParent());
+      }
     }
+    // Get and print pass...
     return false;
   }
 
-  virtual const char *getPassName() const { return PassName.c_str(); }
+  virtual const char *getPassName() const { return "'Pass' Printer"; }
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const {
     AU.addRequiredID(PassToPrint->getTypeInfo());
@@ -175,24 +171,20 @@ struct ModulePassPrinter : public ModulePass {
   static char ID;
   const PassInfo *PassToPrint;
   raw_ostream &Out;
-  std::string PassName;
-
   ModulePassPrinter(const PassInfo *PI, raw_ostream &out)
-    : ModulePass(ID), PassToPrint(PI), Out(out) {
-      std::string PassToPrintName =  PassToPrint->getPassName();
-      PassName = "ModulePass Printer: " + PassToPrintName;
-    }
+    : ModulePass(ID), PassToPrint(PI), Out(out) {}
 
   virtual bool runOnModule(Module &M) {
-    if (!Quiet)
+    if (!Quiet) {
       Out << "Printing analysis '" << PassToPrint->getPassName() << "':\n";
+      getAnalysisID<Pass>(PassToPrint->getTypeInfo()).print(Out, &M);
+    }
 
     // Get and print pass...
-    getAnalysisID<Pass>(PassToPrint->getTypeInfo()).print(Out, &M);
     return false;
   }
 
-  virtual const char *getPassName() const { return PassName.c_str(); }
+  virtual const char *getPassName() const { return "'Pass' Printer"; }
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const {
     AU.addRequiredID(PassToPrint->getTypeInfo());
@@ -205,26 +197,21 @@ struct FunctionPassPrinter : public FunctionPass {
   const PassInfo *PassToPrint;
   raw_ostream &Out;
   static char ID;
-  std::string PassName;
-
   FunctionPassPrinter(const PassInfo *PI, raw_ostream &out)
-    : FunctionPass(ID), PassToPrint(PI), Out(out) {
-      std::string PassToPrintName =  PassToPrint->getPassName();
-      PassName = "FunctionPass Printer: " + PassToPrintName;
-    }
+    : FunctionPass(ID), PassToPrint(PI), Out(out) {}
 
   virtual bool runOnFunction(Function &F) {
-    if (!Quiet)
+    if (!Quiet) {
       Out << "Printing analysis '" << PassToPrint->getPassName()
           << "' for function '" << F.getName() << "':\n";
-
+    }
     // Get and print pass...
     getAnalysisID<Pass>(PassToPrint->getTypeInfo()).print(Out,
             F.getParent());
     return false;
   }
 
-  virtual const char *getPassName() const { return PassName.c_str(); }
+  virtual const char *getPassName() const { return "FunctionPass Printer"; }
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const {
     AU.addRequiredID(PassToPrint->getTypeInfo());
@@ -238,26 +225,20 @@ struct LoopPassPrinter : public LoopPass {
   static char ID;
   const PassInfo *PassToPrint;
   raw_ostream &Out;
-  std::string PassName;
-
   LoopPassPrinter(const PassInfo *PI, raw_ostream &out) :
-    LoopPass(ID), PassToPrint(PI), Out(out) {
-      std::string PassToPrintName =  PassToPrint->getPassName();
-      PassName = "LoopPass Printer: " + PassToPrintName;
-    }
-
+    LoopPass(ID), PassToPrint(PI), Out(out) {}
 
   virtual bool runOnLoop(Loop *L, LPPassManager &LPM) {
-    if (!Quiet)
+    if (!Quiet) {
       Out << "Printing analysis '" << PassToPrint->getPassName() << "':\n";
-
+      getAnalysisID<Pass>(PassToPrint->getTypeInfo()).print(Out,
+                                  L->getHeader()->getParent()->getParent());
+    }
     // Get and print pass...
-    getAnalysisID<Pass>(PassToPrint->getTypeInfo()).print(Out,
-                        L->getHeader()->getParent()->getParent());
     return false;
   }
 
-  virtual const char *getPassName() const { return PassName.c_str(); }
+  virtual const char *getPassName() const { return "'Pass' Printer"; }
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const {
     AU.addRequiredID(PassToPrint->getTypeInfo());
@@ -271,18 +252,14 @@ struct BasicBlockPassPrinter : public BasicBlockPass {
   const PassInfo *PassToPrint;
   raw_ostream &Out;
   static char ID;
-  std::string PassName;
-
   BasicBlockPassPrinter(const PassInfo *PI, raw_ostream &out)
-    : BasicBlockPass(ID), PassToPrint(PI), Out(out) {
-      std::string PassToPrintName =  PassToPrint->getPassName();
-      PassName = "BasicBlockPass Printer: " + PassToPrintName;
-    }
+    : BasicBlockPass(ID), PassToPrint(PI), Out(out) {}
 
   virtual bool runOnBasicBlock(BasicBlock &BB) {
-    if (!Quiet)
+    if (!Quiet) {
       Out << "Printing Analysis info for BasicBlock '" << BB.getName()
           << "': Pass " << PassToPrint->getPassName() << ":\n";
+    }
 
     // Get and print pass...
     getAnalysisID<Pass>(PassToPrint->getTypeInfo()).print(Out, 
@@ -290,7 +267,7 @@ struct BasicBlockPassPrinter : public BasicBlockPass {
     return false;
   }
 
-  virtual const char *getPassName() const { return PassName.c_str(); }
+  virtual const char *getPassName() const { return "BasicBlockPass Printer"; }
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const {
     AU.addRequiredID(PassToPrint->getTypeInfo());

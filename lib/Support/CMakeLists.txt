@@ -45,3 +45,5 @@ add_llvm_library(LLVMSupport
   regfree.c
   regstrlcpy.c
   )
+
+target_link_libraries (LLVMSupport LLVMSystem)

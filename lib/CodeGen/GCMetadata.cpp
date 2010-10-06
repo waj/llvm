@@ -30,6 +30,7 @@ namespace {
     raw_ostream &OS;
     
   public:
+    Printer() : FunctionPass(ID), OS(errs()) {}
     explicit Printer(raw_ostream &OS) : FunctionPass(ID), OS(OS) {}
 
     
