@@ -1,0 +1,30 @@
+set(LLVM_LINK_COMPONENTS
+  Analysis
+  BitWriter
+  Core
+  IPA
+  IPO
+  IRReader
+  InstCombine
+  Instrumentation
+  Linker
+  ObjCARCOpts
+  ScalarOpts
+  Support
+  Target
+  TransformUtils
+  Vectorize
+  )
+
+add_llvm_tool(bugpoint
+  BugDriver.cpp
+  CrashDebugger.cpp
+  ExecutionDriver.cpp
+  ExtractFunction.cpp
+  FindBugs.cpp
+  Miscompilation.cpp
+  OptimizerDriver.cpp
+  ToolRunner.cpp
+  bugpoint.cpp
+  )
+set_target_properties(bugpoint PROPERTIES ENABLE_EXPORTS 1)
