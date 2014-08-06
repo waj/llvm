@@ -31,7 +31,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "tailduplication"
@@ -136,8 +135,8 @@ bool TailDuplicatePass::runOnMachineFunction(MachineFunction &MF) {
   if (skipOptnoneFunction(*MF.getFunction()))
     return false;
 
-  TII = MF.getSubtarget().getInstrInfo();
-  TRI = MF.getSubtarget().getRegisterInfo();
+  TII = MF.getTarget().getInstrInfo();
+  TRI = MF.getTarget().getRegisterInfo();
   MRI = &MF.getRegInfo();
   MMI = getAnalysisIfAvailable<MachineModuleInfo>();
   MBPI = &getAnalysis<MachineBranchProbabilityInfo>();
@@ -799,9 +798,11 @@ TailDuplicatePass::TailDuplicate(MachineBasicBlock *TailBB,
       RS->enterBasicBlock(PredBB);
       if (!PredBB->empty())
         RS->forward(std::prev(PredBB->end()));
+      BitVector RegsLiveAtExit(TRI->getNumRegs());
+      RS->getRegsUsed(RegsLiveAtExit, false);
       for (MachineBasicBlock::livein_iterator I = TailBB->livein_begin(),
              E = TailBB->livein_end(); I != E; ++I) {
-        if (!RS->isRegUsed(*I, false))
+        if (!RegsLiveAtExit[*I])
           // If a register is previously livein to the tail but it's not live
           // at the end of predecessor BB, then it should be added to its
           // livein list.

@@ -528,13 +528,13 @@ int main(int argc, char **argv, char * const *envp) {
   }
 
   for (unsigned i = 0, e = ExtraObjects.size(); i != e; ++i) {
-    ErrorOr<std::unique_ptr<object::ObjectFile>> Obj =
+    ErrorOr<object::ObjectFile *> Obj =
         object::ObjectFile::createObjectFile(ExtraObjects[i]);
     if (!Obj) {
       Err.print(argv[0], errs());
       return 1;
     }
-    EE->addObjectFile(std::move(Obj.get()));
+    EE->addObjectFile(std::unique_ptr<object::ObjectFile>(Obj.get()));
   }
 
   for (unsigned i = 0, e = ExtraArchives.size(); i != e; ++i) {
@@ -544,14 +544,13 @@ int main(int argc, char **argv, char * const *envp) {
       Err.print(argv[0], errs());
       return 1;
     }
-
-    ErrorOr<std::unique_ptr<object::Archive>> ArOrErr =
-        object::Archive::create(std::move(ArBuf.get()));
-    if (std::error_code EC = ArOrErr.getError()) {
-      errs() << EC.message();
+    std::error_code EC;
+    object::Archive *Ar = new object::Archive(std::move(ArBuf.get()), EC);
+    if (EC || !Ar) {
+      Err.print(argv[0], errs());
       return 1;
     }
-    EE->addArchive(std::move(ArOrErr.get()));
+    EE->addArchive(Ar);
   }
 
   // If the target is Cygwin/MingW and we are generating remote code, we

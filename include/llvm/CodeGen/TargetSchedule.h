@@ -167,7 +167,6 @@ public:
   /// if converter after moving it to TargetSchedModel).
   unsigned computeInstrLatency(const MachineInstr *MI,
                                bool UseDefaultDefLatency = true) const;
-  unsigned computeInstrLatency(unsigned Opcode) const;
 
   /// \brief Output dependency latency of a pair of defs of the same register.
   ///

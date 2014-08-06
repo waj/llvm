@@ -2,7 +2,6 @@
 ; situations
 
 ; RUN: llvm-as < %s | llvm-dis | not grep "("
-; RUN: verify-uselistorder %s -preserve-bc-use-list-order
 
 @A = global i64 0
 

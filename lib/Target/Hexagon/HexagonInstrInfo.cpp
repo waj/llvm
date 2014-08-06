@@ -1639,8 +1639,7 @@ void HexagonInstrInfo::immediateExtend(MachineInstr *MI) const {
 DFAPacketizer *HexagonInstrInfo::
 CreateTargetScheduleState(const TargetMachine *TM,
                            const ScheduleDAG *DAG) const {
-  const InstrItineraryData *II =
-      TM->getSubtargetImpl()->getInstrItineraryData();
+  const InstrItineraryData *II = TM->getInstrItineraryData();
   return TM->getSubtarget<HexagonGenSubtargetInfo>().createDFAPacketizer(II);
 }
 

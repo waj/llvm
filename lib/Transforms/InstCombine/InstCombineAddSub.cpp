@@ -1462,17 +1462,11 @@ Instruction *InstCombiner::visitSub(BinaryOperator &I) {
   if (Value *V = SimplifyUsingDistributiveLaws(I))
     return ReplaceInstUsesWith(I, V);
 
-  // If this is a 'B = x-(-A)', change to B = x+A.
+  // If this is a 'B = x-(-A)', change to B = x+A.  This preserves NSW/NUW.
   if (Value *V = dyn_castNegVal(Op1)) {
     BinaryOperator *Res = BinaryOperator::CreateAdd(Op0, V);
-
-    if (const auto *BO = dyn_cast<BinaryOperator>(Op1)) {
-      assert(BO->getOpcode() == Instruction::Sub &&
-             "Expected a subtraction operator!");
-      if (BO->hasNoSignedWrap() && I.hasNoSignedWrap())
-        Res->setHasNoSignedWrap(true);
-    }
-
+    Res->setHasNoSignedWrap(I.hasNoSignedWrap());
+    Res->setHasNoUnsignedWrap(I.hasNoUnsignedWrap());
     return Res;
   }
 

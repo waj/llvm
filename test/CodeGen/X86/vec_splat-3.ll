@@ -1,4 +1,4 @@
-; RUN: llc <%s -mtriple=i686-unknown-unknown -mcpu=penryn -mattr=sse4.1 | FileCheck %s
+; RUN: llc <%s -march=x86 -mcpu=penryn -mattr=sse4.1 | FileCheck %s
 
 ; Splat test for v8i16
 define <8 x i16> @shuf_8i16_0(<8 x i16> %T0, <8 x i16> %T1) nounwind readnone {
@@ -75,8 +75,9 @@ define <16 x i8> @shuf_16i8_8(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_8:
-; CHECK: pxor %[[X:xmm[0-9]+]], %[[X]]
-; CHECK-NEXT: pshufb %[[X]], %xmm0
+; CHECK: punpcklbw
+; CHECK-NEXT: punpcklbw
+; CHECK-NEXT: pshufd $0
 }
 
 define <16 x i8> @shuf_16i8_9(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -84,7 +85,9 @@ define <16 x i8> @shuf_16i8_9(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_9:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+; CHECK: punpcklbw
+; CHECK-NEXT: punpcklbw
+; CHECK-NEXT: pshufd $85
 }
 
 define <16 x i8> @shuf_16i8_10(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -92,7 +95,9 @@ define <16 x i8> @shuf_16i8_10(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_10:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2]
+; CHECK: punpcklbw
+; CHECK-NEXT: punpcklbw
+; CHECK-NEXT: pshufd $-86
 }
 
 define <16 x i8> @shuf_16i8_11(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -100,7 +105,9 @@ define <16 x i8> @shuf_16i8_11(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_11:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3]
+; CHECK: punpcklbw
+; CHECK-NEXT: punpcklbw
+; CHECK-NEXT: pshufd $-1
 }
 
 
@@ -117,7 +124,9 @@ define <16 x i8> @shuf_16i8_13(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_13:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5]
+; CHECK: punpcklbw
+; CHECK-NEXT: punpckhbw
+; CHECK-NEXT: pshufd $85
 }
 
 define <16 x i8> @shuf_16i8_14(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -125,7 +134,9 @@ define <16 x i8> @shuf_16i8_14(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_14:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6]
+; CHECK: punpcklbw
+; CHECK-NEXT: punpckhbw
+; CHECK-NEXT: pshufd $-86
 }
 
 define <16 x i8> @shuf_16i8_15(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -133,7 +144,9 @@ define <16 x i8> @shuf_16i8_15(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_15:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7]
+; CHECK: punpcklbw
+; CHECK-NEXT: punpckhbw
+; CHECK-NEXT: pshufd $-1
 }
 
 define <16 x i8> @shuf_16i8_16(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -141,7 +154,9 @@ define <16 x i8> @shuf_16i8_16(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_16:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8]
+; CHECK: punpckhbw
+; CHECK-NEXT: punpcklbw
+; CHECK-NEXT: pshufd $0
 }
 
 define <16 x i8> @shuf_16i8_17(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -149,7 +164,9 @@ define <16 x i8> @shuf_16i8_17(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_17:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9]
+; CHECK: punpckhbw
+; CHECK-NEXT: punpcklbw
+; CHECK-NEXT: pshufd $85
 }
 
 define <16 x i8> @shuf_16i8_18(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -157,7 +174,9 @@ define <16 x i8> @shuf_16i8_18(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_18:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10]
+; CHECK: punpckhbw
+; CHECK-NEXT: punpcklbw
+; CHECK-NEXT: pshufd $-86
 }
 
 define <16 x i8> @shuf_16i8_19(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -165,7 +184,9 @@ define <16 x i8> @shuf_16i8_19(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_19:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11]
+; CHECK: punpckhbw
+; CHECK-NEXT: punpcklbw
+; CHECK-NEXT: pshufd $-1
 }
 
 define <16 x i8> @shuf_16i8_20(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -173,7 +194,9 @@ define <16 x i8> @shuf_16i8_20(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_20:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12]
+; CHECK: punpckhbw
+; CHECK-NEXT: punpckhbw
+; CHECK-NEXT: pshufd $0
 }
 
 define <16 x i8> @shuf_16i8_21(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -181,7 +204,9 @@ define <16 x i8> @shuf_16i8_21(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_21:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13]
+; CHECK: punpckhbw
+; CHECK-NEXT: punpckhbw
+; CHECK-NEXT: pshufd $85
 }
 
 define <16 x i8> @shuf_16i8_22(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -189,7 +214,9 @@ define <16 x i8> @shuf_16i8_22(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_22:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14]
+; CHECK: punpckhbw
+; CHECK-NEXT: punpckhbw
+; CHECK-NEXT: pshufd $-86
 }
 
 define <16 x i8> @shuf_16i8_23(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
@@ -197,5 +224,7 @@ define <16 x i8> @shuf_16i8_23(<16 x i8> %T0, <16 x i8> %T1) nounwind readnone {
 	ret <16 x i8> %tmp6
 
 ; CHECK-LABEL: shuf_16i8_23:
-; CHECK: pshufb {{.*}} # xmm0 = xmm0[15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15]
+; CHECK: punpckhbw
+; CHECK-NEXT: punpckhbw
+; CHECK-NEXT: pshufd $-1
 }

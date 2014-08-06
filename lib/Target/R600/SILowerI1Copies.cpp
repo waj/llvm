@@ -15,7 +15,6 @@
 
 #define DEBUG_TYPE "si-i1-copies"
 #include "AMDGPU.h"
-#include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/CodeGen/MachineDominators.h"
@@ -71,9 +70,9 @@ FunctionPass *llvm::createSILowerI1CopiesPass() {
 
 bool SILowerI1Copies::runOnMachineFunction(MachineFunction &MF) {
   MachineRegisterInfo &MRI = MF.getRegInfo();
-  const SIInstrInfo *TII =
-      static_cast<const SIInstrInfo *>(MF.getSubtarget().getInstrInfo());
-  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
+  const SIInstrInfo *TII = static_cast<const SIInstrInfo *>(
+      MF.getTarget().getInstrInfo());
+  const TargetRegisterInfo *TRI = MF.getTarget().getRegisterInfo();
   std::vector<unsigned> I1Defs;
 
   for (MachineFunction::iterator BI = MF.begin(), BE = MF.end();
@@ -137,7 +136,11 @@ bool SILowerI1Copies::runOnMachineFunction(MachineFunction &MF) {
                  SrcRC == &AMDGPU::VReg_1RegClass) {
         BuildMI(MBB, &MI, MI.getDebugLoc(), TII->get(AMDGPU::V_CMP_NE_I32_e64))
                 .addOperand(MI.getOperand(0))
+                .addImm(0)
                 .addOperand(MI.getOperand(1))
+                .addImm(0)
+                .addImm(0)
+                .addImm(0)
                 .addImm(0);
         MI.eraseFromParent();
       }

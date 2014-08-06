@@ -20,7 +20,6 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "phi-opt"
@@ -67,7 +66,7 @@ bool OptimizePHIs::runOnMachineFunction(MachineFunction &Fn) {
     return false;
 
   MRI = &Fn.getRegInfo();
-  TII = Fn.getSubtarget().getInstrInfo();
+  TII = Fn.getTarget().getInstrInfo();
 
   // Find dead PHI cycles and PHI cycles that can be replaced by a single
   // value.  InstCombine does these optimizations, but DAG legalization may

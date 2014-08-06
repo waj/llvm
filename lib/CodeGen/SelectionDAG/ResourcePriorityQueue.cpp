@@ -27,7 +27,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 
 using namespace llvm;
 
@@ -41,32 +40,32 @@ static cl::opt<signed> RegPressureThreshold(
   "dfa-sched-reg-pressure-threshold", cl::Hidden, cl::ZeroOrMore, cl::init(5),
   cl::desc("Track reg pressure and switch priority to in-depth"));
 
-ResourcePriorityQueue::ResourcePriorityQueue(SelectionDAGISel *IS)
-    : Picker(this), InstrItins(IS->getTargetLowering()
-                                   ->getTargetMachine()
-                                   .getSubtargetImpl()
-                                   ->getInstrItineraryData()) {
-  const TargetMachine &TM = (*IS->MF).getTarget();
-  TRI = TM.getSubtargetImpl()->getRegisterInfo();
-  TLI = IS->getTargetLowering();
-  TII = TM.getSubtargetImpl()->getInstrInfo();
-  ResourcesModel = TII->CreateTargetScheduleState(&TM, nullptr);
-  // This hard requirement could be relaxed, but for now
-  // do not let it procede.
-  assert(ResourcesModel && "Unimplemented CreateTargetScheduleState.");
 
-  unsigned NumRC = TRI->getNumRegClasses();
-  RegLimit.resize(NumRC);
-  RegPressure.resize(NumRC);
-  std::fill(RegLimit.begin(), RegLimit.end(), 0);
-  std::fill(RegPressure.begin(), RegPressure.end(), 0);
-  for (TargetRegisterInfo::regclass_iterator I = TRI->regclass_begin(),
-                                             E = TRI->regclass_end();
-       I != E; ++I)
-    RegLimit[(*I)->getID()] = TRI->getRegPressureLimit(*I, *IS->MF);
+ResourcePriorityQueue::ResourcePriorityQueue(SelectionDAGISel *IS) :
+  Picker(this),
+ InstrItins(IS->getTargetLowering()->getTargetMachine().getInstrItineraryData())
+{
+   TII = IS->getTargetLowering()->getTargetMachine().getInstrInfo();
+   TRI = IS->getTargetLowering()->getTargetMachine().getRegisterInfo();
+   TLI = IS->getTargetLowering();
 
-  ParallelLiveRanges = 0;
-  HorizontalVerticalBalance = 0;
+   const TargetMachine &tm = (*IS->MF).getTarget();
+   ResourcesModel = tm.getInstrInfo()->CreateTargetScheduleState(&tm,nullptr);
+   // This hard requirement could be relaxed, but for now
+   // do not let it procede.
+   assert (ResourcesModel && "Unimplemented CreateTargetScheduleState.");
+
+   unsigned NumRC = TRI->getNumRegClasses();
+   RegLimit.resize(NumRC);
+   RegPressure.resize(NumRC);
+   std::fill(RegLimit.begin(), RegLimit.end(), 0);
+   std::fill(RegPressure.begin(), RegPressure.end(), 0);
+   for (TargetRegisterInfo::regclass_iterator I = TRI->regclass_begin(),
+        E = TRI->regclass_end(); I != E; ++I)
+     RegLimit[(*I)->getID()] = TRI->getRegPressureLimit(*I, *IS->MF);
+
+   ParallelLiveRanges = 0;
+   HorizontalVerticalBalance = 0;
 }
 
 unsigned

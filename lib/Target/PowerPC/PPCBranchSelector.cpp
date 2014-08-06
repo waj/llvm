@@ -23,7 +23,6 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "ppc-branch-select"
@@ -65,7 +64,7 @@ FunctionPass *llvm::createPPCBranchSelectionPass() {
 
 bool PPCBSel::runOnMachineFunction(MachineFunction &Fn) {
   const PPCInstrInfo *TII =
-      static_cast<const PPCInstrInfo *>(Fn.getSubtarget().getInstrInfo());
+                static_cast<const PPCInstrInfo*>(Fn.getTarget().getInstrInfo());
   // Give the blocks of the function a dense, in-order, numbering.
   Fn.RenumberBlocks();
   BlockSizes.resize(Fn.getNumBlockIDs());

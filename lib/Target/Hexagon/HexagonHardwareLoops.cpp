@@ -266,8 +266,7 @@ namespace {
     }
 
     void print(raw_ostream &OS, const TargetMachine *TM = nullptr) const {
-      const TargetRegisterInfo *TRI =
-          TM ? TM->getSubtargetImpl()->getRegisterInfo() : nullptr;
+      const TargetRegisterInfo *TRI = TM ? TM->getRegisterInfo() : nullptr;
       if (isReg()) { OS << PrintReg(Contents.R.Reg, TRI, Contents.R.Sub); }
       if (isImm()) { OS << Contents.ImmVal; }
     }
@@ -303,10 +302,8 @@ bool HexagonHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
   MRI = &MF.getRegInfo();
   MDT = &getAnalysis<MachineDominatorTree>();
   TM  = static_cast<const HexagonTargetMachine*>(&MF.getTarget());
-  TII = static_cast<const HexagonInstrInfo *>(
-      TM->getSubtargetImpl()->getInstrInfo());
-  TRI = static_cast<const HexagonRegisterInfo *>(
-      TM->getSubtargetImpl()->getRegisterInfo());
+  TII = static_cast<const HexagonInstrInfo*>(TM->getInstrInfo());
+  TRI = static_cast<const HexagonRegisterInfo*>(TM->getRegisterInfo());
 
   for (MachineLoopInfo::iterator I = MLI->begin(), E = MLI->end();
        I != E; ++I) {

@@ -57,13 +57,6 @@ static cl::opt<bool> RunLoadCombine("combine-loads", cl::init(false),
                                     cl::Hidden,
                                     cl::desc("Run the load combining pass"));
 
-static cl::opt<bool>
-RunSLPAfterLoopVectorization("run-slp-after-loop-vectorization",
-  cl::init(false), cl::Hidden,
-  cl::desc("Run the SLP vectorizer (and BB vectorizer) after the Loop "
-           "vectorizer instead of before"));
-
-
 PassManagerBuilder::PassManagerBuilder() {
     OptLevel = 2;
     SizeLevel = 0;
@@ -114,7 +107,6 @@ PassManagerBuilder::addInitialAliasAnalysisPasses(PassManagerBase &PM) const {
   // BasicAliasAnalysis wins if they disagree. This is intended to help
   // support "obvious" type-punning idioms.
   PM.add(createTypeBasedAliasAnalysisPass());
-  PM.add(createScopedNoAliasAAPass());
   PM.add(createBasicAliasAnalysisPass());
 }
 
@@ -234,23 +226,21 @@ void PassManagerBuilder::populateModulePassManager(PassManagerBase &MPM) {
 
   if (RerollLoops)
     MPM.add(createLoopRerollPass());
-  if (!RunSLPAfterLoopVectorization) {
-    if (SLPVectorize)
-      MPM.add(createSLPVectorizerPass());   // Vectorize parallel scalar chains.
+  if (SLPVectorize)
+    MPM.add(createSLPVectorizerPass());   // Vectorize parallel scalar chains.
 
-    if (BBVectorize) {
-      MPM.add(createBBVectorizePass());
-      MPM.add(createInstructionCombiningPass());
-      addExtensionsToPM(EP_Peephole, MPM);
-      if (OptLevel > 1 && UseGVNAfterVectorization)
-        MPM.add(createGVNPass());           // Remove redundancies
-      else
-        MPM.add(createEarlyCSEPass());      // Catch trivial redundancies
+  if (BBVectorize) {
+    MPM.add(createBBVectorizePass());
+    MPM.add(createInstructionCombiningPass());
+    addExtensionsToPM(EP_Peephole, MPM);
+    if (OptLevel > 1 && UseGVNAfterVectorization)
+      MPM.add(createGVNPass());           // Remove redundancies
+    else
+      MPM.add(createEarlyCSEPass());      // Catch trivial redundancies
 
-      // BBVectorize may have significantly shortened a loop body; unroll again.
-      if (!DisableUnrollLoops)
-        MPM.add(createLoopUnrollPass());
-    }
+    // BBVectorize may have significantly shortened a loop body; unroll again.
+    if (!DisableUnrollLoops)
+      MPM.add(createLoopUnrollPass());
   }
 
   if (LoadCombine)
@@ -272,26 +262,6 @@ void PassManagerBuilder::populateModulePassManager(PassManagerBase &MPM) {
   // as function calls, so that we can only pass them when the vectorizer
   // changed the code.
   MPM.add(createInstructionCombiningPass());
-
-  if (RunSLPAfterLoopVectorization) {
-    if (SLPVectorize)
-      MPM.add(createSLPVectorizerPass());   // Vectorize parallel scalar chains.
-
-    if (BBVectorize) {
-      MPM.add(createBBVectorizePass());
-      MPM.add(createInstructionCombiningPass());
-      addExtensionsToPM(EP_Peephole, MPM);
-      if (OptLevel > 1 && UseGVNAfterVectorization)
-        MPM.add(createGVNPass());           // Remove redundancies
-      else
-        MPM.add(createEarlyCSEPass());      // Catch trivial redundancies
-
-      // BBVectorize may have significantly shortened a loop body; unroll again.
-      if (!DisableUnrollLoops)
-        MPM.add(createLoopUnrollPass());
-    }
-  }
-
   addExtensionsToPM(EP_Peephole, MPM);
   MPM.add(createCFGSimplificationPass());
 
@@ -313,10 +283,17 @@ void PassManagerBuilder::populateModulePassManager(PassManagerBase &MPM) {
 }
 
 void PassManagerBuilder::populateLTOPassManager(PassManagerBase &PM,
+                                                bool Internalize,
                                                 bool RunInliner,
                                                 bool DisableGVNLoadPRE) {
   // Provide AliasAnalysis services for optimizations.
   addInitialAliasAnalysisPasses(PM);
+
+  // Now that composite has been compiled, scan through the module, looking
+  // for a main function.  If main is defined, mark all other functions
+  // internal.
+  if (Internalize)
+    PM.add(createInternalizePass("main"));
 
   // Propagate constants at call sites into the functions they call.  This
   // opens opportunities for globalopt (and inlining) by substituting function
@@ -483,5 +460,5 @@ void LLVMPassManagerBuilderPopulateLTOPassManager(LLVMPassManagerBuilderRef PMB,
                                                   LLVMBool RunInliner) {
   PassManagerBuilder *Builder = unwrap(PMB);
   PassManagerBase *LPM = unwrap(PM);
-  Builder->populateLTOPassManager(*LPM, RunInliner != 0, false);
+  Builder->populateLTOPassManager(*LPM, Internalize != 0, RunInliner != 0);
 }

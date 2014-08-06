@@ -42,9 +42,9 @@ PPCMCAsmInfoDarwin::PPCMCAsmInfoDarwin(bool is64Bit, const Triple& T) {
   UseIntegratedAssembler = true;
 }
 
-void PPCELFMCAsmInfo::anchor() { }
+void PPCLinuxMCAsmInfo::anchor() { }
 
-PPCELFMCAsmInfo::PPCELFMCAsmInfo(bool is64Bit, const Triple& T) {
+PPCLinuxMCAsmInfo::PPCLinuxMCAsmInfo(bool is64Bit, const Triple& T) {
   if (is64Bit) {
     PointerSize = CalleeSaveStackSlotSize = 8;
   }
@@ -73,7 +73,6 @@ PPCELFMCAsmInfo::PPCELFMCAsmInfo(bool is64Bit, const Triple& T) {
   ZeroDirective = "\t.space\t";
   Data64bitsDirective = is64Bit ? "\t.quad\t" : nullptr;
   AssemblerDialect = 1;           // New-Style mnemonics.
-  LCOMMDirectiveAlignmentType = LCOMM::ByteAlignment;
 
   if (T.getOS() == llvm::Triple::FreeBSD ||
       (T.getOS() == llvm::Triple::NetBSD && !is64Bit) ||

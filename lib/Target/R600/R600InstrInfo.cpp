@@ -656,8 +656,7 @@ R600InstrInfo::fitsConstReadLimitations(const std::vector<MachineInstr *> &MIs)
 
 DFAPacketizer *R600InstrInfo::CreateTargetScheduleState(const TargetMachine *TM,
     const ScheduleDAG *DAG) const {
-  const InstrItineraryData *II =
-      TM->getSubtargetImpl()->getInstrItineraryData();
+  const InstrItineraryData *II = TM->getInstrItineraryData();
   return TM->getSubtarget<AMDGPUSubtarget>().createDFAPacketizer(II);
 }
 
@@ -1083,8 +1082,9 @@ bool R600InstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
 
 void  R600InstrInfo::reserveIndirectRegisters(BitVector &Reserved,
                                              const MachineFunction &MF) const {
-  const AMDGPUFrameLowering *TFL = static_cast<const AMDGPUFrameLowering *>(
-      MF.getSubtarget().getFrameLowering());
+  const AMDGPUFrameLowering *TFL =
+    static_cast<const AMDGPUFrameLowering*>(
+    MF.getTarget().getFrameLowering());
 
   unsigned StackWidth = TFL->getStackWidth(MF);
   int End = getIndirectIndexEnd(MF);

@@ -281,12 +281,12 @@ namespace llvm {
       /// Size - The maximum size of the dereferences of the
       /// pointer. May be UnknownSize if the sizes are unknown.
       uint64_t Size;
-      /// AATags - The AA tags associated with dereferences of the
-      /// pointer. The members may be null if there are no tags or
-      /// conflicting tags.
-      AAMDNodes AATags;
+      /// TBAATag - The TBAA tag associated with dereferences of the
+      /// pointer. May be null if there are no tags or conflicting tags.
+      const MDNode *TBAATag;
 
-      NonLocalPointerInfo() : Size(AliasAnalysis::UnknownSize) {}
+      NonLocalPointerInfo()
+        : Size(AliasAnalysis::UnknownSize), TBAATag(nullptr) {}
     };
 
     /// CachedNonLocalPointerInfo - This map stores the cached results of doing

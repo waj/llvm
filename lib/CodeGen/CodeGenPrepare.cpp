@@ -168,8 +168,7 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
   PromotedInsts.clear();
 
   ModifiedDT = false;
-  if (TM)
-    TLI = TM->getSubtargetImpl()->getTargetLowering();
+  if (TM) TLI = TM->getTargetLowering();
   TLInfo = &getAnalysis<TargetLibraryInfo>();
   DominatorTreeWrapperPass *DTWP =
       getAnalysisIfAvailable<DominatorTreeWrapperPass>();
@@ -663,13 +662,10 @@ SinkShiftAndTruncate(BinaryOperator *ShiftI, Instruction *User, ConstantInt *CI,
     if (!ISDOpcode)
       continue;
 
-    // If the use is actually a legal node, there will not be an
-    // implicit truncate.
-    // FIXME: always querying the result type is just an
-    // approximation; some nodes' legality is determined by the
-    // operand or other means. There's no good way to find out though.
+    // If the use is actually a legal node, there will not be an implicit
+    // truncate.
     if (TLI.isOperationLegalOrCustom(ISDOpcode,
-                                     EVT::getEVT(TruncUser->getType(), true)))
+                                     EVT::getEVT(TruncUser->getType())))
       continue;
 
     // Don't bother for PHI nodes.

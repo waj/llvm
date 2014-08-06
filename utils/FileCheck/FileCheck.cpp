@@ -631,7 +631,7 @@ struct CheckString {
 ///
 /// \param PreserveHorizontal Don't squash consecutive horizontal whitespace
 /// characters to a single space.
-static MemoryBuffer *CanonicalizeInputFile(std::unique_ptr<MemoryBuffer> MB,
+static MemoryBuffer *CanonicalizeInputFile(MemoryBuffer *MB,
                                            bool PreserveHorizontal) {
   SmallString<128> NewFile;
   NewFile.reserve(MB->getBufferSize());
@@ -657,8 +657,12 @@ static MemoryBuffer *CanonicalizeInputFile(std::unique_ptr<MemoryBuffer> MB,
       ++Ptr;
   }
 
-  return MemoryBuffer::getMemBufferCopy(NewFile.str(),
-                                        MB->getBufferIdentifier());
+  // Free the old buffer and return a new one.
+  MemoryBuffer *MB2 =
+    MemoryBuffer::getMemBufferCopy(NewFile.str(), MB->getBufferIdentifier());
+
+  delete MB;
+  return MB2;
 }
 
 static bool IsPartOfWord(char c) {
@@ -833,7 +837,7 @@ static bool ReadCheckFile(SourceMgr &SM,
 
   // If we want to canonicalize whitespace, strip excess whitespace from the
   // buffer containing the CHECK lines. Remove DOS style line endings.
-  MemoryBuffer *F = CanonicalizeInputFile(std::move(FileOrErr.get()),
+  MemoryBuffer *F = CanonicalizeInputFile(FileOrErr.get().release(),
                                           NoCanonicalizeWhiteSpace);
 
   SM.AddNewSourceBuffer(F, SMLoc());
@@ -1208,10 +1212,6 @@ static bool ValidateCheckPrefixes() {
        I != E; ++I) {
     StringRef Prefix(*I);
 
-    // Reject empty prefixes.
-    if (Prefix == "")
-      return false;
-
     if (!PrefixSet.insert(Prefix))
       return false;
 
@@ -1258,7 +1258,7 @@ int main(int argc, char **argv) {
            << "': " << EC.message() << '\n';
     return 2;
   }
-  std::unique_ptr<MemoryBuffer> &File = FileOrErr.get();
+  std::unique_ptr<MemoryBuffer> File = std::move(FileOrErr.get());
 
   if (File->getBufferSize() == 0) {
     errs() << "FileCheck error: '" << InputFilename << "' is empty.\n";
@@ -1268,7 +1268,7 @@ int main(int argc, char **argv) {
   // Remove duplicate spaces in the input file if requested.
   // Remove DOS style line endings.
   MemoryBuffer *F =
-    CanonicalizeInputFile(std::move(File), NoCanonicalizeWhiteSpace);
+    CanonicalizeInputFile(File.release(), NoCanonicalizeWhiteSpace);
 
   SM.AddNewSourceBuffer(F, SMLoc());
 

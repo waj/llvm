@@ -14,7 +14,6 @@
 #include "llvm/ExecutionEngine/RuntimeDyld.h"
 #include "JITRegistrar.h"
 #include "ObjectImageCommon.h"
-#include "RuntimeDyldCheckerImpl.h"
 #include "RuntimeDyldELF.h"
 #include "RuntimeDyldImpl.h"
 #include "RuntimeDyldMachO.h"
@@ -205,11 +204,6 @@ ObjectImage *RuntimeDyldImpl::loadObject(ObjectImage *InputObject) {
     for (; I != E;)
       I = processRelocationRef(SectionID, I, *Obj, LocalSections, LocalSymbols,
                                Stubs);
-
-    // If there is an attached checker, notify it about the stubs for this
-    // section so that they can be verified.
-    if (Checker)
-      Checker->registerStubMap(Obj->getImageName(), SectionID, Stubs);
   }
 
   // Give the subclasses a chance to tie-up any loose ends.
@@ -525,7 +519,8 @@ void RuntimeDyldImpl::addRelocationForSymbol(const RelocationEntry &RE,
 
 uint8_t *RuntimeDyldImpl::createStubFunction(uint8_t *Addr,
                                              unsigned AbiVariant) {
-  if (Arch == Triple::aarch64 || Arch == Triple::aarch64_be) {
+  if (Arch == Triple::aarch64 || Arch == Triple::aarch64_be ||
+      Arch == Triple::arm64 || Arch == Triple::arm64_be) {
     // This stub has to be able to access the full address space,
     // since symbol lookup won't necessarily find a handy, in-range,
     // PLT stub for functions which could be anywhere.
@@ -700,26 +695,22 @@ RuntimeDyld::RuntimeDyld(RTDyldMemoryManager *mm) {
   Dyld = nullptr;
   MM = mm;
   ProcessAllSections = false;
-  Checker = nullptr;
 }
 
 RuntimeDyld::~RuntimeDyld() { delete Dyld; }
 
 static std::unique_ptr<RuntimeDyldELF>
-createRuntimeDyldELF(RTDyldMemoryManager *MM, bool ProcessAllSections,
-                     RuntimeDyldCheckerImpl *Checker) {
+createRuntimeDyldELF(RTDyldMemoryManager *MM, bool ProcessAllSections) {
   std::unique_ptr<RuntimeDyldELF> Dyld(new RuntimeDyldELF(MM));
   Dyld->setProcessAllSections(ProcessAllSections);
-  Dyld->setRuntimeDyldChecker(Checker);
   return Dyld;
 }
 
 static std::unique_ptr<RuntimeDyldMachO>
 createRuntimeDyldMachO(Triple::ArchType Arch, RTDyldMemoryManager *MM,
-                       bool ProcessAllSections, RuntimeDyldCheckerImpl *Checker) {
+                       bool ProcessAllSections) {
   std::unique_ptr<RuntimeDyldMachO> Dyld(RuntimeDyldMachO::create(Arch, MM));
   Dyld->setProcessAllSections(ProcessAllSections);
-  Dyld->setRuntimeDyldChecker(Checker);
   return Dyld;
 }
 
@@ -731,13 +722,13 @@ ObjectImage *RuntimeDyld::loadObject(std::unique_ptr<ObjectFile> InputObject) {
   if (InputObject->isELF()) {
     InputImage.reset(RuntimeDyldELF::createObjectImageFromFile(std::move(InputObject)));
     if (!Dyld)
-      Dyld = createRuntimeDyldELF(MM, ProcessAllSections, Checker).release();
+      Dyld = createRuntimeDyldELF(MM, ProcessAllSections).release();
   } else if (InputObject->isMachO()) {
     InputImage.reset(RuntimeDyldMachO::createObjectImageFromFile(std::move(InputObject)));
     if (!Dyld)
       Dyld = createRuntimeDyldMachO(
                            static_cast<Triple::ArchType>(InputImage->getArch()),
-                           MM, ProcessAllSections, Checker).release();
+                           MM, ProcessAllSections).release();
   } else
     report_fatal_error("Incompatible object format!");
 
@@ -759,7 +750,7 @@ ObjectImage *RuntimeDyld::loadObject(ObjectBuffer *InputBuffer) {
   case sys::fs::file_magic::elf_core:
     InputImage.reset(RuntimeDyldELF::createObjectImage(InputBuffer));
     if (!Dyld)
-      Dyld = createRuntimeDyldELF(MM, ProcessAllSections, Checker).release();
+      Dyld = createRuntimeDyldELF(MM, ProcessAllSections).release();
     break;
   case sys::fs::file_magic::macho_object:
   case sys::fs::file_magic::macho_executable:
@@ -775,7 +766,7 @@ ObjectImage *RuntimeDyld::loadObject(ObjectBuffer *InputBuffer) {
     if (!Dyld)
       Dyld = createRuntimeDyldMachO(
                            static_cast<Triple::ArchType>(InputImage->getArch()),
-                           MM, ProcessAllSections, Checker).release();
+                           MM, ProcessAllSections).release();
     break;
   case sys::fs::file_magic::unknown:
   case sys::fs::file_magic::bitcode:

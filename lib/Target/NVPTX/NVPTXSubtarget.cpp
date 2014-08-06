@@ -59,8 +59,7 @@ NVPTXSubtarget::NVPTXSubtarget(const std::string &TT, const std::string &CPU,
     : NVPTXGenSubtargetInfo(TT, CPU, FS), Is64Bit(is64Bit), PTXVersion(0),
       SmVersion(20), DL(computeDataLayout(is64Bit)),
       InstrInfo(initializeSubtargetDependencies(CPU, FS)),
-      TLInfo((const NVPTXTargetMachine &)TM), TSInfo(&DL),
-      FrameLowering(*this) {
+      TLInfo((NVPTXTargetMachine &)TM), TSInfo(&DL), FrameLowering(*this) {
 
   Triple T(TT);
 

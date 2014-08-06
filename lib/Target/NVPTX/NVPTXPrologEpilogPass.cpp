@@ -22,7 +22,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 
 using namespace llvm;
 
@@ -49,8 +48,8 @@ char NVPTXPrologEpilogPass::ID = 0;
 
 bool NVPTXPrologEpilogPass::runOnMachineFunction(MachineFunction &MF) {
   const TargetMachine &TM = MF.getTarget();
-  const TargetFrameLowering &TFI = *TM.getSubtargetImpl()->getFrameLowering();
-  const TargetRegisterInfo &TRI = *TM.getSubtargetImpl()->getRegisterInfo();
+  const TargetFrameLowering &TFI = *TM.getFrameLowering();
+  const TargetRegisterInfo &TRI = *TM.getRegisterInfo();
   bool Modified = false;
 
   calculateFrameObjectOffsets(MF);
@@ -109,8 +108,8 @@ AdjustStackOffset(MachineFrameInfo *MFI, int FrameIdx,
 
 void
 NVPTXPrologEpilogPass::calculateFrameObjectOffsets(MachineFunction &Fn) {
-  const TargetFrameLowering &TFI = *Fn.getSubtarget().getFrameLowering();
-  const TargetRegisterInfo *RegInfo = Fn.getSubtarget().getRegisterInfo();
+  const TargetFrameLowering &TFI = *Fn.getTarget().getFrameLowering();
+  const TargetRegisterInfo *RegInfo = Fn.getTarget().getRegisterInfo();
 
   bool StackGrowsDown =
     TFI.getStackGrowthDirection() == TargetFrameLowering::StackGrowsDown;

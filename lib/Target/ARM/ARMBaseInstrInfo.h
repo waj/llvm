@@ -18,7 +18,6 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/Support/CodeGen.h"
 #include "llvm/Target/TargetInstrInfo.h"
 
 #define GET_INSTRINFO_HEADER
@@ -34,10 +33,6 @@ class ARMBaseInstrInfo : public ARMGenInstrInfo {
 protected:
   // Can be only subclassed.
   explicit ARMBaseInstrInfo(const ARMSubtarget &STI);
-
-  void expandLoadStackGuardBase(MachineBasicBlock::iterator MI,
-                                unsigned LoadImmOpc, unsigned LoadOpc,
-                                Reloc::Model RM) const;
 
 public:
   // Return whether the target has an explicit NOP encoding.
@@ -290,9 +285,6 @@ private:
   /// verifyInstruction - Perform target specific instruction verification.
   bool verifyInstruction(const MachineInstr *MI,
                          StringRef &ErrInfo) const override;
-
-  virtual void expandLoadStackGuard(MachineBasicBlock::iterator MI,
-                                    Reloc::Model RM) const = 0;
 
 private:
   /// Modeling special VFP / NEON fp MLA / MLS hazards.

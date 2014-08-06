@@ -148,8 +148,7 @@ unsigned PPCCodeEmitter::get_crbitm_encoding(const MachineInstr &MI,
   assert((MI.getOpcode() == PPC::MTOCRF || MI.getOpcode() == PPC::MTOCRF8 ||
           MI.getOpcode() == PPC::MFOCRF || MI.getOpcode() == PPC::MFOCRF8) &&
          (MO.getReg() >= PPC::CR0 && MO.getReg() <= PPC::CR7));
-  return 0x80 >> TM.getSubtargetImpl()->getRegisterInfo()->getEncodingValue(
-                     MO.getReg());
+  return 0x80 >> TM.getRegisterInfo()->getEncodingValue(MO.getReg());
 }
 
 MachineRelocation PPCCodeEmitter::GetRelocation(const MachineOperand &MO, 
@@ -283,8 +282,7 @@ unsigned PPCCodeEmitter::getMachineOpValue(const MachineInstr &MI,
     assert((MI.getOpcode() != PPC::MTOCRF && MI.getOpcode() != PPC::MTOCRF8 &&
             MI.getOpcode() != PPC::MFOCRF && MI.getOpcode() != PPC::MFOCRF8) ||
            MO.getReg() < PPC::CR0 || MO.getReg() > PPC::CR7);
-    return TM.getSubtargetImpl()->getRegisterInfo()->getEncodingValue(
-        MO.getReg());
+    return TM.getRegisterInfo()->getEncodingValue(MO.getReg());
   }
   
   assert(MO.isImm() &&

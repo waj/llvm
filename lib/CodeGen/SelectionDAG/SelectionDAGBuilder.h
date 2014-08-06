@@ -397,8 +397,7 @@ private:
   class StackProtectorDescriptor {
   public:
     StackProtectorDescriptor() : ParentMBB(nullptr), SuccessMBB(nullptr),
-                                 FailureMBB(nullptr), Guard(nullptr),
-                                 GuardReg(0) { }
+                                 FailureMBB(nullptr), Guard(nullptr) { }
     ~StackProtectorDescriptor() { }
 
     /// Returns true if all fields of the stack protector descriptor are
@@ -456,9 +455,6 @@ private:
     MachineBasicBlock *getFailureMBB() { return FailureMBB; }
     const Value *getGuard() { return Guard; }
 
-    unsigned getGuardReg() const { return GuardReg; }
-    void setGuardReg(unsigned R) { GuardReg = R; }
-
   private:
     /// The basic block for which we are generating the stack protector.
     ///
@@ -480,9 +476,6 @@ private:
     /// The guard variable which we will compare against the stored value in the
     /// stack protector stack slot.
     const Value *Guard;
-
-    /// The virtual register holding the stack guard value.
-    unsigned GuardReg;
 
     /// Add a successor machine basic block to ParentMBB. If the successor mbb
     /// has not been created yet (i.e. if SuccMBB = 0), then the machine basic

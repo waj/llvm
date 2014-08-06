@@ -108,10 +108,6 @@ bool PartiallyInlineLibCalls::optimizeSQRT(CallInst *Call,
   if (Call->onlyReadsMemory())
     return false;
 
-  // The call must have the expected result type.
-  if (!Call->getType()->isFloatingPointTy())
-    return false;
-
   // Do the following transformation:
   //
   // (before)

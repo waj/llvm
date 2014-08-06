@@ -287,16 +287,16 @@ static void dumpInput(StringRef File) {
   }
 
   // Attempt to open the binary.
-  ErrorOr<std::unique_ptr<Binary>> BinaryOrErr = createBinary(File);
+  ErrorOr<Binary *> BinaryOrErr = createBinary(File);
   if (std::error_code EC = BinaryOrErr.getError()) {
     reportError(File, EC);
     return;
   }
-  Binary &Binary = *BinaryOrErr.get();
+  std::unique_ptr<Binary> Binary(BinaryOrErr.get());
 
-  if (Archive *Arc = dyn_cast<Archive>(&Binary))
+  if (Archive *Arc = dyn_cast<Archive>(Binary.get()))
     dumpArchive(Arc);
-  else if (ObjectFile *Obj = dyn_cast<ObjectFile>(&Binary))
+  else if (ObjectFile *Obj = dyn_cast<ObjectFile>(Binary.get()))
     dumpObject(Obj);
   else
     reportError(File, readobj_error::unrecognized_file_format);

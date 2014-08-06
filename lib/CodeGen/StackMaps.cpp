@@ -24,7 +24,6 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOpcodes.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <iterator>
 
 using namespace llvm;
@@ -84,8 +83,7 @@ StackMaps::parseOperand(MachineInstr::const_mop_iterator MOI,
     switch (MOI->getImm()) {
     default: llvm_unreachable("Unrecognized operand type.");
     case StackMaps::DirectMemRefOp: {
-      unsigned Size =
-          AP.TM.getSubtargetImpl()->getDataLayout()->getPointerSizeInBits();
+      unsigned Size = AP.TM.getDataLayout()->getPointerSizeInBits();
       assert((Size % 8) == 0 && "Need pointer size in bytes.");
       Size /= 8;
       unsigned Reg = (++MOI)->getReg();
@@ -124,8 +122,7 @@ StackMaps::parseOperand(MachineInstr::const_mop_iterator MOI,
     assert(TargetRegisterInfo::isPhysicalRegister(MOI->getReg()) &&
            "Virtreg operands should have been rewritten before now.");
     const TargetRegisterClass *RC =
-        AP.TM.getSubtargetImpl()->getRegisterInfo()->getMinimalPhysRegClass(
-            MOI->getReg());
+      AP.TM.getRegisterInfo()->getMinimalPhysRegClass(MOI->getReg());
     assert(!MOI->getSubReg() && "Physical subreg still around.");
     Locs.push_back(
       Location(Location::Register, RC->getSize(), MOI->getReg(), 0));
@@ -161,7 +158,7 @@ StackMaps::createLiveOutReg(unsigned Reg, const TargetRegisterInfo *TRI) const {
 StackMaps::LiveOutVec
 StackMaps::parseRegisterLiveOutMask(const uint32_t *Mask) const {
   assert(Mask && "No register mask specified");
-  const TargetRegisterInfo *TRI = AP.TM.getSubtargetImpl()->getRegisterInfo();
+  const TargetRegisterInfo *TRI = AP.TM.getRegisterInfo();
   LiveOutVec LiveOuts;
 
   // Create a LiveOutReg for each bit that is set in the register mask.
@@ -239,11 +236,8 @@ void StackMaps::recordStackMapOpers(const MachineInstr &MI, uint64_t ID,
 
   // Record the stack size of the current function.
   const MachineFrameInfo *MFI = AP.MF->getFrameInfo();
-  const TargetRegisterInfo *RegInfo = AP.MF->getSubtarget().getRegisterInfo();
-  const bool DynamicFrameSize = MFI->hasVarSizedObjects() ||
-    RegInfo->needsStackRealignment(*(AP.MF));
   FnStackSize[AP.CurrentFnSym] =
-    DynamicFrameSize ? UINT64_MAX : MFI->getStackSize();
+    MFI->hasVarSizedObjects() ? UINT64_MAX : MFI->getStackSize();
 }
 
 void StackMaps::recordStackMap(const MachineInstr &MI) {
@@ -491,7 +485,7 @@ void StackMaps::serializeToStackMapSection() {
 
   MCContext &OutContext = AP.OutStreamer.getContext();
   MCStreamer &OS = AP.OutStreamer;
-  const TargetRegisterInfo *TRI = AP.TM.getSubtargetImpl()->getRegisterInfo();
+  const TargetRegisterInfo *TRI = AP.TM.getRegisterInfo();
 
   // Create the section.
   const MCSection *StackMapSection =

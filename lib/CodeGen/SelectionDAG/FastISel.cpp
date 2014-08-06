@@ -65,7 +65,6 @@
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "isel"
@@ -770,7 +769,7 @@ bool FastISel::SelectPatchpoint(const CallInst *I) {
 
   // Assume that the callee is a constant address or null pointer.
   // FIXME: handle function symbols in the future.
-  uint64_t CalleeAddr;
+  unsigned CalleeAddr;
   if (const auto *C = dyn_cast<IntToPtrInst>(Callee))
     CalleeAddr = cast<ConstantInt>(C->getOperand(0))->getZExtValue();
   else if (const auto *C = dyn_cast<ConstantExpr>(Callee)) {
@@ -1589,12 +1588,18 @@ FastISel::SelectOperator(const User *I, unsigned Opcode) {
 
 FastISel::FastISel(FunctionLoweringInfo &funcInfo,
                    const TargetLibraryInfo *libInfo)
-    : FuncInfo(funcInfo), MF(funcInfo.MF), MRI(FuncInfo.MF->getRegInfo()),
-      MFI(*FuncInfo.MF->getFrameInfo()), MCP(*FuncInfo.MF->getConstantPool()),
-      TM(FuncInfo.MF->getTarget()), DL(*TM.getSubtargetImpl()->getDataLayout()),
-      TII(*TM.getSubtargetImpl()->getInstrInfo()),
-      TLI(*TM.getSubtargetImpl()->getTargetLowering()),
-      TRI(*TM.getSubtargetImpl()->getRegisterInfo()), LibInfo(libInfo) {}
+  : FuncInfo(funcInfo),
+    MF(funcInfo.MF),
+    MRI(FuncInfo.MF->getRegInfo()),
+    MFI(*FuncInfo.MF->getFrameInfo()),
+    MCP(*FuncInfo.MF->getConstantPool()),
+    TM(FuncInfo.MF->getTarget()),
+    DL(*TM.getDataLayout()),
+    TII(*TM.getInstrInfo()),
+    TLI(*TM.getTargetLowering()),
+    TRI(*TM.getRegisterInfo()),
+    LibInfo(libInfo) {
+}
 
 FastISel::~FastISel() {}
 
@@ -2153,16 +2158,13 @@ FastISel::createMachineMemOperandFor(const Instruction *I) const {
 
   bool IsNonTemporal = I->getMetadata("nontemporal") != nullptr;
   bool IsInvariant = I->getMetadata("invariant.load") != nullptr;
+  const MDNode *TBAAInfo = I->getMetadata(LLVMContext::MD_tbaa);
   const MDNode *Ranges = I->getMetadata(LLVMContext::MD_range);
-
-  AAMDNodes AAInfo;
-  I->getAAMetadata(AAInfo);
 
   if (Alignment == 0)  // Ensure that codegen never sees alignment 0.
     Alignment = DL.getABITypeAlignment(ValTy);
 
-  unsigned Size =
-      TM.getSubtargetImpl()->getDataLayout()->getTypeStoreSize(ValTy);
+  unsigned Size = TM.getDataLayout()->getTypeStoreSize(ValTy);
 
   if (IsVolatile)
     Flags |= MachineMemOperand::MOVolatile;
@@ -2172,5 +2174,5 @@ FastISel::createMachineMemOperandFor(const Instruction *I) const {
     Flags |= MachineMemOperand::MOInvariant;
 
   return FuncInfo.MF->getMachineMemOperand(MachinePointerInfo(Ptr), Flags, Size,
-                                           Alignment, AAInfo, Ranges);
+                                           Alignment, TBAAInfo, Ranges);
 }

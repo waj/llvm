@@ -250,7 +250,7 @@ bool VZeroUpperInserter::runOnMachineFunction(MachineFunction &MF) {
   const X86Subtarget &ST = MF.getTarget().getSubtarget<X86Subtarget>();
   if (!ST.hasAVX() || ST.hasAVX512())
     return false;
-  TII = MF.getSubtarget().getInstrInfo();
+  TII = MF.getTarget().getInstrInfo();
   MachineRegisterInfo &MRI = MF.getRegInfo();
   EverMadeChange = false;
 

@@ -15,12 +15,12 @@
 #include "AArch64Subtarget.h"
 #include "MCTargetDesc/AArch64AddressingModes.h"
 #include "Utils/AArch64BaseInfo.h"
-#include "llvm/MC/MCFixedLenDisassembler.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCFixedLenDisassembler.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MemoryObject.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
 
@@ -243,9 +243,13 @@ extern "C" void LLVMInitializeAArch64Disassembler() {
   TargetRegistry::RegisterMCSymbolizer(TheAArch64beTarget,
                                        createAArch64ExternalSymbolizer);
 
-  TargetRegistry::RegisterMCDisassembler(TheARM64Target,
+  TargetRegistry::RegisterMCDisassembler(TheARM64leTarget,
                                          createAArch64Disassembler);
-  TargetRegistry::RegisterMCSymbolizer(TheARM64Target,
+  TargetRegistry::RegisterMCDisassembler(TheARM64beTarget,
+                                         createAArch64Disassembler);
+  TargetRegistry::RegisterMCSymbolizer(TheARM64leTarget,
+                                       createAArch64ExternalSymbolizer);
+  TargetRegistry::RegisterMCSymbolizer(TheARM64beTarget,
                                        createAArch64ExternalSymbolizer);
 }
 

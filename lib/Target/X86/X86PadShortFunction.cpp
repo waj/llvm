@@ -105,7 +105,7 @@ bool PadShortFunc::runOnMachineFunction(MachineFunction &MF) {
   if (!TM->getSubtarget<X86Subtarget>().padShortFunctions())
     return false;
 
-  TII = TM->getSubtargetImpl()->getInstrInfo();
+  TII = TM->getInstrInfo();
 
   // Search through basic blocks and mark the ones that have early returns
   ReturnBBs.clear();
@@ -195,8 +195,7 @@ bool PadShortFunc::cyclesUntilReturn(MachineBasicBlock *MBB,
       return true;
     }
 
-    CyclesToEnd += TII->getInstrLatency(
-        TM->getSubtargetImpl()->getInstrItineraryData(), MI);
+    CyclesToEnd += TII->getInstrLatency(TM->getInstrItineraryData(), MI);
   }
 
   VisitedBBs[MBB] = VisitedBBInfo(false, CyclesToEnd);

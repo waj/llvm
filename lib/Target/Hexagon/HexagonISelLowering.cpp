@@ -51,9 +51,9 @@ class HexagonCCState : public CCState {
 
 public:
   HexagonCCState(CallingConv::ID CC, bool isVarArg, MachineFunction &MF,
-                 SmallVectorImpl<CCValAssign> &locs, LLVMContext &C,
-                 int NumNamedVarArgParams)
-      : CCState(CC, isVarArg, MF, locs, C),
+                 const TargetMachine &TM, SmallVectorImpl<CCValAssign> &locs,
+                 LLVMContext &C, int NumNamedVarArgParams)
+      : CCState(CC, isVarArg, MF, TM, locs, C),
         NumNamedVarArgParams(NumNamedVarArgParams) {}
 
   int getNumNamedVarArgParams() const { return NumNamedVarArgParams; }
@@ -322,8 +322,8 @@ HexagonTargetLowering::LowerReturn(SDValue Chain,
   SmallVector<CCValAssign, 16> RVLocs;
 
   // CCState - Info about the registers and stack slot.
-  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), RVLocs,
-                 *DAG.getContext());
+  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
+                 getTargetMachine(), RVLocs, *DAG.getContext());
 
   // Analyze return values of ISD::RET
   CCInfo.AnalyzeReturn(Outs, RetCC_Hexagon);
@@ -372,8 +372,8 @@ HexagonTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
   // Assign locations to each value returned by this call.
   SmallVector<CCValAssign, 16> RVLocs;
 
-  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), RVLocs,
-                 *DAG.getContext());
+  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
+                 getTargetMachine(), RVLocs, *DAG.getContext());
 
   CCInfo.AnalyzeCallResult(Ins, RetCC_Hexagon);
 
@@ -427,8 +427,9 @@ HexagonTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
-  HexagonCCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
-                        *DAG.getContext(), NumNamedVarArgParams);
+  HexagonCCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
+                        getTargetMachine(), ArgLocs, *DAG.getContext(),
+                        NumNamedVarArgParams);
 
   if (NumNamedVarArgParams > 0)
     CCInfo.AnalyzeCallOperands(Outs, CC_Hexagon_VarArg);
@@ -463,7 +464,7 @@ HexagonTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   SmallVector<SDValue, 8> MemOpChains;
 
   const HexagonRegisterInfo *QRI = static_cast<const HexagonRegisterInfo *>(
-      DAG.getSubtarget().getRegisterInfo());
+      DAG.getTarget().getRegisterInfo());
   SDValue StackPtr =
       DAG.getCopyFromReg(Chain, dl, QRI->getStackRegister(), getPointerTy());
 
@@ -722,7 +723,7 @@ SDValue HexagonTargetLowering::LowerINLINEASM(SDValue Op,
               // Check it to be lr
               const HexagonRegisterInfo *QRI =
                   static_cast<const HexagonRegisterInfo *>(
-                      DAG.getSubtarget().getRegisterInfo());
+                      DAG.getTarget().getRegisterInfo());
               if (Reg == QRI->getRARegister()) {
                 FuncInfo->setHasClobberLR(true);
                 break;
@@ -816,7 +817,7 @@ HexagonTargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
   // The Sub result contains the new stack start address, so it
   // must be placed in the stack pointer register.
   const HexagonRegisterInfo *QRI = static_cast<const HexagonRegisterInfo *>(
-      DAG.getSubtarget().getRegisterInfo());
+      DAG.getTarget().getRegisterInfo());
   SDValue CopyChain = DAG.getCopyToReg(Chain, dl, QRI->getStackRegister(), Sub);
 
   SDValue Ops[2] = { ArgAdjust, CopyChain };
@@ -842,8 +843,8 @@ const {
 
   // Assign locations to all of the incoming arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
-  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
-                 *DAG.getContext());
+  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
+                 getTargetMachine(), ArgLocs, *DAG.getContext());
 
   CCInfo.AnalyzeFormalArguments(Ins, CC_Hexagon);
 
@@ -963,7 +964,7 @@ HexagonTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG) const {
 
 SDValue
 HexagonTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const {
-  const TargetRegisterInfo *TRI = DAG.getSubtarget().getRegisterInfo();
+  const TargetRegisterInfo *TRI = DAG.getTarget().getRegisterInfo();
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   MFI->setReturnAddressIsTaken(true);
@@ -989,8 +990,8 @@ HexagonTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const {
 
 SDValue
 HexagonTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
-  const HexagonRegisterInfo *TRI = static_cast<const HexagonRegisterInfo *>(
-      DAG.getSubtarget().getRegisterInfo());
+  const HexagonRegisterInfo *TRI =
+      static_cast<const HexagonRegisterInfo *>(DAG.getTarget().getRegisterInfo());
   MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
   MFI->setFrameAddressIsTaken(true);
 
@@ -1452,8 +1453,8 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &targetmachine)
   setMinFunctionAlignment(2);
 
   // Needed for DYNAMIC_STACKALLOC expansion.
-  const HexagonRegisterInfo *QRI = static_cast<const HexagonRegisterInfo *>(
-      TM.getSubtargetImpl()->getRegisterInfo());
+  const HexagonRegisterInfo *QRI =
+      static_cast<const HexagonRegisterInfo *>(TM.getRegisterInfo());
   setStackPointerRegisterToSaveRestore(QRI->getStackRegister());
   setSchedulingPreference(Sched::VLIW);
 }

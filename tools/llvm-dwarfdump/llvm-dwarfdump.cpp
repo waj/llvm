@@ -74,18 +74,17 @@ static void DumpInput(const StringRef &Filename) {
     return;
   }
 
-  ErrorOr<std::unique_ptr<ObjectFile>> ObjOrErr =
-      ObjectFile::createObjectFile(Buff.get());
+  ErrorOr<ObjectFile *> ObjOrErr(ObjectFile::createObjectFile(Buff.get()));
   if (std::error_code EC = ObjOrErr.getError()) {
     errs() << Filename << ": " << EC.message() << '\n';
     return;
   }
-  ObjectFile &Obj = *ObjOrErr.get();
+  std::unique_ptr<ObjectFile> Obj(ObjOrErr.get());
 
-  std::unique_ptr<DIContext> DICtx(DIContext::getDWARFContext(Obj));
+  std::unique_ptr<DIContext> DICtx(DIContext::getDWARFContext(Obj.get()));
 
   outs() << Filename
-         << ":\tfile format " << Obj.getFileFormatName() << "\n\n";
+         << ":\tfile format " << Obj->getFileFormatName() << "\n\n";
   // Dump the complete DWARF structure.
   DICtx->dump(outs(), DumpType);
 }

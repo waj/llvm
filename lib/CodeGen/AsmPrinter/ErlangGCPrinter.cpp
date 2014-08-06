@@ -28,7 +28,6 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 
 using namespace llvm;
 
@@ -51,8 +50,7 @@ void ErlangGCPrinter::beginAssembly(AsmPrinter &AP) { }
 
 void ErlangGCPrinter::finishAssembly(AsmPrinter &AP) {
   MCStreamer &OS = AP.OutStreamer;
-  unsigned IntPtrSize =
-      AP.TM.getSubtargetImpl()->getDataLayout()->getPointerSize();
+  unsigned IntPtrSize = AP.TM.getDataLayout()->getPointerSize();
 
   // Put this in a custom .note section.
   AP.OutStreamer.SwitchSection(AP.getObjFileLowering().getContext()

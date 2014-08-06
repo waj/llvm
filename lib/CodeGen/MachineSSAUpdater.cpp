@@ -26,7 +26,6 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Transforms/Utils/SSAUpdaterImpl.h"
 using namespace llvm;
 
@@ -40,7 +39,7 @@ static AvailableValsTy &getAvailableVals(void *AV) {
 MachineSSAUpdater::MachineSSAUpdater(MachineFunction &MF,
                                      SmallVectorImpl<MachineInstr*> *NewPHI)
   : AV(nullptr), InsertedPHIs(NewPHI) {
-  TII = MF.getSubtarget().getInstrInfo();
+  TII = MF.getTarget().getInstrInfo();
   MRI = &MF.getRegInfo();
 }
 

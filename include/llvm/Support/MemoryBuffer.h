@@ -107,7 +107,7 @@ public:
                                         StringRef BufferName = "");
 
   /// getNewMemBuffer - Allocate a new MemoryBuffer of the specified size that
-  /// is completely initialized to zeros.  Note that the caller need not
+  /// is completely initialized to zeros.  Note that the caller should
   /// initialize the memory allocated by this method.  The memory is owned by
   /// the MemoryBuffer object.
   static MemoryBuffer *getNewMemBuffer(size_t Size, StringRef BufferName = "");

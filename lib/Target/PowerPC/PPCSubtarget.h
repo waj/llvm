@@ -97,9 +97,6 @@ protected:
   bool HasPOPCNTD;
   bool HasLDBRX;
   bool IsBookE;
-  bool IsE500;
-  bool IsPPC4xx;
-  bool IsPPC6xx;
   bool DeprecatedMFTB;
   bool DeprecatedDST;
   bool HasLazyResolverStubs;
@@ -111,12 +108,6 @@ protected:
 
   /// OptLevel - What default optimization level we're emitting code for.
   CodeGenOpt::Level OptLevel;
-
-  enum {
-    PPC_ABI_UNKNOWN,
-    PPC_ABI_ELFv1,
-    PPC_ABI_ELFv2
-  } TargetABI;
 
   PPCFrameLowering FrameLowering;
   const DataLayout DL;
@@ -152,25 +143,14 @@ public:
 
   /// getInstrItins - Return the instruction itineraries based on subtarget
   /// selection.
-  const InstrItineraryData *getInstrItineraryData() const override {
-    return &InstrItins;
-  }
+  const InstrItineraryData &getInstrItineraryData() const { return InstrItins; }
 
-  const PPCFrameLowering *getFrameLowering() const override {
-    return &FrameLowering;
-  }
-  const DataLayout *getDataLayout() const override { return &DL; }
-  const PPCInstrInfo *getInstrInfo() const override { return &InstrInfo; }
-  PPCJITInfo *getJITInfo() override { return &JITInfo; }
-  const PPCTargetLowering *getTargetLowering() const override {
-    return &TLInfo;
-  }
-  const PPCSelectionDAGInfo *getSelectionDAGInfo() const override {
-    return &TSInfo;
-  }
-  const PPCRegisterInfo *getRegisterInfo() const override {
-    return &getInstrInfo()->getRegisterInfo();
-  }
+  const PPCFrameLowering *getFrameLowering() const { return &FrameLowering; }
+  const DataLayout *getDataLayout() const { return &DL; }
+  const PPCInstrInfo *getInstrInfo() const { return &InstrInfo; }
+  PPCJITInfo *getJITInfo() { return &JITInfo; }
+  const PPCTargetLowering *getTargetLowering() const { return &TLInfo; }
+  const PPCSelectionDAGInfo *getSelectionDAGInfo() const { return &TSInfo; }
 
   /// initializeSubtargetDependencies - Initializes using a CPU and feature string
   /// so that we can use initializer lists for subtarget initialization.
@@ -232,9 +212,6 @@ public:
   bool hasPOPCNTD() const { return HasPOPCNTD; }
   bool hasLDBRX() const { return HasLDBRX; }
   bool isBookE() const { return IsBookE; }
-  bool isPPC4xx() const { return IsPPC4xx; }
-  bool isPPC6xx() const { return IsPPC6xx; }
-  bool isE500() const { return IsE500; }
   bool isDeprecatedMFTB() const { return DeprecatedMFTB; }
   bool isDeprecatedDST() const { return DeprecatedDST; }
 
@@ -250,7 +227,9 @@ public:
 
   bool isDarwinABI() const { return isDarwin(); }
   bool isSVR4ABI() const { return !isDarwin(); }
-  bool isELFv2ABI() const { return TargetABI == PPC_ABI_ELFv2; }
+  /// FIXME: Should use a command-line option.
+  bool isELFv2ABI() const { return isPPC64() && isSVR4ABI() &&
+                                   isLittleEndian(); }
 
   bool enableEarlyIfConversion() const override { return hasISEL(); }
 

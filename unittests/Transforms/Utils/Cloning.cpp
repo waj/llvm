@@ -232,7 +232,7 @@ protected:
 
     // Function DI
     DIFile File = DBuilder.createFile("filename.c", "/file/dir/");
-    DITypeArray ParamTypes = DBuilder.getOrCreateTypeArray(None);
+    DIArray ParamTypes = DBuilder.getOrCreateArray(ArrayRef<Value*>());
     DICompositeType FuncType = DBuilder.createSubroutineType(File, ParamTypes);
     DICompileUnit CU = DBuilder.createCompileUnit(dwarf::DW_LANG_C99,
         "filename.c", "/file/dir", "CloneFunc", false, "", 0);

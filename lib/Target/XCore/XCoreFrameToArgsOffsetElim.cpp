@@ -13,7 +13,6 @@
 
 #include "XCore.h"
 #include "XCoreInstrInfo.h"
-#include "XCoreSubtarget.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -44,7 +43,7 @@ FunctionPass *llvm::createXCoreFrameToArgsOffsetEliminationPass() {
 
 bool XCoreFTAOElim::runOnMachineFunction(MachineFunction &MF) {
   const XCoreInstrInfo &TII =
-      *static_cast<const XCoreInstrInfo *>(MF.getSubtarget().getInstrInfo());
+          *static_cast<const XCoreInstrInfo*>(MF.getTarget().getInstrInfo());
   unsigned StackSize = MF.getFrameInfo()->getStackSize();
   for (MachineFunction::iterator MFI = MF.begin(), E = MF.end(); MFI != E;
        ++MFI) {

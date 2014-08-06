@@ -127,7 +127,7 @@ private:
   bool X86SelectFPTrunc(const Instruction *I);
 
   const X86InstrInfo *getInstrInfo() const {
-    return getTargetMachine()->getSubtargetImpl()->getInstrInfo();
+    return getTargetMachine()->getInstrInfo();
   }
   const X86TargetMachine *getTargetMachine() const {
     return static_cast<const X86TargetMachine *>(&TM);
@@ -993,7 +993,8 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
 
     // Analyze operands of the call, assigning locations to each operand.
     SmallVector<CCValAssign, 16> ValLocs;
-    CCState CCInfo(CC, F.isVarArg(), *FuncInfo.MF, ValLocs, I->getContext());
+    CCState CCInfo(CC, F.isVarArg(), *FuncInfo.MF, TM, ValLocs,
+                   I->getContext());
     CCInfo.AnalyzeReturn(Outs, RetCC_X86);
 
     const Value *RV = Ret->getOperand(0);
@@ -1016,7 +1017,7 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
 
     // The calling-convention tables for x87 returns don't tell
     // the whole story.
-    if (VA.getLocReg() == X86::FP0 || VA.getLocReg() == X86::FP1)
+    if (VA.getLocReg() == X86::ST0 || VA.getLocReg() == X86::ST1)
       return false;
 
     unsigned SrcReg = Reg + VA.getValNo();
@@ -2162,6 +2163,18 @@ bool X86FastISel::TryEmitSmallMemcpy(X86AddressMode DestAM,
   return true;
 }
 
+static bool isCommutativeIntrinsic(IntrinsicInst const *II) {
+  switch (II->getIntrinsicID()) {
+  case Intrinsic::sadd_with_overflow:
+  case Intrinsic::uadd_with_overflow:
+  case Intrinsic::smul_with_overflow:
+  case Intrinsic::umul_with_overflow:
+    return true;
+  default:
+    return false;
+  }
+}
+
 bool X86FastISel::FastLowerIntrinsicCall(const IntrinsicInst *II) {
   // FIXME: Handle more intrinsics.
   switch (II->getIntrinsicID()) {
@@ -2187,8 +2200,8 @@ bool X86FastISel::FastLowerIntrinsicCall(const IntrinsicInst *II) {
     MachineFrameInfo *MFI = FuncInfo.MF->getFrameInfo();
     MFI->setFrameAddressIsTaken(true);
 
-    const X86RegisterInfo *RegInfo = static_cast<const X86RegisterInfo *>(
-        TM.getSubtargetImpl()->getRegisterInfo());
+    const X86RegisterInfo *RegInfo =
+      static_cast<const X86RegisterInfo*>(TM.getRegisterInfo());
     unsigned FrameReg = RegInfo->getFrameRegister(*(FuncInfo.MF));
     assert(((FrameReg == X86::RBP && VT == MVT::i64) ||
             (FrameReg == X86::EBP && VT == MVT::i32)) &&
@@ -2729,7 +2742,8 @@ bool X86FastISel::FastLowerCall(CallLoweringInfo &CLI) {
 
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
-  CCState CCInfo(CC, IsVarArg, *FuncInfo.MF, ArgLocs, CLI.RetTy->getContext());
+  CCState CCInfo(CC, IsVarArg, *FuncInfo.MF, TM, ArgLocs,
+                 CLI.RetTy->getContext());
 
   // Allocate shadow area for Win64
   if (IsWin64)
@@ -2753,8 +2767,8 @@ bool X86FastISel::FastLowerCall(CallLoweringInfo &CLI) {
     .addImm(NumBytes);
 
   // Walk the register/memloc assignments, inserting copies/loads.
-  const X86RegisterInfo *RegInfo = static_cast<const X86RegisterInfo *>(
-      TM.getSubtargetImpl()->getRegisterInfo());
+  const X86RegisterInfo *RegInfo =
+    static_cast<const X86RegisterInfo *>(TM.getRegisterInfo());
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
     CCValAssign const &VA = ArgLocs[i];
     const Value *ArgVal = OutVals[VA.getValNo()];
@@ -2829,11 +2843,6 @@ bool X86FastISel::FastLowerCall(CallLoweringInfo &CLI) {
       OutRegs.push_back(VA.getLocReg());
     } else {
       assert(VA.isMemLoc());
-
-      // Don't emit stores for undef values.
-      if (isa<UndefValue>(ArgVal))
-        continue;
-
       unsigned LocMemOffset = VA.getLocMemOffset();
       X86AddressMode AM;
       AM.Base.Reg = RegInfo->getStackRegister();
@@ -2970,7 +2979,7 @@ bool X86FastISel::FastLowerCall(CallLoweringInfo &CLI) {
 
   // Now handle call return values.
   SmallVector<CCValAssign, 16> RVLocs;
-  CCState CCRetInfo(CC, IsVarArg, *FuncInfo.MF, RVLocs,
+  CCState CCRetInfo(CC, IsVarArg, *FuncInfo.MF, TM, RVLocs,
                     CLI.RetTy->getContext());
   CCRetInfo.AnalyzeCallResult(Ins, RetCC_X86);
 
@@ -2987,33 +2996,39 @@ bool X86FastISel::FastLowerCall(CallLoweringInfo &CLI) {
       report_fatal_error("SSE register return with SSE disabled");
     }
 
-    // If we prefer to use the value in xmm registers, copy it out as f80 and
-    // use a truncate to move it from fp stack reg to xmm reg.
-    if ((VA.getLocReg() == X86::FP0 || VA.getLocReg() == X86::FP1) &&
-        isScalarFPTypeInSSEReg(VA.getValVT())) {
-      CopyVT = MVT::f80;
-      CopyReg = createResultReg(&X86::RFP80RegClass);
-    }
+    // If this is a call to a function that returns an fp value on the floating
+    // point stack, we must guarantee the value is popped from the stack, so
+    // a COPY is not good enough - the copy instruction may be eliminated if the
+    // return value is not used. We use the FpPOP_RETVAL instruction instead.
+    if (VA.getLocReg() == X86::ST0 || VA.getLocReg() == X86::ST1) {
+      // If we prefer to use the value in xmm registers, copy it out as f80 and
+      // use a truncate to move it from fp stack reg to xmm reg.
+      if (isScalarFPTypeInSSEReg(VA.getValVT())) {
+        CopyVT = MVT::f80;
+        CopyReg = createResultReg(&X86::RFP80RegClass);
+      }
+      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+              TII.get(X86::FpPOP_RETVAL), CopyReg);
 
-    // Copy out the result.
-    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
-            TII.get(TargetOpcode::COPY), CopyReg).addReg(VA.getLocReg());
-    InRegs.push_back(VA.getLocReg());
-
-    // Round the f80 to the right size, which also moves it to the appropriate
-    // xmm register. This is accomplished by storing the f80 value in memory
-    // and then loading it back.
-    if (CopyVT != VA.getValVT()) {
-      EVT ResVT = VA.getValVT();
-      unsigned Opc = ResVT == MVT::f32 ? X86::ST_Fp80m32 : X86::ST_Fp80m64;
-      unsigned MemSize = ResVT.getSizeInBits()/8;
-      int FI = MFI.CreateStackObject(MemSize, MemSize, false);
-      addFrameReference(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
-                                TII.get(Opc)), FI)
-        .addReg(CopyReg);
-      Opc = ResVT == MVT::f32 ? X86::MOVSSrm : X86::MOVSDrm;
-      addFrameReference(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
-                                TII.get(Opc), ResultReg + i), FI);
+      // Round the f80 to the right size, which also moves it to the appropriate
+      // xmm register. This is accomplished by storing the f80 value in memory
+      // and then loading it back.
+      if (CopyVT != VA.getValVT()) {
+        EVT ResVT = VA.getValVT();
+        unsigned Opc = ResVT == MVT::f32 ? X86::ST_Fp80m32 : X86::ST_Fp80m64;
+        unsigned MemSize = ResVT.getSizeInBits()/8;
+        int FI = MFI.CreateStackObject(MemSize, MemSize, false);
+        addFrameReference(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+                                  TII.get(Opc)), FI)
+          .addReg(CopyReg);
+        Opc = ResVT == MVT::f32 ? X86::MOVSSrm : X86::MOVSDrm;
+        addFrameReference(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+                                  TII.get(Opc), ResultReg + i), FI);
+      }
+    } else {
+      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+              TII.get(TargetOpcode::COPY), CopyReg).addReg(VA.getLocReg());
+      InRegs.push_back(VA.getLocReg());
     }
   }
 

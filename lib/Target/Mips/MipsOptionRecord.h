@@ -20,7 +20,7 @@
 #ifndef MIPSOPTIONRECORD_H
 #define MIPSOPTIONRECORD_H
 
-#include "MCTargetDesc/MipsMCTargetDesc.h"
+#include "MipsMCTargetDesc.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCRegisterInfo.h"
 

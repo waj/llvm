@@ -500,7 +500,7 @@ void LiveVariables::UpdatePhysRegDefs(MachineInstr *MI,
 bool LiveVariables::runOnMachineFunction(MachineFunction &mf) {
   MF = &mf;
   MRI = &mf.getRegInfo();
-  TRI = MF->getSubtarget().getRegisterInfo();
+  TRI = MF->getTarget().getRegisterInfo();
 
   unsigned NumRegs = TRI->getNumRegs();
   PhysRegDef  = new MachineInstr*[NumRegs];

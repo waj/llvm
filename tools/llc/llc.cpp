@@ -41,7 +41,6 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <memory>
 using namespace llvm;
 
@@ -318,7 +317,7 @@ static int compileModule(char **argv, LLVMContext &Context) {
   PM.add(TLI);
 
   // Add the target data from the target machine, if it exists, or the module.
-  if (const DataLayout *DL = Target.getSubtargetImpl()->getDataLayout())
+  if (const DataLayout *DL = Target.getDataLayout())
     mod->setDataLayout(DL);
   PM.add(new DataLayoutPass(mod));
 

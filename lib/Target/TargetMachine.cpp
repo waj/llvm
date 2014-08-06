@@ -26,7 +26,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 //---------------------------------------------------------------------------
@@ -184,7 +183,7 @@ void TargetMachine::getNameWithPrefix(SmallVectorImpl<char> &Name,
   }
   SectionKind GVKind = TargetLoweringObjectFile::getKindForGlobal(GV, *this);
   const TargetLoweringObjectFile &TLOF =
-      getSubtargetImpl()->getTargetLowering()->getObjFileLowering();
+      getTargetLowering()->getObjFileLowering();
   const MCSection *TheSection = TLOF.SectionForGlobal(GV, GVKind, Mang, *this);
   bool CannotUsePrivateLabel = TLOF.isSectionAtomizableBySymbols(*TheSection);
   Mang.getNameWithPrefix(Name, GV, CannotUsePrivateLabel);
@@ -194,6 +193,6 @@ MCSymbol *TargetMachine::getSymbol(const GlobalValue *GV, Mangler &Mang) const {
   SmallString<60> NameStr;
   getNameWithPrefix(NameStr, GV, Mang);
   const TargetLoweringObjectFile &TLOF =
-      getSubtargetImpl()->getTargetLowering()->getObjFileLowering();
+      getTargetLowering()->getObjFileLowering();
   return TLOF.getContext().GetOrCreateSymbol(NameStr.str());
 }

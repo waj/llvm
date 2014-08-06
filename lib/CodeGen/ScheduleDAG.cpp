@@ -21,7 +21,6 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <climits>
 using namespace llvm;
 
@@ -36,9 +35,11 @@ static cl::opt<bool> StressSchedOpt(
 void SchedulingPriorityQueue::anchor() { }
 
 ScheduleDAG::ScheduleDAG(MachineFunction &mf)
-    : TM(mf.getTarget()), TII(TM.getSubtargetImpl()->getInstrInfo()),
-      TRI(TM.getSubtargetImpl()->getRegisterInfo()), MF(mf),
-      MRI(mf.getRegInfo()), EntrySU(), ExitSU() {
+  : TM(mf.getTarget()),
+    TII(TM.getInstrInfo()),
+    TRI(TM.getRegisterInfo()),
+    MF(mf), MRI(mf.getRegInfo()),
+    EntrySU(), ExitSU() {
 #ifndef NDEBUG
   StressSched = StressSchedOpt;
 #endif

@@ -48,7 +48,6 @@
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/ObjCARC.h"
@@ -300,7 +299,8 @@ bool LTOCodeGenerator::determineTarget(std::string &errMsg) {
       MCpu = "core2";
     else if (Triple.getArch() == llvm::Triple::x86)
       MCpu = "yonah";
-    else if (Triple.getArch() == llvm::Triple::aarch64)
+    else if (Triple.getArch() == llvm::Triple::arm64 ||
+             Triple.getArch() == llvm::Triple::aarch64)
       MCpu = "cyclone";
   }
 
@@ -391,13 +391,12 @@ void LTOCodeGenerator::applyScopeRestrictions() {
   passes.add(createDebugInfoVerifierPass());
 
   // mark which symbols can not be internalized
-  Mangler Mangler(TargetMach->getSubtargetImpl()->getDataLayout());
+  Mangler Mangler(TargetMach->getDataLayout());
   std::vector<const char*> MustPreserveList;
   SmallPtrSet<GlobalValue*, 8> AsmUsed;
   std::vector<StringRef> Libcalls;
   TargetLibraryInfo TLI(Triple(TargetMach->getTargetTriple()));
-  accumulateAndSortLibcalls(
-      Libcalls, TLI, TargetMach->getSubtargetImpl()->getTargetLowering());
+  accumulateAndSortLibcalls(Libcalls, TLI, TargetMach->getTargetLowering());
 
   for (Module::iterator f = mergedModule->begin(),
          e = mergedModule->end(); f != e; ++f)
@@ -463,7 +462,7 @@ bool LTOCodeGenerator::generateObjectFile(raw_ostream &out,
   passes.add(createDebugInfoVerifierPass());
 
   // Add an appropriate DataLayout instance for this module...
-  mergedModule->setDataLayout(TargetMach->getSubtargetImpl()->getDataLayout());
+  mergedModule->setDataLayout(TargetMach->getDataLayout());
   passes.add(new DataLayoutPass(mergedModule));
 
   // Add appropriate TargetLibraryInfo for this module.
@@ -475,8 +474,10 @@ bool LTOCodeGenerator::generateObjectFile(raw_ostream &out,
   // keeps only main if it exists and does nothing for libraries. Instead
   // we create the pass ourselves with the symbol list provided by the linker.
   if (!DisableOpt)
-    PassManagerBuilder().populateLTOPassManager(passes, !DisableInline,
-                                                DisableGVNLoadPRE);
+    PassManagerBuilder().populateLTOPassManager(passes,
+                                              /*Internalize=*/false,
+                                              !DisableInline,
+                                              DisableGVNLoadPRE);
 
   // Make sure everything is still good.
   passes.add(createVerifierPass());

@@ -1,5 +1,4 @@
 ; RUN: llvm-as < %s | llvm-dis | not grep ptrtoint
-; RUN: verify-uselistorder %s -preserve-bc-use-list-order
 ; All of these should be eliminable
 
 

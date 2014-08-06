@@ -184,13 +184,12 @@ Archive::Child::getAsBinary(LLVMContext *Context) const {
   return createBinary(std::move(*BuffOrErr), Context);
 }
 
-ErrorOr<std::unique_ptr<Archive>>
-Archive::create(std::unique_ptr<MemoryBuffer> Source) {
+ErrorOr<Archive *> Archive::create(std::unique_ptr<MemoryBuffer> Source) {
   std::error_code EC;
   std::unique_ptr<Archive> Ret(new Archive(std::move(Source), EC));
   if (EC)
     return EC;
-  return std::move(Ret);
+  return Ret.release();
 }
 
 Archive::Archive(std::unique_ptr<MemoryBuffer> Source, std::error_code &ec)

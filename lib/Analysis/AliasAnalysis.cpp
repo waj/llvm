@@ -252,45 +252,35 @@ AliasAnalysis::getModRefBehavior(const Function *F) {
 //===----------------------------------------------------------------------===//
 
 AliasAnalysis::Location AliasAnalysis::getLocation(const LoadInst *LI) {
-  AAMDNodes AATags;
-  LI->getAAMetadata(AATags);
-
   return Location(LI->getPointerOperand(),
-                  getTypeStoreSize(LI->getType()), AATags);
+                  getTypeStoreSize(LI->getType()),
+                  LI->getMetadata(LLVMContext::MD_tbaa));
 }
 
 AliasAnalysis::Location AliasAnalysis::getLocation(const StoreInst *SI) {
-  AAMDNodes AATags;
-  SI->getAAMetadata(AATags);
-
   return Location(SI->getPointerOperand(),
-                  getTypeStoreSize(SI->getValueOperand()->getType()), AATags);
+                  getTypeStoreSize(SI->getValueOperand()->getType()),
+                  SI->getMetadata(LLVMContext::MD_tbaa));
 }
 
 AliasAnalysis::Location AliasAnalysis::getLocation(const VAArgInst *VI) {
-  AAMDNodes AATags;
-  VI->getAAMetadata(AATags);
-
-  return Location(VI->getPointerOperand(), UnknownSize, AATags);
+  return Location(VI->getPointerOperand(),
+                  UnknownSize,
+                  VI->getMetadata(LLVMContext::MD_tbaa));
 }
 
 AliasAnalysis::Location
 AliasAnalysis::getLocation(const AtomicCmpXchgInst *CXI) {
-  AAMDNodes AATags;
-  CXI->getAAMetadata(AATags);
-
   return Location(CXI->getPointerOperand(),
                   getTypeStoreSize(CXI->getCompareOperand()->getType()),
-                  AATags);
+                  CXI->getMetadata(LLVMContext::MD_tbaa));
 }
 
 AliasAnalysis::Location
 AliasAnalysis::getLocation(const AtomicRMWInst *RMWI) {
-  AAMDNodes AATags;
-  RMWI->getAAMetadata(AATags);
-
   return Location(RMWI->getPointerOperand(),
-                  getTypeStoreSize(RMWI->getValOperand()->getType()), AATags);
+                  getTypeStoreSize(RMWI->getValOperand()->getType()),
+                  RMWI->getMetadata(LLVMContext::MD_tbaa));
 }
 
 AliasAnalysis::Location 
@@ -299,12 +289,11 @@ AliasAnalysis::getLocationForSource(const MemTransferInst *MTI) {
   if (ConstantInt *C = dyn_cast<ConstantInt>(MTI->getLength()))
     Size = C->getValue().getZExtValue();
 
-  // memcpy/memmove can have AA tags. For memcpy, they apply
+  // memcpy/memmove can have TBAA tags. For memcpy, they apply
   // to both the source and the destination.
-  AAMDNodes AATags;
-  MTI->getAAMetadata(AATags);
-  
-  return Location(MTI->getRawSource(), Size, AATags);
+  MDNode *TBAATag = MTI->getMetadata(LLVMContext::MD_tbaa);
+
+  return Location(MTI->getRawSource(), Size, TBAATag);
 }
 
 AliasAnalysis::Location 
@@ -313,12 +302,11 @@ AliasAnalysis::getLocationForDest(const MemIntrinsic *MTI) {
   if (ConstantInt *C = dyn_cast<ConstantInt>(MTI->getLength()))
     Size = C->getValue().getZExtValue();
 
-  // memcpy/memmove can have AA tags. For memcpy, they apply
+  // memcpy/memmove can have TBAA tags. For memcpy, they apply
   // to both the source and the destination.
-  AAMDNodes AATags;
-  MTI->getMetadata(AATags);
- 
-  return Location(MTI->getRawDest(), Size, AATags);
+  MDNode *TBAATag = MTI->getMetadata(LLVMContext::MD_tbaa);
+  
+  return Location(MTI->getRawDest(), Size, TBAATag);
 }
 
 

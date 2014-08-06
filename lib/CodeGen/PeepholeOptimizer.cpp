@@ -78,7 +78,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "peephole-opt"
@@ -278,8 +277,7 @@ optimizeExtInstr(MachineInstr *MI, MachineBasicBlock *MBB,
   // Ensure DstReg can get a register class that actually supports
   // sub-registers. Don't change the class until we commit.
   const TargetRegisterClass *DstRC = MRI->getRegClass(DstReg);
-  DstRC = TM->getSubtargetImpl()->getRegisterInfo()->getSubClassWithSubReg(
-      DstRC, SubIdx);
+  DstRC = TM->getRegisterInfo()->getSubClassWithSubReg(DstRC, SubIdx);
   if (!DstRC)
     return false;
 
@@ -288,9 +286,8 @@ optimizeExtInstr(MachineInstr *MI, MachineBasicBlock *MBB,
   // register.
   // If UseSrcSubIdx is Set, SubIdx also applies to SrcReg, and only uses of
   // SrcReg:SubIdx should be replaced.
-  bool UseSrcSubIdx =
-      TM->getSubtargetImpl()->getRegisterInfo()->getSubClassWithSubReg(
-          MRI->getRegClass(SrcReg), SubIdx) != nullptr;
+  bool UseSrcSubIdx = TM->getRegisterInfo()->
+    getSubClassWithSubReg(MRI->getRegClass(SrcReg), SubIdx) != nullptr;
 
   // The source has other uses. See if we can replace the other uses with use of
   // the result of the extension.
@@ -549,7 +546,7 @@ bool PeepholeOptimizer::optimizeCopyOrBitcast(MachineInstr *MI) {
   unsigned Src;
   unsigned SrcSubReg;
   bool ShouldRewrite = false;
-  const TargetRegisterInfo &TRI = *TM->getSubtargetImpl()->getRegisterInfo();
+  const TargetRegisterInfo &TRI = *TM->getRegisterInfo();
 
   // Follow the chain of copies until we reach the top of the use-def chain
   // or find a more suitable source.
@@ -677,7 +674,7 @@ bool PeepholeOptimizer::runOnMachineFunction(MachineFunction &MF) {
     return false;
 
   TM  = &MF.getTarget();
-  TII = TM->getSubtargetImpl()->getInstrInfo();
+  TII = TM->getInstrInfo();
   MRI = &MF.getRegInfo();
   DT  = Aggressive ? &getAnalysis<MachineDominatorTree>() : nullptr;
 

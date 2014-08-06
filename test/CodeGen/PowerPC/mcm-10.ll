@@ -22,4 +22,5 @@ entry:
 ; CHECK-NOT: extsw
 ; CHECK: stw {{[0-9]+}}, [[VAR]]@toc@l([[REG1]])
 ; CHECK: .type [[VAR]],@object
-; CHECK: .lcomm [[VAR]],4,4
+; CHECK: .local [[VAR]]
+; CHECK: .comm [[VAR]],4,4

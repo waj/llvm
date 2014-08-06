@@ -60,17 +60,10 @@ MDNode *MDBuilder::createRange(const APInt &Lo, const APInt &Hi) {
   return MDNode::get(Context, Range);
 }
 
-MDNode *MDBuilder::createAnonymousAARoot(StringRef Name, MDNode *Extra) {
+MDNode *MDBuilder::createAnonymousTBAARoot() {
   // To ensure uniqueness the root node is self-referential.
-  MDNode *Dummy = MDNode::getTemporary(Context, ArrayRef<Value*>());
-
-  SmallVector<Value *, 3> Args(1, Dummy);
-  if (Extra)
-    Args.push_back(Extra);
-  if (!Name.empty())
-    Args.push_back(createString(Name));
-  MDNode *Root = MDNode::get(Context, Args);
-
+  MDNode *Dummy = MDNode::getTemporary(Context, ArrayRef<Value *>());
+  MDNode *Root = MDNode::get(Context, Dummy);
   // At this point we have
   //   !0 = metadata !{}            <- dummy
   //   !1 = metadata !{metadata !0} <- root
@@ -98,15 +91,6 @@ MDNode *MDBuilder::createTBAANode(StringRef Name, MDNode *Parent,
     Value *Ops[2] = {createString(Name), Parent};
     return MDNode::get(Context, Ops);
   }
-}
-
-MDNode *MDBuilder::createAliasScopeDomain(StringRef Name) {
-  return MDNode::get(Context, createString(Name));
-}
-
-MDNode *MDBuilder::createAliasScope(StringRef Name, MDNode *Domain) {
-  Value *Ops[2] = { createString(Name), Domain };
-  return MDNode::get(Context, Ops);
 }
 
 /// \brief Return metadata for a tbaa.struct node with the given

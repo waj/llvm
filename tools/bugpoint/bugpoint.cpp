@@ -179,7 +179,8 @@ int main(int argc, char **argv) {
 
   if (StandardLinkOpts) {
     PassManagerBuilder Builder;
-    Builder.populateLTOPassManager(PM, /*RunInliner=*/true, false);
+    Builder.populateLTOPassManager(PM, /*Internalize=*/true,
+                                   /*RunInliner=*/true);
   }
 
   if (OptLevelO1 || OptLevelO2 || OptLevelO3) {

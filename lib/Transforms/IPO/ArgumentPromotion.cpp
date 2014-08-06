@@ -83,8 +83,6 @@ namespace {
     CallGraphNode *DoPromotion(Function *F,
                                SmallPtrSet<Argument*, 8> &ArgsToPromote,
                                SmallPtrSet<Argument*, 8> &ByValArgsToTransform);
-    
-    using llvm::Pass::doInitialization;
     bool doInitialization(CallGraph &CG) override;
     /// The maximum number of elements to expand, or 0 for unlimited.
     unsigned maxElements;
@@ -617,13 +615,9 @@ CallGraphNode *ArgPromotion::DoPromotion(Function *F,
 
   // Patch the pointer to LLVM function in debug info descriptor.
   auto DI = FunctionDIs.find(F);
-  if (DI != FunctionDIs.end()) {
-    DISubprogram SP = DI->second;
-    SP.replaceFunction(NF);
-    FunctionDIs.erase(DI);
-    FunctionDIs[NF] = SP;
-  }
-
+  if (DI != FunctionDIs.end())
+    DI->second.replaceFunction(NF);
+  
   DEBUG(dbgs() << "ARG PROMOTION:  Promoting to:" << *NF << "\n"
         << "From: " << *F);
   
@@ -722,11 +716,9 @@ CallGraphNode *ArgPromotion::DoPromotion(Function *F,
           // of the previous load.
           LoadInst *newLoad = new LoadInst(V, V->getName()+".val", Call);
           newLoad->setAlignment(OrigLoad->getAlignment());
-          // Transfer the AA info too.
-          AAMDNodes AAInfo;
-          OrigLoad->getAAMetadata(AAInfo);
-          newLoad->setAAMetadata(AAInfo);
-
+          // Transfer the TBAA info too.
+          newLoad->setMetadata(LLVMContext::MD_tbaa,
+                               OrigLoad->getMetadata(LLVMContext::MD_tbaa));
           Args.push_back(newLoad);
           AA.copyValue(OrigLoad, Args.back());
         }

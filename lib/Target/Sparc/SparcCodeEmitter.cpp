@@ -100,10 +100,10 @@ bool SparcCodeEmitter::runOnMachineFunction(MachineFunction &MF) {
   SparcTargetMachine &Target = static_cast<SparcTargetMachine &>(
                                 const_cast<TargetMachine &>(MF.getTarget()));
 
-  JTI = Target.getSubtargetImpl()->getJITInfo();
-  II = Target.getSubtargetImpl()->getInstrInfo();
-  TD = Target.getSubtargetImpl()->getDataLayout();
-  Subtarget = &TM.getSubtarget<SparcSubtarget>();
+  JTI = Target.getJITInfo();
+  II = Target.getInstrInfo();
+  TD = Target.getDataLayout();
+  Subtarget = &TM.getSubtarget<SparcSubtarget> ();
   MCPEs = &MF.getConstantPool()->getConstants();
   JTI->Initialize(MF, IsPIC);
   MCE.setModuleInfo(&getAnalysis<MachineModuleInfo> ());
@@ -177,8 +177,7 @@ void SparcCodeEmitter::emitWord(unsigned Word) {
 unsigned SparcCodeEmitter::getMachineOpValue(const MachineInstr &MI,
                                              const MachineOperand &MO) const {
   if (MO.isReg())
-    return TM.getSubtargetImpl()->getRegisterInfo()->getEncodingValue(
-        MO.getReg());
+    return TM.getRegisterInfo()->getEncodingValue(MO.getReg());
   else if (MO.isImm())
     return static_cast<unsigned>(MO.getImm());
   else if (MO.isGlobal())

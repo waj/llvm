@@ -26,15 +26,22 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "reg-scavenging"
 
-/// setUsed - Set the register units of this register as used.
-void RegScavenger::setRegUsed(unsigned Reg) {
-  for (MCRegUnitIterator RUI(Reg, TRI); RUI.isValid(); ++RUI)
-    RegUnitsAvailable.reset(*RUI);
+/// setUsed - Set the register and its sub-registers as being used.
+void RegScavenger::setUsed(unsigned Reg) {
+  for (MCSubRegIterator SubRegs(Reg, TRI, /*IncludeSelf=*/true);
+       SubRegs.isValid(); ++SubRegs)
+    RegsAvailable.reset(*SubRegs);
+}
+
+bool RegScavenger::isAliasUsed(unsigned Reg) const {
+  for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
+    if (isUsed(*AI, *AI == Reg))
+      return true;
+  return false;
 }
 
 void RegScavenger::initRegState() {
@@ -44,8 +51,8 @@ void RegScavenger::initRegState() {
     I->Restore = nullptr;
   }
 
-  // All register units start out unused.
-  RegUnitsAvailable.set();
+  // All registers started out unused.
+  RegsAvailable.set();
 
   if (!MBB)
     return;
@@ -53,22 +60,22 @@ void RegScavenger::initRegState() {
   // Live-in registers are in use.
   for (MachineBasicBlock::livein_iterator I = MBB->livein_begin(),
          E = MBB->livein_end(); I != E; ++I)
-    setRegUsed(*I);
+    setUsed(*I);
 
   // Pristine CSRs are also unavailable.
   BitVector PR = MBB->getParent()->getFrameInfo()->getPristineRegs(MBB);
   for (int I = PR.find_first(); I>0; I = PR.find_next(I))
-    setRegUsed(I);
+    setUsed(I);
 }
 
 void RegScavenger::enterBasicBlock(MachineBasicBlock *mbb) {
   MachineFunction &MF = *mbb->getParent();
   const TargetMachine &TM = MF.getTarget();
-  TII = TM.getSubtargetImpl()->getInstrInfo();
-  TRI = TM.getSubtargetImpl()->getRegisterInfo();
+  TII = TM.getInstrInfo();
+  TRI = TM.getRegisterInfo();
   MRI = &MF.getRegInfo();
 
-  assert((NumRegUnits == 0 || NumRegUnits == TRI->getNumRegUnits()) &&
+  assert((NumPhysRegs == 0 || NumPhysRegs == TRI->getNumRegs()) &&
          "Target changed?");
 
   // It is not possible to use the register scavenger after late optimization
@@ -78,11 +85,17 @@ void RegScavenger::enterBasicBlock(MachineBasicBlock *mbb) {
 
   // Self-initialize.
   if (!MBB) {
-    NumRegUnits = TRI->getNumRegUnits();
-    RegUnitsAvailable.resize(NumRegUnits);
-    KillRegUnits.resize(NumRegUnits);
-    DefRegUnits.resize(NumRegUnits);
-    TmpRegUnits.resize(NumRegUnits);
+    NumPhysRegs = TRI->getNumRegs();
+    RegsAvailable.resize(NumPhysRegs);
+    KillRegs.resize(NumPhysRegs);
+    DefRegs.resize(NumPhysRegs);
+
+    // Create callee-saved registers bitvector.
+    CalleeSavedRegs.resize(NumPhysRegs);
+    const MCPhysReg *CSRegs = TRI->getCalleeSavedRegs(&MF);
+    if (CSRegs != nullptr)
+      for (unsigned i = 0; CSRegs[i]; ++i)
+        CalleeSavedRegs.set(CSRegs[i]);
   }
 
   MBB = mbb;
@@ -91,9 +104,10 @@ void RegScavenger::enterBasicBlock(MachineBasicBlock *mbb) {
   Tracking = false;
 }
 
-void RegScavenger::addRegUnits(BitVector &BV, unsigned Reg) {
-  for (MCRegUnitIterator RUI(Reg, TRI); RUI.isValid(); ++RUI)
-    BV.set(*RUI);
+void RegScavenger::addRegWithSubRegs(BitVector &BV, unsigned Reg) {
+  for (MCSubRegIterator SubRegs(Reg, TRI, /*IncludeSelf=*/true);
+       SubRegs.isValid(); ++SubRegs)
+    BV.set(*SubRegs);
 }
 
 void RegScavenger::determineKillsAndDefs() {
@@ -108,25 +122,12 @@ void RegScavenger::determineKillsAndDefs() {
   // predicated, conservatively assume "kill" markers do not actually kill the
   // register. Similarly ignores "dead" markers.
   bool isPred = TII->isPredicated(MI);
-  KillRegUnits.reset();
-  DefRegUnits.reset();
+  KillRegs.reset();
+  DefRegs.reset();
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
     const MachineOperand &MO = MI->getOperand(i);
-    if (MO.isRegMask()) {
-      
-      TmpRegUnits.clear();
-      for (unsigned RU = 0, RUEnd = TRI->getNumRegUnits(); RU != RUEnd; ++RU) {
-        for (MCRegUnitRootIterator RURI(RU, TRI); RURI.isValid(); ++RURI) {
-          if (MO.clobbersPhysReg(*RURI)) {
-            TmpRegUnits.set(RU);
-            break;
-          }
-        }
-      }
-      
-      // Apply the mask.
-      (isPred ? DefRegUnits : KillRegUnits) |= TmpRegUnits;
-    }
+    if (MO.isRegMask())
+      (isPred ? DefRegs : KillRegs).setBitsNotInMask(MO.getRegMask());
     if (!MO.isReg())
       continue;
     unsigned Reg = MO.getReg();
@@ -138,13 +139,13 @@ void RegScavenger::determineKillsAndDefs() {
       if (MO.isUndef())
         continue;
       if (!isPred && MO.isKill())
-        addRegUnits(KillRegUnits, Reg);
+        addRegWithSubRegs(KillRegs, Reg);
     } else {
       assert(MO.isDef());
       if (!isPred && MO.isDead())
-        addRegUnits(KillRegUnits, Reg);
+        addRegWithSubRegs(KillRegs, Reg);
       else
-        addRegUnits(DefRegUnits, Reg);
+        addRegWithSubRegs(DefRegs, Reg);
     }
   }
 }
@@ -157,8 +158,8 @@ void RegScavenger::unprocess() {
     determineKillsAndDefs();
 
     // Commit the changes.
-    setUsed(KillRegUnits);
-    setUnused(DefRegUnits);
+    setUsed(KillRegs);
+    setUnused(DefRegs);
   }
 
   if (MBBI == MBB->begin()) {
@@ -207,7 +208,7 @@ void RegScavenger::forward() {
     if (MO.isUse()) {
       if (MO.isUndef())
         continue;
-      if (!isRegUsed(Reg)) {
+      if (!isUsed(Reg)) {
         // Check if it's partial live: e.g.
         // D0 = insert_subreg D0<undef>, S0
         // ... D0
@@ -218,23 +219,15 @@ void RegScavenger::forward() {
         // insert_subreg around causes both correctness and performance issues.
         bool SubUsed = false;
         for (MCSubRegIterator SubRegs(Reg, TRI); SubRegs.isValid(); ++SubRegs)
-          if (isRegUsed(*SubRegs)) {
+          if (isUsed(*SubRegs)) {
             SubUsed = true;
             break;
           }
-        bool SuperUsed = false;
-        for (MCSuperRegIterator SR(Reg, TRI); SR.isValid(); ++SR) {
-          if (isRegUsed(*SR)) {
-            SuperUsed = true;
-            break;
-          }
-        }
-        if (!SubUsed && !SuperUsed) {
+        if (!SubUsed) {
           MBB->getParent()->verify(nullptr, "In Register Scavenger");
           llvm_unreachable("Using an undefined register!");
         }
         (void)SubUsed;
-        (void)SuperUsed;
       }
     } else {
       assert(MO.isDef());
@@ -250,23 +243,23 @@ void RegScavenger::forward() {
 #endif // NDEBUG
 
   // Commit the changes.
-  setUnused(KillRegUnits);
-  setUsed(DefRegUnits);
+  setUnused(KillRegs);
+  setUsed(DefRegs);
 }
 
-bool RegScavenger::isRegUsed(unsigned Reg, bool includeReserved) const {
-  if (includeReserved && isReserved(Reg))
-    return true;
-  for (MCRegUnitIterator RUI(Reg, TRI); RUI.isValid(); ++RUI)
-    if (!RegUnitsAvailable.test(*RUI))
-      return true;
-  return false;
+void RegScavenger::getRegsUsed(BitVector &used, bool includeReserved) {
+  used = RegsAvailable;
+  used.flip();
+  if (includeReserved)
+    used |= MRI->getReservedRegs();
+  else
+    used.reset(MRI->getReservedRegs());
 }
 
 unsigned RegScavenger::FindUnusedReg(const TargetRegisterClass *RC) const {
   for (TargetRegisterClass::iterator I = RC->begin(), E = RC->end();
        I != E; ++I)
-    if (!isRegUsed(*I)) {
+    if (!isAliasUsed(*I)) {
       DEBUG(dbgs() << "Scavenger found unused reg: " << TRI->getName(*I) <<
             "\n");
       return *I;
@@ -280,13 +273,13 @@ BitVector RegScavenger::getRegsAvailable(const TargetRegisterClass *RC) {
   BitVector Mask(TRI->getNumRegs());
   for (TargetRegisterClass::iterator I = RC->begin(), E = RC->end();
        I != E; ++I)
-    if (!isRegUsed(*I))
+    if (!isAliasUsed(*I))
       Mask.set(*I);
   return Mask;
 }
 
 /// findSurvivorReg - Return the candidate register that is unused for the
-/// longest after StartMII. UseMI is set to the instruction where the search
+/// longest after StargMII. UseMI is set to the instruction where the search
 /// stopped.
 ///
 /// No more than InstrLimit instructions are inspected.
@@ -382,7 +375,9 @@ unsigned RegScavenger::scavengeRegister(const TargetRegisterClass *RC,
   }
 
   // Try to find a register that's unused if there is one, as then we won't
-  // have to spill.
+  // have to spill. Search explicitly rather than masking out based on
+  // RegsAvailable, as RegsAvailable does not take aliases into account.
+  // That's what getRegsAvailable() is for.
   BitVector Available = getRegsAvailable(RC);
   Available &= Candidates;
   if (Available.any())
@@ -393,7 +388,7 @@ unsigned RegScavenger::scavengeRegister(const TargetRegisterClass *RC,
   unsigned SReg = findSurvivorReg(I, Candidates, 25, UseMI);
 
   // If we found an unused register there is no reason to spill it.
-  if (!isRegUsed(SReg)) {
+  if (!isAliasUsed(SReg)) {
     DEBUG(dbgs() << "Scavenged register: " << TRI->getName(SReg) << "\n");
     return SReg;
   }

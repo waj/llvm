@@ -378,7 +378,7 @@ static bool isSchedBoundary(MachineBasicBlock::iterator MI,
 
 /// Main driver for both MachineScheduler and PostMachineScheduler.
 void MachineSchedulerBase::scheduleRegions(ScheduleDAGInstrs &Scheduler) {
-  const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
+  const TargetInstrInfo *TII = MF->getTarget().getInstrInfo();
   bool IsPostRA = Scheduler.isPostRA();
 
   // Visit all machine basic blocks.
@@ -2358,13 +2358,11 @@ void GenericScheduler::initialize(ScheduleDAGMI *dag) {
   const TargetMachine &TM = DAG->MF.getTarget();
   if (!Top.HazardRec) {
     Top.HazardRec =
-        TM.getSubtargetImpl()->getInstrInfo()->CreateTargetMIHazardRecognizer(
-            Itin, DAG);
+      TM.getInstrInfo()->CreateTargetMIHazardRecognizer(Itin, DAG);
   }
   if (!Bot.HazardRec) {
     Bot.HazardRec =
-        TM.getSubtargetImpl()->getInstrInfo()->CreateTargetMIHazardRecognizer(
-            Itin, DAG);
+      TM.getInstrInfo()->CreateTargetMIHazardRecognizer(Itin, DAG);
   }
 }
 
@@ -2373,7 +2371,7 @@ void GenericScheduler::initPolicy(MachineBasicBlock::iterator Begin,
                                   MachineBasicBlock::iterator End,
                                   unsigned NumRegionInstrs) {
   const TargetMachine &TM = Context->MF->getTarget();
-  const TargetLowering *TLI = TM.getSubtargetImpl()->getTargetLowering();
+  const TargetLowering *TLI = TM.getTargetLowering();
 
   // Avoid setting up the register pressure tracker for small regions to save
   // compile time. As a rough heuristic, only track pressure when the number of
@@ -2890,8 +2888,7 @@ void PostGenericScheduler::initialize(ScheduleDAGMI *Dag) {
   const TargetMachine &TM = DAG->MF.getTarget();
   if (!Top.HazardRec) {
     Top.HazardRec =
-        TM.getSubtargetImpl()->getInstrInfo()->CreateTargetMIHazardRecognizer(
-            Itin, DAG);
+      TM.getInstrInfo()->CreateTargetMIHazardRecognizer(Itin, DAG);
   }
 }
 

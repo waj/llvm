@@ -181,8 +181,8 @@ class MCStreamer {
 
   MCSymbol *EmitCFICommon();
 
-  std::vector<WinEH::FrameInfo *> WinFrameInfos;
-  WinEH::FrameInfo *CurrentWinFrameInfo;
+  std::vector<MCWinFrameInfo *> WinFrameInfos;
+  MCWinFrameInfo *CurrentWinFrameInfo;
   void EnsureValidWinFrameInfo();
 
   // SymbolOrdering - Tracks an index to represent the order
@@ -204,11 +204,11 @@ protected:
   virtual void EmitCFIStartProcImpl(MCDwarfFrameInfo &Frame);
   virtual void EmitCFIEndProcImpl(MCDwarfFrameInfo &CurFrame);
 
-  WinEH::FrameInfo *getCurrentWinFrameInfo() {
+  MCWinFrameInfo *getCurrentWinFrameInfo() {
     return CurrentWinFrameInfo;
   }
 
-  virtual void EmitWindowsUnwindTables();
+  void EmitWindowsUnwindTables();
 
   virtual void EmitRawTextImpl(StringRef String);
 
@@ -238,7 +238,7 @@ public:
   }
 
   unsigned getNumWinFrameInfos() { return WinFrameInfos.size(); }
-  ArrayRef<WinEH::FrameInfo *> getWinFrameInfos() const {
+  ArrayRef<MCWinFrameInfo *> getWinFrameInfos() const {
     return WinFrameInfos;
   }
 

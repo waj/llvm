@@ -5,11 +5,6 @@ LLVM 3.5 Release Notes
 .. contents::
     :local:
 
-.. warning::
-   These are in-progress notes for the upcoming LLVM 3.5 release.  You may
-   prefer the `LLVM 3.4 Release Notes <http://llvm.org/releases/3.4/docs
-   /ReleaseNotes.html>`_.
-
 
 Introduction
 ============
@@ -183,35 +178,72 @@ MIPS64r2, and MIPS64r6 as well as some of the Application Specific Extensions
 such as MSA. It also supports several of the MIPS specific assembler directives
 such as ``.set``, ``.module``, ``.cpload``, etc.
 
-Changes to the PowerPC Target
+Changes to the AArch64 Target
 -----------------------------
 
-The PowerPC 64-bit Little Endian subtarget (powerpc64le-unknown-linux-gnu) is
-now fully supported.  This includes support for the Altivec instruction set.
+The AArch64 target in LLVM 3.5 is based on substantially different code to the
+one in LLVM 3.4, having been created as the result of merging code released by
+Apple for targetting iOS with the previously existing backend.
 
-The Power Architecture 64-Bit ELFv2 ABI Specification is now supported, and
-is the default ABI for Little Endian.  The ELFv1 ABI remains the default ABI
-for Big Endian.  Currently, it is not possible to override these defaults.
-That capability will be available (albeit not recommended) in a future release.
+We hope the result is a general improvement in the project. Particularly notable
+changes are:
 
-Links to the ELFv2 ABI specification and to the Power ISA Version 2.07
-specification may be found `here <https://www-03.ibm.com/technologyconnect/tgcm/TGCMServlet.wss?alias=OpenPOWER&linkid=1n0000>`_ (free registration required).
-Efforts are underway to move this to a location that doesn't require
-registration, but the planned site isn't ready yet.
+* We should produce faster code, having combined optimisations and ideas from
+  both sources in the final backend.
+* We have a FastISel for AArch64, which should compile time for debug builds (at
+  -O0).
+* We can now target iOS platforms (using the triple ``arm64-apple-ios7.0``).
 
-Experimental support for the VSX instruction set introduced with ISA 2.06
-is now available using the ``-mvsx`` switch.  Work remains on this, so it
-is not recommended for production use.  VSX is disabled for Little Endian
-regardless of this switch setting.
+Background
+^^^^^^^^^^
 
-Load/store cost estimates have been improved.
+During the 3.5 release cycle, Apple released the source used to generate 64-bit
+ARM programs on iOS platforms. This took the form of a separate backend that had
+been developed in parallel to, and largely isolation from, the existing
+code.
 
-Constant hoisting has been enabled.
+We decided that maintaining the two backends indefinitely was not an option,
+since their features almost entirely overlapped. However, the implementation
+details in both were different enough that any merge had to firmly start with
+one backend as the core and cherry-pick the best features and optimisations from
+the other.
 
-Global named register support has been enabled.
+After discussion, we decided to start with the Apple backend (called ARM64 at
+the time) since it was older, more thoroughly tested in production use, and had
+fewer idiosyncracies in the implementation details.
 
-Initial support for PIC code has been added for the 32-bit ELF subtarget.
-Further support will be available in a future release.
+Many people from across the community worked throughout April and May to ensure
+that this merge destination had all the features we wanted, from both
+sources. In many cases we could simply copy code across; others needed heavy
+modification for the new host; in the most worthwhile, we looked at both
+implementations and combined the best features of each in an entirely new way.
+
+We had also decided that the name of the combined backend should be AArch64,
+following ARM's official documentation. So, at the end of May the old
+AArch64 directory was removed, and ARM64 renamed into its place.
+
+Changes to CMake build system
+-----------------------------
+
+* Building and installing LLVM, Clang and lld sphinx documentation can now be
+  done in CMake builds. If ``LLVM_ENABLE_SPHINX`` is enabled the
+  "``docs-<project>-html``" and "``docs-<project>-man``" targets (e.g.
+  ``docs-llvm-html``) become available which can be invoked directly (e.g.
+  ``make docs-llvm-html``) to build only the relevant sphinx documentation. If
+  ``LLVM_BUILD_DOCS`` is enabled then the sphinx documentation will also be
+  built as part of the normal build. Enabling this variable also means that if
+  the ``install`` target is invoked then the built documentation will be
+  installed.  See :ref:`LLVM-specific variables`.
+
+* Both the Autoconf/Makefile and CMake build systems now generate
+  ``LLVMConfig.cmake`` (and other files) to export installed libraries. This
+  means that projects using CMake to build against LLVM libraries can now build
+  against an installed LLVM built by the Autoconf/Makefile system. See
+  :ref:`Embedding LLVM in your project` for details.
+
+* Use of ``llvm_map_components_to_libraries()`` by external projects is
+  deprecated and the new ``llvm_map_components_to_libnames()`` should be used
+  instead.
 
 External Open Source Projects Using LLVM 3.5
 ============================================
@@ -220,6 +252,19 @@ An exciting aspect of LLVM is that it is used as an enabling technology for
 a lot of other language and tools projects. This section lists some of the
 projects that have already been updated to work with LLVM 3.5.
 
+LDC - the LLVM-based D compiler
+-------------------------------
+
+`D <http://dlang.org>`_ is a language with C-like syntax and static typing. It
+pragmatically combines efficiency, control, and modeling power, with safety and
+programmer productivity. D supports powerful concepts like Compile-Time Function
+Execution (CTFE) and Template Meta-Programming, provides an innovative approach
+to concurrency and offers many classical paradigms.
+
+`LDC <http://wiki.dlang.org/LDC>`_ uses the frontend from the reference compiler
+combined with LLVM as backend to produce efficient native code. LDC targets
+x86/x86_64 systems like Linux, OS X, FreeBSD and Windows and also Linux/PPC64.
+Ports to other architectures like ARM, AArch64 and MIPS64 are underway.
 
 Additional Information
 ======================

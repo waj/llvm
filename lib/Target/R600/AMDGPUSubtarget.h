@@ -15,12 +15,7 @@
 #ifndef AMDGPUSUBTARGET_H
 #define AMDGPUSUBTARGET_H
 #include "AMDGPU.h"
-#include "AMDGPUFrameLowering.h"
 #include "AMDGPUInstrInfo.h"
-#include "AMDGPUIntrinsicInfo.h"
-#include "AMDGPUSubtarget.h"
-#include "R600ISelLowering.h"
-#include "llvm/IR/DataLayout.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
@@ -33,6 +28,8 @@
 namespace llvm {
 
 class AMDGPUSubtarget : public AMDGPUGenSubtargetInfo {
+
+  std::unique_ptr<AMDGPUInstrInfo> InstrInfo;
 
 public:
   enum Generation {
@@ -63,31 +60,17 @@ private:
   bool CFALUBug;
   int LocalMemorySize;
 
-  const DataLayout DL;
-  AMDGPUFrameLowering FrameLowering;
-  std::unique_ptr<AMDGPUTargetLowering> TLInfo;
-  std::unique_ptr<AMDGPUInstrInfo> InstrInfo;
   InstrItineraryData InstrItins;
 
 public:
-  AMDGPUSubtarget(StringRef TT, StringRef CPU, StringRef FS, TargetMachine &TM);
-  AMDGPUSubtarget &initializeSubtargetDependencies(StringRef GPU, StringRef FS);
+  AMDGPUSubtarget(StringRef TT, StringRef CPU, StringRef FS);
 
-  const AMDGPUFrameLowering *getFrameLowering() const override {
-    return &FrameLowering;
-  }
-  const AMDGPUInstrInfo *getInstrInfo() const override {
+  const AMDGPUInstrInfo *getInstrInfo() const {
     return InstrInfo.get();
   }
-  const AMDGPURegisterInfo *getRegisterInfo() const override {
-    return &InstrInfo->getRegisterInfo();
-  }
-  AMDGPUTargetLowering *getTargetLowering() const override {
-    return TLInfo.get();
-  }
-  const DataLayout *getDataLayout() const override { return &DL; }
-  const InstrItineraryData *getInstrItineraryData() const override {
-    return &InstrItins;
+
+  const InstrItineraryData &getInstrItineraryData() const {
+    return InstrItins;
   }
 
   void ParseSubtargetFeatures(StringRef CPU, StringRef FS);

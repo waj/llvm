@@ -52,9 +52,9 @@ void Thumb1FrameLowering::
 eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator I) const {
   const Thumb1InstrInfo &TII =
-      *static_cast<const Thumb1InstrInfo *>(MF.getSubtarget().getInstrInfo());
-  const Thumb1RegisterInfo *RegInfo = static_cast<const Thumb1RegisterInfo *>(
-      MF.getSubtarget().getRegisterInfo());
+    *static_cast<const Thumb1InstrInfo*>(MF.getTarget().getInstrInfo());
+  const Thumb1RegisterInfo *RegInfo =
+    static_cast<const Thumb1RegisterInfo*>(MF.getTarget().getRegisterInfo());
   if (!hasReservedCallFrame(MF)) {
     // If we have alloca, convert as follows:
     // ADJCALLSTACKDOWN -> sub, sp, sp, amount
@@ -89,15 +89,12 @@ void Thumb1FrameLowering::emitPrologue(MachineFunction &MF) const {
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   MachineModuleInfo &MMI = MF.getMMI();
   const MCRegisterInfo *MRI = MMI.getContext().getRegisterInfo();
-  const Thumb1RegisterInfo *RegInfo = static_cast<const Thumb1RegisterInfo *>(
-      MF.getSubtarget().getRegisterInfo());
+  const Thumb1RegisterInfo *RegInfo =
+    static_cast<const Thumb1RegisterInfo*>(MF.getTarget().getRegisterInfo());
   const Thumb1InstrInfo &TII =
-      *static_cast<const Thumb1InstrInfo *>(MF.getSubtarget().getInstrInfo());
+    *static_cast<const Thumb1InstrInfo*>(MF.getTarget().getInstrInfo());
 
-  unsigned Align = MF.getTarget()
-                       .getSubtargetImpl()
-                       ->getFrameLowering()
-                       ->getStackAlignment();
+  unsigned Align = MF.getTarget().getFrameLowering()->getStackAlignment();
   unsigned ArgRegsSaveSize = AFI->getArgRegsSaveSize(Align);
   unsigned NumBytes = MFI->getStackSize();
   assert(NumBytes >= ArgRegsSaveSize &&
@@ -324,15 +321,12 @@ void Thumb1FrameLowering::emitEpilogue(MachineFunction &MF,
   DebugLoc dl = MBBI->getDebugLoc();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
-  const Thumb1RegisterInfo *RegInfo = static_cast<const Thumb1RegisterInfo *>(
-      MF.getSubtarget().getRegisterInfo());
+  const Thumb1RegisterInfo *RegInfo =
+    static_cast<const Thumb1RegisterInfo*>(MF.getTarget().getRegisterInfo());
   const Thumb1InstrInfo &TII =
-      *static_cast<const Thumb1InstrInfo *>(MF.getSubtarget().getInstrInfo());
+    *static_cast<const Thumb1InstrInfo*>(MF.getTarget().getInstrInfo());
 
-  unsigned Align = MF.getTarget()
-                       .getSubtargetImpl()
-                       ->getFrameLowering()
-                       ->getStackAlignment();
+  unsigned Align = MF.getTarget().getFrameLowering()->getStackAlignment();
   unsigned ArgRegsSaveSize = AFI->getArgRegsSaveSize(Align);
   int NumBytes = (int)MFI->getStackSize();
   assert((unsigned)NumBytes >= ArgRegsSaveSize &&
@@ -388,65 +382,28 @@ void Thumb1FrameLowering::emitEpilogue(MachineFunction &MF,
     }
   }
 
-  bool IsV4PopReturn = false;
-  for (const CalleeSavedInfo &CSI : MFI->getCalleeSavedInfo())
-    if (CSI.getReg() == ARM::LR)
-      IsV4PopReturn = true;
-  IsV4PopReturn &= STI.hasV4TOps() && !STI.hasV5TOps();
+  if (ArgRegsSaveSize) {
+    // Unlike T2 and ARM mode, the T1 pop instruction cannot restore
+    // to LR, and we can't pop the value directly to the PC since
+    // we need to update the SP after popping the value. Therefore, we
+    // pop the old LR into R3 as a temporary.
 
-  // Unlike T2 and ARM mode, the T1 pop instruction cannot restore
-  // to LR, and we can't pop the value directly to the PC since
-  // we need to update the SP after popping the value. So instead
-  // we have to emit:
-  //   POP {r3}
-  //   ADD sp, #offset
-  //   BX r3
-  // If this would clobber a return value, then generate this sequence instead:
-  //   MOV ip, r3
-  //   POP {r3}
-  //   ADD sp, #offset
-  //   MOV lr, r3
-  //   MOV r3, ip
-  //   BX lr
-  if (ArgRegsSaveSize || IsV4PopReturn) {
     // Get the last instruction, tBX_RET
     MBBI = MBB.getLastNonDebugInstr();
     assert (MBBI->getOpcode() == ARM::tBX_RET);
-    DebugLoc dl = MBBI->getDebugLoc();
+    // Epilogue for vararg functions: pop LR to R3 and branch off it.
+    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(ARM::tPOP)))
+      .addReg(ARM::R3, RegState::Define);
 
-    if (AFI->getReturnRegsCount() <= 3) {
-      // Epilogue: pop saved LR to R3 and branch off it. 
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(ARM::tPOP)))
-        .addReg(ARM::R3, RegState::Define);
+    emitSPUpdate(MBB, MBBI, TII, dl, *RegInfo, ArgRegsSaveSize);
 
-      emitSPUpdate(MBB, MBBI, TII, dl, *RegInfo, ArgRegsSaveSize);
-
-      MachineInstrBuilder MIB =
-        BuildMI(MBB, MBBI, dl, TII.get(ARM::tBX))
-        .addReg(ARM::R3, RegState::Kill);
-      AddDefaultPred(MIB);
-      MIB.copyImplicitOps(&*MBBI);
-      // erase the old tBX_RET instruction
-      MBB.erase(MBBI);
-    } else {
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(ARM::tMOVr))
-        .addReg(ARM::R12, RegState::Define)
-        .addReg(ARM::R3, RegState::Kill));
-
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(ARM::tPOP)))
-        .addReg(ARM::R3, RegState::Define);
-
-      emitSPUpdate(MBB, MBBI, TII, dl, *RegInfo, ArgRegsSaveSize);
-
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(ARM::tMOVr))
-        .addReg(ARM::LR, RegState::Define)
-        .addReg(ARM::R3, RegState::Kill));
-
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(ARM::tMOVr))
-        .addReg(ARM::R3, RegState::Define)
-        .addReg(ARM::R12, RegState::Kill));
-      // Keep the tBX_RET instruction
-    }
+    MachineInstrBuilder MIB =
+      BuildMI(MBB, MBBI, dl, TII.get(ARM::tBX_RET_vararg))
+      .addReg(ARM::R3, RegState::Kill);
+    AddDefaultPred(MIB);
+    MIB.copyImplicitOps(&*MBBI);
+    // erase the old tBX_RET instruction
+    MBB.erase(MBBI);
   }
 }
 
@@ -460,7 +417,7 @@ spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   DebugLoc DL;
   MachineFunction &MF = *MBB.getParent();
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+  const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
 
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
@@ -499,7 +456,7 @@ restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   MachineFunction &MF = *MBB.getParent();
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+  const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
 
   bool isVarArg = AFI->getArgRegsSaveSize() > 0;
   DebugLoc DL = MI->getDebugLoc();
@@ -512,9 +469,6 @@ restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
     if (Reg == ARM::LR) {
       // Special epilogue for vararg functions. See emitEpilogue
       if (isVarArg)
-        continue;
-      // ARMv4T requires BX, see emitEpilogue
-      if (STI.hasV4TOps() && !STI.hasV5TOps())
         continue;
       Reg = ARM::PC;
       (*MIB).setDesc(TII.get(ARM::tPOP_RET));

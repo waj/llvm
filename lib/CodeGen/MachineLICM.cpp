@@ -39,7 +39,6 @@
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "machine-licm"
@@ -326,12 +325,12 @@ bool MachineLICM::runOnMachineFunction(MachineFunction &MF) {
 
   Changed = FirstInLoop = false;
   TM = &MF.getTarget();
-  TII = TM->getSubtargetImpl()->getInstrInfo();
-  TLI = TM->getSubtargetImpl()->getTargetLowering();
-  TRI = TM->getSubtargetImpl()->getRegisterInfo();
+  TII = TM->getInstrInfo();
+  TLI = TM->getTargetLowering();
+  TRI = TM->getRegisterInfo();
   MFI = MF.getFrameInfo();
   MRI = &MF.getRegInfo();
-  InstrItins = TM->getSubtargetImpl()->getInstrItineraryData();
+  InstrItins = TM->getInstrItineraryData();
 
   PreRegAlloc = MRI->isSSA();
 
@@ -1040,7 +1039,7 @@ bool MachineLICM::HasHighOperandLatency(MachineInstr &MI,
 /// IsCheapInstruction - Return true if the instruction is marked "cheap" or
 /// the operand latency between its def and a use is one or less.
 bool MachineLICM::IsCheapInstruction(MachineInstr &MI) const {
-  if (TII->isAsCheapAsAMove(&MI) || MI.isCopyLike())
+  if (MI.isAsCheapAsAMove() || MI.isCopyLike())
     return true;
   if (!InstrItins || InstrItins->isEmpty())
     return false;

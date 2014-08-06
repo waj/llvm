@@ -13,7 +13,7 @@ define void @g() {
 	ret void
 }
 
-@b = internal alias  void ()* @g
+@b = alias internal void ()* @g
 ; CHECK-NOT: @b
 
 define void @h() {

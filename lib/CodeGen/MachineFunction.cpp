@@ -36,7 +36,6 @@
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "codegen"
@@ -54,10 +53,9 @@ void ilist_traits<MachineBasicBlock>::deleteNode(MachineBasicBlock *MBB) {
 
 MachineFunction::MachineFunction(const Function *F, const TargetMachine &TM,
                                  unsigned FunctionNum, MachineModuleInfo &mmi,
-                                 GCModuleInfo *gmi)
-    : Fn(F), Target(TM), STI(TM.getSubtargetImpl()), Ctx(mmi.getContext()),
-      MMI(mmi), GMI(gmi) {
-  if (TM.getSubtargetImpl()->getRegisterInfo())
+                                 GCModuleInfo* gmi)
+  : Fn(F), Target(TM), Ctx(mmi.getContext()), MMI(mmi), GMI(gmi) {
+  if (TM.getRegisterInfo())
     RegInfo = new (Allocator) MachineRegisterInfo(TM);
   else
     RegInfo = nullptr;
@@ -72,15 +70,13 @@ MachineFunction::MachineFunction(const Function *F, const TargetMachine &TM,
                                 getStackAlignment(AttributeSet::FunctionIndex));
 
   ConstantPool = new (Allocator) MachineConstantPool(TM);
-  Alignment =
-      TM.getSubtargetImpl()->getTargetLowering()->getMinFunctionAlignment();
+  Alignment = TM.getTargetLowering()->getMinFunctionAlignment();
 
   // FIXME: Shouldn't use pref alignment if explicit alignment is set on Fn.
   if (!Fn->getAttributes().hasAttribute(AttributeSet::FunctionIndex,
                                         Attribute::OptimizeForSize))
-    Alignment = std::max(
-        Alignment,
-        TM.getSubtargetImpl()->getTargetLowering()->getPrefFunctionAlignment());
+    Alignment = std::max(Alignment,
+                         TM.getTargetLowering()->getPrefFunctionAlignment());
 
   FunctionNumber = FunctionNum;
   JumpTableInfo = nullptr;
@@ -233,10 +229,10 @@ MachineFunction::DeleteMachineBasicBlock(MachineBasicBlock *MBB) {
 MachineMemOperand *
 MachineFunction::getMachineMemOperand(MachinePointerInfo PtrInfo, unsigned f,
                                       uint64_t s, unsigned base_alignment,
-                                      const AAMDNodes &AAInfo,
+                                      const MDNode *TBAAInfo,
                                       const MDNode *Ranges) {
   return new (Allocator) MachineMemOperand(PtrInfo, f, s, base_alignment,
-                                           AAInfo, Ranges);
+                                           TBAAInfo, Ranges);
 }
 
 MachineMemOperand *
@@ -283,7 +279,7 @@ MachineFunction::extractLoadMemRefs(MachineInstr::mmo_iterator Begin,
           getMachineMemOperand((*I)->getPointerInfo(),
                                (*I)->getFlags() & ~MachineMemOperand::MOStore,
                                (*I)->getSize(), (*I)->getBaseAlignment(),
-                               (*I)->getAAInfo());
+                               (*I)->getTBAAInfo());
         Result[Index] = JustLoad;
       }
       ++Index;
@@ -315,7 +311,7 @@ MachineFunction::extractStoreMemRefs(MachineInstr::mmo_iterator Begin,
           getMachineMemOperand((*I)->getPointerInfo(),
                                (*I)->getFlags() & ~MachineMemOperand::MOLoad,
                                (*I)->getSize(), (*I)->getBaseAlignment(),
-                               (*I)->getAAInfo());
+                               (*I)->getTBAAInfo());
         Result[Index] = JustStore;
       }
       ++Index;
@@ -354,7 +350,7 @@ void MachineFunction::print(raw_ostream &OS, SlotIndexes *Indexes) const {
   // Print Constant Pool
   ConstantPool->print(OS);
 
-  const TargetRegisterInfo *TRI = getSubtarget().getRegisterInfo();
+  const TargetRegisterInfo *TRI = getTarget().getRegisterInfo();
 
   if (RegInfo && !RegInfo->livein_empty()) {
     OS << "Function Live Ins: ";
@@ -463,7 +459,7 @@ unsigned MachineFunction::addLiveIn(unsigned PReg,
 /// normal 'L' label is returned.
 MCSymbol *MachineFunction::getJTISymbol(unsigned JTI, MCContext &Ctx,
                                         bool isLinkerPrivate) const {
-  const DataLayout *DL = getSubtarget().getDataLayout();
+  const DataLayout *DL = getTarget().getDataLayout();
   assert(JumpTableInfo && "No jump tables");
   assert(JTI < JumpTableInfo->getJumpTables().size() && "Invalid JTI!");
 
@@ -478,7 +474,7 @@ MCSymbol *MachineFunction::getJTISymbol(unsigned JTI, MCContext &Ctx,
 /// getPICBaseSymbol - Return a function-local symbol to represent the PIC
 /// base.
 MCSymbol *MachineFunction::getPICBaseSymbol() const {
-  const DataLayout *DL = getSubtarget().getDataLayout();
+  const DataLayout *DL = getTarget().getDataLayout();
   return Ctx.GetOrCreateSymbol(Twine(DL->getPrivateGlobalPrefix())+
                                Twine(getFunctionNumber())+"$pb");
 }
@@ -488,7 +484,7 @@ MCSymbol *MachineFunction::getPICBaseSymbol() const {
 //===----------------------------------------------------------------------===//
 
 const TargetFrameLowering *MachineFrameInfo::getFrameLowering() const {
-  return TM.getSubtargetImpl()->getFrameLowering();
+  return TM.getFrameLowering();
 }
 
 /// ensureMaxAlignment - Make sure the function is at least Align bytes
@@ -604,7 +600,7 @@ MachineFrameInfo::getPristineRegs(const MachineBasicBlock *MBB) const {
   const MachineFunction *MF = MBB->getParent();
   assert(MF && "MBB must be part of a MachineFunction");
   const TargetMachine &TM = MF->getTarget();
-  const TargetRegisterInfo *TRI = TM.getSubtargetImpl()->getRegisterInfo();
+  const TargetRegisterInfo *TRI = TM.getRegisterInfo();
   BitVector BV(TRI->getNumRegs());
 
   // Before CSI is calculated, no registers are considered pristine. They can be
@@ -629,8 +625,8 @@ MachineFrameInfo::getPristineRegs(const MachineBasicBlock *MBB) const {
 }
 
 unsigned MachineFrameInfo::estimateStackSize(const MachineFunction &MF) const {
-  const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
-  const TargetRegisterInfo *RegInfo = MF.getSubtarget().getRegisterInfo();
+  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+  const TargetRegisterInfo *RegInfo = MF.getTarget().getRegisterInfo();
   unsigned MaxAlign = getMaxAlignment();
   int Offset = 0;
 
@@ -680,7 +676,7 @@ unsigned MachineFrameInfo::estimateStackSize(const MachineFunction &MF) const {
 void MachineFrameInfo::print(const MachineFunction &MF, raw_ostream &OS) const{
   if (Objects.empty()) return;
 
-  const TargetFrameLowering *FI = MF.getSubtarget().getFrameLowering();
+  const TargetFrameLowering *FI = MF.getTarget().getFrameLowering();
   int ValOffset = (FI ? FI->getOffsetOfLocalArea() : 0);
 
   OS << "Frame Objects:\n";
@@ -824,7 +820,7 @@ void MachineJumpTableInfo::dump() const { print(dbgs()); }
 void MachineConstantPoolValue::anchor() { }
 
 const DataLayout *MachineConstantPool::getDataLayout() const {
-  return TM.getSubtargetImpl()->getDataLayout();
+  return TM.getDataLayout();
 }
 
 Type *MachineConstantPoolEntry::getType() const {

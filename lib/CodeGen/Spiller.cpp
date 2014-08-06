@@ -65,8 +65,8 @@ protected:
     lis = &pass.getAnalysis<LiveIntervals>();
     mfi = mf.getFrameInfo();
     mri = &mf.getRegInfo();
-    tii = mf.getSubtarget().getInstrInfo();
-    tri = mf.getSubtarget().getRegisterInfo();
+    tii = mf.getTarget().getInstrInfo();
+    tri = mf.getTarget().getRegisterInfo();
   }
 
   /// Add spill ranges for every use/def of the live interval, inserting loads

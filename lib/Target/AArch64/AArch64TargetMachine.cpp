@@ -12,8 +12,8 @@
 
 #include "AArch64.h"
 #include "AArch64TargetMachine.h"
-#include "llvm/CodeGen/Passes.h"
 #include "llvm/PassManager.h"
+#include "llvm/CodeGen/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Target/TargetOptions.h"
@@ -59,17 +59,13 @@ EnableAtomicTidy("aarch64-atomic-cfg-tidy", cl::Hidden,
                           " to make use of cmpxchg flow-based information"),
                  cl::init(true));
 
-static cl::opt<bool>
-EnableEarlyIfConversion("aarch64-enable-early-ifcvt", cl::Hidden,
-                        cl::desc("Run early if-conversion"),
-                        cl::init(true));
-
-
 extern "C" void LLVMInitializeAArch64Target() {
   // Register the target.
   RegisterTargetMachine<AArch64leTargetMachine> X(TheAArch64leTarget);
   RegisterTargetMachine<AArch64beTargetMachine> Y(TheAArch64beTarget);
-  RegisterTargetMachine<AArch64leTargetMachine> Z(TheARM64Target);
+
+  RegisterTargetMachine<AArch64leTargetMachine> Z(TheARM64leTarget);
+  RegisterTargetMachine<AArch64beTargetMachine> W(TheARM64beTarget);
 }
 
 /// TargetMachine ctor - Create an AArch64 architecture model.
@@ -180,8 +176,7 @@ bool AArch64PassConfig::addInstSelector() {
 bool AArch64PassConfig::addILPOpts() {
   if (EnableCCMP)
     addPass(createAArch64ConditionalCompares());
-  if (EnableEarlyIfConversion)
-    addPass(&EarlyIfConverterID);
+  addPass(&EarlyIfConverterID);
   if (EnableStPairSuppress)
     addPass(createAArch64StorePairSuppressPass());
   return true;

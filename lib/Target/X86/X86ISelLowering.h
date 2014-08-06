@@ -320,10 +320,7 @@ namespace llvm {
       // Several flavors of instructions with vector shuffle behaviors.
       PACKSS,
       PACKUS,
-      // Intra-lane alignr
       PALIGNR,
-      // AVX512 inter-lane alignr
-      VALIGN,
       PSHUFD,
       PSHUFHW,
       PSHUFLW,
@@ -568,10 +565,10 @@ namespace llvm {
     /// legal as the hook is used before type legalization.
     bool isSafeMemOpType(MVT VT) const override;
 
-    /// allowsMisalignedMemoryAccesses - Returns true if the target allows
+    /// allowsUnalignedMemoryAccesses - Returns true if the target allows
     /// unaligned memory accesses. of the specified type. Returns whether it
     /// is "fast" by reference in the second argument.
-    bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AS, unsigned Align,
+    bool allowsUnalignedMemoryAccesses(EVT VT, unsigned AS,
                                        bool *Fast) const override;
 
     /// LowerOperation - Provide custom lowering hooks for some operations.
@@ -799,7 +796,6 @@ namespace llvm {
     /// \brief Reset the operation actions based on target options.
     void resetOperationActions() override;
 
-    bool useLoadStackGuardNode() const override;
     /// \brief Customize the preferred legalization strategy for certain types.
     LegalizeTypeAction getPreferredVectorAction(EVT VT) const override;
 

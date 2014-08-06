@@ -20,9 +20,8 @@ using namespace llvm;
 
 // Return the slots used by the insn.
 unsigned HexagonMCInst::getUnits(const HexagonTargetMachine* TM) const {
-  const HexagonInstrInfo *QII = TM->getSubtargetImpl()->getInstrInfo();
-  const InstrItineraryData *II =
-      TM->getSubtargetImpl()->getInstrItineraryData();
+  const HexagonInstrInfo* QII = TM->getInstrInfo();
+  const InstrItineraryData* II = TM->getInstrItineraryData();
   const InstrStage*
     IS = II->beginStage(QII->get(this->getOpcode()).getSchedClass());
 

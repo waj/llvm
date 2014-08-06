@@ -1,5 +1,4 @@
 ; RUN: llvm-as < %s | llvm-dis | FileCheck %s
-; RUN: verify-uselistorder < %s -preserve-bc-use-list-order
 
 ; Check that musttail and tail roundtrip.
 

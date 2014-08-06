@@ -26,10 +26,10 @@ class Triple;
     explicit PPCMCAsmInfoDarwin(bool is64Bit, const Triple&);
   };
 
-  class PPCELFMCAsmInfo : public MCAsmInfoELF {
+  class PPCLinuxMCAsmInfo : public MCAsmInfoELF {
     void anchor() override;
   public:
-    explicit PPCELFMCAsmInfo(bool is64Bit, const Triple&);
+    explicit PPCLinuxMCAsmInfo(bool is64Bit, const Triple&);
   };
 
 } // namespace llvm

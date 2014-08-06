@@ -118,9 +118,8 @@ bool AArch64StorePairSuppress::isNarrowFPStore(const MachineInstr &MI) {
 
 bool AArch64StorePairSuppress::runOnMachineFunction(MachineFunction &mf) {
   MF = &mf;
-  TII =
-      static_cast<const AArch64InstrInfo *>(MF->getSubtarget().getInstrInfo());
-  TRI = MF->getSubtarget().getRegisterInfo();
+  TII = static_cast<const AArch64InstrInfo *>(MF->getTarget().getInstrInfo());
+  TRI = MF->getTarget().getRegisterInfo();
   MRI = &MF->getRegInfo();
   const TargetSubtargetInfo &ST =
       MF->getTarget().getSubtarget<TargetSubtargetInfo>();

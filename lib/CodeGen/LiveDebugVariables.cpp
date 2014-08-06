@@ -39,7 +39,6 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 
 #include <memory>
 
@@ -330,13 +329,12 @@ class LDVImpl {
   void computeIntervals();
 
 public:
-  LDVImpl(LiveDebugVariables *ps)
-      : pass(*ps), MF(nullptr), EmitDone(false), ModifiedMF(false) {}
+  LDVImpl(LiveDebugVariables *ps) : pass(*ps), EmitDone(false),
+                                    ModifiedMF(false) {}
   bool runOnMachineFunction(MachineFunction &mf);
 
   /// clear - Release all memory.
   void clear() {
-    MF = nullptr;
     userValues.clear();
     virtRegToEqClass.clear();
     userVarMap.clear();
@@ -695,11 +693,11 @@ void LDVImpl::computeIntervals() {
 }
 
 bool LDVImpl::runOnMachineFunction(MachineFunction &mf) {
-  clear();
   MF = &mf;
   LIS = &pass.getAnalysis<LiveIntervals>();
   MDT = &pass.getAnalysis<MachineDominatorTree>();
-  TRI = mf.getSubtarget().getRegisterInfo();
+  TRI = mf.getTarget().getRegisterInfo();
+  clear();
   LS.initialize(mf);
   DEBUG(dbgs() << "********** COMPUTING LIVE DEBUG VARIABLES: "
                << mf.getName() << " **********\n");
@@ -711,25 +709,9 @@ bool LDVImpl::runOnMachineFunction(MachineFunction &mf) {
   return Changed;
 }
 
-static void removeDebugValues(MachineFunction &mf) {
-  for (MachineBasicBlock &MBB : mf) {
-    for (auto MBBI = MBB.begin(), MBBE = MBB.end(); MBBI != MBBE; ) {
-      if (!MBBI->isDebugValue()) {
-        ++MBBI;
-        continue;
-      }
-      MBBI = MBB.erase(MBBI);
-    }
-  }
-}
-
 bool LiveDebugVariables::runOnMachineFunction(MachineFunction &mf) {
   if (!EnableLDV)
     return false;
-  if (!FunctionDIs.count(mf.getFunction())) {
-    removeDebugValues(mf);
-    return false;
-  }
   if (!pImpl)
     pImpl = new LDVImpl(this);
   return static_cast<LDVImpl*>(pImpl)->runOnMachineFunction(mf);
@@ -992,9 +974,7 @@ void UserValue::emitDebugValues(VirtRegMap *VRM, LiveIntervals &LIS,
 
 void LDVImpl::emitDebugValues(VirtRegMap *VRM) {
   DEBUG(dbgs() << "********** EMITTING LIVE DEBUG VARIABLES **********\n");
-  if (!MF)
-    return;
-  const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
+  const TargetInstrInfo *TII = MF->getTarget().getInstrInfo();
   for (unsigned i = 0, e = userValues.size(); i != e; ++i) {
     DEBUG(userValues[i]->print(dbgs(), &MF->getTarget()));
     userValues[i]->rewriteLocations(*VRM, *TRI);
@@ -1008,10 +988,6 @@ void LiveDebugVariables::emitDebugValues(VirtRegMap *VRM) {
     static_cast<LDVImpl*>(pImpl)->emitDebugValues(VRM);
 }
 
-bool LiveDebugVariables::doInitialization(Module &M) {
-  FunctionDIs = makeSubprogramMap(M);
-  return Pass::doInitialization(M);
-}
 
 #ifndef NDEBUG
 void LiveDebugVariables::dump() {

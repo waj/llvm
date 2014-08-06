@@ -96,9 +96,6 @@ private:
                          SDValue &SOffset, SDValue &Offset, SDValue &Offen,
                          SDValue &Idxen, SDValue &GLC, SDValue &SLC,
                          SDValue &TFE) const;
-  bool SelectVOP3Mods(SDValue In, SDValue &Src, SDValue &SrcMods) const;
-  bool SelectVOP3Mods0(SDValue In, SDValue &Src, SDValue &SrcMods,
-                       SDValue &Clamp, SDValue &Omod) const;
 
   SDNode *SelectADD_SUB_I64(SDNode *N);
   SDNode *SelectDIV_SCALE(SDNode *N);
@@ -138,8 +135,7 @@ const TargetRegisterClass *AMDGPUDAGToDAGISel::getOperandRegClass(SDNode *N,
 
   switch (N->getMachineOpcode()) {
   default: {
-    const MCInstrDesc &Desc =
-        TM.getSubtargetImpl()->getInstrInfo()->get(N->getMachineOpcode());
+    const MCInstrDesc &Desc = TM.getInstrInfo()->get(N->getMachineOpcode());
     unsigned OpIdx = Desc.getNumDefs() + OpNo;
     if (OpIdx >= Desc.getNumOperands())
       return nullptr;
@@ -147,17 +143,15 @@ const TargetRegisterClass *AMDGPUDAGToDAGISel::getOperandRegClass(SDNode *N,
     if (RegClass == -1)
       return nullptr;
 
-    return TM.getSubtargetImpl()->getRegisterInfo()->getRegClass(RegClass);
+    return TM.getRegisterInfo()->getRegClass(RegClass);
   }
   case AMDGPU::REG_SEQUENCE: {
     unsigned RCID = cast<ConstantSDNode>(N->getOperand(0))->getZExtValue();
-    const TargetRegisterClass *SuperRC =
-        TM.getSubtargetImpl()->getRegisterInfo()->getRegClass(RCID);
+    const TargetRegisterClass *SuperRC = TM.getRegisterInfo()->getRegClass(RCID);
 
     SDValue SubRegOp = N->getOperand(OpNo + 1);
     unsigned SubRegIdx = cast<ConstantSDNode>(SubRegOp)->getZExtValue();
-    return TM.getSubtargetImpl()->getRegisterInfo()->getSubClassWithSubReg(
-        SuperRC, SubRegIdx);
+    return TM.getRegisterInfo()->getSubClassWithSubReg(SuperRC, SubRegIdx);
   }
   }
 }
@@ -245,10 +239,10 @@ SDNode *AMDGPUDAGToDAGISel::Select(SDNode *N) {
   case AMDGPUISD::BUILD_VERTICAL_VECTOR:
   case ISD::BUILD_VECTOR: {
     unsigned RegClassID;
-    const AMDGPURegisterInfo *TRI = static_cast<const AMDGPURegisterInfo *>(
-        TM.getSubtargetImpl()->getRegisterInfo());
-    const SIRegisterInfo *SIRI = static_cast<const SIRegisterInfo *>(
-        TM.getSubtargetImpl()->getRegisterInfo());
+    const AMDGPURegisterInfo *TRI =
+                   static_cast<const AMDGPURegisterInfo*>(TM.getRegisterInfo());
+    const SIRegisterInfo *SIRI =
+                   static_cast<const SIRegisterInfo*>(TM.getRegisterInfo());
     EVT VT = N->getValueType(0);
     unsigned NumVectorElts = VT.getVectorNumElements();
     EVT EltVT = VT.getVectorElementType();
@@ -822,8 +816,7 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFScratch(SDValue Addr, SDValue &Rsrc,
 
   SDLoc DL(Addr);
   MachineFunction &MF = CurDAG->getMachineFunction();
-  const SIRegisterInfo *TRI =
-      static_cast<const SIRegisterInfo *>(MF.getSubtarget().getRegisterInfo());
+  const SIRegisterInfo *TRI = static_cast<const SIRegisterInfo*>(MF.getTarget().getRegisterInfo());
   MachineRegisterInfo &MRI = MF.getRegInfo();
 
 
@@ -884,38 +877,6 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFAddr32(SDValue Addr, SDValue &SRsrc,
   Offen = CurDAG->getTargetConstant(1, MVT::i1);
 
   return SelectMUBUFScratch(Addr, SRsrc, VAddr, SOffset, Offset);
-}
-
-bool AMDGPUDAGToDAGISel::SelectVOP3Mods(SDValue In, SDValue &Src,
-                                        SDValue &SrcMods) const {
-
-  unsigned Mods = 0;
-
-  Src = In;
-
-  if (Src.getOpcode() == ISD::FNEG) {
-    Mods |= SISrcMods::NEG;
-    Src = Src.getOperand(0);
-  }
-
-  if (Src.getOpcode() == ISD::FABS) {
-    Mods |= SISrcMods::ABS;
-    Src = Src.getOperand(0);
-  }
-
-  SrcMods = CurDAG->getTargetConstant(Mods, MVT::i32);
-
-  return true;
-}
-
-bool AMDGPUDAGToDAGISel::SelectVOP3Mods0(SDValue In, SDValue &Src,
-                                         SDValue &SrcMods, SDValue &Clamp,
-                                         SDValue &Omod) const {
-  // FIXME: Handle Clamp and Omod
-  Clamp = CurDAG->getTargetConstant(0, MVT::i32);
-  Omod = CurDAG->getTargetConstant(0, MVT::i32);
-
-  return SelectVOP3Mods(In, Src, SrcMods);
 }
 
 void AMDGPUDAGToDAGISel::PostprocessISelDAG() {

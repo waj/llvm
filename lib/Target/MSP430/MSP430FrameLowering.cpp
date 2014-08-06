@@ -14,7 +14,6 @@
 #include "MSP430FrameLowering.h"
 #include "MSP430InstrInfo.h"
 #include "MSP430MachineFunctionInfo.h"
-#include "MSP430Subtarget.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -44,7 +43,7 @@ void MSP430FrameLowering::emitPrologue(MachineFunction &MF) const {
   MachineFrameInfo *MFI = MF.getFrameInfo();
   MSP430MachineFunctionInfo *MSP430FI = MF.getInfo<MSP430MachineFunctionInfo>();
   const MSP430InstrInfo &TII =
-      *static_cast<const MSP430InstrInfo *>(MF.getSubtarget().getInstrInfo());
+    *static_cast<const MSP430InstrInfo*>(MF.getTarget().getInstrInfo());
 
   MachineBasicBlock::iterator MBBI = MBB.begin();
   DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
@@ -109,7 +108,7 @@ void MSP430FrameLowering::emitEpilogue(MachineFunction &MF,
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   MSP430MachineFunctionInfo *MSP430FI = MF.getInfo<MSP430MachineFunctionInfo>();
   const MSP430InstrInfo &TII =
-      *static_cast<const MSP430InstrInfo *>(MF.getSubtarget().getInstrInfo());
+    *static_cast<const MSP430InstrInfo*>(MF.getTarget().getInstrInfo());
 
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
   unsigned RetOpcode = MBBI->getOpcode();
@@ -189,7 +188,7 @@ MSP430FrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   MachineFunction &MF = *MBB.getParent();
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+  const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
   MSP430MachineFunctionInfo *MFI = MF.getInfo<MSP430MachineFunctionInfo>();
   MFI->setCalleeSavedFrameSize(CSI.size() * 2);
 
@@ -215,7 +214,7 @@ MSP430FrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   MachineFunction &MF = *MBB.getParent();
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+  const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
 
   for (unsigned i = 0, e = CSI.size(); i != e; ++i)
     BuildMI(MBB, MI, DL, TII.get(MSP430::POP16r), CSI[i].getReg());
@@ -227,7 +226,7 @@ void MSP430FrameLowering::
 eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator I) const {
   const MSP430InstrInfo &TII =
-      *static_cast<const MSP430InstrInfo *>(MF.getSubtarget().getInstrInfo());
+    *static_cast<const MSP430InstrInfo*>(MF.getTarget().getInstrInfo());
   unsigned StackAlign = getStackAlignment();
 
   if (!hasReservedCallFrame(MF)) {

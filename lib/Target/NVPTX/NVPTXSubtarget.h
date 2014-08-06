@@ -57,20 +57,14 @@ public:
   NVPTXSubtarget(const std::string &TT, const std::string &CPU,
                  const std::string &FS, const TargetMachine &TM, bool is64Bit);
 
-  const TargetFrameLowering *getFrameLowering() const override {
-    return &FrameLowering;
-  }
-  const NVPTXInstrInfo *getInstrInfo() const override { return &InstrInfo; }
-  const DataLayout *getDataLayout() const override { return &DL; }
-  const NVPTXRegisterInfo *getRegisterInfo() const override {
+  const TargetFrameLowering *getFrameLowering() const { return &FrameLowering; }
+  const NVPTXInstrInfo *getInstrInfo() const { return &InstrInfo; }
+  const DataLayout *getDataLayout() const { return &DL; }
+  const NVPTXRegisterInfo *getRegisterInfo() const {
     return &InstrInfo.getRegisterInfo();
   }
-  const NVPTXTargetLowering *getTargetLowering() const override {
-    return &TLInfo;
-  }
-  const TargetSelectionDAGInfo *getSelectionDAGInfo() const override {
-    return &TSInfo;
-  }
+  const NVPTXTargetLowering *getTargetLowering() const { return &TLInfo; }
+  const TargetSelectionDAGInfo *getSelectionDAGInfo() const { return &TSInfo; }
 
   bool hasBrkPt() const { return SmVersion >= 11; }
   bool hasAtomRedG32() const { return SmVersion >= 11; }

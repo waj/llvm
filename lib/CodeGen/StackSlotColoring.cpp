@@ -29,7 +29,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <vector>
 using namespace llvm;
 
@@ -423,7 +422,7 @@ bool StackSlotColoring::runOnMachineFunction(MachineFunction &MF) {
     });
 
   MFI = MF.getFrameInfo();
-  TII = MF.getSubtarget().getInstrInfo();
+  TII = MF.getTarget().getInstrInfo();
   LS = &getAnalysis<LiveStacks>();
   MBFI = &getAnalysis<MachineBlockFrequencyInfo>();
 

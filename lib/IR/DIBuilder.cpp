@@ -720,9 +720,9 @@ DICompositeType DIBuilder::createUnionType(DIDescriptor Scope, StringRef Name,
 }
 
 /// createSubroutineType - Create subroutine type.
-DISubroutineType DIBuilder::createSubroutineType(DIFile File,
-                                                 DITypeArray ParameterTypes,
-                                                 unsigned Flags) {
+DICompositeType DIBuilder::createSubroutineType(DIFile File,
+                                                DIArray ParameterTypes,
+                                                unsigned Flags) {
   // TAG_subroutine_type is encoded in DICompositeType format.
   Value *Elts[] = {
     GetTagConstant(VMContext, dwarf::DW_TAG_subroutine_type),
@@ -741,7 +741,7 @@ DISubroutineType DIBuilder::createSubroutineType(DIFile File,
     nullptr,
     nullptr  // Type Identifer
   };
-  return DISubroutineType(MDNode::get(VMContext, Elts));
+  return DICompositeType(MDNode::get(VMContext, Elts));
 }
 
 /// createEnumerationType - Create debugging information entry for an
@@ -875,8 +875,11 @@ void DIBuilder::retainType(DIType T) {
 
 /// createUnspecifiedParameter - Create unspeicified type descriptor
 /// for the subroutine type.
-DIBasicType DIBuilder::createUnspecifiedParameter() {
-  return DIBasicType();
+DIDescriptor DIBuilder::createUnspecifiedParameter() {
+  Value *Elts[] = {
+    GetTagConstant(VMContext, dwarf::DW_TAG_unspecified_parameters)
+  };
+  return DIDescriptor(MDNode::get(VMContext, Elts));
 }
 
 /// createForwardDecl - Create a temporary forward-declared type that
@@ -951,18 +954,6 @@ DICompositeType DIBuilder::createReplaceableForwardDecl(
 /// getOrCreateArray - Get a DIArray, create one if required.
 DIArray DIBuilder::getOrCreateArray(ArrayRef<Value *> Elements) {
   return DIArray(MDNode::get(VMContext, Elements));
-}
-
-/// getOrCreateTypeArray - Get a DITypeArray, create one if required.
-DITypeArray DIBuilder::getOrCreateTypeArray(ArrayRef<Value *> Elements) {
-  SmallVector<llvm::Value *, 16> Elts; 
-  for (unsigned i = 0, e = Elements.size(); i != e; ++i) {
-    if (Elements[i] && isa<MDNode>(Elements[i]))
-      Elts.push_back(DIType(cast<MDNode>(Elements[i])).getRef());
-    else
-      Elts.push_back(Elements[i]);
-  }
-  return DITypeArray(MDNode::get(VMContext, Elts));
 }
 
 /// getOrCreateSubrange - Create a descriptor for a value range.  This
@@ -1097,28 +1088,6 @@ DIVariable DIBuilder::createComplexVariable(unsigned Tag, DIDescriptor Scope,
     Constant::getNullValue(Type::getInt32Ty(VMContext)),
     MDNode::get(VMContext, Addr)
   };
-  return DIVariable(MDNode::get(VMContext, Elts));
-}
-
-/// createVariablePiece - Create a descriptor to describe one part
-/// of aggregate variable that is fragmented across multiple Values.
-DIVariable DIBuilder::createVariablePiece(DIVariable Variable,
-                                          unsigned OffsetInBytes,
-                                          unsigned SizeInBytes) {
-  assert(SizeInBytes > 0 && "zero-size piece");
-  Value *Addr[] = {
-    ConstantInt::get(Type::getInt32Ty(VMContext), OpPiece),
-    ConstantInt::get(Type::getInt32Ty(VMContext), OffsetInBytes),
-    ConstantInt::get(Type::getInt32Ty(VMContext), SizeInBytes)
-  };
-
-  assert((Variable->getNumOperands() == 8 || Variable.isVariablePiece()) &&
-         "variable already has a complex address");
-  SmallVector<Value *, 9> Elts;
-  for (unsigned i = 0; i < 8; ++i)
-    Elts.push_back(Variable->getOperand(i));
-
-  Elts.push_back(MDNode::get(VMContext, Addr));
   return DIVariable(MDNode::get(VMContext, Elts));
 }
 

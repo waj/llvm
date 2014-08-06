@@ -11,14 +11,13 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 
 using namespace llvm;
 
 void PPCFunctionInfo::anchor() { }
 
 MCSymbol *PPCFunctionInfo::getPICOffsetSymbol() const {
-  const DataLayout *DL = MF.getSubtarget().getDataLayout();
+  const DataLayout *DL = MF.getTarget().getDataLayout();
   return MF.getContext().GetOrCreateSymbol(Twine(DL->getPrivateGlobalPrefix())+
     Twine(MF.getFunctionNumber())+"$poff");
 }

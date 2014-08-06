@@ -471,7 +471,6 @@ tgtok::TokKind TGLexer::LexExclaim() {
     .Case("tail", tgtok::XTail)
     .Case("con", tgtok::XConcat)
     .Case("add", tgtok::XADD)
-    .Case("and", tgtok::XAND)
     .Case("shl", tgtok::XSHL)
     .Case("sra", tgtok::XSRA)
     .Case("srl", tgtok::XSRL)

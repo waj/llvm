@@ -88,11 +88,10 @@ std::error_code MachOUniversalBinary::ObjectForArch::getAsArchive(
     std::string ObjectName = Parent->getFileName().str();
     std::unique_ptr<MemoryBuffer> ObjBuffer(
         MemoryBuffer::getMemBuffer(ObjectData, ObjectName, false));
-    ErrorOr<std::unique_ptr<Archive>> Obj =
-        Archive::create(std::move(ObjBuffer));
+    ErrorOr<Archive *> Obj = Archive::create(std::move(ObjBuffer));
     if (std::error_code EC = Obj.getError())
       return EC;
-    Result = std::move(Obj.get());
+    Result.reset(Obj.get());
     return object_error::success;
   }
   return object_error::parse_failed;

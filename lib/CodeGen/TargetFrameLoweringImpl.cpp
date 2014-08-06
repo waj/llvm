@@ -16,7 +16,6 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <cstdlib>
 using namespace llvm;
 
@@ -35,7 +34,7 @@ int TargetFrameLowering::getFrameIndexOffset(const MachineFunction &MF,
 
 int TargetFrameLowering::getFrameIndexReference(const MachineFunction &MF,
                                              int FI, unsigned &FrameReg) const {
-  const TargetRegisterInfo *RI = MF.getSubtarget().getRegisterInfo();
+  const TargetRegisterInfo *RI = MF.getTarget().getRegisterInfo();
 
   // By default, assume all frame indices are referenced via whatever
   // getFrameRegister() says. The target can override this if it's doing

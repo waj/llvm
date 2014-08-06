@@ -1509,7 +1509,6 @@ void AssemblyWriter::printAlias(const GlobalAlias *GA) {
     PrintLLVMName(Out, GA);
     Out << " = ";
   }
-  PrintLinkage(GA->getLinkage(), Out);
   PrintVisibility(GA->getVisibility(), Out);
   PrintDLLStorageClass(GA->getDLLStorageClass(), Out);
   PrintThreadLocalModel(GA->getThreadLocalMode(), Out);
@@ -1517,6 +1516,8 @@ void AssemblyWriter::printAlias(const GlobalAlias *GA) {
     Out << "unnamed_addr ";
 
   Out << "alias ";
+
+  PrintLinkage(GA->getLinkage(), Out);
 
   const Constant *Aliasee = GA->getAliasee();
 

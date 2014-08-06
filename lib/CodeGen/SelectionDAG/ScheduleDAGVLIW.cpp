@@ -31,7 +31,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <climits>
 using namespace llvm;
 
@@ -74,9 +73,8 @@ public:
     : ScheduleDAGSDNodes(mf), AvailableQueue(availqueue), AA(aa) {
 
     const TargetMachine &tm = mf.getTarget();
-    HazardRec =
-        tm.getSubtargetImpl()->getInstrInfo()->CreateTargetHazardRecognizer(
-            tm.getSubtargetImpl(), this);
+    HazardRec = tm.getInstrInfo()->CreateTargetHazardRecognizer(
+        tm.getSubtargetImpl(), this);
   }
 
   ~ScheduleDAGVLIW() {

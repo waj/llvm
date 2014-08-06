@@ -436,7 +436,7 @@ class NVPTXSubtarget;
 //===--------------------------------------------------------------------===//
 class NVPTXTargetLowering : public TargetLowering {
 public:
-  explicit NVPTXTargetLowering(const NVPTXTargetMachine &TM);
+  explicit NVPTXTargetLowering(NVPTXTargetMachine &TM);
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
   SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
@@ -495,7 +495,7 @@ public:
                                     std::vector<SDValue> &Ops,
                                     SelectionDAG &DAG) const override;
 
-  const NVPTXTargetMachine *nvTM;
+  NVPTXTargetMachine *nvTM;
 
   // PTX always uses 32-bit shift amounts
   MVT getScalarShiftAmountTy(EVT LHSTy) const override { return MVT::i32; }

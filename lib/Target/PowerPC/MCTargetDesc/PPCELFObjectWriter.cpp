@@ -236,10 +236,7 @@ unsigned PPCELFObjectWriter::getRelocTypeInner(const MCValue &Target,
         Type = ELF::R_PPC64_DTPREL16_HIGHESTA;
         break;
       case MCSymbolRefExpr::VK_PPC_GOT_TLSGD:
-        if (is64Bit())
-          Type = ELF::R_PPC64_GOT_TLSGD16;
-        else
-          Type = ELF::R_PPC_GOT_TLSGD16;
+        Type = ELF::R_PPC64_GOT_TLSGD16;
         break;
       case MCSymbolRefExpr::VK_PPC_GOT_TLSGD_LO:
         Type = ELF::R_PPC64_GOT_TLSGD16_LO;
@@ -251,10 +248,7 @@ unsigned PPCELFObjectWriter::getRelocTypeInner(const MCValue &Target,
         Type = ELF::R_PPC64_GOT_TLSGD16_HA;
         break;
       case MCSymbolRefExpr::VK_PPC_GOT_TLSLD:
-        if (is64Bit())
-          Type = ELF::R_PPC64_GOT_TLSLD16;
-        else
-          Type = ELF::R_PPC_GOT_TLSLD16;
+        Type = ELF::R_PPC64_GOT_TLSLD16;
         break;
       case MCSymbolRefExpr::VK_PPC_GOT_TLSLD_LO:
         Type = ELF::R_PPC64_GOT_TLSLD16_LO;
@@ -350,22 +344,13 @@ unsigned PPCELFObjectWriter::getRelocTypeInner(const MCValue &Target,
       switch (Modifier) {
       default: llvm_unreachable("Unsupported Modifier");
       case MCSymbolRefExpr::VK_PPC_TLSGD:
-        if (is64Bit())
-          Type = ELF::R_PPC64_TLSGD;
-        else
-          Type = ELF::R_PPC_TLSGD;
+        Type = ELF::R_PPC64_TLSGD;
         break;
       case MCSymbolRefExpr::VK_PPC_TLSLD:
-        if (is64Bit())
-          Type = ELF::R_PPC64_TLSLD;
-        else
-          Type = ELF::R_PPC_TLSLD;
+        Type = ELF::R_PPC64_TLSLD;
         break;
       case MCSymbolRefExpr::VK_PPC_TLS:
-        if (is64Bit())
-          Type = ELF::R_PPC64_TLS;
-        else
-          Type = ELF::R_PPC_TLS;
+        Type = ELF::R_PPC64_TLS;
         break;
       }
       break;

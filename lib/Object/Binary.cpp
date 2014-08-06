@@ -38,9 +38,8 @@ StringRef Binary::getFileName() const {
   return Data->getBufferIdentifier();
 }
 
-ErrorOr<std::unique_ptr<Binary>>
-object::createBinary(std::unique_ptr<MemoryBuffer> Buffer,
-                     LLVMContext *Context) {
+ErrorOr<Binary *> object::createBinary(std::unique_ptr<MemoryBuffer> Buffer,
+                                       LLVMContext *Context) {
   sys::fs::file_magic Type = sys::fs::identify_magic(Buffer->getBuffer());
 
   switch (Type) {
@@ -75,7 +74,7 @@ object::createBinary(std::unique_ptr<MemoryBuffer> Buffer,
   llvm_unreachable("Unexpected Binary File Type");
 }
 
-ErrorOr<std::unique_ptr<Binary>> object::createBinary(StringRef Path) {
+ErrorOr<Binary *> object::createBinary(StringRef Path) {
   ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrErr =
       MemoryBuffer::getFileOrSTDIN(Path);
   if (std::error_code EC = FileOrErr.getError())

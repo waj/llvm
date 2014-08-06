@@ -1112,12 +1112,12 @@ ExportDirectoryEntryRef::getSymbolName(StringRef &Result) const {
   return object_error::success;
 }
 
-ErrorOr<std::unique_ptr<COFFObjectFile>>
+ErrorOr<ObjectFile *>
 ObjectFile::createCOFFObjectFile(std::unique_ptr<MemoryBuffer> Object) {
   std::error_code EC;
   std::unique_ptr<COFFObjectFile> Ret(
       new COFFObjectFile(std::move(Object), EC));
   if (EC)
     return EC;
-  return std::move(Ret);
+  return Ret.release();
 }

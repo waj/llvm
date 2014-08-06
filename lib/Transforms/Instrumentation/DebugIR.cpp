@@ -396,7 +396,7 @@ private:
         Elements.push_back(getOrCreateType(T->getStructElementType(i)));
 
       // set struct elements
-      StructDescriptor.setArrays(Builder.getOrCreateArray(Elements));
+      StructDescriptor.setTypeArray(Builder.getOrCreateArray(Elements));
     } else if (T->isPointerTy()) {
       Type *PointeeTy = T->getPointerElementType();
       if (!(N = getType(PointeeTy)))
@@ -440,7 +440,7 @@ private:
       Params.push_back(getOrCreateType(T));
     }
 
-    DITypeArray ParamArray = Builder.getOrCreateTypeArray(Params);
+    DIArray ParamArray = Builder.getOrCreateArray(Params);
     return Builder.createSubroutineType(DIFile(FileNode), ParamArray);
   }
 

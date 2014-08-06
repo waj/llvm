@@ -180,9 +180,9 @@ namespace {
     /// store into the memory location pointed to by V.
     ///
     bool pointerInvalidatedByLoop(Value *V, uint64_t Size,
-                                  const AAMDNodes &AAInfo) {
+                                  const MDNode *TBAAInfo) {
       // Check to see if any of the basic blocks in CurLoop invalidate *V.
-      return CurAST->getAliasSetForPointer(V, Size, AAInfo).isMod();
+      return CurAST->getAliasSetForPointer(V, Size, TBAAInfo).isMod();
     }
 
     bool canSinkOrHoistInst(Instruction &I);
@@ -448,11 +448,8 @@ bool LICM::canSinkOrHoistInst(Instruction &I) {
     uint64_t Size = 0;
     if (LI->getType()->isSized())
       Size = AA->getTypeStoreSize(LI->getType());
-
-    AAMDNodes AAInfo;
-    LI->getAAMetadata(AAInfo);
-
-    return !pointerInvalidatedByLoop(LI->getOperand(0), Size, AAInfo);
+    return !pointerInvalidatedByLoop(LI->getOperand(0), Size,
+                                     LI->getMetadata(LLVMContext::MD_tbaa));
   } else if (CallInst *CI = dyn_cast<CallInst>(&I)) {
     // Don't sink or hoist dbg info; it's legal, but not useful.
     if (isa<DbgInfoIntrinsic>(I))
@@ -693,7 +690,7 @@ namespace {
     LoopInfo &LI;
     DebugLoc DL;
     int Alignment;
-    AAMDNodes AATags;
+    MDNode *TBAATag;
 
     Value *maybeInsertLCSSAPHI(Value *V, BasicBlock *BB) const {
       if (Instruction *I = dyn_cast<Instruction>(V))
@@ -717,10 +714,10 @@ namespace {
                  SmallVectorImpl<BasicBlock *> &LEB,
                  SmallVectorImpl<Instruction *> &LIP, PredIteratorCache &PIC,
                  AliasSetTracker &ast, LoopInfo &li, DebugLoc dl, int alignment,
-                 const AAMDNodes &AATags)
+                 MDNode *TBAATag)
         : LoadAndStorePromoter(Insts, S), SomePtr(SP), PointerMustAliases(PMA),
           LoopExitBlocks(LEB), LoopInsertPts(LIP), PredCache(PIC), AST(ast),
-          LI(li), DL(dl), Alignment(alignment), AATags(AATags) {}
+          LI(li), DL(dl), Alignment(alignment), TBAATag(TBAATag) {}
 
     bool isInstInList(Instruction *I,
                       const SmallVectorImpl<Instruction*> &) const override {
@@ -746,7 +743,7 @@ namespace {
         StoreInst *NewSI = new StoreInst(LiveInValue, Ptr, InsertPos);
         NewSI->setAlignment(Alignment);
         NewSI->setDebugLoc(DL);
-        if (AATags) NewSI->setAAMetadata(AATags);
+        if (TBAATag) NewSI->setMetadata(LLVMContext::MD_tbaa, TBAATag);
       }
     }
 
@@ -801,11 +798,11 @@ void LICM::PromoteAliasSet(AliasSet &AS,
   // We start with an alignment of one and try to find instructions that allow
   // us to prove better alignment.
   unsigned Alignment = 1;
-  AAMDNodes AATags;
+  MDNode *TBAATag = nullptr;
 
   // Check that all of the pointers in the alias set have the same type.  We
   // cannot (yet) promote a memory location that is loaded and stored in
-  // different sizes.  While we are at it, collect alignment and AA info.
+  // different sizes.  While we are at it, collect alignment and TBAA info.
   for (AliasSet::iterator ASI = AS.begin(), E = AS.end(); ASI != E; ++ASI) {
     Value *ASIV = ASI->getValue();
     PointerMustAliases.insert(ASIV);
@@ -858,12 +855,13 @@ void LICM::PromoteAliasSet(AliasSet &AS,
       } else
         return; // Not a load or store.
 
-      // Merge the AA tags.
+      // Merge the TBAA tags.
       if (LoopUses.empty()) {
-        // On the first load/store, just take its AA tags.
-        UI->getAAMetadata(AATags);
-      } else if (AATags) {
-        UI->getAAMetadata(AATags, /* Merge = */ true);
+        // On the first load/store, just take its TBAA tag.
+        TBAATag = UI->getMetadata(LLVMContext::MD_tbaa);
+      } else if (TBAATag) {
+        TBAATag = MDNode::getMostGenericTBAA(TBAATag,
+                                       UI->getMetadata(LLVMContext::MD_tbaa));
       }
 
       LoopUses.push_back(UI);
@@ -898,7 +896,7 @@ void LICM::PromoteAliasSet(AliasSet &AS,
   SmallVector<PHINode*, 16> NewPHIs;
   SSAUpdater SSA(&NewPHIs);
   LoopPromoter Promoter(SomePtr, LoopUses, SSA, PointerMustAliases, ExitBlocks,
-                        InsertPts, PIC, *CurAST, *LI, DL, Alignment, AATags);
+                        InsertPts, PIC, *CurAST, *LI, DL, Alignment, TBAATag);
 
   // Set up the preheader to have a definition of the value.  It is the live-out
   // value from the preheader that uses in the loop will use.
@@ -907,7 +905,7 @@ void LICM::PromoteAliasSet(AliasSet &AS,
                  Preheader->getTerminator());
   PreheaderLoad->setAlignment(Alignment);
   PreheaderLoad->setDebugLoc(DL);
-  if (AATags) PreheaderLoad->setAAMetadata(AATags);
+  if (TBAATag) PreheaderLoad->setMetadata(LLVMContext::MD_tbaa, TBAATag);
   SSA.AddAvailableValue(Preheader, PreheaderLoad);
 
   // Rewrite all the loads in the loop and remember all the definitions from

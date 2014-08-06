@@ -1,5 +1,4 @@
 ; RUN: llvm-as < %s | llvm-dis
-; RUN: verify-uselistorder %s -preserve-bc-use-list-order
 ; PR3876
 @gdtr = external global [0 x i8]
 

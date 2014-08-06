@@ -23,7 +23,8 @@ entry:
 ; MEDIUM: lwz {{[0-9]+}}, 0([[REG2]])
 ; MEDIUM: stw {{[0-9]+}}, 0([[REG2]])
 ; MEDIUM: .type [[VAR]],@object
-; MEDIUM: .lcomm [[VAR]],4,4
+; MEDIUM: .local [[VAR]]
+; MEDIUM: .comm [[VAR]],4,4
 
 ; LARGE-LABEL: test_fn_static:
 ; LARGE: addis [[REG1:[0-9]+]], 2, [[VAR:[a-z0-9A-Z_.]+]]@toc@ha
@@ -33,5 +34,6 @@ entry:
 ; LARGE: [[VAR]]:
 ; LARGE: .tc [[VAR2:[a-z0-9A-Z_.]+]][TC],[[VAR2]]
 ; LARGE: .type [[VAR2]],@object
-; LARGE: .lcomm [[VAR2]],4,4
+; LARGE: .local [[VAR2]]
+; LARGE: .comm [[VAR2]],4,4
 

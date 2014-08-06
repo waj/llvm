@@ -25,18 +25,41 @@
 namespace llvm {
 
 class AMDGPUTargetMachine : public LLVMTargetMachine {
+
   AMDGPUSubtarget Subtarget;
+  const DataLayout Layout;
+  AMDGPUFrameLowering FrameLowering;
   AMDGPUIntrinsicInfo IntrinsicInfo;
+  std::unique_ptr<AMDGPUTargetLowering> TLInfo;
+  const InstrItineraryData *InstrItins;
 
 public:
   AMDGPUTargetMachine(const Target &T, StringRef TT, StringRef FS,
                       StringRef CPU, TargetOptions Options, Reloc::Model RM,
                       CodeModel::Model CM, CodeGenOpt::Level OL);
   ~AMDGPUTargetMachine();
+  const AMDGPUFrameLowering *getFrameLowering() const override {
+    return &FrameLowering;
+  }
+  const AMDGPUIntrinsicInfo *getIntrinsicInfo() const override {
+    return &IntrinsicInfo;
+  }
+  const AMDGPUInstrInfo *getInstrInfo() const override {
+    return getSubtargetImpl()->getInstrInfo();
+  }
   const AMDGPUSubtarget *getSubtargetImpl() const override {
     return &Subtarget;
   }
-  const AMDGPUIntrinsicInfo *getIntrinsicInfo() const { return &IntrinsicInfo; }
+  const AMDGPURegisterInfo *getRegisterInfo() const override {
+    return &getInstrInfo()->getRegisterInfo();
+  }
+  AMDGPUTargetLowering *getTargetLowering() const override {
+    return TLInfo.get();
+  }
+  const InstrItineraryData *getInstrItineraryData() const override {
+    return InstrItins;
+  }
+  const DataLayout *getDataLayout() const override { return &Layout; }
   TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 
   /// \brief Register R600 analysis passes with a pass manager.

@@ -212,11 +212,10 @@ public:
 
   MVT getScalarShiftAmountTy(EVT LHSTy) const override;
 
-  /// allowsMisalignedMemoryAccesses - Returns true if the target allows
+  /// allowsUnalignedMemoryAccesses - Returns true if the target allows
   /// unaligned memory accesses. of the specified type.
-  bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AddrSpace = 0,
-                                      unsigned Align = 1,
-                                      bool *Fast = nullptr) const override {
+  bool allowsUnalignedMemoryAccesses(EVT VT, unsigned AddrSpace = 0,
+                                     bool *Fast = nullptr) const override {
     if (RequireStrictAlign)
       return false;
     // FIXME: True for Cyclone, but not necessary others.
@@ -325,7 +324,6 @@ public:
 
   bool shouldExpandAtomicInIR(Instruction *Inst) const override;
 
-  bool useLoadStackGuardNode() const override;
   TargetLoweringBase::LegalizeTypeAction
   getPreferredVectorAction(EVT VT) const override;
 
@@ -425,9 +423,6 @@ private:
   SDValue LowerVectorOR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerCONCAT_VECTORS(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFSINCOS(SDValue Op, SelectionDAG &DAG) const;
-
-  SDValue BuildSDIVPow2(SDNode *N, const APInt &Divisor, SelectionDAG &DAG,
-                        std::vector<SDNode *> *Created) const;
 
   ConstraintType
   getConstraintType(const std::string &Constraint) const override;

@@ -28,9 +28,10 @@ l2:
   ret float %c1
 }
 
-; FIXME: Can use vcmpeqss and extract from the mask here in AVX512.
 ; CHECK-LABEL: test3
-; CHECK: vucomiss {{.*}}encoding: [0x62
+; CHECK: vcmpeqss
+; CHECK: kmov
+; CHECK: ret
 define i32 @test3(float %a, float %b) {
 
   %cmp10.i = fcmp oeq float %a, %b

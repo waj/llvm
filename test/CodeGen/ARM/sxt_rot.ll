@@ -9,8 +9,7 @@ define i32 @test0(i8 %A) {
 
 define signext i8 @test1(i32 %A) {
 ; CHECK: test1
-; CHECK: lsr r0, r0, #8
-; CHECK: sxtb r0, r0
+; CHECK: sxtb r0, r0, ror #8
   %B = lshr i32 %A, 8
   %C = shl i32 %A, 24
   %D = or i32 %B, %C

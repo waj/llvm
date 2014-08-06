@@ -126,11 +126,10 @@ public:
 /// @brief Create a Binary from Source, autodetecting the file type.
 ///
 /// @param Source The data to create the Binary from.
-ErrorOr<std::unique_ptr<Binary>>
-createBinary(std::unique_ptr<MemoryBuffer> Source,
-             LLVMContext *Context = nullptr);
+ErrorOr<Binary *> createBinary(std::unique_ptr<MemoryBuffer> Source,
+                               LLVMContext *Context = nullptr);
 
-ErrorOr<std::unique_ptr<Binary>> createBinary(StringRef Path);
+ErrorOr<Binary *> createBinary(StringRef Path);
 }
 }
 

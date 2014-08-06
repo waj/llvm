@@ -106,7 +106,6 @@ def IIC_SprSLBIE     : InstrItinClass;
 def IIC_SprSLBMTE    : InstrItinClass;
 def IIC_SprSLBMFEE   : InstrItinClass;
 def IIC_SprSLBIA     : InstrItinClass;
-def IIC_SprTLBIA     : InstrItinClass;
 def IIC_SprTLBIEL    : InstrItinClass;
 def IIC_SprTLBIE     : InstrItinClass;
 

@@ -241,6 +241,7 @@ public:
   bool hasExtractInsert() const { return !inMips16Mode() && hasMips32r2(); }
   bool hasMTHC1() const { return hasMips32r2(); }
 
+  const InstrItineraryData &getInstrItineraryData() const { return InstrItins; }
   bool allowMixed16_32() const { return inMips16ModeDefault() |
                                         AllowMixed16_32;}
 
@@ -272,24 +273,17 @@ public:
   void setHelperClassesMips16();
   void setHelperClassesMipsSE();
 
-  MipsJITInfo *getJITInfo() override { return &JITInfo; }
-  const MipsSelectionDAGInfo *getSelectionDAGInfo() const override {
-    return &TSInfo;
-  }
-  const DataLayout *getDataLayout() const override { return &DL; }
-  const MipsInstrInfo *getInstrInfo() const override { return InstrInfo.get(); }
-  const TargetFrameLowering *getFrameLowering() const override {
+  MipsJITInfo *getJITInfo() { return &JITInfo; }
+  const MipsSelectionDAGInfo *getSelectionDAGInfo() const { return &TSInfo; }
+  const DataLayout *getDataLayout() const { return &DL; }
+  const MipsInstrInfo *getInstrInfo() const { return InstrInfo.get(); }
+  const TargetFrameLowering *getFrameLowering() const {
     return FrameLowering.get();
   }
-  const MipsRegisterInfo *getRegisterInfo() const override {
+  const MipsRegisterInfo *getRegisterInfo() const {
     return &InstrInfo->getRegisterInfo();
   }
-  const MipsTargetLowering *getTargetLowering() const override {
-    return TLInfo.get();
-  }
-  const InstrItineraryData *getInstrItineraryData() const override {
-    return &InstrItins;
-  }
+  const MipsTargetLowering *getTargetLowering() const { return TLInfo.get(); }
 };
 } // End llvm namespace
 

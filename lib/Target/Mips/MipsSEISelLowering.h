@@ -31,9 +31,8 @@ namespace llvm {
     void addMSAFloatType(MVT::SimpleValueType Ty,
                          const TargetRegisterClass *RC);
 
-    bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AS = 0,
-                                        unsigned Align = 1,
-                                        bool *Fast = nullptr) const override;
+    bool allowsUnalignedMemoryAccesses(EVT VT, unsigned AS = 0,
+                                       bool *Fast = nullptr) const override;
 
     SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 

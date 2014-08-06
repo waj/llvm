@@ -108,7 +108,7 @@ ARMBaseInstrInfo::CreateTargetHazardRecognizer(const TargetSubtargetInfo *STI,
                                                const ScheduleDAG *DAG) const {
   if (usePreRAHazardRecognizer()) {
     const InstrItineraryData *II =
-        static_cast<const ARMSubtarget *>(STI)->getInstrItineraryData();
+        &static_cast<const ARMSubtarget *>(STI)->getInstrItineraryData();
     return new ScoreboardHazardRecognizer(II, DAG, "pre-RA-sched");
   }
   return TargetInstrInfo::CreateTargetHazardRecognizer(STI, DAG);
@@ -1174,20 +1174,7 @@ unsigned ARMBaseInstrInfo::isLoadFromStackSlotPostFE(const MachineInstr *MI,
   return MI->mayLoad() && hasLoadFromStackSlot(MI, Dummy, FrameIndex);
 }
 
-bool
-ARMBaseInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
-  MachineFunction &MF = *MI->getParent()->getParent();
-  Reloc::Model RM = MF.getTarget().getRelocationModel();
-
-  if (MI->getOpcode() == TargetOpcode::LOAD_STACK_GUARD) {
-    assert(getSubtarget().getTargetTriple().getObjectFormat() ==
-           Triple::MachO &&
-           "LOAD_STACK_GUARD currently supported only for MachO.");
-    expandLoadStackGuard(MI, RM);
-    MI->getParent()->erase(MI);
-    return true;
-  }
-
+bool ARMBaseInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const{
   // This hook gets to expand COPY instructions before they become
   // copyPhysReg() calls.  Look for VMOVS instructions that can legally be
   // widened to VMOVD.  We prefer the VMOVD when possible because it may be
@@ -3944,38 +3931,6 @@ bool ARMBaseInstrInfo::verifyInstruction(const MachineInstr *MI,
     return false;
   }
   return true;
-}
-
-// LoadStackGuard has so far only been implemented for MachO. Different code
-// sequence is needed for other targets.
-void ARMBaseInstrInfo::expandLoadStackGuardBase(MachineBasicBlock::iterator MI,
-                                                unsigned LoadImmOpc,
-                                                unsigned LoadOpc,
-                                                Reloc::Model RM) const {
-  MachineBasicBlock &MBB = *MI->getParent();
-  DebugLoc DL = MI->getDebugLoc();
-  unsigned Reg = MI->getOperand(0).getReg();
-  const GlobalValue *GV =
-      cast<GlobalValue>((*MI->memoperands_begin())->getValue());
-  MachineInstrBuilder MIB;
-
-  BuildMI(MBB, MI, DL, get(LoadImmOpc), Reg)
-      .addGlobalAddress(GV, 0, ARMII::MO_NONLAZY);
-
-  if (Subtarget.GVIsIndirectSymbol(GV, RM)) {
-    MIB = BuildMI(MBB, MI, DL, get(LoadOpc), Reg);
-    MIB.addReg(Reg, RegState::Kill).addImm(0);
-    unsigned Flag = MachineMemOperand::MOLoad | MachineMemOperand::MOInvariant;
-    MachineMemOperand *MMO = MBB.getParent()->
-        getMachineMemOperand(MachinePointerInfo::getGOT(), Flag, 4, 4);
-    MIB.addMemOperand(MMO);
-    AddDefaultPred(MIB);
-  }
-
-  MIB = BuildMI(MBB, MI, DL, get(LoadOpc), Reg);
-  MIB.addReg(Reg, RegState::Kill).addImm(0);
-  MIB.setMemRefs(MI->memoperands_begin(), MI->memoperands_end());
-  AddDefaultPred(MIB);
 }
 
 bool

@@ -1,5 +1,4 @@
 ; RUN: llvm-as < %s > /dev/null
-; RUN: verify-uselistorder %s -preserve-bc-use-list-order
 
 define void @t() {
 entry:

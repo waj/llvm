@@ -1669,11 +1669,9 @@ bool GVN::PerformLoadPRE(LoadInst *LI, AvailValInBlkVect &ValuesPerBlock,
                                         LI->getAlignment(),
                                         UnavailablePred->getTerminator());
 
-    // Transfer the old load's AA tags to the new load.
-    AAMDNodes Tags;
-    LI->getAAMetadata(Tags);
-    if (Tags)
-      NewLoad->setAAMetadata(Tags);
+    // Transfer the old load's TBAA tag to the new load.
+    if (MDNode *Tag = LI->getMetadata(LLVMContext::MD_tbaa))
+      NewLoad->setMetadata(LLVMContext::MD_tbaa, Tag);
 
     // Transfer DebugLoc.
     NewLoad->setDebugLoc(LI->getDebugLoc());
@@ -1790,19 +1788,6 @@ static void patchReplacementInstruction(Instruction *I, Value *Repl) {
         llvm_unreachable("getAllMetadataOtherThanDebugLoc returned a MD_dbg");
       case LLVMContext::MD_tbaa:
         ReplInst->setMetadata(Kind, MDNode::getMostGenericTBAA(IMD, ReplMD));
-        break;
-      case LLVMContext::MD_alias_scope:
-      case LLVMContext::MD_noalias:
-        // FIXME: If both the original and replacement value are part of the
-        // same control-flow region (meaning that the execution of one
-        // guarentees the executation of the other), then we can combine the
-        // noalias scopes here and do better than the general conservative
-        // answer.
-
-        // In general, GVN unifies expressions over different control-flow
-        // regions, and so we need a conservative combination of the noalias
-        // scopes.
-        ReplInst->setMetadata(Kind, MDNode::intersect(IMD, ReplMD));
         break;
       case LLVMContext::MD_range:
         ReplInst->setMetadata(Kind, MDNode::getMostGenericRange(IMD, ReplMD));
@@ -2817,7 +2802,7 @@ bool GVN::processFoldableCondBr(BranchInst *BI) {
   return true;
 }
 
-// performPRE() will trigger assert if it comes across an instruction without
+// performPRE() will trigger assert if it come across an instruciton without
 // associated val-num. As it normally has far more live instructions than dead
 // instructions, it makes more sense just to "fabricate" a val-number for the
 // dead code than checking if instruction involved is dead or not.

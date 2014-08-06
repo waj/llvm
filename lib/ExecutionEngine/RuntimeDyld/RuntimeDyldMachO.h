@@ -37,7 +37,6 @@ protected:
         : EHFrameSID(RTDYLD_INVALID_SECTION_ID),
           TextSID(RTDYLD_INVALID_SECTION_ID),
           ExceptTabSID(RTDYLD_INVALID_SECTION_ID) {}
-
     EHFrameRelatedSections(SID EH, SID T, SID Ex)
         : EHFrameSID(EH), TextSID(T), ExceptTabSID(Ex) {}
     SID EHFrameSID;
@@ -53,8 +52,8 @@ protected:
   RuntimeDyldMachO(RTDyldMemoryManager *mm) : RuntimeDyldImpl(mm) {}
 
   /// Extract the addend encoded in the instruction.
-  int64_t decodeAddend(uint8_t *LocalAddress, unsigned NumBytes,
-                       MachO::RelocationInfoType RelType) const;
+  uint64_t decodeAddend(uint8_t *LocalAddress, unsigned NumBytes,
+                        uint32_t RelType) const;
 
   /// Construct a RelocationValueRef representing the relocation target.
   /// For Symbols in known sections, this will return a RelocationValueRef
@@ -73,8 +72,7 @@ protected:
 
   /// Make the RelocationValueRef addend PC-relative.
   void makeValueAddendPCRel(RelocationValueRef &Value, ObjectImage &ObjImg,
-                            const relocation_iterator &RI,
-                            unsigned OffsetToNextPC);
+                            const relocation_iterator &RI);
 
   /// Dump information about the relocation entry (RE) and resolved value.
   void dumpRelocationToResolve(const RelocationEntry &RE, uint64_t Value) const;
@@ -139,9 +137,8 @@ protected:
     RI->getOffset(Offset);
     uint8_t *LocalAddress = Section.Address + Offset;
     unsigned NumBytes = 1 << Size;
-    MachO::RelocationInfoType RelType =
-      static_cast<MachO::RelocationInfoType>(Obj.getAnyRelocationType(RelInfo));
-    int64_t Addend = impl().decodeAddend(LocalAddress, NumBytes, RelType);
+    uint32_t RelType = Obj.getAnyRelocationType(RelInfo);
+    uint64_t Addend = impl().decodeAddend(LocalAddress, NumBytes, RelType);
 
     return RelocationEntry(SectionID, Offset, RelType, Addend, IsPCRel, Size);
   }

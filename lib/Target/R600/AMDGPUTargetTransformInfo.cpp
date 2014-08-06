@@ -52,7 +52,7 @@ public:
 
   AMDGPUTTI(const AMDGPUTargetMachine *TM)
       : ImmutablePass(ID), TM(TM), ST(TM->getSubtargetImpl()),
-        TLI(TM->getSubtargetImpl()->getTargetLowering()) {
+        TLI(TM->getTargetLowering()) {
     initializeAMDGPUTTIPass(*PassRegistry::getPassRegistry());
   }
 
@@ -101,12 +101,6 @@ bool AMDGPUTTI::hasBranchDivergence() const { return true; }
 
 void AMDGPUTTI::getUnrollingPreferences(Loop *L,
                                         UnrollingPreferences &UP) const {
-  UP.Threshold = 300; // Twice the default.
-  UP.Count = UINT_MAX;
-  UP.Partial = true;
-
-  // TODO: Do we want runtime unrolling?
-
   for (const BasicBlock *BB : L->getBlocks()) {
     for (const Instruction &I : *BB) {
       const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(&I);
@@ -126,7 +120,7 @@ void AMDGPUTTI::getUnrollingPreferences(Loop *L,
         //
         // Don't use the maximum allowed value here as it will make some
         // programs way too big.
-        UP.Threshold = 800;
+        UP.Threshold = 500;
       }
     }
   }

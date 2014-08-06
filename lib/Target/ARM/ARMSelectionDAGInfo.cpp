@@ -157,7 +157,7 @@ EmitTargetCodeForMemset(SelectionDAG &DAG, SDLoc dl,
     return SDValue();
 
   const ARMTargetLowering &TLI =
-      *DAG.getTarget().getSubtarget<ARMSubtarget>().getTargetLowering();
+    *static_cast<const ARMTargetLowering*>(DAG.getTarget().getTargetLowering());
   TargetLowering::ArgListTy Args;
   TargetLowering::ArgListEntry Entry;
 

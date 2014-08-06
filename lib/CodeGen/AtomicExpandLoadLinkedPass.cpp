@@ -78,8 +78,7 @@ bool AtomicExpandLoadLinked::runOnFunction(Function &F) {
 
   bool MadeChange = false;
   for (Instruction *Inst : AtomicInsts) {
-    if (!TM->getSubtargetImpl()->getTargetLowering()->shouldExpandAtomicInIR(
-            Inst))
+    if (!TM->getTargetLowering()->shouldExpandAtomicInIR(Inst))
       continue;
 
     if (AtomicRMWInst *AI = dyn_cast<AtomicRMWInst>(Inst))
@@ -101,14 +100,13 @@ bool AtomicExpandLoadLinked::expandAtomicLoad(LoadInst *LI) {
   // Load instructions don't actually need a leading fence, even in the
   // SequentiallyConsistent case.
   AtomicOrdering MemOpOrder =
-      TM->getSubtargetImpl()->getTargetLowering()->getInsertFencesForAtomic()
-          ? Monotonic
-          : LI->getOrdering();
+      TM->getTargetLowering()->getInsertFencesForAtomic() ? Monotonic
+                                                          : LI->getOrdering();
 
   // The only 64-bit load guaranteed to be single-copy atomic by the ARM ARM is
   // an ldrexd (A3.5.3).
   IRBuilder<> Builder(LI);
-  Value *Val = TM->getSubtargetImpl()->getTargetLowering()->emitLoadLinked(
+  Value *Val = TM->getTargetLowering()->emitLoadLinked(
       Builder, LI->getPointerOperand(), MemOpOrder);
 
   insertTrailingFence(Builder, LI->getOrdering());
@@ -170,8 +168,8 @@ bool AtomicExpandLoadLinked::expandAtomicRMW(AtomicRMWInst *AI) {
 
   // Start the main loop block now that we've taken care of the preliminaries.
   Builder.SetInsertPoint(LoopBB);
-  Value *Loaded = TM->getSubtargetImpl()->getTargetLowering()->emitLoadLinked(
-      Builder, Addr, MemOpOrder);
+  Value *Loaded =
+      TM->getTargetLowering()->emitLoadLinked(Builder, Addr, MemOpOrder);
 
   Value *NewVal;
   switch (AI->getOperation()) {
@@ -217,9 +215,8 @@ bool AtomicExpandLoadLinked::expandAtomicRMW(AtomicRMWInst *AI) {
     llvm_unreachable("Unknown atomic op");
   }
 
-  Value *StoreSuccess =
-      TM->getSubtargetImpl()->getTargetLowering()->emitStoreConditional(
-          Builder, NewVal, Addr, MemOpOrder);
+  Value *StoreSuccess = TM->getTargetLowering()->emitStoreConditional(
+      Builder, NewVal, Addr, MemOpOrder);
   Value *TryAgain = Builder.CreateICmpNE(
       StoreSuccess, ConstantInt::get(IntegerType::get(Ctx, 32), 0), "tryagain");
   Builder.CreateCondBr(TryAgain, LoopBB, ExitBB);
@@ -285,8 +282,8 @@ bool AtomicExpandLoadLinked::expandAtomicCmpXchg(AtomicCmpXchgInst *CI) {
 
   // Start the main loop block now that we've taken care of the preliminaries.
   Builder.SetInsertPoint(LoopBB);
-  Value *Loaded = TM->getSubtargetImpl()->getTargetLowering()->emitLoadLinked(
-      Builder, Addr, MemOpOrder);
+  Value *Loaded =
+      TM->getTargetLowering()->emitLoadLinked(Builder, Addr, MemOpOrder);
   Value *ShouldStore =
       Builder.CreateICmpEQ(Loaded, CI->getCompareOperand(), "should_store");
 
@@ -295,9 +292,8 @@ bool AtomicExpandLoadLinked::expandAtomicCmpXchg(AtomicCmpXchgInst *CI) {
   Builder.CreateCondBr(ShouldStore, TryStoreBB, FailureBB);
 
   Builder.SetInsertPoint(TryStoreBB);
-  Value *StoreSuccess =
-      TM->getSubtargetImpl()->getTargetLowering()->emitStoreConditional(
-          Builder, CI->getNewValOperand(), Addr, MemOpOrder);
+  Value *StoreSuccess = TM->getTargetLowering()->emitStoreConditional(
+      Builder, CI->getNewValOperand(), Addr, MemOpOrder);
   StoreSuccess = Builder.CreateICmpEQ(
       StoreSuccess, ConstantInt::get(Type::getInt32Ty(Ctx), 0), "success");
   Builder.CreateCondBr(StoreSuccess, SuccessBB,
@@ -361,7 +357,7 @@ bool AtomicExpandLoadLinked::expandAtomicCmpXchg(AtomicCmpXchgInst *CI) {
 
 AtomicOrdering AtomicExpandLoadLinked::insertLeadingFence(IRBuilder<> &Builder,
                                                        AtomicOrdering Ord) {
-  if (!TM->getSubtargetImpl()->getTargetLowering()->getInsertFencesForAtomic())
+  if (!TM->getTargetLowering()->getInsertFencesForAtomic())
     return Ord;
 
   if (Ord == Release || Ord == AcquireRelease || Ord == SequentiallyConsistent)
@@ -374,7 +370,7 @@ AtomicOrdering AtomicExpandLoadLinked::insertLeadingFence(IRBuilder<> &Builder,
 
 void AtomicExpandLoadLinked::insertTrailingFence(IRBuilder<> &Builder,
                                               AtomicOrdering Ord) {
-  if (!TM->getSubtargetImpl()->getTargetLowering()->getInsertFencesForAtomic())
+  if (!TM->getTargetLowering()->getInsertFencesForAtomic())
     return;
 
   if (Ord == Acquire || Ord == AcquireRelease)

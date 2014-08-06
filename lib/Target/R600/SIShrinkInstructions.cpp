@@ -10,13 +10,11 @@
 //
 
 #include "AMDGPU.h"
-#include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/IR/Constants.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Support/Debug.h"
@@ -26,8 +24,6 @@
 
 STATISTIC(NumInstructionsShrunk,
           "Number of 64-bit instruction reduced to 32-bit.");
-STATISTIC(NumLiteralConstantsFolded,
-          "Number of literal constants folded into 32-bit instructions.");
 
 namespace llvm {
   void initializeSIShrinkInstructionsPass(PassRegistry&);
@@ -94,7 +90,7 @@ static bool canShrink(MachineInstr &MI, const SIInstrInfo *TII,
   const MachineOperand *Src1Mod =
       TII->getNamedOperand(MI, AMDGPU::OpName::src1_modifiers);
 
-  if (Src1 && (!isVGPR(Src1, TRI, MRI) || (Src1Mod && Src1Mod->getImm() != 0)))
+  if (Src1 && (!isVGPR(Src1, TRI, MRI) || Src1Mod->getImm() != 0))
     return false;
 
   // We don't need to check src0, all input types are legal, so just make
@@ -113,72 +109,10 @@ static bool canShrink(MachineInstr &MI, const SIInstrInfo *TII,
   return !Clamp || Clamp->getImm() == 0;
 }
 
-/// \brief This function checks \p MI for operands defined by a move immediate
-/// instruction and then folds the literal constant into the instruction if it
-/// can.  This function assumes that \p MI is a VOP1, VOP2, or VOPC instruction
-/// and will only fold literal constants if we are still in SSA.
-static void foldImmediates(MachineInstr &MI, const SIInstrInfo *TII,
-                           MachineRegisterInfo &MRI, bool TryToCommute = true) {
-
-  if (!MRI.isSSA())
-    return;
-
-  assert(TII->isVOP1(MI.getOpcode()) || TII->isVOP2(MI.getOpcode()) ||
-         TII->isVOPC(MI.getOpcode()));
-
-  const SIRegisterInfo &TRI = TII->getRegisterInfo();
-  MachineOperand *Src0 = TII->getNamedOperand(MI, AMDGPU::OpName::src0);
-
-  // Only one literal constant is allowed per instruction, so if src0 is a
-  // literal constant then we can't do any folding.
-  if (Src0->isImm() && TII->isLiteralConstant(*Src0))
-    return;
-
-
-  // Literal constants and SGPRs can only be used in Src0, so if Src0 is an
-  // SGPR, we cannot commute the instruction, so we can't fold any literal
-  // constants.
-  if (Src0->isReg() && !isVGPR(Src0, TRI, MRI))
-    return;
-
-  // Try to fold Src0
-  if (Src0->isReg()) {
-    unsigned Reg = Src0->getReg();
-    MachineInstr *Def = MRI.getUniqueVRegDef(Reg);
-    if (Def && Def->isMoveImmediate()) {
-      MachineOperand &MovSrc = Def->getOperand(1);
-      bool ConstantFolded = false;
-
-      if (MovSrc.isImm() && isUInt<32>(MovSrc.getImm())) {
-        Src0->ChangeToImmediate(MovSrc.getImm());
-        ConstantFolded = true;
-      } else if (MovSrc.isFPImm()) {
-        const APFloat &APF = MovSrc.getFPImm()->getValueAPF();
-        if (&APF.getSemantics() == &APFloat::IEEEsingle) {
-          MRI.removeRegOperandFromUseList(Src0);
-          Src0->ChangeToImmediate(APF.bitcastToAPInt().getZExtValue());
-          ConstantFolded = true;
-        }
-      }
-      if (ConstantFolded) {
-        if (MRI.use_empty(Reg))
-          Def->eraseFromParent();
-        ++NumLiteralConstantsFolded;
-        return;
-      }
-    }
-  }
-
-  // We have failed to fold src0, so commute the instruction and try again.
-  if (TryToCommute && MI.isCommutable() && TII->commuteInstruction(&MI))
-    foldImmediates(MI, TII, MRI, false);
-
-}
-
 bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
   MachineRegisterInfo &MRI = MF.getRegInfo();
-  const SIInstrInfo *TII =
-      static_cast<const SIInstrInfo *>(MF.getSubtarget().getInstrInfo());
+  const SIInstrInfo *TII = static_cast<const SIInstrInfo *>(
+      MF.getTarget().getInstrInfo());
   const SIRegisterInfo &TRI = TII->getRegisterInfo();
   std::vector<unsigned> I1Defs;
 
@@ -233,28 +167,27 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
       }
 
       // We can shrink this instruction
-      DEBUG(dbgs() << "Shrinking "; MI.dump(); dbgs() << '\n';);
+      DEBUG(dbgs() << "Shrinking "; MI.dump(); dbgs() << "\n";);
 
-      MachineInstrBuilder Inst32 =
+      MachineInstrBuilder MIB =
           BuildMI(MBB, I, MI.getDebugLoc(), TII->get(Op32));
 
       // dst
-      Inst32.addOperand(MI.getOperand(0));
+      MIB.addOperand(MI.getOperand(0));
 
-      Inst32.addOperand(*TII->getNamedOperand(MI, AMDGPU::OpName::src0));
+      MIB.addOperand(*TII->getNamedOperand(MI, AMDGPU::OpName::src0));
 
       const MachineOperand *Src1 =
           TII->getNamedOperand(MI, AMDGPU::OpName::src1);
       if (Src1)
-        Inst32.addOperand(*Src1);
+        MIB.addOperand(*Src1);
 
+      for (const MachineOperand &MO : MI.implicit_operands())
+        MIB.addOperand(MO);
+
+      DEBUG(dbgs() << "e32 MI = "; MI.dump(); dbgs() << "\n";);
       ++NumInstructionsShrunk;
       MI.eraseFromParent();
-
-      foldImmediates(*Inst32, TII, MRI);
-      DEBUG(dbgs() << "e32 MI = " << *Inst32 << '\n');
-
-
     }
   }
   return false;

@@ -34,7 +34,6 @@
 #include "llvm/Support/MutexGuard.h"
 #include "llvm/Target/TargetJITInfo.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 
 using namespace llvm;
 
@@ -83,7 +82,7 @@ ExecutionEngine *JIT::createJIT(Module *M,
   sys::DynamicLibrary::LoadLibraryPermanently(nullptr, nullptr);
 
   // If the target supports JIT code generation, create the JIT.
-  if (TargetJITInfo *TJ = TM->getSubtargetImpl()->getJITInfo()) {
+  if (TargetJITInfo *TJ = TM->getJITInfo()) {
     return new JIT(M, *TM, *TJ, JMM, GVsWithCode);
   } else {
     if (ErrorStr)
@@ -140,7 +139,7 @@ JIT::JIT(Module *M, TargetMachine &tm, TargetJITInfo &tji,
   : ExecutionEngine(M), TM(tm), TJI(tji),
     JMM(jmm ? jmm : JITMemoryManager::CreateDefaultMemManager()),
     AllocateGVsWithCode(GVsWithCode), isAlreadyCodeGenerating(false) {
-  setDataLayout(TM.getSubtargetImpl()->getDataLayout());
+  setDataLayout(TM.getDataLayout());
 
   jitstate = new JITState(M);
 
@@ -153,7 +152,7 @@ JIT::JIT(Module *M, TargetMachine &tm, TargetJITInfo &tji,
   // Add target data
   MutexGuard locked(lock);
   FunctionPassManager &PM = jitstate->getPM();
-  M->setDataLayout(TM.getSubtargetImpl()->getDataLayout());
+  M->setDataLayout(TM.getDataLayout());
   PM.add(new DataLayoutPass(M));
 
   // Turn the machine code intermediate representation into bytes in memory that
@@ -186,7 +185,7 @@ void JIT::addModule(Module *M) {
     jitstate = new JITState(M);
 
     FunctionPassManager &PM = jitstate->getPM();
-    M->setDataLayout(TM.getSubtargetImpl()->getDataLayout());
+    M->setDataLayout(TM.getDataLayout());
     PM.add(new DataLayoutPass(M));
 
     // Turn the machine code intermediate representation into bytes in memory
@@ -218,7 +217,7 @@ bool JIT::removeModule(Module *M) {
     jitstate = new JITState(Modules[0]);
 
     FunctionPassManager &PM = jitstate->getPM();
-    M->setDataLayout(TM.getSubtargetImpl()->getDataLayout());
+    M->setDataLayout(TM.getDataLayout());
     PM.add(new DataLayoutPass(M));
 
     // Turn the machine code intermediate representation into bytes in memory

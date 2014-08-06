@@ -34,7 +34,6 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <algorithm>
 using namespace llvm;
 
@@ -93,8 +92,9 @@ bool BranchFolderPass::runOnMachineFunction(MachineFunction &MF) {
   bool EnableTailMerge = !MF.getTarget().requiresStructuredCFG() &&
       PassConfig->getEnableTailMerge();
   BranchFolder Folder(EnableTailMerge, /*CommonHoist=*/true);
-  return Folder.OptimizeFunction(MF, MF.getSubtarget().getInstrInfo(),
-                                 MF.getSubtarget().getRegisterInfo(),
+  return Folder.OptimizeFunction(MF,
+                                 MF.getTarget().getInstrInfo(),
+                                 MF.getTarget().getRegisterInfo(),
                                  getAnalysisIfAvailable<MachineModuleInfo>());
 }
 
@@ -388,8 +388,10 @@ void BranchFolder::MaintainLiveIns(MachineBasicBlock *CurMBB,
     RS->enterBasicBlock(CurMBB);
     if (!CurMBB->empty())
       RS->forward(std::prev(CurMBB->end()));
-    for (unsigned int i = 1, e = TRI->getNumRegs(); i != e; i++)
-      if (RS->isRegUsed(i, false))
+    BitVector RegsLiveAtExit(TRI->getNumRegs());
+    RS->getRegsUsed(RegsLiveAtExit, false);
+    for (unsigned int i = 0, e = TRI->getNumRegs(); i != e; i++)
+      if (RegsLiveAtExit[i])
         NewMBB->addLiveIn(i);
   }
 }

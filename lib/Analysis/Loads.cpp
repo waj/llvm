@@ -133,14 +133,14 @@ bool llvm::isSafeToLoadUnconditionally(Value *V, Instruction *ScanFrom,
 /// it is set to 0, it will scan the whole block. You can also optionally
 /// specify an alias analysis implementation, which makes this more precise.
 ///
-/// If AATags is non-null and a load or store is found, the AA tags from the
-/// load or store are recorded there.  If there are no AA tags or if no access
+/// If TBAATag is non-null and a load or store is found, the TBAA tag from the
+/// load or store is recorded there.  If there is no TBAA tag or if no access
 /// is found, it is left unmodified.
 Value *llvm::FindAvailableLoadedValue(Value *Ptr, BasicBlock *ScanBB,
                                       BasicBlock::iterator &ScanFrom,
                                       unsigned MaxInstsToScan,
                                       AliasAnalysis *AA,
-                                      AAMDNodes *AATags) {
+                                      MDNode **TBAATag) {
   if (MaxInstsToScan == 0) MaxInstsToScan = ~0U;
 
   // If we're using alias analysis to disambiguate get the size of *Ptr.
@@ -169,7 +169,7 @@ Value *llvm::FindAvailableLoadedValue(Value *Ptr, BasicBlock *ScanBB,
     // those cases are unlikely.)
     if (LoadInst *LI = dyn_cast<LoadInst>(Inst))
       if (AreEquivalentAddressValues(LI->getOperand(0), Ptr)) {
-        if (AATags) LI->getAAMetadata(*AATags);
+        if (TBAATag) *TBAATag = LI->getMetadata(LLVMContext::MD_tbaa);
         return LI;
       }
     
@@ -178,7 +178,7 @@ Value *llvm::FindAvailableLoadedValue(Value *Ptr, BasicBlock *ScanBB,
       // (This is true even if the store is volatile or atomic, although
       // those cases are unlikely.)
       if (AreEquivalentAddressValues(SI->getOperand(1), Ptr)) {
-        if (AATags) SI->getAAMetadata(*AATags);
+        if (TBAATag) *TBAATag = SI->getMetadata(LLVMContext::MD_tbaa);
         return SI->getOperand(0);
       }
       

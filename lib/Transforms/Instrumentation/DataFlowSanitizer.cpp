@@ -234,7 +234,6 @@ class DataFlowSanitizer : public ModulePass {
   FunctionType *DFSanSetLabelFnTy;
   FunctionType *DFSanNonzeroLabelFnTy;
   Constant *DFSanUnionFn;
-  Constant *DFSanCheckedUnionFn;
   Constant *DFSanUnionLoadFn;
   Constant *DFSanUnimplementedFn;
   Constant *DFSanSetLabelFn;
@@ -281,7 +280,6 @@ struct DFSanFunction {
   std::vector<std::pair<PHINode *, PHINode *> > PHIFixups;
   DenseSet<Instruction *> SkipInsts;
   DenseSet<Value *> NonZeroChecks;
-  bool AvoidNewBlocks;
 
   struct CachedCombinedShadow {
     BasicBlock *Block;
@@ -296,9 +294,6 @@ struct DFSanFunction {
         IsNativeABI(IsNativeABI), ArgTLSPtr(nullptr), RetvalTLSPtr(nullptr),
         LabelReturnAlloca(nullptr) {
     DT.recalculate(*F);
-    // FIXME: Need to track down the register allocator issue which causes poor
-    // performance in pathological cases with large numbers of basic blocks.
-    AvoidNewBlocks = F->size() > 1000;
   }
   Value *getArgTLSPtr();
   Value *getArgTLS(unsigned Index, Instruction *Pos);
@@ -582,15 +577,6 @@ bool DataFlowSanitizer::runOnModule(Module &M) {
 
   DFSanUnionFn = Mod->getOrInsertFunction("__dfsan_union", DFSanUnionFnTy);
   if (Function *F = dyn_cast<Function>(DFSanUnionFn)) {
-    F->addAttribute(AttributeSet::FunctionIndex, Attribute::NoUnwind);
-    F->addAttribute(AttributeSet::FunctionIndex, Attribute::ReadNone);
-    F->addAttribute(AttributeSet::ReturnIndex, Attribute::ZExt);
-    F->addAttribute(1, Attribute::ZExt);
-    F->addAttribute(2, Attribute::ZExt);
-  }
-  DFSanCheckedUnionFn = Mod->getOrInsertFunction("dfsan_union", DFSanUnionFnTy);
-  if (Function *F = dyn_cast<Function>(DFSanCheckedUnionFn)) {
-    F->addAttribute(AttributeSet::FunctionIndex, Attribute::NoUnwind);
     F->addAttribute(AttributeSet::FunctionIndex, Attribute::ReadNone);
     F->addAttribute(AttributeSet::ReturnIndex, Attribute::ZExt);
     F->addAttribute(1, Attribute::ZExt);
@@ -599,7 +585,6 @@ bool DataFlowSanitizer::runOnModule(Module &M) {
   DFSanUnionLoadFn =
       Mod->getOrInsertFunction("__dfsan_union_load", DFSanUnionLoadFnTy);
   if (Function *F = dyn_cast<Function>(DFSanUnionLoadFn)) {
-    F->addAttribute(AttributeSet::FunctionIndex, Attribute::NoUnwind);
     F->addAttribute(AttributeSet::FunctionIndex, Attribute::ReadOnly);
     F->addAttribute(AttributeSet::ReturnIndex, Attribute::ZExt);
   }
@@ -618,7 +603,6 @@ bool DataFlowSanitizer::runOnModule(Module &M) {
   for (Module::iterator i = M.begin(), e = M.end(); i != e; ++i) {
     if (!i->isIntrinsic() &&
         i != DFSanUnionFn &&
-        i != DFSanCheckedUnionFn &&
         i != DFSanUnionLoadFn &&
         i != DFSanUnimplementedFn &&
         i != DFSanSetLabelFn &&
@@ -938,33 +922,23 @@ Value *DFSanFunction::combineShadows(Value *V1, Value *V2, Instruction *Pos) {
     return CCS.Shadow;
 
   IRBuilder<> IRB(Pos);
-  if (AvoidNewBlocks) {
-    CallInst *Call = IRB.CreateCall2(DFS.DFSanCheckedUnionFn, V1, V2);
-    Call->addAttribute(AttributeSet::ReturnIndex, Attribute::ZExt);
-    Call->addAttribute(1, Attribute::ZExt);
-    Call->addAttribute(2, Attribute::ZExt);
+  BasicBlock *Head = Pos->getParent();
+  Value *Ne = IRB.CreateICmpNE(V1, V2);
+  BranchInst *BI = cast<BranchInst>(SplitBlockAndInsertIfThen(
+      Ne, Pos, /*Unreachable=*/false, DFS.ColdCallWeights, &DT));
+  IRBuilder<> ThenIRB(BI);
+  CallInst *Call = ThenIRB.CreateCall2(DFS.DFSanUnionFn, V1, V2);
+  Call->addAttribute(AttributeSet::ReturnIndex, Attribute::ZExt);
+  Call->addAttribute(1, Attribute::ZExt);
+  Call->addAttribute(2, Attribute::ZExt);
 
-    CCS.Block = Pos->getParent();
-    CCS.Shadow = Call;
-  } else {
-    BasicBlock *Head = Pos->getParent();
-    Value *Ne = IRB.CreateICmpNE(V1, V2);
-    BranchInst *BI = cast<BranchInst>(SplitBlockAndInsertIfThen(
-        Ne, Pos, /*Unreachable=*/false, DFS.ColdCallWeights, &DT));
-    IRBuilder<> ThenIRB(BI);
-    CallInst *Call = ThenIRB.CreateCall2(DFS.DFSanUnionFn, V1, V2);
-    Call->addAttribute(AttributeSet::ReturnIndex, Attribute::ZExt);
-    Call->addAttribute(1, Attribute::ZExt);
-    Call->addAttribute(2, Attribute::ZExt);
+  BasicBlock *Tail = BI->getSuccessor(0);
+  PHINode *Phi = PHINode::Create(DFS.ShadowTy, 2, "", Tail->begin());
+  Phi->addIncoming(Call, Call->getParent());
+  Phi->addIncoming(V1, Head);
 
-    BasicBlock *Tail = BI->getSuccessor(0);
-    PHINode *Phi = PHINode::Create(DFS.ShadowTy, 2, "", Tail->begin());
-    Phi->addIncoming(Call, Call->getParent());
-    Phi->addIncoming(V1, Head);
-
-    CCS.Block = Tail;
-    CCS.Shadow = Phi;
-  }
+  CCS.Block = Tail;
+  CCS.Shadow = Phi;
 
   std::set<Value *> UnionElems;
   if (V1Elems != ShadowElements.end()) {
@@ -977,9 +951,9 @@ Value *DFSanFunction::combineShadows(Value *V1, Value *V2, Instruction *Pos) {
   } else {
     UnionElems.insert(V2);
   }
-  ShadowElements[CCS.Shadow] = std::move(UnionElems);
+  ShadowElements[Phi] = std::move(UnionElems);
 
-  return CCS.Shadow;
+  return Phi;
 }
 
 // A convenience function which folds the shadows of each of the operands
@@ -1048,7 +1022,7 @@ Value *DFSanFunction::loadShadow(Value *Addr, uint64_t Size, uint64_t Align,
                           IRB.CreateAlignedLoad(ShadowAddr1, ShadowAlign), Pos);
   }
   }
-  if (!AvoidNewBlocks && Size % (64 / DFS.ShadowWidth) == 0) {
+  if (Size % (64 / DFS.ShadowWidth) == 0) {
     // Fast path for the common case where each byte has identical shadow: load
     // shadow 64 bits at a time, fall out to a __dfsan_union_load call if any
     // shadow is non-equal.
@@ -1118,11 +1092,6 @@ Value *DFSanFunction::loadShadow(Value *Addr, uint64_t Size, uint64_t Align,
 
 void DFSanVisitor::visitLoadInst(LoadInst &LI) {
   uint64_t Size = DFSF.DFS.DL->getTypeStoreSize(LI.getType());
-  if (Size == 0) {
-    DFSF.setShadow(&LI, DFSF.DFS.ZeroShadow);
-    return;
-  }
-
   uint64_t Align;
   if (ClPreserveAlignment) {
     Align = LI.getAlignment();
@@ -1197,9 +1166,6 @@ void DFSanFunction::storeShadow(Value *Addr, uint64_t Size, uint64_t Align,
 void DFSanVisitor::visitStoreInst(StoreInst &SI) {
   uint64_t Size =
       DFSF.DFS.DL->getTypeStoreSize(SI.getValueOperand()->getType());
-  if (Size == 0)
-    return;
-
   uint64_t Align;
   if (ClPreserveAlignment) {
     Align = SI.getAlignment();

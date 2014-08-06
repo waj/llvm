@@ -110,7 +110,7 @@ define i32 @t31() {
 entry:
   %val = alloca i32, align 64
   store i32 -1, i32* %val, align 64
-  call void asm sideeffect inteldialect "mov dword ptr $0, esp", "=*m,~{dirflag},~{fpsr},~{flags}"(i32* %val)
+  call void asm sideeffect inteldialect "mov dword ptr $0, esp", "=*m,~{dirflag},~{fpsr},~{flags}"(i32* %val) #1
   %sp = load i32* %val, align 64
   ret i32 %sp
 ; CHECK-LABEL: t31:
@@ -125,12 +125,3 @@ entry:
 ; CHECK: movl (%esp), %eax
 ; CHECK: ret
 }
-
-declare hidden void @other_func()
-
-define void @naked() #0 {
-  call void asm sideeffect inteldialect "call dword ptr $0", "*m,~{eax},~{ebx},~{ecx},~{edx},~{edi},~{esi},~{esp},~{ebp},~{dirflag},~{fpsr},~{flags}"(void()* @other_func)
-  unreachable
-}
-
-attributes #0 = { naked }

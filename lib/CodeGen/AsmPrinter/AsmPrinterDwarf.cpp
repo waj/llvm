@@ -27,7 +27,6 @@
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "asm-printer"
@@ -131,7 +130,7 @@ unsigned AsmPrinter::GetSizeOfEncodedValue(unsigned Encoding) const {
   default:
     llvm_unreachable("Invalid encoded value.");
   case dwarf::DW_EH_PE_absptr:
-    return TM.getSubtargetImpl()->getDataLayout()->getPointerSize();
+    return TM.getDataLayout()->getPointerSize();
   case dwarf::DW_EH_PE_udata2:
     return 2;
   case dwarf::DW_EH_PE_udata4:
@@ -215,10 +214,13 @@ static void emitDwarfRegOpIndirect(ByteStreamer &Streamer, int Reg, int Offset,
     Streamer.EmitInt8(dwarf::DW_OP_deref, "DW_OP_deref");
 }
 
-void AsmPrinter::EmitDwarfOpPiece(ByteStreamer &Streamer, unsigned SizeInBits,
-                                  unsigned OffsetInBits) const {
-  assert(SizeInBits > 0 && "piece has size zero");
-  const unsigned SizeOfByte = 8;
+/// Emit a dwarf register operation for describing
+/// - a small value occupying only part of a register or
+/// - a small register representing only part of a value.
+static void emitDwarfOpPiece(ByteStreamer &Streamer, unsigned SizeInBits,
+                             unsigned OffsetInBits) {
+  assert(SizeInBits > 0 && "zero-sized piece");
+  unsigned SizeOfByte = 8;
   if (OffsetInBits > 0 || SizeInBits % SizeOfByte) {
     Streamer.EmitInt8(dwarf::DW_OP_bit_piece, "DW_OP_bit_piece");
     Streamer.EmitULEB128(SizeInBits, Twine(SizeInBits));
@@ -247,13 +249,13 @@ void AsmPrinter::EmitDwarfRegOpPiece(ByteStreamer &Streamer,
                                      unsigned PieceSizeInBits,
                                      unsigned PieceOffsetInBits) const {
   assert(MLoc.isReg() && "MLoc must be a register");
-  const TargetRegisterInfo *TRI = TM.getSubtargetImpl()->getRegisterInfo();
+  const TargetRegisterInfo *TRI = TM.getRegisterInfo();
   int Reg = TRI->getDwarfRegNum(MLoc.getReg(), false);
 
   // If this is a valid register number, emit it.
   if (Reg >= 0) {
     emitDwarfRegOp(Streamer, Reg);
-    EmitDwarfOpPiece(Streamer, PieceSizeInBits, PieceOffsetInBits);
+    emitDwarfOpPiece(Streamer, PieceSizeInBits, PieceOffsetInBits);
     return;
   }
 
@@ -264,19 +266,19 @@ void AsmPrinter::EmitDwarfRegOpPiece(ByteStreamer &Streamer,
     if (Reg >= 0) {
       unsigned Idx = TRI->getSubRegIndex(*SR, MLoc.getReg());
       unsigned Size = TRI->getSubRegIdxSize(Idx);
-      unsigned RegOffset = TRI->getSubRegIdxOffset(Idx);
+      unsigned Offset = TRI->getSubRegIdxOffset(Idx);
       OutStreamer.AddComment("super-register");
       emitDwarfRegOp(Streamer, Reg);
-      if (PieceOffsetInBits == RegOffset) {
-        EmitDwarfOpPiece(Streamer, Size, RegOffset);
+      if (PieceOffsetInBits == Offset) {
+        emitDwarfOpPiece(Streamer, Size, Offset);
       } else {
         // If this is part of a variable in a sub-register at a
         // non-zero offset, we need to manually shift the value into
         // place, since the DW_OP_piece describes the part of the
         // variable, not the position of the subregister.
-        if (RegOffset)
-          emitDwarfOpShr(Streamer, RegOffset);
-        EmitDwarfOpPiece(Streamer, Size, PieceOffsetInBits);
+        emitDwarfOpPiece(Streamer, Size, PieceOffsetInBits);
+        if (Offset)
+          emitDwarfOpShr(Streamer, Offset);
       }
       return;
     }
@@ -310,7 +312,7 @@ void AsmPrinter::EmitDwarfRegOpPiece(ByteStreamer &Streamer,
     if (Reg >= 0 && Intersection.any()) {
       OutStreamer.AddComment("sub-register");
       emitDwarfRegOp(Streamer, Reg);
-      EmitDwarfOpPiece(Streamer, Size, Offset == CurPos ? 0 : Offset);
+      emitDwarfOpPiece(Streamer, Size, Offset == CurPos ? 0 : Offset);
       CurPos = Offset + Size;
 
       // Mark it as emitted.
@@ -329,7 +331,7 @@ void AsmPrinter::EmitDwarfRegOpPiece(ByteStreamer &Streamer,
 void AsmPrinter::EmitDwarfRegOp(ByteStreamer &Streamer,
                                 const MachineLocation &MLoc,
                                 bool Indirect) const {
-  const TargetRegisterInfo *TRI = TM.getSubtargetImpl()->getRegisterInfo();
+  const TargetRegisterInfo *TRI = TM.getRegisterInfo();
   int Reg = TRI->getDwarfRegNum(MLoc.getReg(), false);
   if (Reg < 0) {
     // We assume that pointers are always in an addressable register.

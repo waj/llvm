@@ -1,7 +1,9 @@
 ; RUN: llc < %s -mtriple=x86_64-apple-darwin -mcpu=corei7-avx -mattr=+avx | FileCheck %s
 
 
-; CHECK: vpshufb {{.*}} ## xmm0 = xmm0[5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5]
+; CHECK: vpunpcklbw %xmm
+; CHECK-NEXT: vpunpckhbw %xmm
+; CHECK-NEXT: vpshufd $85
 ; CHECK-NEXT: vinsertf128 $1
 define <32 x i8> @funcA(<32 x i8> %a) nounwind uwtable readnone ssp {
 entry:
@@ -19,7 +21,7 @@ entry:
 }
 
 ; CHECK: vmovq
-; CHECK-NEXT: vpunpcklqdq %xmm
+; CHECK-NEXT: vmovlhps %xmm
 ; CHECK-NEXT: vinsertf128 $1
 define <4 x i64> @funcC(i64 %q) nounwind uwtable readnone ssp {
 entry:
@@ -30,7 +32,7 @@ entry:
   ret <4 x i64> %vecinit6.i
 }
 
-; CHECK: vmovlhps %xmm
+; CHECK: vpermilpd $0
 ; CHECK-NEXT: vinsertf128 $1
 define <4 x double> @funcD(double %q) nounwind uwtable readnone ssp {
 entry:

@@ -2,7 +2,6 @@
 ; the right thing.
 ;
 ; RUN: llvm-as < %s | llvm-dis | llvm-as
-; RUN: verify-uselistorder %s -preserve-bc-use-list-order
 
 declare void (i32)* @foo()
 

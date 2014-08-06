@@ -34,8 +34,9 @@ class X86AsmInstrumentation {
 public:
   virtual ~X86AsmInstrumentation();
 
-  // Tries to instrument and emit instruction.
-  virtual void InstrumentAndEmitInstruction(
+  // Instruments Inst. Should be called just before the original
+  // instruction is sent to Out.
+  virtual void InstrumentInstruction(
       const MCInst &Inst,
       SmallVectorImpl<std::unique_ptr<MCParsedAsmOperand>> &Operands,
       MCContext &Ctx, const MCInstrInfo &MII, MCStreamer &Out);
@@ -45,11 +46,7 @@ protected:
   CreateX86AsmInstrumentation(const MCTargetOptions &MCOptions,
                               const MCContext &Ctx, const MCSubtargetInfo &STI);
 
-  X86AsmInstrumentation(const MCSubtargetInfo &STI);
-
-  void EmitInstruction(MCStreamer &Out, const MCInst &Inst);
-
-  const MCSubtargetInfo &STI;
+  X86AsmInstrumentation();
 };
 
 } // End llvm namespace

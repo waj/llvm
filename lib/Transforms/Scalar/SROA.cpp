@@ -1148,12 +1148,10 @@ static void speculatePHINodeLoads(PHINode &PN) {
   PHINode *NewPN = PHIBuilder.CreatePHI(LoadTy, PN.getNumIncomingValues(),
                                         PN.getName() + ".sroa.speculated");
 
-  // Get the AA tags and alignment to use from one of the loads.  It doesn't
+  // Get the TBAA tag and alignment to use from one of the loads.  It doesn't
   // matter which one we get and if any differ.
   LoadInst *SomeLoad = cast<LoadInst>(PN.user_back());
-
-  AAMDNodes AATags;
-  SomeLoad->getAAMetadata(AATags);
+  MDNode *TBAATag = SomeLoad->getMetadata(LLVMContext::MD_tbaa);
   unsigned Align = SomeLoad->getAlignment();
 
   // Rewrite all loads of the PN to use the new PHI.
@@ -1174,8 +1172,8 @@ static void speculatePHINodeLoads(PHINode &PN) {
         InVal, (PN.getName() + ".sroa.speculate.load." + Pred->getName()));
     ++NumLoadsSpeculated;
     Load->setAlignment(Align);
-    if (AATags)
-      Load->setAAMetadata(AATags);
+    if (TBAATag)
+      Load->setMetadata(LLVMContext::MD_tbaa, TBAATag);
     NewPN->addIncoming(Load, Pred);
   }
 
@@ -1240,15 +1238,12 @@ static void speculateSelectInstLoads(SelectInst &SI) {
         IRB.CreateLoad(FV, LI->getName() + ".sroa.speculate.load.false");
     NumLoadsSpeculated += 2;
 
-    // Transfer alignment and AA info if present.
+    // Transfer alignment and TBAA info if present.
     TL->setAlignment(LI->getAlignment());
     FL->setAlignment(LI->getAlignment());
-
-    AAMDNodes Tags;
-    LI->getAAMetadata(Tags);
-    if (Tags) {
-      TL->setAAMetadata(Tags);
-      FL->setAAMetadata(Tags);
+    if (MDNode *Tag = LI->getMetadata(LLVMContext::MD_tbaa)) {
+      TL->setMetadata(LLVMContext::MD_tbaa, Tag);
+      FL->setMetadata(LLVMContext::MD_tbaa, Tag);
     }
 
     Value *V = IRB.CreateSelect(SI.getCondition(), TL, FL,

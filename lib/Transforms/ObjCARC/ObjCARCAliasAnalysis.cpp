@@ -62,8 +62,8 @@ ObjCARCAliasAnalysis::alias(const Location &LocA, const Location &LocB) {
   const Value *SA = StripPointerCastsAndObjCCalls(LocA.Ptr);
   const Value *SB = StripPointerCastsAndObjCCalls(LocB.Ptr);
   AliasResult Result =
-    AliasAnalysis::alias(Location(SA, LocA.Size, LocA.AATags),
-                         Location(SB, LocB.Size, LocB.AATags));
+    AliasAnalysis::alias(Location(SA, LocA.Size, LocA.TBAATag),
+                         Location(SB, LocB.Size, LocB.TBAATag));
   if (Result != MayAlias)
     return Result;
 
@@ -93,7 +93,7 @@ ObjCARCAliasAnalysis::pointsToConstantMemory(const Location &Loc,
   // First, strip off no-ops, including ObjC-specific no-ops, and try making
   // a precise alias query.
   const Value *S = StripPointerCastsAndObjCCalls(Loc.Ptr);
-  if (AliasAnalysis::pointsToConstantMemory(Location(S, Loc.Size, Loc.AATags),
+  if (AliasAnalysis::pointsToConstantMemory(Location(S, Loc.Size, Loc.TBAATag),
                                             OrLocal))
     return true;
 

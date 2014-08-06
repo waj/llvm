@@ -15,10 +15,10 @@
 #ifndef TARGET_AArch64_H
 #define TARGET_AArch64_H
 
-#include "MCTargetDesc/AArch64MCTargetDesc.h"
 #include "Utils/AArch64BaseInfo.h"
-#include "llvm/Support/DataTypes.h"
+#include "MCTargetDesc/AArch64MCTargetDesc.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Support/DataTypes.h"
 
 namespace llvm {
 

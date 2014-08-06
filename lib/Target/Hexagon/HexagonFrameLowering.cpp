@@ -50,10 +50,7 @@ void HexagonFrameLowering::determineFrameLayout(MachineFunction &MF) const {
   unsigned FrameSize = MFI->getStackSize();
 
   // Get the alignments provided by the target.
-  unsigned TargetAlign = MF.getTarget()
-                             .getSubtargetImpl()
-                             ->getFrameLowering()
-                             ->getStackAlignment();
+  unsigned TargetAlign = MF.getTarget().getFrameLowering()->getStackAlignment();
   // Get the maximum call frame size of all the calls.
   unsigned maxCallFrameSize = MFI->getMaxCallFrameSize();
 
@@ -80,8 +77,8 @@ void HexagonFrameLowering::emitPrologue(MachineFunction &MF) const {
   MachineBasicBlock &MBB = MF.front();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   MachineBasicBlock::iterator MBBI = MBB.begin();
-  const HexagonRegisterInfo *QRI = static_cast<const HexagonRegisterInfo *>(
-      MF.getSubtarget().getRegisterInfo());
+  const HexagonRegisterInfo *QRI =
+    static_cast<const HexagonRegisterInfo *>(MF.getTarget().getRegisterInfo());
   DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
   determineFrameLayout(MF);
 
@@ -118,7 +115,7 @@ void HexagonFrameLowering::emitPrologue(MachineFunction &MF) const {
     // Check for overflow.
     // Hexagon_TODO: Ugh! hardcoding. Is there an API that can be used?
     const int ALLOCFRAME_MAX = 16384;
-    const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+    const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
 
     if (NumBytes >= ALLOCFRAME_MAX) {
       // Emit allocframe(#0).
@@ -157,7 +154,7 @@ void HexagonFrameLowering::emitEpilogue(MachineFunction &MF,
     MachineBasicBlock::iterator MBBI = std::prev(MBB.end());
     MachineBasicBlock::iterator MBBI_end = MBB.end();
 
-    const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+    const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
     // Handle EH_RETURN.
     if (MBBI->getOpcode() == Hexagon::EH_RETURN_JMPR) {
       assert(MBBI->getOperand(0).isReg() && "Offset should be in register!");
@@ -228,7 +225,7 @@ HexagonFrameLowering::spillCalleeSavedRegisters(
                                         const std::vector<CalleeSavedInfo> &CSI,
                                         const TargetRegisterInfo *TRI) const {
   MachineFunction *MF = MBB.getParent();
-  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
 
   if (CSI.empty()) {
     return false;
@@ -283,7 +280,7 @@ bool HexagonFrameLowering::restoreCalleeSavedRegisters(
                                         const TargetRegisterInfo *TRI) const {
 
   MachineFunction *MF = MBB.getParent();
-  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
 
   if (CSI.empty()) {
     return false;
